@@ -44,58 +44,67 @@ public class SqlServer
 
         SqlConnection? connection = null;
         bool dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new InvalidOperationException("Transaction has not been started.");
-            }
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = new SqlConnection(connectionString);
-            connection.Open();
-            dispose = true;
-        }
-
-        var command = new SqlCommand(query, connection);
-        if (useTransaction)
-        {
-            command.Transaction = _transaction;
-        }
-        AddParameters(command, parameters);
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
-        var dataAdapter = new SqlDataAdapter(command);
-        var dataSet = new System.Data.DataSet();
-
-        dataAdapter.Fill(dataSet);
-
         object? result = null;
-        var returnType = ReturnType;
-        if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+        try
         {
-            if (dataSet.Tables.Count > 0)
+            if (useTransaction)
             {
-                result = dataSet.Tables[0];
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new TransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            var command = new SqlCommand(query, connection);
+            if (useTransaction)
+            {
+                command.Transaction = _transaction;
+            }
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+            var dataAdapter = new SqlDataAdapter(command);
+            var dataSet = new System.Data.DataSet();
+
+            dataAdapter.Fill(dataSet);
+
+            var returnType = ReturnType;
+            if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+            {
+                if (dataSet.Tables.Count > 0)
+                {
+                    result = dataSet.Tables[0];
+                }
+            }
+            else if (returnType == ReturnType.DataSet)
+            {
+                result = dataSet;
+            }
+            else if (returnType == ReturnType.DataTable)
+            {
+                result = dataSet.Tables;
             }
         }
-        else if (returnType == ReturnType.DataSet)
+        catch (Exception ex)
         {
-            result = dataSet;
+            throw new QueryExecutionException("Failed to execute query.", ex);
         }
-        else if (returnType == ReturnType.DataTable)
+        finally
         {
-            result = dataSet.Tables;
-        }
-
-        if (dispose)
-        {
-            connection.Dispose();
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
         }
 
         return result;
@@ -113,64 +122,73 @@ public class SqlServer
 
         SqlConnection? connection = null;
         bool dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new InvalidOperationException("Transaction has not been started.");
-            }
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = new SqlConnection(connectionString);
-            await connection.OpenAsync().ConfigureAwait(false);
-            dispose = true;
-        }
-
-        var command = new SqlCommand(query, connection);
-        if (useTransaction)
-        {
-            command.Transaction = _transaction;
-        }
-        AddParameters(command, parameters);
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
-
-        var dataSet = new DataSet();
-        using var reader = await command.ExecuteReaderAsync().ConfigureAwait(false);
-        var tableIndex = 0;
-        do {
-            var dataTable = new DataTable($"Table{tableIndex}");
-            dataTable.Load(reader);
-            dataSet.Tables.Add(dataTable);
-            tableIndex++;
-        } while (!reader.IsClosed && await reader.NextResultAsync().ConfigureAwait(false));
-
         object? result = null;
-        var returnType = ReturnType;
-        if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+        try
         {
-            if (dataSet.Tables.Count > 0)
+            if (useTransaction)
             {
-                result = dataSet.Tables[0];
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new TransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync().ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var command = new SqlCommand(query, connection);
+            if (useTransaction)
+            {
+                command.Transaction = _transaction;
+            }
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync().ConfigureAwait(false);
+            var tableIndex = 0;
+            do {
+                var dataTable = new DataTable($"Table{tableIndex}");
+                dataTable.Load(reader);
+                dataSet.Tables.Add(dataTable);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync().ConfigureAwait(false));
+
+            var returnType = ReturnType;
+            if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+            {
+                if (dataSet.Tables.Count > 0)
+                {
+                    result = dataSet.Tables[0];
+                }
+            }
+            else if (returnType == ReturnType.DataSet)
+            {
+                result = dataSet;
+            }
+            else if (returnType == ReturnType.DataTable)
+            {
+                result = dataSet.Tables;
             }
         }
-        else if (returnType == ReturnType.DataSet)
+        catch (Exception ex)
         {
-            result = dataSet;
+            throw new QueryExecutionException("Failed to execute query.", ex);
         }
-        else if (returnType == ReturnType.DataTable)
+        finally
         {
-            result = dataSet.Tables;
-        }
-
-        if (dispose)
-        {
-            connection.Dispose();
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
         }
 
         return result;
@@ -194,7 +212,7 @@ public class SqlServer
     {
         if (_transaction != null)
         {
-            throw new InvalidOperationException("Transaction already started.");
+            throw new TransactionException("Transaction already started.");
         }
 
         var connectionString = new SqlConnectionStringBuilder
@@ -214,7 +232,7 @@ public class SqlServer
     {
         if (_transaction == null)
         {
-            throw new InvalidOperationException("No active transaction.");
+            throw new TransactionException("No active transaction.");
         }
         _transaction.Commit();
         DisposeTransaction();
@@ -224,7 +242,7 @@ public class SqlServer
     {
         if (_transaction == null)
         {
-            throw new InvalidOperationException("No active transaction.");
+            throw new TransactionException("No active transaction.");
         }
         _transaction.Rollback();
         DisposeTransaction();
