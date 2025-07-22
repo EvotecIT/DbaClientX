@@ -9,6 +9,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DbaClientX.PowerShell", "Db
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Tests", "DbaClientX.Tests\DbaClientX.Tests.csproj", "{63014CD7-C727-4D52-AFE7-45082627CE04}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Examples", "DbaClientX.Examples\DbaClientX.Examples.csproj", "{F5D7FDFE-8954-4C13-869F-3DDE4D4FDA07}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{63014CD7-C727-4D52-AFE7-45082627CE04}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{63014CD7-C727-4D52-AFE7-45082627CE04}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{63014CD7-C727-4D52-AFE7-45082627CE04}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5D7FDFE-8954-4C13-869F-3DDE4D4FDA07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5D7FDFE-8954-4C13-869F-3DDE4D4FDA07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5D7FDFE-8954-4C13-869F-3DDE4D4FDA07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5D7FDFE-8954-4C13-869F-3DDE4D4FDA07}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
