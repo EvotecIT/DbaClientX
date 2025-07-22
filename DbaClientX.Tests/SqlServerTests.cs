@@ -28,7 +28,7 @@ public class SqlServerTests
             _delay = delay;
         }
 
-        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
+        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
         {
             await Task.Delay(_delay);
             return null;
@@ -68,7 +68,7 @@ public class SqlServerTests
             }
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
         {
             var command = new SqlCommand(query);
             AddParameters(command, parameters);
@@ -90,5 +90,72 @@ public class SqlServerTests
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+    }
+
+    private class FakeTransactionSqlServer : DBAClientX.SqlServer
+    {
+        public bool TransactionStarted { get; private set; }
+
+        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
+        {
+            TransactionStarted = true;
+        }
+
+        public override void Commit()
+        {
+            if (!TransactionStarted) throw new InvalidOperationException("No active transaction.");
+            TransactionStarted = false;
+        }
+
+        public override void Rollback()
+        {
+            if (!TransactionStarted) throw new InvalidOperationException("No active transaction.");
+            TransactionStarted = false;
+        }
+
+        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
+        {
+            if (useTransaction && !TransactionStarted) throw new InvalidOperationException("Transaction has not been started.");
+            return null;
+        }
+
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
+        {
+            return Task.FromResult<object?>(SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction));
+        }
+    }
+
+    [Fact]
+    public void SqlQuery_WithTransactionNotStarted_Throws()
+    {
+        var sqlServer = new FakeTransactionSqlServer();
+        Assert.Throws<InvalidOperationException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+    }
+
+    [Fact]
+    public void Commit_EndsTransaction()
+    {
+        var sqlServer = new FakeTransactionSqlServer();
+        sqlServer.BeginTransaction("s", "db", true);
+        sqlServer.Commit();
+        Assert.Throws<InvalidOperationException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+    }
+
+    [Fact]
+    public void Rollback_EndsTransaction()
+    {
+        var sqlServer = new FakeTransactionSqlServer();
+        sqlServer.BeginTransaction("s", "db", true);
+        sqlServer.Rollback();
+        Assert.Throws<InvalidOperationException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+    }
+
+    [Fact]
+    public void SqlQuery_UsesTransaction_WhenStarted()
+    {
+        var sqlServer = new FakeTransactionSqlServer();
+        sqlServer.BeginTransaction("s", "db", true);
+        var ex = Record.Exception(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Null(ex);
     }
 }

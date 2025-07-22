@@ -15,6 +15,10 @@ public class SqlServer
     private readonly object _syncRoot = new();
     private ReturnType _returnType;
     private int _commandTimeout;
+    private SqlConnection? _transactionConnection;
+    private SqlTransaction? _transaction;
+
+    public bool IsInTransaction => _transaction != null;
 
     public ReturnType ReturnType
     {
@@ -28,7 +32,7 @@ public class SqlServer
         set { lock (_syncRoot) { _commandTimeout = value; } }
     }
 
-    public object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
+    public virtual object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
     {
         var connectionString = new SqlConnectionStringBuilder
         {
@@ -38,10 +42,28 @@ public class SqlServer
             Pooling = true
         }.ConnectionString;
 
-        using var connection = new SqlConnection(connectionString);
-        connection.Open();
+        SqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new InvalidOperationException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = new SqlConnection(connectionString);
+            connection.Open();
+            dispose = true;
+        }
 
         var command = new SqlCommand(query, connection);
+        if (useTransaction)
+        {
+            command.Transaction = _transaction;
+        }
         AddParameters(command, parameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
@@ -53,26 +75,33 @@ public class SqlServer
 
         dataAdapter.Fill(dataSet);
 
+        object? result = null;
         var returnType = ReturnType;
         if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
         {
-            if (dataSet.Tables.Count > 0) {
-                return dataSet.Tables[0];
+            if (dataSet.Tables.Count > 0)
+            {
+                result = dataSet.Tables[0];
             }
         }
-
-        if (returnType == ReturnType.DataSet) {
-            return dataSet;
+        else if (returnType == ReturnType.DataSet)
+        {
+            result = dataSet;
+        }
+        else if (returnType == ReturnType.DataTable)
+        {
+            result = dataSet.Tables;
         }
 
-        if (returnType == ReturnType.DataTable) {
-            return dataSet.Tables;
+        if (dispose)
+        {
+            connection.Dispose();
         }
 
-        return null;
+        return result;
     }
 
-    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
+    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
     {
         var connectionString = new SqlConnectionStringBuilder
         {
@@ -82,10 +111,28 @@ public class SqlServer
             Pooling = true
         }.ConnectionString;
 
-        using var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync().ConfigureAwait(false);
+        SqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new InvalidOperationException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = new SqlConnection(connectionString);
+            await connection.OpenAsync().ConfigureAwait(false);
+            dispose = true;
+        }
 
         var command = new SqlCommand(query, connection);
+        if (useTransaction)
+        {
+            command.Transaction = _transaction;
+        }
         AddParameters(command, parameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
@@ -103,26 +150,30 @@ public class SqlServer
             tableIndex++;
         } while (!reader.IsClosed && await reader.NextResultAsync().ConfigureAwait(false));
 
+        object? result = null;
         var returnType = ReturnType;
         if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
         {
             if (dataSet.Tables.Count > 0)
             {
-                return dataSet.Tables[0];
+                result = dataSet.Tables[0];
             }
         }
-
-        if (returnType == ReturnType.DataSet)
+        else if (returnType == ReturnType.DataSet)
         {
-            return dataSet;
+            result = dataSet;
+        }
+        else if (returnType == ReturnType.DataTable)
+        {
+            result = dataSet.Tables;
         }
 
-        if (returnType == ReturnType.DataTable)
+        if (dispose)
         {
-            return dataSet.Tables;
+            connection.Dispose();
         }
 
-        return null;
+        return result;
     }
 
     protected virtual void AddParameters(SqlCommand command, IDictionary<string, object?>? parameters)
@@ -137,6 +188,54 @@ public class SqlServer
             var value = pair.Value ?? DBNull.Value;
             command.Parameters.AddWithValue(pair.Key, value);
         }
+    }
+
+    public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
+    {
+        if (_transaction != null)
+        {
+            throw new InvalidOperationException("Transaction already started.");
+        }
+
+        var connectionString = new SqlConnectionStringBuilder
+        {
+            DataSource = serverOrInstance,
+            InitialCatalog = database,
+            IntegratedSecurity = integratedSecurity,
+            Pooling = true
+        }.ConnectionString;
+
+        _transactionConnection = new SqlConnection(connectionString);
+        _transactionConnection.Open();
+        _transaction = _transactionConnection.BeginTransaction();
+    }
+
+    public virtual void Commit()
+    {
+        if (_transaction == null)
+        {
+            throw new InvalidOperationException("No active transaction.");
+        }
+        _transaction.Commit();
+        DisposeTransaction();
+    }
+
+    public virtual void Rollback()
+    {
+        if (_transaction == null)
+        {
+            throw new InvalidOperationException("No active transaction.");
+        }
+        _transaction.Rollback();
+        DisposeTransaction();
+    }
+
+    private void DisposeTransaction()
+    {
+        _transaction?.Dispose();
+        _transaction = null;
+        _transactionConnection?.Dispose();
+        _transactionConnection = null;
     }
 
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity)
