@@ -89,5 +89,39 @@ public class QueryBuilderTests
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT TOP 3 name FROM users WHERE age > 18 ORDER BY age", sql);
     }
+
+    [Fact]
+    public void SelectMultipleColumns()
+    {
+        var query = new Query()
+            .Select("name", "age")
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT name, age FROM users", sql);
+    }
+
+    [Fact]
+    public void MultipleWhereClauses()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("age", ">", 18)
+            .Where("active", true);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age > 18 AND active = 1", sql);
+    }
+
+    [Fact]
+    public void SelectWithoutFrom()
+    {
+        var query = new Query()
+            .Select("1");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT 1", sql);
+    }
 }
 
