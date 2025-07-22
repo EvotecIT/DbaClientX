@@ -88,16 +88,18 @@
         NETProjectName                    = 'DbaClientX.PowerShell'
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
         NETConfiguration                  = 'Release'
-        NETFramework                      = 'net472', 'net6.0'
+        NETFramework                      = 'net472', 'net8.0'
+        NETSearchClass                    = "DbaClientX.PowerShell.CmdletIInvokeDbaXQuery"
         DotSourceLibraries                = $true
+        RefreshPSD1Only                   = $true
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    #New-ConfigurationArtefact -Type Unpacked -Enable -Path "$PSScriptRoot\..\Artefacts\Unpacked" #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
-    #New-ConfigurationArtefact -Type Packed -Enable -Path "$PSScriptRoot\..\Artefacts\Packed" -IncludeTagName
+    New-ConfigurationArtefact -Type Unpacked -Enable -Path "$PSScriptRoot\..\Artefacts\Unpacked" #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
+    New-ConfigurationArtefact -Type Packed -Enable -Path "$PSScriptRoot\..\Artefacts\Packed" -IncludeTagName
 
     # global options for publishing to github/psgallery
-    #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$false
-    #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'CompanyName' -Enabled:$false
+    #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
+    #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -ID 'ToGitHub' -OverwriteTagName 'DnsClientX-PowerShellModule.<TagModuleVersionWithPreRelease>'
 }
