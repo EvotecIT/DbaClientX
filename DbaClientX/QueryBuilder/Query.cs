@@ -10,6 +10,12 @@ public class Query
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
     private readonly List<object> _values = new();
+    private string _updateTable;
+    private readonly List<(string Column, object Value)> _set = new();
+    private string _deleteTable;
+    private readonly List<string> _orderBy = new();
+    private int? _limit;
+    private bool _useTop;
 
     public Query Select(params string[] columns)
     {
@@ -41,6 +47,44 @@ public class Query
         return this;
     }
 
+    public Query Update(string table)
+    {
+        _updateTable = table;
+        return this;
+    }
+
+    public Query Set(string column, object value)
+    {
+        _set.Add((column, value));
+        return this;
+    }
+
+    public Query DeleteFrom(string table)
+    {
+        _deleteTable = table;
+        return this;
+    }
+
+    public Query OrderBy(params string[] columns)
+    {
+        _orderBy.AddRange(columns);
+        return this;
+    }
+
+    public Query Limit(int limit)
+    {
+        _limit = limit;
+        _useTop = false;
+        return this;
+    }
+
+    public Query Top(int top)
+    {
+        _limit = top;
+        _useTop = true;
+        return this;
+    }
+
     public Query Values(params object[] values)
     {
         _values.AddRange(values);
@@ -53,5 +97,11 @@ public class Query
     public string InsertTable => _insertTable;
     public IReadOnlyList<string> InsertColumns => _insertColumns;
     public IReadOnlyList<object> InsertValues => _values;
+    public string UpdateTable => _updateTable;
+    public IReadOnlyList<(string Column, object Value)> SetValues => _set;
+    public string DeleteTable => _deleteTable;
+    public IReadOnlyList<string> OrderByColumns => _orderBy;
+    public int? LimitValue => _limit;
+    public bool UseTop => _useTop;
 }
 
