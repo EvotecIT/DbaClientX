@@ -115,12 +115,38 @@ public class QueryCompiler
         {
             sb.Append(" FROM ").Append(query.Table);
         }
+        else if (query.FromSubquery.HasValue)
+        {
+            var (subQuery, alias) = query.FromSubquery.Value;
+            sb.Append(" FROM (").Append(Compile(subQuery)).Append(") AS ").Append(alias);
+        }
 
         if (query.WhereClauses.Count > 0)
         {
             sb.Append(" WHERE ");
             bool first = true;
             foreach (var clause in query.WhereClauses)
+            {
+                if (!first)
+                {
+                    sb.Append(" AND ");
+                }
+                sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
+                sb.Append(FormatValue(clause.Value));
+                first = false;
+            }
+        }
+
+        if (query.GroupByColumns.Count > 0)
+        {
+            sb.Append(" GROUP BY ").Append(string.Join(", ", query.GroupByColumns));
+        }
+
+        if (query.HavingClauses.Count > 0)
+        {
+            sb.Append(" HAVING ");
+            bool first = true;
+            foreach (var clause in query.HavingClauses)
             {
                 if (!first)
                 {
@@ -152,6 +178,7 @@ public class QueryCompiler
             string s => $"'{s.Replace("'", "''")}'",
             null => "NULL",
             bool b => b ? "1" : "0",
+            Query q => "(" + new QueryCompiler().Compile(q) + ")",
             _ => value.ToString()
         };
     }

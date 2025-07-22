@@ -6,6 +6,7 @@ public class Query
 {
     private readonly List<string> _select = new();
     private string _from;
+    private (Query Query, string Alias)? _fromSubquery;
     private readonly List<(string Column, string Operator, object Value)> _where = new();
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
@@ -14,6 +15,8 @@ public class Query
     private readonly List<(string Column, object Value)> _set = new();
     private string _deleteTable;
     private readonly List<string> _orderBy = new();
+    private readonly List<string> _groupBy = new();
+    private readonly List<(string Column, string Operator, object Value)> _having = new();
     private int? _limit;
     private bool _useTop;
 
@@ -26,6 +29,14 @@ public class Query
     public Query From(string table)
     {
         _from = table;
+        _fromSubquery = null;
+        return this;
+    }
+
+    public Query From(Query subQuery, string alias)
+    {
+        _from = null;
+        _fromSubquery = (subQuery, alias);
         return this;
     }
 
@@ -37,6 +48,12 @@ public class Query
     public Query Where(string column, string op, object value)
     {
         _where.Add((column, op, value));
+        return this;
+    }
+
+    public Query Where(string column, string op, Query subQuery)
+    {
+        _where.Add((column, op, subQuery));
         return this;
     }
 
@@ -71,6 +88,23 @@ public class Query
         return this;
     }
 
+    public Query GroupBy(params string[] columns)
+    {
+        _groupBy.AddRange(columns);
+        return this;
+    }
+
+    public Query Having(string column, object value)
+    {
+        return Having(column, "=", value);
+    }
+
+    public Query Having(string column, string op, object value)
+    {
+        _having.Add((column, op, value));
+        return this;
+    }
+
     public Query Limit(int limit)
     {
         _limit = limit;
@@ -93,6 +127,7 @@ public class Query
 
     public IReadOnlyList<string> SelectColumns => _select;
     public string Table => _from;
+    public (Query Query, string Alias)? FromSubquery => _fromSubquery;
     public IReadOnlyList<(string Column, string Operator, object Value)> WhereClauses => _where;
     public string InsertTable => _insertTable;
     public IReadOnlyList<string> InsertColumns => _insertColumns;
@@ -101,6 +136,8 @@ public class Query
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;
     public IReadOnlyList<string> OrderByColumns => _orderBy;
+    public IReadOnlyList<string> GroupByColumns => _groupBy;
+    public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
     public int? LimitValue => _limit;
     public bool UseTop => _useTop;
 }

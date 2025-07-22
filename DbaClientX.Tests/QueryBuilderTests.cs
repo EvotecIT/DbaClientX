@@ -123,5 +123,49 @@ public class QueryBuilderTests
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT 1", sql);
     }
+
+    [Fact]
+    public void SubqueryInFrom()
+    {
+        var sub = new Query()
+            .Select("*")
+            .From("users");
+
+        var query = new Query()
+            .Select("u.id")
+            .From(sub, "u");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT u.id FROM (SELECT * FROM users) AS u", sql);
+    }
+
+    [Fact]
+    public void SubqueryInWhere()
+    {
+        var sub = new Query()
+            .Select("id")
+            .From("admins");
+
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", "IN", sub);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE id IN (SELECT id FROM admins)", sql);
+    }
+
+    [Fact]
+    public void GroupByHaving()
+    {
+        var query = new Query()
+            .Select("age", "COUNT(*)")
+            .From("users")
+            .GroupBy("age")
+            .Having("COUNT(*)", ">", 1);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 1", sql);
+    }
 }
 
