@@ -36,14 +36,12 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     }
 
     protected override void ProcessRecord() {
-        var compiler = new SqlKata.Compilers.SqlServerCompiler() {
-            UseLegacyPagination = !DontUseLegacyPagination
-        };
-        var query = new SqlKata.Query(TableName);
+        var query = DBAClientX.QueryBuilder.QueryBuilder.Query().From(TableName);
         if (!Compile) {
             WriteObject(query);
         } else {
-            WriteObject(compiler.Compile(query).ToString());
+            var sql = DBAClientX.QueryBuilder.QueryBuilder.Compile(query);
+            WriteObject(sql);
         }
     }
 }
