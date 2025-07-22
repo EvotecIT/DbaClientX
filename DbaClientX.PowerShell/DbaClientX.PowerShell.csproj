@@ -19,7 +19,7 @@
 		<PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
 	</ItemGroup>
 	<ItemGroup>
-		<ProjectReference Include="..\DBAClientX\DbaClientX.csproj" />
+                <ProjectReference Include="..\DbaClientX\DbaClientX.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -48,10 +48,11 @@
 		<Delete Files="$(OutDir)System.Management.dll" />
 	</Target>
 
-	<PropertyGroup>
-		<!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
-		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-	</PropertyGroup>
+        <PropertyGroup>
+                <!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
+                <GenerateDocumentationFile>true</GenerateDocumentationFile>
+                <XmlDoc2CmdletDocStrict>false</XmlDoc2CmdletDocStrict>
+        </PropertyGroup>
 
 	<ItemGroup>
 		<!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
