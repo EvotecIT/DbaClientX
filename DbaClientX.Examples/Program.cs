@@ -13,8 +13,11 @@ public class Program
             case "parallelqueries":
                 await ParallelQueriesExample.RunAsync();
                 break;
+            case "transaction":
+                await TransactionExample.RunAsync();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction");
                 break;
         }
     }
