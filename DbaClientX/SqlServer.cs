@@ -71,7 +71,7 @@ public class SqlServer
         return null;
     }
 
-    public async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query)
+    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query)
     {
         var connectionString = new SqlConnectionStringBuilder
         {
