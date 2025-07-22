@@ -36,7 +36,72 @@ public class QueryCompiler
             return sb.ToString();
         }
 
+        if (!string.IsNullOrWhiteSpace(query.UpdateTable))
+        {
+            sb.Append("UPDATE ").Append(query.UpdateTable);
+            if (query.SetValues.Count > 0)
+            {
+                sb.Append(" SET ");
+                bool firstSet = true;
+                foreach (var set in query.SetValues)
+                {
+                    if (!firstSet)
+                    {
+                        sb.Append(", ");
+                    }
+                    sb.Append(set.Column).Append(" = ").Append(FormatValue(set.Value));
+                    firstSet = false;
+                }
+            }
+
+            if (query.WhereClauses.Count > 0)
+            {
+                sb.Append(" WHERE ");
+                bool first = true;
+                foreach (var clause in query.WhereClauses)
+                {
+                    if (!first)
+                    {
+                        sb.Append(" AND ");
+                    }
+                    sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
+                    sb.Append(FormatValue(clause.Value));
+                    first = false;
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DeleteTable))
+        {
+            sb.Append("DELETE FROM ").Append(query.DeleteTable);
+
+            if (query.WhereClauses.Count > 0)
+            {
+                sb.Append(" WHERE ");
+                bool first = true;
+                foreach (var clause in query.WhereClauses)
+                {
+                    if (!first)
+                    {
+                        sb.Append(" AND ");
+                    }
+                    sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
+                    sb.Append(FormatValue(clause.Value));
+                    first = false;
+                }
+            }
+
+            return sb.ToString();
+        }
+
         sb.Append("SELECT ");
+        if (query.LimitValue.HasValue && query.UseTop)
+        {
+            sb.Append("TOP ").Append(query.LimitValue.Value).Append(' ');
+        }
+
         if (query.SelectColumns.Count > 0)
         {
             sb.Append(string.Join(", ", query.SelectColumns));
@@ -66,6 +131,17 @@ public class QueryCompiler
                 first = false;
             }
         }
+
+        if (query.OrderByColumns.Count > 0)
+        {
+            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns));
+        }
+
+        if (query.LimitValue.HasValue && !query.UseTop)
+        {
+            sb.Append(" LIMIT ").Append(query.LimitValue.Value);
+        }
+
         return sb.ToString();
     }
 
