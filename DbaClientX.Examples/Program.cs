@@ -10,6 +10,9 @@ public class Program
             case "asyncquery":
                 await QuerySqlServerAsyncExample.RunAsync();
                 break;
+            case "nestedquery":
+                NestedQueryExample.Run();
+                break;
             case "parallelqueries":
                 await ParallelQueriesExample.RunAsync();
                 break;
@@ -20,7 +23,7 @@ public class Program
                 await CancellationExample.RunAsync();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery");
                 break;
         }
     }
