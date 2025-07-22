@@ -23,6 +23,7 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
         Information,
         Progress,
         ShouldProcess,
+        ShouldContinue,
     }
 
     /// <summary>
@@ -134,6 +135,11 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
                     bool res = base.ShouldProcess(target, action);
                     replyPipe.Add(res);
                     break;
+                case PipelineType.ShouldContinue:
+                    (string query, string caption) = (ValueTuple<string, string>)data!;
+                    bool cont = base.ShouldContinue(query, caption);
+                    replyPipe.Add(cont);
+                    break;
             }
         }
 
@@ -149,6 +155,18 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
     public new bool ShouldProcess(string target, string action) {
         ThrowIfStopped();
         _currentOutPipe?.Add(((target, action), PipelineType.ShouldProcess));
+        return (bool)_currentReplyPipe?.Take(CancelToken)!;
+    }
+
+    /// <summary>
+    /// Prompts whether the cmdlet should continue processing.
+    /// </summary>
+    /// <param name="query">The query or message to present to the user.</param>
+    /// <param name="caption">The caption for the prompt.</param>
+    /// <returns>True if the cmdlet should continue; otherwise, false.</returns>
+    public new bool ShouldContinue(string query, string caption) {
+        ThrowIfStopped();
+        _currentOutPipe?.Add(((query, caption), PipelineType.ShouldContinue));
         return (bool)_currentReplyPipe?.Take(CancelToken)!;
     }
 
