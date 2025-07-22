@@ -1,5 +1,6 @@
 using DBAClientX;
 using System.Data;
+using System.Threading;
 
 public static class QuerySqlServerAsyncExample
 {
@@ -10,7 +11,7 @@ public static class QuerySqlServerAsyncExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var result = await sqlServer.SqlQueryAsync("SQL1", "master", true, "SELECT TOP 1 * FROM sys.databases");
+        var result = await sqlServer.SqlQueryAsync("SQL1", "master", true, "SELECT TOP 1 * FROM sys.databases", cancellationToken: CancellationToken.None);
 
         if (result is DataTable table)
         {

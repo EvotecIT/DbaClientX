@@ -16,8 +16,11 @@ public class Program
             case "transaction":
                 await TransactionExample.RunAsync();
                 break;
+            case "cancellation":
+                await CancellationExample.RunAsync();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation");
                 break;
         }
     }

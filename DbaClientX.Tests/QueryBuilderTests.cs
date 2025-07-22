@@ -75,5 +75,19 @@ public class QueryBuilderTests
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT TOP 5 * FROM users ORDER BY age", sql);
     }
+
+    [Fact]
+    public void SelectWhereOrderByTop()
+    {
+        var query = new Query()
+            .Top(3)
+            .Select("name")
+            .From("users")
+            .Where("age", ">", 18)
+            .OrderBy("age");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT TOP 3 name FROM users WHERE age > 18 ORDER BY age", sql);
+    }
 }
 

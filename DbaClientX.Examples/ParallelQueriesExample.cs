@@ -2,6 +2,7 @@ using DBAClientX;
 using System;
 using System.Data;
 using System.Threading.Tasks;
+using System.Threading;
 
 public static class ParallelQueriesExample
 {
@@ -19,7 +20,7 @@ public static class ParallelQueriesExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var results = await sqlServer.RunQueriesInParallel(queries, "SQL1", "master", true);
+        var results = await sqlServer.RunQueriesInParallel(queries, "SQL1", "master", true, CancellationToken.None);
 
         var index = 0;
         foreach (var result in results)
