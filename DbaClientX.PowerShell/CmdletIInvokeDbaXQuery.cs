@@ -3,6 +3,7 @@
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Compatibility", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
+    public static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     public string Server { get; set; }
@@ -45,10 +46,9 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     /// Process method for PowerShell cmdlet
     /// </summary>
     protected override void ProcessRecord() {
-        var sqlServer = new DBAClientX.SqlServer {
-            ReturnType = ReturnType,
-            CommandTimeout = QueryTimeout
-        };
+        var sqlServer = SqlServerFactory();
+        sqlServer.ReturnType = ReturnType;
+        sqlServer.CommandTimeout = QueryTimeout;
         try {
             IDictionary<string, object?>? parameters = null;
             if (Parameters != null)
