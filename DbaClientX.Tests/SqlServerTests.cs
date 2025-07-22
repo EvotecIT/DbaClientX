@@ -10,10 +10,10 @@ namespace DbaClientX.Tests;
 public class SqlServerTests
 {
     [Fact]
-    public async Task SqlQueryAsync_InvalidServer_ThrowsQueryExecutionException()
+    public async Task SqlQueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
         var sqlServer = new DBAClientX.SqlServer();
-        await Assert.ThrowsAsync<DBAClientX.QueryExecutionException>(async () =>
+        await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
             await sqlServer.SqlQueryAsync("invalid", "master", true, "SELECT 1");
         });
@@ -103,19 +103,19 @@ public class SqlServerTests
 
         public override void Commit()
         {
-            if (!TransactionStarted) throw new DBAClientX.TransactionException("No active transaction.");
+            if (!TransactionStarted) throw new DBAClientX.DbaTransactionException("No active transaction.");
             TransactionStarted = false;
         }
 
         public override void Rollback()
         {
-            if (!TransactionStarted) throw new DBAClientX.TransactionException("No active transaction.");
+            if (!TransactionStarted) throw new DBAClientX.DbaTransactionException("No active transaction.");
             TransactionStarted = false;
         }
 
         public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false)
         {
-            if (useTransaction && !TransactionStarted) throw new DBAClientX.TransactionException("Transaction has not been started.");
+            if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
@@ -129,7 +129,7 @@ public class SqlServerTests
     public void SqlQuery_WithTransactionNotStarted_Throws()
     {
         var sqlServer = new FakeTransactionSqlServer();
-        Assert.Throws<DBAClientX.TransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class SqlServerTests
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Commit();
-        Assert.Throws<DBAClientX.TransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class SqlServerTests
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Rollback();
-        Assert.Throws<DBAClientX.TransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
     }
 
     [Fact]
