@@ -51,6 +51,7 @@
         <PropertyGroup>
                 <!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
                 <GenerateDocumentationFile>true</GenerateDocumentationFile>
+                <!-- Disable strict mode to avoid failing the build when documentation cannot be generated -->
                 <XmlDoc2CmdletDocStrict>false</XmlDoc2CmdletDocStrict>
         </PropertyGroup>
 
