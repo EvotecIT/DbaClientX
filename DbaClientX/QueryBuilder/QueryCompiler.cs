@@ -7,6 +7,35 @@ public class QueryCompiler
     public string Compile(Query query)
     {
         var sb = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(query.InsertTable))
+        {
+            sb.Append("INSERT INTO ").Append(query.InsertTable);
+
+            if (query.InsertColumns.Count > 0)
+            {
+                sb.Append(" (").Append(string.Join(", ", query.InsertColumns)).Append(')');
+            }
+
+            if (query.InsertValues.Count > 0)
+            {
+                sb.Append(" VALUES (");
+                bool firstValue = true;
+                foreach (var value in query.InsertValues)
+                {
+                    if (!firstValue)
+                    {
+                        sb.Append(", ");
+                    }
+                    sb.Append(FormatValue(value));
+                    firstValue = false;
+                }
+                sb.Append(')');
+            }
+
+            return sb.ToString();
+        }
+
         sb.Append("SELECT ");
         if (query.SelectColumns.Count > 0)
         {
