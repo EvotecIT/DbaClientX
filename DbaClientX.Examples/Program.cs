@@ -10,8 +10,11 @@ public class Program
             case "asyncquery":
                 await QuerySqlServerAsyncExample.RunAsync();
                 break;
+            case "parallelqueries":
+                await ParallelQueriesExample.RunAsync();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries");
                 break;
         }
     }
