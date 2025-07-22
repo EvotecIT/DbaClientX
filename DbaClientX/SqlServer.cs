@@ -98,7 +98,7 @@ public class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", ex);
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {
@@ -182,7 +182,7 @@ public class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", ex);
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {

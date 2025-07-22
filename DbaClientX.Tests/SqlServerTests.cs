@@ -15,10 +15,11 @@ public class SqlServerTests
     public async Task SqlQueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
         var sqlServer = new DBAClientX.SqlServer();
-        await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
             await sqlServer.SqlQueryAsync("invalid", "master", true, "SELECT 1");
         });
+        Assert.Contains("SELECT 1", ex.Message);
     }
 
     private class DelaySqlServer : DBAClientX.SqlServer
