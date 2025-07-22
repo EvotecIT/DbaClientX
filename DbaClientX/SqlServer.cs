@@ -51,7 +51,7 @@ public class SqlServer
             {
                 if (_transaction == null || _transactionConnection == null)
                 {
-                    throw new TransactionException("Transaction has not been started.");
+                    throw new DbaTransactionException("Transaction has not been started.");
                 }
                 connection = _transactionConnection;
             }
@@ -97,7 +97,7 @@ public class SqlServer
         }
         catch (Exception ex)
         {
-            throw new QueryExecutionException("Failed to execute query.", ex);
+            throw new DbaQueryExecutionException("Failed to execute query.", ex);
         }
         finally
         {
@@ -129,7 +129,7 @@ public class SqlServer
             {
                 if (_transaction == null || _transactionConnection == null)
                 {
-                    throw new TransactionException("Transaction has not been started.");
+                    throw new DbaTransactionException("Transaction has not been started.");
                 }
                 connection = _transactionConnection;
             }
@@ -181,7 +181,7 @@ public class SqlServer
         }
         catch (Exception ex)
         {
-            throw new QueryExecutionException("Failed to execute query.", ex);
+            throw new DbaQueryExecutionException("Failed to execute query.", ex);
         }
         finally
         {
@@ -212,7 +212,7 @@ public class SqlServer
     {
         if (_transaction != null)
         {
-            throw new TransactionException("Transaction already started.");
+            throw new DbaTransactionException("Transaction already started.");
         }
 
         var connectionString = new SqlConnectionStringBuilder
@@ -232,7 +232,7 @@ public class SqlServer
     {
         if (_transaction == null)
         {
-            throw new TransactionException("No active transaction.");
+            throw new DbaTransactionException("No active transaction.");
         }
         _transaction.Commit();
         DisposeTransaction();
@@ -242,7 +242,7 @@ public class SqlServer
     {
         if (_transaction == null)
         {
-            throw new TransactionException("No active transaction.");
+            throw new DbaTransactionException("No active transaction.");
         }
         _transaction.Rollback();
         DisposeTransaction();
