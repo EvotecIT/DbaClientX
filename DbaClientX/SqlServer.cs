@@ -28,7 +28,7 @@ public class SqlServer
         set { lock (_syncRoot) { _commandTimeout = value; } }
     }
 
-    public object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query)
+    public object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
     {
         var connectionString = new SqlConnectionStringBuilder
         {
@@ -42,6 +42,7 @@ public class SqlServer
         connection.Open();
 
         var command = new SqlCommand(query, connection);
+        AddParameters(command, parameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
         {
@@ -71,7 +72,7 @@ public class SqlServer
         return null;
     }
 
-    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query)
+    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
     {
         var connectionString = new SqlConnectionStringBuilder
         {
@@ -85,6 +86,7 @@ public class SqlServer
         await connection.OpenAsync().ConfigureAwait(false);
 
         var command = new SqlCommand(query, connection);
+        AddParameters(command, parameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
         {
@@ -121,6 +123,20 @@ public class SqlServer
         }
 
         return null;
+    }
+
+    protected virtual void AddParameters(SqlCommand command, IDictionary<string, object?>? parameters)
+    {
+        if (parameters == null)
+        {
+            return;
+        }
+
+        foreach (var pair in parameters)
+        {
+            var value = pair.Value ?? DBNull.Value;
+            command.Parameters.AddWithValue(pair.Key, value);
+        }
     }
 
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity)

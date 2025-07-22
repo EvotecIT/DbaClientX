@@ -1,5 +1,6 @@
 using System.Data.SqlClient;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
@@ -27,7 +28,7 @@ public class SqlServerTests
             _delay = delay;
         }
 
-        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query)
+        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
         {
             await Task.Delay(_delay);
             return null;
@@ -52,5 +53,42 @@ public class SqlServerTests
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
+    }
+
+    private class CaptureParametersSqlServer : DBAClientX.SqlServer
+    {
+        public List<(string Name, object? Value)> Captured { get; } = new();
+
+        protected override void AddParameters(SqlCommand command, IDictionary<string, object?>? parameters)
+        {
+            base.AddParameters(command, parameters);
+            foreach (SqlParameter p in command.Parameters)
+            {
+                Captured.Add((p.ParameterName, p.Value));
+            }
+        }
+
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null)
+        {
+            var command = new SqlCommand(query);
+            AddParameters(command, parameters);
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public async Task SqlQueryAsync_BindsParameters()
+    {
+        var sqlServer = new CaptureParametersSqlServer();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5,
+            ["@name"] = "test"
+        };
+
+        await sqlServer.SqlQueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
+
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
     }
 }
