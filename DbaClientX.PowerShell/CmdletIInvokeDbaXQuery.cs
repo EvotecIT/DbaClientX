@@ -20,6 +20,9 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
+    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    public Hashtable Parameters { get; set; }
+
     private ActionPreference ErrorAction;
 
     /// <summary>
@@ -47,7 +50,15 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
             CommandTimeout = QueryTimeout
         };
         try {
-            var result = sqlServer.SqlQuery(Server, Database, true, Query);
+            IDictionary<string, object?>? parameters = null;
+            if (Parameters != null)
+            {
+                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
+                    de => de.Key.ToString(),
+                    de => de.Value);
+            }
+
+            var result = sqlServer.SqlQuery(Server, Database, true, Query, parameters);
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
                     //var resultConverted = result as DataTable;
