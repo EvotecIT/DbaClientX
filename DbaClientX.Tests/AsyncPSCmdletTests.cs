@@ -90,7 +90,8 @@ public class AsyncPSCmdletTests
     private static object? RunCmdlet(bool answer)
     {
         var host = new TestHost(answer);
-        var iss = InitialSessionState.CreateDefault();
+        // Use a minimal session state to avoid loading optional dependencies
+        var iss = InitialSessionState.Create();
         iss.Commands.Add(new SessionStateCmdletEntry("Test-ShouldContinueCmdlet", typeof(TestCmdlet), null));
         using var runspace = RunspaceFactory.CreateRunspace(host, iss);
         runspace.Open();
