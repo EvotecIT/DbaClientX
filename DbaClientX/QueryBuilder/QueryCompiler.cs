@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 
 namespace DBAClientX.QueryBuilder;
 
@@ -144,6 +145,15 @@ public class QueryCompiler
         if (query.LimitValue.HasValue && !query.UseTop)
         {
             sb.Append(" LIMIT ").Append(query.LimitValue.Value);
+
+            if (query.OffsetValue.HasValue)
+            {
+                sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
+            }
+        }
+        else if (query.OffsetValue.HasValue)
+        {
+            sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
         }
 
         return sb.ToString();
@@ -179,6 +189,11 @@ public class QueryCompiler
             string s => $"'{s.Replace("'", "''")}'",
             null => "NULL",
             bool b => b ? "1" : "0",
+            DateTime dt => $"'{dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
+            DateTimeOffset dto => $"'{dto.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
+            decimal d => d.ToString(CultureInfo.InvariantCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            float f => f.ToString(CultureInfo.InvariantCulture),
             Query q => "(" + new QueryCompiler().Compile(q) + ")",
             _ => value.ToString()
         };

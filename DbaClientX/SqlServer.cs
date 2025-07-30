@@ -1,37 +1,27 @@
 using System;
 using System.Data;
+using System.Data.Common;
 using System.Data.SqlClient;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+using System.Runtime.CompilerServices;
+#endif
 
 namespace DBAClientX;
 
 /// <summary>
 /// This class is used to connect to SQL Server
 /// </summary>
-public class SqlServer
+public class SqlServer : DatabaseClientBase
 {
     private readonly object _syncRoot = new();
-    private ReturnType _returnType;
-    private int _commandTimeout;
     private SqlConnection? _transactionConnection;
     private SqlTransaction? _transaction;
 
     public bool IsInTransaction => _transaction != null;
-
-    public ReturnType ReturnType
-    {
-        get { lock (_syncRoot) { return _returnType; } }
-        set { lock (_syncRoot) { _returnType = value; } }
-    }
-
-    public int CommandTimeout
-    {
-        get { lock (_syncRoot) { return _commandTimeout; } }
-        set { lock (_syncRoot) { _commandTimeout = value; } }
-    }
 
     public virtual object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
     {
@@ -45,7 +35,6 @@ public class SqlServer
 
         SqlConnection? connection = null;
         bool dispose = false;
-        object? result = null;
         try
         {
             if (useTransaction)
@@ -63,38 +52,8 @@ public class SqlServer
                 dispose = true;
             }
 
-            var command = new SqlCommand(query, connection);
-            if (useTransaction)
-            {
-                command.Transaction = _transaction;
-            }
-            AddParameters(command, parameters, parameterTypes);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
-            var dataAdapter = new SqlDataAdapter(command);
-            var dataSet = new System.Data.DataSet();
-
-            dataAdapter.Fill(dataSet);
-
-            var returnType = ReturnType;
-            if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
-            {
-                if (dataSet.Tables.Count > 0)
-                {
-                    result = dataSet.Tables[0];
-                }
-            }
-            else if (returnType == ReturnType.DataSet)
-            {
-                result = dataSet;
-            }
-            else if (returnType == ReturnType.DataTable)
-            {
-                result = dataSet.Tables;
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
         }
         catch (Exception ex)
         {
@@ -107,7 +66,21 @@ public class SqlServer
                 connection?.Dispose();
             }
         }
+    }
 
+    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types)
+    {
+        if (types == null)
+        {
+            return null;
+        }
+
+        var result = new Dictionary<string, DbType>(types.Count);
+        foreach (var pair in types)
+        {
+            var parameter = new SqlParameter { SqlDbType = pair.Value };
+            result[pair.Key] = parameter.DbType;
+        }
         return result;
     }
 
@@ -123,7 +96,6 @@ public class SqlServer
 
         SqlConnection? connection = null;
         bool dispose = false;
-        object? result = null;
         try
         {
             if (useTransaction)
@@ -141,44 +113,8 @@ public class SqlServer
                 dispose = true;
             }
 
-            var command = new SqlCommand(query, connection);
-            if (useTransaction)
-            {
-                command.Transaction = _transaction;
-            }
-            AddParameters(command, parameters, parameterTypes);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
-
-            var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            var tableIndex = 0;
-            do {
-                var dataTable = new DataTable($"Table{tableIndex}");
-                dataTable.Load(reader);
-                dataSet.Tables.Add(dataTable);
-                tableIndex++;
-            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
-
-            var returnType = ReturnType;
-            if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
-            {
-                if (dataSet.Tables.Count > 0)
-                {
-                    result = dataSet.Tables[0];
-                }
-            }
-            else if (returnType == ReturnType.DataSet)
-            {
-                result = dataSet;
-            }
-            else if (returnType == ReturnType.DataTable)
-            {
-                result = dataSet.Tables;
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -191,52 +127,59 @@ public class SqlServer
                 connection?.Dispose();
             }
         }
-
-        return result;
     }
 
-    protected virtual void AddParameters(SqlCommand command, IDictionary<string, object?>? parameters, IDictionary<string, SqlDbType>? parameterTypes = null)
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    public virtual IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
     {
-        if (parameters == null)
-        {
-            return;
-        }
+        return Stream();
 
-        foreach (var pair in parameters)
+        async IAsyncEnumerable<DataRow> Stream()
         {
-            var value = pair.Value ?? DBNull.Value;
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = pair.Key;
-            parameter.Value = value;
-            if (parameterTypes != null && parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            var connectionString = new SqlConnectionStringBuilder
             {
-                parameter.SqlDbType = explicitType;
+                DataSource = serverOrInstance,
+                InitialCatalog = database,
+                IntegratedSecurity = integratedSecurity,
+                Pooling = true
+            }.ConnectionString;
+
+            SqlConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
             }
             else
             {
-                parameter.SqlDbType = InferSqlDbType(value);
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
             }
-            command.Parameters.Add(parameter);
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
         }
     }
+#endif
 
-    private static SqlDbType InferSqlDbType(object? value)
-    {
-        if (value == null || value == DBNull.Value) return SqlDbType.Variant;
-        return Type.GetTypeCode(value.GetType()) switch
-        {
-            TypeCode.Byte => SqlDbType.TinyInt,
-            TypeCode.Int16 => SqlDbType.SmallInt,
-            TypeCode.Int32 => SqlDbType.Int,
-            TypeCode.Int64 => SqlDbType.BigInt,
-            TypeCode.Decimal => SqlDbType.Decimal,
-            TypeCode.Double => SqlDbType.Float,
-            TypeCode.Single => SqlDbType.Real,
-            TypeCode.Boolean => SqlDbType.Bit,
-            TypeCode.String => SqlDbType.NVarChar,
-            _ => SqlDbType.Variant
-        };
-    }
 
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
     {

@@ -31,7 +31,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 return Assembly.LoadFile(file);
             }
         }
-        return null;
+        return null!;
     }
 
     private bool IsNetFramework() {

@@ -1,4 +1,5 @@
 using DBAClientX.QueryBuilder;
+using System.Globalization;
 
 namespace DbaClientX.Tests;
 
@@ -64,6 +65,20 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectLimitOffset()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(5)
+            .Offset(2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users ORDER BY name LIMIT 5 OFFSET 2", sql);
+    }
+
+    [Fact]
     public void SelectOrderByTop()
     {
         var query = new Query()
@@ -88,6 +103,33 @@ public class QueryBuilderTests
 
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT TOP 3 name FROM users WHERE age > 18 ORDER BY age", sql);
+    }
+
+    [Fact]
+    public void LimitThenTop_UsesTop()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Limit(5)
+            .Offset(2)
+            .Top(3);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT TOP 3 * FROM users", sql);
+    }
+
+    [Fact]
+    public void TopThenLimit_UsesLimit()
+    {
+        var query = new Query()
+            .Top(5)
+            .Limit(2)
+            .Select("*")
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users LIMIT 2", sql);
     }
 
     [Fact]
@@ -207,6 +249,71 @@ public class QueryBuilderTests
 
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT * FROM users u LEFT JOIN profiles p ON u.id = p.user_id RIGHT JOIN photos ph ON u.id = ph.user_id", sql);
+    }
+     
+    [Fact]
+    public void DecimalFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var query = new Query()
+                .Select("*")
+                .From("prices")
+                .Where("amount", 10.5m);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM prices WHERE amount = 10.5", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void DateTimeFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var date = new DateTime(2024, 1, 2, 3, 4, 5);
+            var query = new Query()
+                .Select("*")
+                .From("events")
+                .Where("created", date);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void DateTimeOffsetFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var dateOffset = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.FromHours(2));
+            var query = new Query()
+                .Select("*")
+                .From("events")
+                .Where("created", dateOffset);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 }
 

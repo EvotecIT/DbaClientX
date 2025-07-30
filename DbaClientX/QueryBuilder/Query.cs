@@ -19,6 +19,7 @@ public class Query
     private readonly List<string> _groupBy = new();
     private readonly List<(string Column, string Operator, object Value)> _having = new();
     private int? _limit;
+    private int? _offset;
     private bool _useTop;
 
     public Query Select(params string[] columns)
@@ -190,6 +191,15 @@ public class Query
     {
         _limit = limit;
         _useTop = false;
+        // Ensure pagination mode is exclusive
+        // Limit/Offset mode should not use TOP
+        return this;
+    }
+
+    public Query Offset(int offset)
+    {
+        _offset = offset;
+        _useTop = false;
         return this;
     }
 
@@ -197,6 +207,8 @@ public class Query
     {
         _limit = top;
         _useTop = true;
+        // Reset offset when switching to TOP to avoid mixed pagination modes
+        _offset = null;
         return this;
     }
 
@@ -221,6 +233,7 @@ public class Query
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
     public IReadOnlyList<(string Type, string Table, string Condition)> Joins => _joins;
     public int? LimitValue => _limit;
+    public int? OffsetValue => _offset;
     public bool UseTop => _useTop;
 }
 
