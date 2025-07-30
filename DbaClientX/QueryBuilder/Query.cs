@@ -110,6 +110,8 @@ public class Query
     {
         _limit = limit;
         _useTop = false;
+        // Ensure pagination mode is exclusive
+        // Limit/Offset mode should not use TOP
         return this;
     }
 
@@ -124,6 +126,8 @@ public class Query
     {
         _limit = top;
         _useTop = true;
+        // Reset offset when switching to TOP to avoid mixed pagination modes
+        _offset = null;
         return this;
     }
 

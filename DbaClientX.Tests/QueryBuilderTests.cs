@@ -106,6 +106,33 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void LimitThenTop_UsesTop()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Limit(5)
+            .Offset(2)
+            .Top(3);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT TOP 3 * FROM users", sql);
+    }
+
+    [Fact]
+    public void TopThenLimit_UsesLimit()
+    {
+        var query = new Query()
+            .Top(5)
+            .Limit(2)
+            .Select("*")
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users LIMIT 2", sql);
+    }
+
+    [Fact]
     public void SelectMultipleColumns()
     {
         var query = new Query()
