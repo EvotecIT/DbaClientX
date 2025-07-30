@@ -7,7 +7,8 @@ public class Query
     private readonly List<string> _select = new();
     private string _from;
     private (Query Query, string Alias)? _fromSubquery;
-    private readonly List<(string Column, string Operator, object Value)> _where = new();
+    private readonly List<(string Type, string Table, string Condition)> _joins = new();
+    private readonly List<IWhereToken> _where = new();
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
     private readonly List<object> _values = new();
@@ -40,6 +41,24 @@ public class Query
         return this;
     }
 
+    public Query Join(string table, string condition)
+    {
+        _joins.Add(("JOIN", table, condition));
+        return this;
+    }
+
+    public Query LeftJoin(string table, string condition)
+    {
+        _joins.Add(("LEFT JOIN", table, condition));
+        return this;
+    }
+
+    public Query RightJoin(string table, string condition)
+    {
+        _joins.Add(("RIGHT JOIN", table, condition));
+        return this;
+    }
+
     public Query Where(string column, object value)
     {
         return Where(column, "=", value);
@@ -47,14 +66,76 @@ public class Query
 
     public Query Where(string column, string op, object value)
     {
-        _where.Add((column, op, value));
-        return this;
+        return AddCondition(column, op, value);
     }
 
     public Query Where(string column, string op, Query subQuery)
     {
-        _where.Add((column, op, subQuery));
+        return AddCondition(column, op, subQuery);
+    }
+
+    public Query OrWhere(string column, object value)
+    {
+        return OrWhere(column, "=", value);
+    }
+
+    public Query OrWhere(string column, string op, object value)
+    {
+        return AddCondition(column, op, value, "OR");
+    }
+
+    public Query OrWhere(string column, string op, Query subQuery)
+    {
+        return AddCondition(column, op, subQuery, "OR");
+    }
+
+    public Query BeginGroup()
+    {
+        AddDefaultAndIfRequired();
+        _where.Add(new GroupStartToken());
         return this;
+    }
+
+    public Query EndGroup()
+    {
+        _where.Add(new GroupEndToken());
+        return this;
+    }
+
+    public Query Or()
+    {
+        _where.Add(new OperatorToken("OR"));
+        return this;
+    }
+
+    private Query AddCondition(string column, string op, object value, string? logical = null)
+    {
+        AddLogicalOperator(logical);
+        _where.Add(new ConditionToken(column, op, value));
+        return this;
+    }
+
+    private void AddLogicalOperator(string? logical)
+    {
+        if (_where.Count > 0)
+        {
+            if (logical != null)
+            {
+                _where.Add(new OperatorToken(logical));
+            }
+            else if (_where[^1] is not OperatorToken && _where[^1] is not GroupStartToken)
+            {
+                _where.Add(new OperatorToken("AND"));
+            }
+        }
+    }
+
+    private void AddDefaultAndIfRequired()
+    {
+        if (_where.Count > 0 && _where[^1] is not OperatorToken && _where[^1] is not GroupStartToken)
+        {
+            _where.Add(new OperatorToken("AND"));
+        }
     }
 
     public Query InsertInto(string table, params string[] columns)
@@ -128,7 +209,7 @@ public class Query
     public IReadOnlyList<string> SelectColumns => _select;
     public string Table => _from;
     public (Query Query, string Alias)? FromSubquery => _fromSubquery;
-    public IReadOnlyList<(string Column, string Operator, object Value)> WhereClauses => _where;
+    public IReadOnlyList<IWhereToken> WhereTokens => _where;
     public string InsertTable => _insertTable;
     public IReadOnlyList<string> InsertColumns => _insertColumns;
     public IReadOnlyList<object> InsertValues => _values;
@@ -138,7 +219,18 @@ public class Query
     public IReadOnlyList<string> OrderByColumns => _orderBy;
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
+    public IReadOnlyList<(string Type, string Table, string Condition)> Joins => _joins;
     public int? LimitValue => _limit;
     public bool UseTop => _useTop;
 }
+
+public interface IWhereToken { }
+
+public sealed record ConditionToken(string Column, string Operator, object Value) : IWhereToken;
+
+public sealed record OperatorToken(string Operator) : IWhereToken;
+
+public sealed record GroupStartToken() : IWhereToken;
+
+public sealed record GroupEndToken() : IWhereToken;
 

@@ -167,5 +167,46 @@ public class QueryBuilderTests
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 1", sql);
     }
+
+    [Fact]
+    public void OrConditionsWithGrouping()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .BeginGroup()
+                .Where("age", "<", 18)
+                .OrWhere("age", ">", 60)
+            .EndGroup()
+            .Where("active", true);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE (age < 18 OR age > 60) AND active = 1", sql);
+    }
+
+    [Fact]
+    public void JoinQueries()
+    {
+        var query = new Query()
+            .Select("u.name", "o.total")
+            .From("users u")
+            .Join("orders o", "u.id = o.user_id");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id", sql);
+    }
+
+    [Fact]
+    public void MultipleJoinTypes()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users u")
+            .LeftJoin("profiles p", "u.id = p.user_id")
+            .RightJoin("photos ph", "u.id = ph.user_id");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users u LEFT JOIN profiles p ON u.id = p.user_id RIGHT JOIN photos ph ON u.id = ph.user_id", sql);
+    }
 }
 
