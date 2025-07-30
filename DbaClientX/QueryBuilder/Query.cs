@@ -18,6 +18,7 @@ public class Query
     private readonly List<string> _groupBy = new();
     private readonly List<(string Column, string Operator, object Value)> _having = new();
     private int? _limit;
+    private int? _offset;
     private bool _useTop;
 
     public Query Select(params string[] columns)
@@ -112,6 +113,13 @@ public class Query
         return this;
     }
 
+    public Query Offset(int offset)
+    {
+        _offset = offset;
+        _useTop = false;
+        return this;
+    }
+
     public Query Top(int top)
     {
         _limit = top;
@@ -139,6 +147,7 @@ public class Query
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
     public int? LimitValue => _limit;
+    public int? OffsetValue => _offset;
     public bool UseTop => _useTop;
 }
 

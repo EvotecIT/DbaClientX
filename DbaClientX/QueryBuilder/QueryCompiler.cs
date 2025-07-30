@@ -166,6 +166,15 @@ public class QueryCompiler
         if (query.LimitValue.HasValue && !query.UseTop)
         {
             sb.Append(" LIMIT ").Append(query.LimitValue.Value);
+
+            if (query.OffsetValue.HasValue)
+            {
+                sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
+            }
+        }
+        else if (query.OffsetValue.HasValue)
+        {
+            sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
         }
 
         return sb.ToString();
