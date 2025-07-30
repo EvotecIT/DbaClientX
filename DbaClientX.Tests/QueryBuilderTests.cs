@@ -1,4 +1,5 @@
 using DBAClientX.QueryBuilder;
+using System.Globalization;
 
 namespace DbaClientX.Tests;
 
@@ -180,6 +181,27 @@ public class QueryBuilderTests
 
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 1", sql);
+    }
+
+    [Fact]
+    public void DecimalFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var query = new Query()
+                .Select("*")
+                .From("prices")
+                .Where("amount", 10.5m);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM prices WHERE amount = 10.5", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
     }
 }
 

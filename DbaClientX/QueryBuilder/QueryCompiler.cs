@@ -1,4 +1,5 @@
 using System.Text;
+using System.Globalization;
 
 namespace DBAClientX.QueryBuilder;
 
@@ -187,6 +188,9 @@ public class QueryCompiler
             string s => $"'{s.Replace("'", "''")}'",
             null => "NULL",
             bool b => b ? "1" : "0",
+            decimal d => d.ToString(CultureInfo.InvariantCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            float f => f.ToString(CultureInfo.InvariantCulture),
             Query q => "(" + new QueryCompiler().Compile(q) + ")",
             _ => value.ToString()
         };
