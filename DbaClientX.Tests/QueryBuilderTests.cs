@@ -64,6 +64,20 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectLimitOffset()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(5)
+            .Offset(2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users ORDER BY name LIMIT 5 OFFSET 2", sql);
+    }
+
+    [Fact]
     public void SelectOrderByTop()
     {
         var query = new Query()

@@ -17,8 +17,12 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = false)]
     public SwitchParameter Compile { get; set; }
 
+
     [Parameter(Mandatory = false)]
-    public SwitchParameter DontUseLegacyPagination { get; set; }
+    public int? Limit { get; set; }
+
+    [Parameter(Mandatory = false)]
+    public int? Offset { get; set; }
 
     private ActionPreference errorAction;
 
@@ -37,6 +41,15 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
 
     protected override void ProcessRecord() {
         var query = DBAClientX.QueryBuilder.QueryBuilder.Query().From(TableName);
+
+        if (Limit.HasValue) {
+            query = query.Limit(Limit.Value);
+        }
+
+        if (Offset.HasValue) {
+            query = query.Offset(Offset.Value);
+        }
+
         if (!Compile) {
             WriteObject(query);
         } else {
