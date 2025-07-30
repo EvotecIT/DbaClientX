@@ -4,6 +4,9 @@ using System.Data;
 using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+using System.Runtime.CompilerServices;
+#endif
 
 namespace DBAClientX;
 
@@ -120,6 +123,38 @@ public abstract class DatabaseClientBase
 
         return BuildResult(dataSet);
     }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    protected virtual async IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var table = new DataTable();
+        for (int i = 0; i < reader.FieldCount; i++)
+        {
+            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+        }
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var row = table.NewRow();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+            }
+            yield return row;
+        }
+    }
+#endif
 
     private object? BuildResult(DataSet dataSet)
     {

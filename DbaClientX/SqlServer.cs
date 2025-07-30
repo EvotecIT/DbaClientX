@@ -6,6 +6,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+using System.Runtime.CompilerServices;
+#endif
 
 namespace DBAClientX;
 
@@ -125,6 +128,57 @@ public class SqlServer : DatabaseClientBase
             }
         }
     }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    public virtual IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+    {
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            var connectionString = new SqlConnectionStringBuilder
+            {
+                DataSource = serverOrInstance,
+                InitialCatalog = database,
+                IntegratedSecurity = integratedSecurity,
+                Pooling = true
+            }.ConnectionString;
+
+            SqlConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
+        }
+    }
+#endif
 
 
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
