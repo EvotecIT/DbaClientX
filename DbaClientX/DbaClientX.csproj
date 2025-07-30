@@ -39,6 +39,7 @@
 	</PropertyGroup>
         <ItemGroup>
                 <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+                <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
         </ItemGroup>
 	<ItemGroup>
 		<Using Include="System.Collections" />

@@ -22,8 +22,11 @@ public class Program
             case "cancellation":
                 await CancellationExample.RunAsync();
                 break;
+            case "streamquery":
+                await StreamQueryExample.RunAsync();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery");
                 break;
         }
     }
