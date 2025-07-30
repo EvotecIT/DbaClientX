@@ -1,4 +1,5 @@
 using System.Data.SqlClient;
+using System.Data.Common;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
@@ -85,19 +86,32 @@ public class SqlServerTests
     {
         public List<(string Name, object? Value, SqlDbType Type)> Captured { get; } = new();
 
-        protected override void AddParameters(SqlCommand command, IDictionary<string, object?>? parameters, IDictionary<string, SqlDbType>? parameterTypes = null)
+        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
         {
             base.AddParameters(command, parameters, parameterTypes);
-            foreach (SqlParameter p in command.Parameters)
+            foreach (DbParameter p in command.Parameters)
             {
-                Captured.Add((p.ParameterName, p.Value, p.SqlDbType));
+                if (p is SqlParameter sp)
+                {
+                    Captured.Add((sp.ParameterName, sp.Value, sp.SqlDbType));
+                }
             }
         }
 
         public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
         {
             var command = new SqlCommand(query);
-            AddParameters(command, parameters, parameterTypes);
+            IDictionary<string, DbType>? dbTypes = null;
+            if (parameterTypes != null)
+            {
+                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
+                foreach (var kv in parameterTypes)
+                {
+                    var p = new SqlParameter { SqlDbType = kv.Value };
+                    dbTypes[kv.Key] = p.DbType;
+                }
+            }
+            AddParameters(command, parameters, dbTypes);
             return Task.FromResult<object?>(null);
         }
     }
