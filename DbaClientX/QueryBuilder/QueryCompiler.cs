@@ -188,6 +188,8 @@ public class QueryCompiler
             string s => $"'{s.Replace("'", "''")}'",
             null => "NULL",
             bool b => b ? "1" : "0",
+            DateTime dt => $"'{dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
+            DateTimeOffset dto => $"'{dto.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),

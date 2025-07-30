@@ -203,5 +203,49 @@ public class QueryBuilderTests
             CultureInfo.CurrentCulture = original;
         }
     }
+
+    [Fact]
+    public void DateTimeFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var date = new DateTime(2024, 1, 2, 3, 4, 5);
+            var query = new Query()
+                .Select("*")
+                .From("events")
+                .Where("created", date);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public void DateTimeOffsetFormatting_UsesInvariantCulture()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("pl-PL");
+            var dateOffset = new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.FromHours(2));
+            var query = new Query()
+                .Select("*")
+                .From("events")
+                .Where("created", dateOffset);
+
+            var sql = QueryBuilder.Compile(query);
+            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
 }
 
