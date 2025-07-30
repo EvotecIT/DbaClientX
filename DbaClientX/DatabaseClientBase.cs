@@ -97,7 +97,7 @@ public abstract class DatabaseClientBase
 
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
     {
-        await using var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
         AddParameters(command, parameters, parameterTypes);
@@ -108,7 +108,7 @@ public abstract class DatabaseClientBase
         }
 
         var dataSet = new DataSet();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var tableIndex = 0;
         do
         {
