@@ -123,7 +123,7 @@ public class Query
             {
                 _where.Add(new OperatorToken(logical));
             }
-            else if (_where[^1] is not OperatorToken && _where[^1] is not GroupStartToken)
+            else if (_where[_where.Count - 1] is not OperatorToken && _where[_where.Count - 1] is not GroupStartToken)
             {
                 _where.Add(new OperatorToken("AND"));
             }
@@ -132,7 +132,7 @@ public class Query
 
     private void AddDefaultAndIfRequired()
     {
-        if (_where.Count > 0 && _where[^1] is not OperatorToken && _where[^1] is not GroupStartToken)
+        if (_where.Count > 0 && _where[_where.Count - 1] is not OperatorToken && _where[_where.Count - 1] is not GroupStartToken)
         {
             _where.Add(new OperatorToken("AND"));
         }
