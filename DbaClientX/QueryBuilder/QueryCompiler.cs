@@ -55,20 +55,10 @@ public class QueryCompiler
                 }
             }
 
-            if (query.WhereClauses.Count > 0)
+            if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                bool first = true;
-                foreach (var clause in query.WhereClauses)
-                {
-                    if (!first)
-                    {
-                        sb.Append(" AND ");
-                    }
-                    sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
-                    sb.Append(FormatValue(clause.Value));
-                    first = false;
-                }
+                AppendWhereTokens(sb, query.WhereTokens);
             }
 
             return sb.ToString();
@@ -78,20 +68,10 @@ public class QueryCompiler
         {
             sb.Append("DELETE FROM ").Append(query.DeleteTable);
 
-            if (query.WhereClauses.Count > 0)
+            if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                bool first = true;
-                foreach (var clause in query.WhereClauses)
-                {
-                    if (!first)
-                    {
-                        sb.Append(" AND ");
-                    }
-                    sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
-                    sb.Append(FormatValue(clause.Value));
-                    first = false;
-                }
+                AppendWhereTokens(sb, query.WhereTokens);
             }
 
             return sb.ToString();
@@ -122,20 +102,18 @@ public class QueryCompiler
             sb.Append(" FROM (").Append(Compile(subQuery)).Append(") AS ").Append(alias);
         }
 
-        if (query.WhereClauses.Count > 0)
+        if (query.Joins.Count > 0)
+        {
+            foreach (var join in query.Joins)
+            {
+                sb.Append(' ').Append(join.Type).Append(' ').Append(join.Table).Append(" ON ").Append(join.Condition);
+            }
+        }
+
+        if (query.WhereTokens.Count > 0)
         {
             sb.Append(" WHERE ");
-            bool first = true;
-            foreach (var clause in query.WhereClauses)
-            {
-                if (!first)
-                {
-                    sb.Append(" AND ");
-                }
-                sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
-                sb.Append(FormatValue(clause.Value));
-                first = false;
-            }
+            AppendWhereTokens(sb, query.WhereTokens);
         }
 
         if (query.GroupByColumns.Count > 0)
@@ -179,6 +157,29 @@ public class QueryCompiler
         }
 
         return sb.ToString();
+    }
+
+    private static void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens)
+    {
+        foreach (var token in tokens)
+        {
+            switch (token)
+            {
+                case OperatorToken op:
+                    sb.Append(' ').Append(op.Operator).Append(' ');
+                    break;
+                case ConditionToken cond:
+                    sb.Append(cond.Column).Append(' ').Append(cond.Operator).Append(' ');
+                    sb.Append(FormatValue(cond.Value));
+                    break;
+                case GroupStartToken:
+                    sb.Append('(');
+                    break;
+                case GroupEndToken:
+                    sb.Append(')');
+                    break;
+            }
+        }
     }
 
     private static string FormatValue(object value)
