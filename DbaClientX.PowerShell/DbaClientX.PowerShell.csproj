@@ -18,9 +18,10 @@
 	<ItemGroup>
 		<PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
 	</ItemGroup>
-	<ItemGroup>
-                <ProjectReference Include="..\DbaClientX\DbaClientX.csproj" />
-	</ItemGroup>
+        <ItemGroup>
+                <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+                <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
+        </ItemGroup>
 
 	<ItemGroup>
 		<Using Include="System.Collections" />

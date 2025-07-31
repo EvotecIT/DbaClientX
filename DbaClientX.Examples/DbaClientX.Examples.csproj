@@ -7,7 +7,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\DbaClientX\DbaClientX.csproj" />
+    <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+    <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
   </ItemGroup>
 
 </Project>

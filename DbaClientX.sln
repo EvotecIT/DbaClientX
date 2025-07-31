@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.10.34928.147
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DbaClientX", "DbaClientX\DbaClientX.csproj", "{778D0583-3B0B-4FFF-B8A5-E3D3376AC545}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DbaClientX.Core", "DbaClientX.Core\DbaClientX.Core.csproj", "{29FBC065-3146-47BD-8471-194AA95BC2B8}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DbaClientX.SqlServer", "DbaClientX.SqlServer\DbaClientX.SqlServer.csproj", "{A0FD77C3-777C-4474-9D56-DACF1B64A7C0}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DbaClientX.PowerShell", "DbaClientX.PowerShell\DbaClientX.PowerShell.csproj", "{C4CF8029-093D-4F65-B37E-BA85AB4DBF0D}"
 EndProject
@@ -17,10 +19,14 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{778D0583-3B0B-4FFF-B8A5-E3D3376AC545}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{778D0583-3B0B-4FFF-B8A5-E3D3376AC545}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{778D0583-3B0B-4FFF-B8A5-E3D3376AC545}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{778D0583-3B0B-4FFF-B8A5-E3D3376AC545}.Release|Any CPU.Build.0 = Release|Any CPU
+                {29FBC065-3146-47BD-8471-194AA95BC2B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+                {29FBC065-3146-47BD-8471-194AA95BC2B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+                {29FBC065-3146-47BD-8471-194AA95BC2B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+                {29FBC065-3146-47BD-8471-194AA95BC2B8}.Release|Any CPU.Build.0 = Release|Any CPU
+                {A0FD77C3-777C-4474-9D56-DACF1B64A7C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+                {A0FD77C3-777C-4474-9D56-DACF1B64A7C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+                {A0FD77C3-777C-4474-9D56-DACF1B64A7C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+                {A0FD77C3-777C-4474-9D56-DACF1B64A7C0}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C4CF8029-093D-4F65-B37E-BA85AB4DBF0D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C4CF8029-093D-4F65-B37E-BA85AB4DBF0D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C4CF8029-093D-4F65-B37E-BA85AB4DBF0D}.Release|Any CPU.ActiveCfg = Release|Any CPU
