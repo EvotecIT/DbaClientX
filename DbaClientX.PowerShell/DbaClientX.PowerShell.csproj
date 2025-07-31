@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">
-			netstandard2.0;net472;net6.0;net7.0;net8.0
-		</TargetFrameworks>
-		<TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">
-			net6.0;net7.0;net8.0
-		</TargetFrameworks>
+                <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">
+                        netstandard2.0;net472;net8.0
+                </TargetFrameworks>
+                <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">
+                        netstandard2.0;net8.0
+                </TargetFrameworks>
 		<Description>PowerShell Module for working with databases</Description>
 		<AssemblyName>DBAClientX.PowerShell</AssemblyName>
 		<AssemblyTitle>DBAClientX.PowerShell</AssemblyTitle>
