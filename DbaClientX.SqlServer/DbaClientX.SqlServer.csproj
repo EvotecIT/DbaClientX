@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>DbaClientX SQL Server provider</Description>
+    <AssemblyName>DbaClientX.SqlServer</AssemblyName>
+    <AssemblyTitle>DbaClientX.SqlServer</AssemblyTitle>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">netstandard2.0;netstandard2.1;net472;net48;net6.0;net7.0;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">net6.0;net7.0;net8.0</TargetFrameworks>
+    <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
+    <Company>Evotec</Company>
+    <Authors>Przemyslaw Klys</Authors>
+    <LangVersion>Latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PackageId>DBAClientX.SqlServer</PackageId>
+    <PackageProjectUrl>https://github.com/EvotecIT/DBAClientX</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RequireLicenseAcceptance>false</RequireLicenseAcceptance>
+    <DelaySign>False</DelaySign>
+    <IsPublishable>True</IsPublishable>
+    <RepositoryUrl>https://github.com/EvotecIT/DBAClientX</RepositoryUrl>
+    <DebugType>portable</DebugType>
+    <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <SignAssembly>False</SignAssembly>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NeutralLanguage>en</NeutralLanguage>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="System.Collections" />
+    <Using Include="System.Threading.Tasks" />
+    <Using Include="System.Collections.Concurrent" />
+    <Using Include="System.Threading" />
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Text" />
+    <Using Include="System.IO" />
+    <Using Include="System.Net" />
+  </ItemGroup>
+</Project>
