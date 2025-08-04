@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Data;
+using System.Reflection;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -218,5 +219,45 @@ public class SqlServerTests
         sqlServer.BeginTransaction("s", "db", true);
         var ex = Record.Exception(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
         Assert.Null(ex);
+    }
+
+    private class TestClient : DBAClientX.DatabaseClientBase
+    {
+    }
+
+    [Fact]
+    public void BuildResult_ReturnsDataTable_ForDataTableReturnType()
+    {
+        var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataTable };
+        var ds = new DataSet();
+        var table = new DataTable();
+        table.Columns.Add("id", typeof(int));
+        table.Rows.Add(1);
+        ds.Tables.Add(table);
+
+        var method = typeof(DBAClientX.DatabaseClientBase)
+            .GetMethod("BuildResult", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var result = method.Invoke(client, new object[] { ds });
+
+        var dt = Assert.IsType<DataTable>(result);
+        Assert.Equal(1, dt.Rows.Count);
+    }
+
+    [Fact]
+    public void BuildResult_ReturnsDataRow_ForDataRowReturnType()
+    {
+        var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataRow };
+        var ds = new DataSet();
+        var table = new DataTable();
+        table.Columns.Add("id", typeof(int));
+        table.Rows.Add(2);
+        ds.Tables.Add(table);
+
+        var method = typeof(DBAClientX.DatabaseClientBase)
+            .GetMethod("BuildResult", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var result = method.Invoke(client, new object[] { ds });
+
+        var row = Assert.IsType<DataRow>(result);
+        Assert.Equal(2, row["id"]);
     }
 }
