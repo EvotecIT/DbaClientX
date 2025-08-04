@@ -20,6 +20,7 @@ public class SqlServer : DatabaseClientBase
     private readonly object _syncRoot = new();
     private SqlConnection? _transactionConnection;
     private SqlTransaction? _transaction;
+    private static readonly ConcurrentDictionary<SqlDbType, DbType> TypeCache = new();
 
     public bool IsInTransaction => _transaction != null;
 
@@ -78,8 +79,12 @@ public class SqlServer : DatabaseClientBase
         var result = new Dictionary<string, DbType>(types.Count);
         foreach (var pair in types)
         {
-            var parameter = new SqlParameter { SqlDbType = pair.Value };
-            result[pair.Key] = parameter.DbType;
+            var dbType = TypeCache.GetOrAdd(pair.Value, static s =>
+            {
+                var parameter = new SqlParameter { SqlDbType = s };
+                return parameter.DbType;
+            });
+            result[pair.Key] = dbType;
         }
         return result;
     }
