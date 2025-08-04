@@ -15,3 +15,6 @@ $T3 | Format-Table
 
 $T4 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -ReturnType DataTable
 $T4 | Format-Table
+
+$T5 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -Stream
+$T5 | Format-Table
