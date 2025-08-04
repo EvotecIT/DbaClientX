@@ -43,11 +43,27 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         var query = DBAClientX.QueryBuilder.QueryBuilder.Query().From(TableName);
 
         if (Limit.HasValue) {
-            query = query.Limit(Limit.Value);
+            if (Limit.Value < 0) {
+                var message = "Limit must be a non-negative value.";
+                WriteWarning(message);
+                if (errorAction == ActionPreference.Stop) {
+                    throw new PSArgumentException(message);
+                }
+            } else {
+                query = query.Limit(Limit.Value);
+            }
         }
 
         if (Offset.HasValue) {
-            query = query.Offset(Offset.Value);
+            if (Offset.Value < 0) {
+                var message = "Offset must be a non-negative value.";
+                WriteWarning(message);
+                if (errorAction == ActionPreference.Stop) {
+                    throw new PSArgumentException(message);
+                }
+            } else {
+                query = query.Offset(Offset.Value);
+            }
         }
 
         if (!Compile) {
