@@ -170,6 +170,21 @@ public class Query
         return this;
     }
 
+    public Query OrderByDescending(params string[] columns)
+    {
+        foreach (var column in columns)
+        {
+            _orderBy.Add($"{column} DESC");
+        }
+        return this;
+    }
+
+    public Query OrderByRaw(params string[] expressions)
+    {
+        _orderBy.AddRange(expressions);
+        return this;
+    }
+
     public Query GroupBy(params string[] columns)
     {
         _groupBy.AddRange(columns);
@@ -228,6 +243,7 @@ public class Query
     public string UpdateTable => _updateTable;
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;
+    public IReadOnlyList<string> OrderByExpressions => _orderBy;
     public IReadOnlyList<string> OrderByColumns => _orderBy;
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;

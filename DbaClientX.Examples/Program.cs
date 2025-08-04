@@ -25,8 +25,11 @@ public class Program
             case "streamquery":
                 await StreamQueryExample.RunAsync();
                 break;
+            case "orderby":
+                OrderByExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, orderby");
                 break;
         }
     }
