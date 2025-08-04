@@ -154,6 +154,51 @@ public class SqlServerTests
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
     }
 
+    private class CaptureStoredProcSqlServer : DBAClientX.SqlServer
+    {
+        public string? CapturedQuery;
+        public IDictionary<string, object?>? CapturedParameters;
+
+        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+        {
+            CapturedQuery = query;
+            CapturedParameters = parameters;
+            return null;
+        }
+
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        {
+            CapturedQuery = query;
+            CapturedParameters = parameters;
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_BuildsExecStatement()
+    {
+        var sqlServer = new CaptureStoredProcSqlServer();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1,
+            ["@name"] = "n"
+        };
+        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", parameters);
+        Assert.Equal("EXEC sp_test @id, @name", sqlServer.CapturedQuery);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_BuildsExecStatement()
+    {
+        var sqlServer = new CaptureStoredProcSqlServer();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1
+        };
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", parameters);
+        Assert.Equal("EXEC sp_test @id", sqlServer.CapturedQuery);
+    }
+
     private class FakeTransactionSqlServer : DBAClientX.SqlServer
     {
         public bool TransactionStarted { get; private set; }

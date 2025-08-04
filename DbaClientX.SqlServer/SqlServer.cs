@@ -174,6 +174,28 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    private static string BuildStoredProcedureQuery(string procedure, IDictionary<string, object?>? parameters)
+    {
+        if (parameters == null || parameters.Count == 0)
+        {
+            return $"EXEC {procedure}";
+        }
+        var joined = string.Join(", ", parameters.Keys);
+        return $"EXEC {procedure} {joined}";
+    }
+
+    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+    {
+        var query = BuildStoredProcedureQuery(procedure, parameters);
+        return SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes);
+    }
+
+    public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+    {
+        var query = BuildStoredProcedureQuery(procedure, parameters);
+        return SqlQueryAsync(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, cancellationToken, parameterTypes);
+    }
+
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
     public virtual IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
     {

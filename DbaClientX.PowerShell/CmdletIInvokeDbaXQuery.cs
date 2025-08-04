@@ -1,26 +1,34 @@
 ﻿namespace DBAClientX.PowerShell;
 
-[Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Compatibility", SupportsShouldProcess = true)]
+[Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
-    [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     public string Server { get; set; }
 
-    [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     public string Database { get; set; }
 
-    [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = true, ParameterSetName = "Query")]
     public string Query { get; set; }
 
-    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
+    public string StoredProcedure { get; set; }
+
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public int QueryTimeout { get; set; }
 
-    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
-    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public Hashtable Parameters { get; set; }
 
     private ActionPreference ErrorAction;
@@ -58,7 +66,12 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
                     de => de.Value);
             }
 
-            var result = sqlServer.SqlQuery(Server, Database, true, Query, parameters);
+            object? result;
+            if (!string.IsNullOrEmpty(StoredProcedure)) {
+                result = sqlServer.ExecuteStoredProcedure(Server, Database, true, StoredProcedure, parameters);
+            } else {
+                result = sqlServer.SqlQuery(Server, Database, true, Query, parameters);
+            }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
                     //var resultConverted = result as DataTable;
