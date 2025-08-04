@@ -90,6 +90,26 @@ public class Query
         return AddCondition(column, op, subQuery, "OR");
     }
 
+    public Query WhereNull(string column)
+    {
+        return AddNullCondition(column);
+    }
+
+    public Query OrWhereNull(string column)
+    {
+        return AddNullCondition(column, "OR");
+    }
+
+    public Query WhereNotNull(string column)
+    {
+        return AddNotNullCondition(column);
+    }
+
+    public Query OrWhereNotNull(string column)
+    {
+        return AddNotNullCondition(column, "OR");
+    }
+
     public Query BeginGroup()
     {
         AddDefaultAndIfRequired();
@@ -113,6 +133,20 @@ public class Query
     {
         AddLogicalOperator(logical);
         _where.Add(new ConditionToken(column, op, value));
+        return this;
+    }
+
+    private Query AddNullCondition(string column, string? logical = null)
+    {
+        AddLogicalOperator(logical);
+        _where.Add(new NullToken(column));
+        return this;
+    }
+
+    private Query AddNotNullCondition(string column, string? logical = null)
+    {
+        AddLogicalOperator(logical);
+        _where.Add(new NotNullToken(column));
         return this;
     }
 
@@ -262,4 +296,8 @@ public sealed record OperatorToken(string Operator) : IWhereToken;
 public sealed record GroupStartToken() : IWhereToken;
 
 public sealed record GroupEndToken() : IWhereToken;
+
+public sealed record NullToken(string Column) : IWhereToken;
+
+public sealed record NotNullToken(string Column) : IWhereToken;
 

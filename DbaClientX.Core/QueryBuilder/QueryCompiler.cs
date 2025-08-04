@@ -178,6 +178,12 @@ public class QueryCompiler
                 case GroupEndToken:
                     sb.Append(')');
                     break;
+                case NullToken n:
+                    sb.Append(n.Column).Append(" IS NULL");
+                    break;
+                case NotNullToken nn:
+                    sb.Append(nn.Column).Append(" IS NOT NULL");
+                    break;
             }
         }
     }
