@@ -181,6 +181,43 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void WhereNullCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNull("deleted_at");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE deleted_at IS NULL", sql);
+    }
+
+    [Fact]
+    public void WhereNotNullCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNotNull("email");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE email IS NOT NULL", sql);
+    }
+
+    [Fact]
+    public void OrWhereNullCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("age", ">", 18)
+            .OrWhereNull("deleted_at");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age > 18 OR deleted_at IS NULL", sql);
+    }
+
+    [Fact]
     public void SelectWithoutFrom()
     {
         var query = new Query()

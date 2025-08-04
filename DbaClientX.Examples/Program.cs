@@ -31,8 +31,11 @@ public class Program
             case "nonquery":
                 NonQueryExample.Run();
                 break;
+            case "nullconditions":
+                NullConditionsExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions");
                 break;
         }
     }
