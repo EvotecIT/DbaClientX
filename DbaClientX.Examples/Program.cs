@@ -25,6 +25,9 @@ public class Program
             case "streamquery":
                 await StreamQueryExample.RunAsync();
                 break;
+            case "orderby":
+                OrderByExample.Run();
+                break;
             case "nonquery":
                 NonQueryExample.Run();
                 break;

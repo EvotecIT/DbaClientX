@@ -106,6 +106,30 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectOrderByDescending()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderByDescending("age");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users ORDER BY age DESC", sql);
+    }
+
+    [Fact]
+    public void SelectOrderByRaw()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderByRaw("RAND()");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users ORDER BY RAND()", sql);
+    }
+
+    [Fact]
     public void LimitThenTop_UsesTop()
     {
         var query = new Query()
