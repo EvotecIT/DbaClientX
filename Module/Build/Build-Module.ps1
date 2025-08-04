@@ -12,7 +12,7 @@
         Tags                 = @('Windows', 'MacOS', 'Linux')
         ProjectUri           = 'https://github.com/EvotecIT/DbaClientX'
         #AliasesToExport      = @('')
-        CmdletsToExport      = @('Invoke-DbaXQuery', 'New-DbaXQuery')
+        CmdletsToExport      = @('Invoke-DbaXQuery', 'Invoke-DbaXNonQuery', 'New-DbaXQuery')
     }
     New-ConfigurationManifest @Manifest
 
@@ -89,7 +89,7 @@
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
-        NETSearchClass                    = "DbaClientX.PowerShell.CmdletIInvokeDbaXQuery"
+        NETSearchClass                    = "DbaClientX.PowerShell.CmdletIInvokeDbaXQuery", "DbaClientX.PowerShell.CmdletIInvokeDbaXNonQuery"
         DotSourceLibraries                = $true
         RefreshPSD1Only                   = $true
     }

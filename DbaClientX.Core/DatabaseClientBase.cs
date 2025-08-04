@@ -98,6 +98,21 @@ public abstract class DatabaseClientBase
         return BuildResult(dataSet);
     }
 
+    protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        return command.ExecuteNonQuery();
+    }
+
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
     {
         using var command = connection.CreateCommand();
@@ -159,7 +174,14 @@ public abstract class DatabaseClientBase
     private object? BuildResult(DataSet dataSet)
     {
         var returnType = ReturnType;
-        if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+        if (returnType == ReturnType.DataRow)
+        {
+            if (dataSet.Tables.Count > 0 && dataSet.Tables[0].Rows.Count > 0)
+            {
+                return dataSet.Tables[0].Rows[0];
+            }
+        }
+        else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
         {
             if (dataSet.Tables.Count > 0)
             {
@@ -169,10 +191,6 @@ public abstract class DatabaseClientBase
         else if (returnType == ReturnType.DataSet)
         {
             return dataSet;
-        }
-        else if (returnType == ReturnType.DataTable)
-        {
-            return dataSet.Tables;
         }
         return null;
     }

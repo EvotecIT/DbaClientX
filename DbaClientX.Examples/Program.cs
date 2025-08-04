@@ -28,8 +28,11 @@ public class Program
             case "orderby":
                 OrderByExample.Run();
                 break;
+            case "nonquery":
+                NonQueryExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, orderby");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery");
                 break;
         }
     }
