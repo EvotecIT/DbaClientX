@@ -376,5 +376,40 @@ public class QueryBuilderTests
             CultureInfo.CurrentCulture = original;
         }
     }
+
+    [Fact]
+    public void Select_WithNoColumns_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Select());
+    }
+
+    [Fact]
+    public void From_WithNullTable_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.From(null!));
+    }
+
+    [Fact]
+    public void InsertInto_WithoutColumns_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.InsertInto("users"));
+    }
+
+    [Fact]
+    public void Join_WithNullCondition_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Join("users", null!));
+    }
+
+    [Fact]
+    public void Where_WithEmptyColumn_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Where("", 1));
+    }
 }
 

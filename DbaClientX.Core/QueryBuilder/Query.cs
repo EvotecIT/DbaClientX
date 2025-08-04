@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace DBAClientX.QueryBuilder;
@@ -24,12 +25,14 @@ public class Query
 
     public Query Select(params string[] columns)
     {
+        ValidateStrings(columns, nameof(columns));
         _select.AddRange(columns);
         return this;
     }
 
     public Query From(string table)
     {
+        ValidateString(table, nameof(table));
         _from = table;
         _fromSubquery = null;
         return this;
@@ -37,6 +40,11 @@ public class Query
 
     public Query From(Query subQuery, string alias)
     {
+        if (subQuery == null)
+        {
+            throw new ArgumentException("Subquery cannot be null.", nameof(subQuery));
+        }
+        ValidateString(alias, nameof(alias));
         _from = null;
         _fromSubquery = (subQuery, alias);
         return this;
@@ -44,18 +52,24 @@ public class Query
 
     public Query Join(string table, string condition)
     {
+        ValidateString(table, nameof(table));
+        ValidateString(condition, nameof(condition));
         _joins.Add(("JOIN", table, condition));
         return this;
     }
 
     public Query LeftJoin(string table, string condition)
     {
+        ValidateString(table, nameof(table));
+        ValidateString(condition, nameof(condition));
         _joins.Add(("LEFT JOIN", table, condition));
         return this;
     }
 
     public Query RightJoin(string table, string condition)
     {
+        ValidateString(table, nameof(table));
+        ValidateString(condition, nameof(condition));
         _joins.Add(("RIGHT JOIN", table, condition));
         return this;
     }
@@ -131,6 +145,12 @@ public class Query
 
     private Query AddCondition(string column, string op, object value, string? logical = null)
     {
+        ValidateString(column, nameof(column));
+        ValidateString(op, nameof(op));
+        if (value == null)
+        {
+            throw new ArgumentException("Value cannot be null.", nameof(value));
+        }
         AddLogicalOperator(logical);
         _where.Add(new ConditionToken(column, op, value));
         return this;
@@ -138,6 +158,7 @@ public class Query
 
     private Query AddNullCondition(string column, string? logical = null)
     {
+        ValidateString(column, nameof(column));
         AddLogicalOperator(logical);
         _where.Add(new NullToken(column));
         return this;
@@ -145,6 +166,7 @@ public class Query
 
     private Query AddNotNullCondition(string column, string? logical = null)
     {
+        ValidateString(column, nameof(column));
         AddLogicalOperator(logical);
         _where.Add(new NotNullToken(column));
         return this;
@@ -175,6 +197,8 @@ public class Query
 
     public Query InsertInto(string table, params string[] columns)
     {
+        ValidateString(table, nameof(table));
+        ValidateStrings(columns, nameof(columns));
         _insertTable = table;
         _insertColumns.AddRange(columns);
         return this;
@@ -182,30 +206,39 @@ public class Query
 
     public Query Update(string table)
     {
+        ValidateString(table, nameof(table));
         _updateTable = table;
         return this;
     }
 
     public Query Set(string column, object value)
     {
+        ValidateString(column, nameof(column));
+        if (value == null)
+        {
+            throw new ArgumentException("Value cannot be null.", nameof(value));
+        }
         _set.Add((column, value));
         return this;
     }
 
     public Query DeleteFrom(string table)
     {
+        ValidateString(table, nameof(table));
         _deleteTable = table;
         return this;
     }
 
     public Query OrderBy(params string[] columns)
     {
+        ValidateStrings(columns, nameof(columns));
         _orderBy.AddRange(columns);
         return this;
     }
 
     public Query OrderByDescending(params string[] columns)
     {
+        ValidateStrings(columns, nameof(columns));
         foreach (var column in columns)
         {
             _orderBy.Add($"{column} DESC");
@@ -215,12 +248,14 @@ public class Query
 
     public Query OrderByRaw(params string[] expressions)
     {
+        ValidateStrings(expressions, nameof(expressions));
         _orderBy.AddRange(expressions);
         return this;
     }
 
     public Query GroupBy(params string[] columns)
     {
+        ValidateStrings(columns, nameof(columns));
         _groupBy.AddRange(columns);
         return this;
     }
@@ -232,6 +267,12 @@ public class Query
 
     public Query Having(string column, string op, object value)
     {
+        ValidateString(column, nameof(column));
+        ValidateString(op, nameof(op));
+        if (value == null)
+        {
+            throw new ArgumentException("Value cannot be null.", nameof(value));
+        }
         _having.Add((column, op, value));
         return this;
     }
@@ -265,6 +306,27 @@ public class Query
     {
         _values.AddRange(values);
         return this;
+    }
+
+    private static void ValidateString(string value, string paramName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{paramName} cannot be null or empty.", paramName);
+        }
+    }
+
+    private static void ValidateStrings(string[] values, string paramName)
+    {
+        if (values == null || values.Length == 0)
+        {
+            throw new ArgumentException($"{paramName} cannot be null or empty.", paramName);
+        }
+
+        foreach (var value in values)
+        {
+            ValidateString(value, paramName);
+        }
     }
 
     public IReadOnlyList<string> SelectColumns => _select;
