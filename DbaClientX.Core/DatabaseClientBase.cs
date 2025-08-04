@@ -98,6 +98,21 @@ public abstract class DatabaseClientBase
         return BuildResult(dataSet);
     }
 
+    protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        return command.ExecuteNonQuery();
+    }
+
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
     {
         using var command = connection.CreateCommand();
