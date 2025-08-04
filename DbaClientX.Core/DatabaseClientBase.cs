@@ -159,7 +159,14 @@ public abstract class DatabaseClientBase
     private object? BuildResult(DataSet dataSet)
     {
         var returnType = ReturnType;
-        if (returnType == ReturnType.DataRow || returnType == ReturnType.PSObject)
+        if (returnType == ReturnType.DataRow)
+        {
+            if (dataSet.Tables.Count > 0 && dataSet.Tables[0].Rows.Count > 0)
+            {
+                return dataSet.Tables[0].Rows[0];
+            }
+        }
+        else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
         {
             if (dataSet.Tables.Count > 0)
             {
@@ -169,10 +176,6 @@ public abstract class DatabaseClientBase
         else if (returnType == ReturnType.DataSet)
         {
             return dataSet;
-        }
-        else if (returnType == ReturnType.DataTable)
-        {
-            return dataSet.Tables;
         }
         return null;
     }
