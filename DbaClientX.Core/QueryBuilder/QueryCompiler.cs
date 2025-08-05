@@ -159,7 +159,7 @@ public class QueryCompiler
         return sb.ToString();
     }
 
-    private static void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens)
+    private void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens)
     {
         foreach (var token in tokens)
         {
@@ -188,7 +188,7 @@ public class QueryCompiler
         }
     }
 
-    private static string FormatValue(object value)
+    private string FormatValue(object value)
     {
         return value switch
         {
@@ -200,7 +200,7 @@ public class QueryCompiler
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),
-            Query q => "(" + new QueryCompiler().Compile(q) + ")",
+            Query q => "(" + Compile(q) + ")",
             _ => value.ToString()
         };
     }

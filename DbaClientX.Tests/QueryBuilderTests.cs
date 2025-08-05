@@ -259,6 +259,27 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void NestedSubqueryInWhere()
+    {
+        var inner = new Query()
+            .Select("id")
+            .From("admins");
+
+        var middle = new Query()
+            .Select("id")
+            .From("users")
+            .Where("owner_id", "IN", inner);
+
+        var query = new Query()
+            .Select("*")
+            .From("items")
+            .Where("user_id", "IN", middle);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM items WHERE user_id IN (SELECT id FROM users WHERE owner_id IN (SELECT id FROM admins))", sql);
+    }
+
+    [Fact]
     public void GroupByHaving()
     {
         var query = new Query()
