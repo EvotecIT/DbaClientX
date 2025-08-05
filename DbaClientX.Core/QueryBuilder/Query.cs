@@ -329,6 +329,18 @@ public class Query
         }
     }
 
+    public string Compile()
+    {
+        var compiler = new QueryCompiler();
+        return compiler.Compile(this);
+    }
+
+    public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters()
+    {
+        var compiler = new QueryCompiler();
+        return compiler.CompileWithParameters(this);
+    }
+
     public IReadOnlyList<string> SelectColumns => _select;
     public string Table => _from;
     public (Query Query, string Alias)? FromSubquery => _fromSubquery;
