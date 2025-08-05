@@ -24,16 +24,11 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = false)]
     public int? Offset { get; set; }
 
-    private ActionPreference errorAction;
+    private ActionPreference errorAction = ActionPreference.Continue;
 
     protected override void BeginProcessing() {
-        // Get the error action preference as user requested
-        // It first sets the error action to the default error action preference
-        // If the user has specified the error action, it will set the error action to the user specified error action
-        errorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
+        if (MyInvocation.BoundParameters.TryGetValue("ErrorAction", out var value)) {
+            if (Enum.TryParse(value.ToString(), true, out ActionPreference actionPreference)) {
                 errorAction = actionPreference;
             }
         }
@@ -47,7 +42,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
                 var message = "Limit must be a non-negative value.";
                 WriteWarning(message);
                 if (errorAction == ActionPreference.Stop) {
-                    throw new PSArgumentException(message);
+                    ThrowTerminatingError(new ErrorRecord(new PSArgumentException(message), "LimitNegative", ErrorCategory.InvalidArgument, Limit));
                 }
             } else {
                 query = query.Limit(Limit.Value);
@@ -59,7 +54,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
                 var message = "Offset must be a non-negative value.";
                 WriteWarning(message);
                 if (errorAction == ActionPreference.Stop) {
-                    throw new PSArgumentException(message);
+                    ThrowTerminatingError(new ErrorRecord(new PSArgumentException(message), "OffsetNegative", ErrorCategory.InvalidArgument, Offset));
                 }
             } else {
                 query = query.Offset(Offset.Value);
