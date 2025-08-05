@@ -10,6 +10,9 @@ public class Program
             case "asyncquery":
                 await QuerySqlServerAsyncExample.RunAsync();
                 break;
+            case "pgasyncquery":
+                await QueryPostgreSqlAsyncExample.RunAsync();
+                break;
             case "nestedquery":
                 NestedQueryExample.Run();
                 break;
@@ -35,7 +38,7 @@ public class Program
                 NullConditionsExample.Run();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions");
                 break;
         }
     }
