@@ -399,6 +399,20 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void CompileWithParameters_ReturnsSqlAndParameters()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", 1)
+            .Where("name", "Bob");
+
+        var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
+        Assert.Equal("SELECT * FROM users WHERE id = @p0 AND name = @p1", sql);
+        Assert.Equal(new object[] { 1, "Bob" }, parameters);
+    }
+
+    [Fact]
     public void Select_WithNoColumns_Throws()
     {
         var query = new Query();

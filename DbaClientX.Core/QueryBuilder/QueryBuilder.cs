@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace DBAClientX.QueryBuilder;
 
 public static class QueryBuilder
@@ -8,6 +10,12 @@ public static class QueryBuilder
     {
         var compiler = new QueryCompiler();
         return compiler.Compile(query);
+    }
+
+    public static (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
+    {
+        var compiler = new QueryCompiler();
+        return compiler.CompileWithParameters(query);
     }
 }
 
