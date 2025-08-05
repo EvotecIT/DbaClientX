@@ -34,8 +34,11 @@ public class Program
             case "nullconditions":
                 NullConditionsExample.Run();
                 break;
+            case "parameterized":
+                ParameterizedQueryExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions");
+                Console.WriteLine("Available examples: asyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized");
                 break;
         }
     }

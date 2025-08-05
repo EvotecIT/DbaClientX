@@ -308,6 +308,18 @@ public class Query
         return this;
     }
 
+    public string Compile()
+    {
+        var compiler = new QueryCompiler();
+        return compiler.Compile(this);
+    }
+
+    public (string Sql, List<object> Parameters) CompileWithParameters()
+    {
+        var compiler = new QueryCompiler();
+        return compiler.CompileWithParameters(this);
+    }
+
     private static void ValidateString(string value, string paramName)
     {
         if (string.IsNullOrWhiteSpace(value))

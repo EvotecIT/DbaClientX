@@ -411,5 +411,42 @@ public class QueryBuilderTests
         var query = new Query();
         Assert.Throws<ArgumentException>(() => query.Where("", 1));
     }
+
+    [Fact]
+    public void CompileWithParameters_ReturnsSqlAndParameters()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("age", 30)
+            .Where("name", "Bob");
+
+        var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
+
+        Assert.Equal("SELECT * FROM users WHERE age = @p0 AND name = @p1", sql);
+        Assert.Equal(2, parameters.Count);
+        Assert.Equal(30, parameters[0]);
+        Assert.Equal("Bob", parameters[1]);
+    }
+
+    [Fact]
+    public void CompileWithParameters_SubqueryMergesParameters()
+    {
+        var sub = new Query()
+            .Select("id")
+            .From("admins")
+            .Where("role", "Admin");
+
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", "IN", sub);
+
+        var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
+
+        Assert.Equal("SELECT * FROM users WHERE id IN (SELECT id FROM admins WHERE role = @p0)", sql);
+        Assert.Single(parameters);
+        Assert.Equal("Admin", parameters[0]);
+    }
 }
 

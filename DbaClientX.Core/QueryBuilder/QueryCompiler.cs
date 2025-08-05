@@ -1,11 +1,21 @@
 using System.Text;
 using System.Globalization;
+using System.Collections.Generic;
 
 namespace DBAClientX.QueryBuilder;
 
 public class QueryCompiler
 {
-    public string Compile(Query query)
+    public string Compile(Query query) => CompileInternal(query, null);
+
+    public (string Sql, List<object> Parameters) CompileWithParameters(Query query)
+    {
+        var parameters = new List<object>();
+        var sql = CompileInternal(query, parameters);
+        return (sql, parameters);
+    }
+
+    private static string CompileInternal(Query query, List<object>? parameters)
     {
         var sb = new StringBuilder();
 
@@ -28,7 +38,7 @@ public class QueryCompiler
                     {
                         sb.Append(", ");
                     }
-                    sb.Append(FormatValue(value));
+                    sb.Append(FormatValue(value, parameters));
                     firstValue = false;
                 }
                 sb.Append(')');
@@ -50,7 +60,7 @@ public class QueryCompiler
                     {
                         sb.Append(", ");
                     }
-                    sb.Append(set.Column).Append(" = ").Append(FormatValue(set.Value));
+                    sb.Append(set.Column).Append(" = ").Append(FormatValue(set.Value, parameters));
                     firstSet = false;
                 }
             }
@@ -58,7 +68,7 @@ public class QueryCompiler
             if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                AppendWhereTokens(sb, query.WhereTokens);
+                AppendWhereTokens(sb, query.WhereTokens, parameters);
             }
 
             return sb.ToString();
@@ -71,7 +81,7 @@ public class QueryCompiler
             if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                AppendWhereTokens(sb, query.WhereTokens);
+                AppendWhereTokens(sb, query.WhereTokens, parameters);
             }
 
             return sb.ToString();
@@ -99,7 +109,7 @@ public class QueryCompiler
         else if (query.FromSubquery.HasValue)
         {
             var (subQuery, alias) = query.FromSubquery.Value;
-            sb.Append(" FROM (").Append(Compile(subQuery)).Append(") AS ").Append(alias);
+            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(") AS ").Append(alias);
         }
 
         if (query.Joins.Count > 0)
@@ -113,7 +123,7 @@ public class QueryCompiler
         if (query.WhereTokens.Count > 0)
         {
             sb.Append(" WHERE ");
-            AppendWhereTokens(sb, query.WhereTokens);
+            AppendWhereTokens(sb, query.WhereTokens, parameters);
         }
 
         if (query.GroupByColumns.Count > 0)
@@ -132,7 +142,7 @@ public class QueryCompiler
                     sb.Append(" AND ");
                 }
                 sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
-                sb.Append(FormatValue(clause.Value));
+                sb.Append(FormatValue(clause.Value, parameters));
                 first = false;
             }
         }
@@ -159,7 +169,7 @@ public class QueryCompiler
         return sb.ToString();
     }
 
-    private static void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens)
+    private static void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens, List<object>? parameters)
     {
         foreach (var token in tokens)
         {
@@ -170,7 +180,7 @@ public class QueryCompiler
                     break;
                 case ConditionToken cond:
                     sb.Append(cond.Column).Append(' ').Append(cond.Operator).Append(' ');
-                    sb.Append(FormatValue(cond.Value));
+                    sb.Append(FormatValue(cond.Value, parameters));
                     break;
                 case GroupStartToken:
                     sb.Append('(');
@@ -188,8 +198,20 @@ public class QueryCompiler
         }
     }
 
-    private static string FormatValue(object value)
+    private static string FormatValue(object value, List<object>? parameters)
     {
+        if (parameters != null)
+        {
+            if (value is Query q)
+            {
+                return "(" + CompileInternal(q, parameters) + ")";
+            }
+
+            var index = parameters.Count;
+            parameters.Add(value);
+            return $"@p{index}";
+        }
+
         return value switch
         {
             string s => $"'{s.Replace("'", "''")}'",
@@ -200,7 +222,7 @@ public class QueryCompiler
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),
-            Query q => "(" + new QueryCompiler().Compile(q) + ")",
+            Query q => "(" + CompileInternal(q, null) + ")",
             _ => value.ToString()
         };
     }
