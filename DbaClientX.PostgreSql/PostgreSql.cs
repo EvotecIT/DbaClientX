@@ -188,10 +188,10 @@ public class PostgreSql : DatabaseClientBase
     {
         if (parameters == null || parameters.Count == 0)
         {
-            return $"CALL {procedure}";
+            return $"CALL {procedure}()";
         }
         var joined = string.Join(", ", parameters.Keys);
-        return $"CALL {procedure} {joined}";
+        return $"CALL {procedure}({joined})";
     }
 
     public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
