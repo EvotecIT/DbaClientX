@@ -196,6 +196,42 @@ public class QueryCompiler
                 case NotNullToken nn:
                     sb.Append(nn.Column).Append(" IS NOT NULL");
                     break;
+                case InToken it:
+                    sb.Append(it.Column).Append(" IN (");
+                    for (int i = 0; i < it.Values.Count; i++)
+                    {
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        AppendValue(sb, it.Values[i], parameters);
+                    }
+                    sb.Append(')');
+                    break;
+                case NotInToken nit:
+                    sb.Append(nit.Column).Append(" NOT IN (");
+                    for (int i = 0; i < nit.Values.Count; i++)
+                    {
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        AppendValue(sb, nit.Values[i], parameters);
+                    }
+                    sb.Append(')');
+                    break;
+                case BetweenToken bt:
+                    sb.Append(bt.Column).Append(" BETWEEN ");
+                    AppendValue(sb, bt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, bt.End, parameters);
+                    break;
+                case NotBetweenToken nbt:
+                    sb.Append(nbt.Column).Append(" NOT BETWEEN ");
+                    AppendValue(sb, nbt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, nbt.End, parameters);
+                    break;
             }
         }
     }

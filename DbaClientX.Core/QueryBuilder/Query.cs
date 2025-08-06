@@ -104,6 +104,66 @@ public class Query
         return AddCondition(column, op, subQuery, "OR");
     }
 
+    public Query WhereIn(string column, params object[] values)
+    {
+        return AddInCondition(column, values);
+    }
+
+    public Query WhereIn(string column, Query subQuery)
+    {
+        return AddCondition(column, "IN", subQuery);
+    }
+
+    public Query OrWhereIn(string column, params object[] values)
+    {
+        return AddInCondition(column, values, "OR");
+    }
+
+    public Query OrWhereIn(string column, Query subQuery)
+    {
+        return AddCondition(column, "IN", subQuery, "OR");
+    }
+
+    public Query WhereNotIn(string column, params object[] values)
+    {
+        return AddInCondition(column, values, null, true);
+    }
+
+    public Query WhereNotIn(string column, Query subQuery)
+    {
+        return AddCondition(column, "NOT IN", subQuery);
+    }
+
+    public Query OrWhereNotIn(string column, params object[] values)
+    {
+        return AddInCondition(column, values, "OR", true);
+    }
+
+    public Query OrWhereNotIn(string column, Query subQuery)
+    {
+        return AddCondition(column, "NOT IN", subQuery, "OR");
+    }
+
+    public Query WhereBetween(string column, object start, object end)
+    {
+        return AddBetweenCondition(column, start, end);
+    }
+
+    public Query OrWhereBetween(string column, object start, object end)
+    {
+        return AddBetweenCondition(column, start, end, "OR");
+    }
+
+    public Query WhereNotBetween(string column, object start, object end)
+    {
+        return AddBetweenCondition(column, start, end, null, true);
+    }
+
+    public Query OrWhereNotBetween(string column, object start, object end)
+    {
+        return AddBetweenCondition(column, start, end, "OR", true);
+    }
+
     public Query WhereNull(string column)
     {
         return AddNullCondition(column);
@@ -169,6 +229,52 @@ public class Query
         ValidateString(column, nameof(column));
         AddLogicalOperator(logical);
         _where.Add(new NotNullToken(column));
+        return this;
+    }
+
+    private Query AddInCondition(string column, object[] values, string? logical = null, bool not = false)
+    {
+        ValidateString(column, nameof(column));
+        if (values == null || values.Length == 0)
+        {
+            throw new ArgumentException("Values cannot be null or empty.", nameof(values));
+        }
+        foreach (var value in values)
+        {
+            if (value == null)
+            {
+                throw new ArgumentException("Values cannot contain null.", nameof(values));
+            }
+        }
+        AddLogicalOperator(logical);
+        var list = new List<object>(values);
+        if (not)
+        {
+            _where.Add(new NotInToken(column, list));
+        }
+        else
+        {
+            _where.Add(new InToken(column, list));
+        }
+        return this;
+    }
+
+    private Query AddBetweenCondition(string column, object start, object end, string? logical = null, bool not = false)
+    {
+        ValidateString(column, nameof(column));
+        if (start == null || end == null)
+        {
+            throw new ArgumentException("Between values cannot be null.");
+        }
+        AddLogicalOperator(logical);
+        if (not)
+        {
+            _where.Add(new NotBetweenToken(column, start, end));
+        }
+        else
+        {
+            _where.Add(new BetweenToken(column, start, end));
+        }
         return this;
     }
 
@@ -374,4 +480,12 @@ public sealed record GroupEndToken() : IWhereToken;
 public sealed record NullToken(string Column) : IWhereToken;
 
 public sealed record NotNullToken(string Column) : IWhereToken;
+
+public sealed record InToken(string Column, IReadOnlyList<object> Values) : IWhereToken;
+
+public sealed record NotInToken(string Column, IReadOnlyList<object> Values) : IWhereToken;
+
+public sealed record BetweenToken(string Column, object Start, object End) : IWhereToken;
+
+public sealed record NotBetweenToken(string Column, object Start, object End) : IWhereToken;
 
