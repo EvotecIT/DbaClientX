@@ -8,4 +8,8 @@ describe 'Invoke-DbaXQuery cmdlet' {
     it 'supports StoredProcedure parameter' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'StoredProcedure'
     }
+
+    it 'supports Stream parameter' {
+        (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Stream'
+    }
 }

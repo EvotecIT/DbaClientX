@@ -1,11 +1,22 @@
-using System.Text;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace DBAClientX.QueryBuilder;
 
 public class QueryCompiler
 {
     public string Compile(Query query)
+        => CompileInternal(query, null);
+
+    public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
+    {
+        var parameters = new List<object>();
+        var sql = CompileInternal(query, parameters);
+        return (sql, parameters);
+    }
+
+    private string CompileInternal(Query query, List<object>? parameters)
     {
         var sb = new StringBuilder();
 
@@ -28,7 +39,7 @@ public class QueryCompiler
                     {
                         sb.Append(", ");
                     }
-                    sb.Append(FormatValue(value));
+                    AppendValue(sb, value, parameters);
                     firstValue = false;
                 }
                 sb.Append(')');
@@ -50,7 +61,8 @@ public class QueryCompiler
                     {
                         sb.Append(", ");
                     }
-                    sb.Append(set.Column).Append(" = ").Append(FormatValue(set.Value));
+                    sb.Append(set.Column).Append(" = ");
+                    AppendValue(sb, set.Value, parameters);
                     firstSet = false;
                 }
             }
@@ -58,7 +70,7 @@ public class QueryCompiler
             if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                AppendWhereTokens(sb, query.WhereTokens);
+                AppendWhereTokens(sb, query.WhereTokens, parameters);
             }
 
             return sb.ToString();
@@ -71,7 +83,7 @@ public class QueryCompiler
             if (query.WhereTokens.Count > 0)
             {
                 sb.Append(" WHERE ");
-                AppendWhereTokens(sb, query.WhereTokens);
+                AppendWhereTokens(sb, query.WhereTokens, parameters);
             }
 
             return sb.ToString();
@@ -99,7 +111,7 @@ public class QueryCompiler
         else if (query.FromSubquery.HasValue)
         {
             var (subQuery, alias) = query.FromSubquery.Value;
-            sb.Append(" FROM (").Append(Compile(subQuery)).Append(") AS ").Append(alias);
+            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(") AS ").Append(alias);
         }
 
         if (query.Joins.Count > 0)
@@ -113,7 +125,7 @@ public class QueryCompiler
         if (query.WhereTokens.Count > 0)
         {
             sb.Append(" WHERE ");
-            AppendWhereTokens(sb, query.WhereTokens);
+            AppendWhereTokens(sb, query.WhereTokens, parameters);
         }
 
         if (query.GroupByColumns.Count > 0)
@@ -132,7 +144,7 @@ public class QueryCompiler
                     sb.Append(" AND ");
                 }
                 sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
-                sb.Append(FormatValue(clause.Value));
+                AppendValue(sb, clause.Value, parameters);
                 first = false;
             }
         }
@@ -159,7 +171,7 @@ public class QueryCompiler
         return sb.ToString();
     }
 
-    private static void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens)
+    private void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens, List<object>? parameters)
     {
         foreach (var token in tokens)
         {
@@ -170,7 +182,7 @@ public class QueryCompiler
                     break;
                 case ConditionToken cond:
                     sb.Append(cond.Column).Append(' ').Append(cond.Operator).Append(' ');
-                    sb.Append(FormatValue(cond.Value));
+                    AppendValue(sb, cond.Value, parameters);
                     break;
                 case GroupStartToken:
                     sb.Append('(');
@@ -184,11 +196,72 @@ public class QueryCompiler
                 case NotNullToken nn:
                     sb.Append(nn.Column).Append(" IS NOT NULL");
                     break;
+                case InToken it:
+                    sb.Append(it.Column).Append(" IN (");
+                    for (int i = 0; i < it.Values.Count; i++)
+                    {
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        AppendValue(sb, it.Values[i], parameters);
+                    }
+                    sb.Append(')');
+                    break;
+                case NotInToken nit:
+                    sb.Append(nit.Column).Append(" NOT IN (");
+                    for (int i = 0; i < nit.Values.Count; i++)
+                    {
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        AppendValue(sb, nit.Values[i], parameters);
+                    }
+                    sb.Append(')');
+                    break;
+                case BetweenToken bt:
+                    sb.Append(bt.Column).Append(" BETWEEN ");
+                    AppendValue(sb, bt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, bt.End, parameters);
+                    break;
+                case NotBetweenToken nbt:
+                    sb.Append(nbt.Column).Append(" NOT BETWEEN ");
+                    AppendValue(sb, nbt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, nbt.End, parameters);
+                    break;
             }
         }
     }
 
-    private static string FormatValue(object value)
+    private void AppendValue(StringBuilder sb, object value, List<object>? parameters)
+    {
+        if (value is Query q)
+        {
+            sb.Append('(').Append(CompileInternal(q, parameters)).Append(')');
+            return;
+        }
+
+        if (parameters != null)
+        {
+            sb.Append(AddParameter(value, parameters));
+        }
+        else
+        {
+            sb.Append(FormatValue(value));
+        }
+    }
+
+    private string AddParameter(object value, List<object> parameters)
+    {
+        var name = "@p" + parameters.Count;
+        parameters.Add(value);
+        return name;
+    }
+
+    private string FormatValue(object value)
     {
         return value switch
         {
@@ -200,7 +273,6 @@ public class QueryCompiler
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),
-            Query q => "(" + new QueryCompiler().Compile(q) + ")",
             _ => value.ToString()
         };
     }

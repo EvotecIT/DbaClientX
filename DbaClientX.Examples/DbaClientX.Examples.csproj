@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -9,6 +9,8 @@
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
     <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
+    <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
+    <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
   </ItemGroup>
 
 </Project>

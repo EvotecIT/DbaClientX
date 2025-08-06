@@ -1,11 +1,13 @@
 using System;
 using System.Data;
 using System.Data.Common;
-using System.Data.SqlClient;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using Npgsql;
+using NpgsqlTypes;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
 using System.Runtime.CompilerServices;
 #endif
@@ -13,28 +15,29 @@ using System.Runtime.CompilerServices;
 namespace DBAClientX;
 
 /// <summary>
-/// This class is used to connect to SQL Server
+/// This class is used to connect to PostgreSQL
 /// </summary>
-public class SqlServer : DatabaseClientBase
+public class PostgreSql : DatabaseClientBase
 {
     private readonly object _syncRoot = new();
-    private SqlConnection? _transactionConnection;
-    private SqlTransaction? _transaction;
-    private static readonly ConcurrentDictionary<SqlDbType, DbType> TypeCache = new();
+    private NpgsqlConnection? _transactionConnection;
+    private NpgsqlTransaction? _transaction;
+    private static readonly ConcurrentDictionary<NpgsqlDbType, DbType> TypeCache = new();
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual object? PgQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
-        var connectionString = new SqlConnectionStringBuilder
+        var connectionString = new NpgsqlConnectionStringBuilder
         {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
+            Host = host,
+            Database = database,
+            Username = username,
+            Password = password,
             Pooling = true
         }.ConnectionString;
 
-        SqlConnection? connection = null;
+        NpgsqlConnection? connection = null;
         bool dispose = false;
         try
         {
@@ -48,7 +51,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new NpgsqlConnection(connectionString);
                 connection.Open();
                 dispose = true;
             }
@@ -69,7 +72,7 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types)
+    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, NpgsqlDbType>? types)
     {
         if (types == null)
         {
@@ -81,7 +84,7 @@ public class SqlServer : DatabaseClientBase
         {
             var dbType = TypeCache.GetOrAdd(pair.Value, static s =>
             {
-                var parameter = new SqlParameter { SqlDbType = s };
+                var parameter = new NpgsqlParameter { NpgsqlDbType = s };
                 return parameter.DbType;
             });
             result[pair.Key] = dbType;
@@ -89,17 +92,18 @@ public class SqlServer : DatabaseClientBase
         return result;
     }
 
-    public virtual int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual int PgQueryNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
-        var connectionString = new SqlConnectionStringBuilder
+        var connectionString = new NpgsqlConnectionStringBuilder
         {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
+            Host = host,
+            Database = database,
+            Username = username,
+            Password = password,
             Pooling = true
         }.ConnectionString;
 
-        SqlConnection? connection = null;
+        NpgsqlConnection? connection = null;
         bool dispose = false;
         try
         {
@@ -113,7 +117,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new NpgsqlConnection(connectionString);
                 connection.Open();
                 dispose = true;
             }
@@ -134,17 +138,18 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> PgQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
-        var connectionString = new SqlConnectionStringBuilder
+        var connectionString = new NpgsqlConnectionStringBuilder
         {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
+            Host = host,
+            Database = database,
+            Username = username,
+            Password = password,
             Pooling = true
         }.ConnectionString;
 
-        SqlConnection? connection = null;
+        NpgsqlConnection? connection = null;
         bool dispose = false;
         try
         {
@@ -158,7 +163,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new NpgsqlConnection(connectionString);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -183,40 +188,41 @@ public class SqlServer : DatabaseClientBase
     {
         if (parameters == null || parameters.Count == 0)
         {
-            return $"EXEC {procedure}";
+            return $"CALL {procedure}()";
         }
         var joined = string.Join(", ", parameters.Keys);
-        return $"EXEC {procedure} {joined}";
+        return $"CALL {procedure}({joined})";
     }
 
-    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes);
+        return PgQuery(host, database, username, password, query, parameters, useTransaction, parameterTypes);
     }
 
-    public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return SqlQueryAsync(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, cancellationToken, parameterTypes);
+        return PgQueryAsync(host, database, username, password, query, parameters, useTransaction, cancellationToken, parameterTypes);
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+    public virtual IAsyncEnumerable<DataRow> PgQueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var connectionString = new SqlConnectionStringBuilder
+            var connectionString = new NpgsqlConnectionStringBuilder
             {
-                DataSource = serverOrInstance,
-                InitialCatalog = database,
-                IntegratedSecurity = integratedSecurity,
+                Host = host,
+                Database = database,
+                Username = username,
+                Password = password,
                 Pooling = true
             }.ConnectionString;
 
-            SqlConnection? connection = null;
+            NpgsqlConnection? connection = null;
             bool dispose = false;
             if (useTransaction)
             {
@@ -228,7 +234,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new NpgsqlConnection(connectionString);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -252,49 +258,25 @@ public class SqlServer : DatabaseClientBase
     }
 #endif
 
-
-    public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
+    public virtual void BeginTransaction(string host, string database, string username, string password)
     {
         if (_transaction != null)
         {
             throw new DbaTransactionException("Transaction already started.");
         }
 
-        var connectionString = new SqlConnectionStringBuilder
+        var connectionString = new NpgsqlConnectionStringBuilder
         {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
+            Host = host,
+            Database = database,
+            Username = username,
+            Password = password,
             Pooling = true
         }.ConnectionString;
 
-        _transactionConnection = new SqlConnection(connectionString);
+        _transactionConnection = new NpgsqlConnection(connectionString);
         _transactionConnection.Open();
         _transaction = _transactionConnection.BeginTransaction();
-    }
-
-    public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default)
-    {
-        if (_transaction != null)
-        {
-            throw new DbaTransactionException("Transaction already started.");
-        }
-
-        var connectionString = new SqlConnectionStringBuilder
-        {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
-            Pooling = true
-        }.ConnectionString;
-
-        _transactionConnection = new SqlConnection(connectionString);
-        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        _transaction = (SqlTransaction)await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-#else
-        _transaction = _transactionConnection.BeginTransaction();
-#endif
     }
 
     public virtual void Commit()
@@ -304,20 +286,6 @@ public class SqlServer : DatabaseClientBase
             throw new DbaTransactionException("No active transaction.");
         }
         _transaction.Commit();
-        DisposeTransaction();
-    }
-
-    public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
-    {
-        if (_transaction == null)
-        {
-            throw new DbaTransactionException("No active transaction.");
-        }
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-#else
-        _transaction.Commit();
-#endif
         DisposeTransaction();
     }
 
@@ -331,20 +299,6 @@ public class SqlServer : DatabaseClientBase
         DisposeTransaction();
     }
 
-    public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
-    {
-        if (_transaction == null)
-        {
-            throw new DbaTransactionException("No active transaction.");
-        }
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-#else
-        _transaction.Rollback();
-#endif
-        DisposeTransaction();
-    }
-
     private void DisposeTransaction()
     {
         _transaction?.Dispose();
@@ -353,14 +307,14 @@ public class SqlServer : DatabaseClientBase
         _transactionConnection = null;
     }
 
-    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
         if (queries == null)
         {
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => SqlQueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => PgQueryAsync(host, database, username, password, q, null, false, cancellationToken));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

@@ -3,6 +3,7 @@
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
+    internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
@@ -21,6 +22,9 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public int QueryTimeout { get; set; }
+
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    public SwitchParameter Stream { get; set; }
 
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
@@ -53,10 +57,9 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     /// Process method for PowerShell cmdlet
     /// </summary>
     protected override void ProcessRecord() {
-        var sqlServer = new DBAClientX.SqlServer {
-            ReturnType = ReturnType,
-            CommandTimeout = QueryTimeout
-        };
+        var sqlServer = SqlServerFactory();
+        sqlServer.ReturnType = ReturnType;
+        sqlServer.CommandTimeout = QueryTimeout;
         try {
             IDictionary<string, object?>? parameters = null;
             if (Parameters != null)
@@ -65,6 +68,68 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
                     de => de.Key.ToString(),
                     de => de.Value);
             }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            if (Stream.IsPresent)
+            {
+                var enumerable = sqlServer.SqlQueryStreamAsync(Server, Database, true, Query, parameters, cancellationToken: CancellationToken.None);
+                var enumerator = enumerable.GetAsyncEnumerator();
+                try
+                {
+                    switch (ReturnType)
+                    {
+                        case ReturnType.DataRow:
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                WriteObject(enumerator.Current);
+                            }
+                            break;
+                        case ReturnType.DataTable:
+                            DataTable? table = null;
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                table ??= enumerator.Current.Table.Clone();
+                                table.ImportRow(enumerator.Current);
+                            }
+                            if (table != null)
+                            {
+                                WriteObject(table);
+                            }
+                            break;
+                        case ReturnType.DataSet:
+                            DataTable? dataTable = null;
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                dataTable ??= enumerator.Current.Table.Clone();
+                                dataTable.ImportRow(enumerator.Current);
+                            }
+                            DataSet set = new DataSet();
+                            if (dataTable != null)
+                            {
+                                set.Tables.Add(dataTable);
+                            }
+                            WriteObject(set);
+                            break;
+                        default:
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                WriteObject(DataRowToPSObject(enumerator.Current));
+                            }
+                            break;
+                    }
+                }
+                finally
+                {
+                    enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                }
+                return;
+            }
+#else
+            if (Stream.IsPresent)
+            {
+                throw new NotSupportedException("Streaming is not supported on this platform.");
+            }
+#endif
 
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {

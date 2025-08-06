@@ -218,6 +218,80 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void WhereInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereIn("id", 1, 2, 3);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE id IN (1, 2, 3)", sql);
+    }
+
+    [Fact]
+    public void OrWhereInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("age", ">", 18)
+            .OrWhereIn("id", 1, 2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age > 18 OR id IN (1, 2)", sql);
+    }
+
+    [Fact]
+    public void WhereNotInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNotIn("id", 1, 2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE id NOT IN (1, 2)", sql);
+    }
+
+    [Fact]
+    public void WhereBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
+    public void OrWhereBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("status", "=", "active")
+            .OrWhereBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE status = 'active' OR age BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
+    public void WhereNotBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNotBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age NOT BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
     public void SelectWithoutFrom()
     {
         var query = new Query()
@@ -256,6 +330,27 @@ public class QueryBuilderTests
 
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT * FROM users WHERE id IN (SELECT id FROM admins)", sql);
+    }
+
+    [Fact]
+    public void NestedSubqueryInWhere()
+    {
+        var inner = new Query()
+            .Select("id")
+            .From("admins");
+
+        var middle = new Query()
+            .Select("id")
+            .From("users")
+            .Where("owner_id", "IN", inner);
+
+        var query = new Query()
+            .Select("*")
+            .From("items")
+            .Where("user_id", "IN", middle);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM items WHERE user_id IN (SELECT id FROM users WHERE owner_id IN (SELECT id FROM admins))", sql);
     }
 
     [Fact]
@@ -375,6 +470,55 @@ public class QueryBuilderTests
         {
             CultureInfo.CurrentCulture = original;
         }
+    }
+
+    [Fact]
+    public void CompileWithParameters_ReturnsSqlAndParameters()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", 1)
+            .Where("name", "Bob");
+
+        var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
+        Assert.Equal("SELECT * FROM users WHERE id = @p0 AND name = @p1", sql);
+        Assert.Equal(new object[] { 1, "Bob" }, parameters);
+    }
+
+    [Fact]
+    public void Select_WithNoColumns_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Select());
+    }
+
+    [Fact]
+    public void From_WithNullTable_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.From(null!));
+    }
+
+    [Fact]
+    public void InsertInto_WithoutColumns_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.InsertInto("users"));
+    }
+
+    [Fact]
+    public void Join_WithNullCondition_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Join("users", null!));
+    }
+
+    [Fact]
+    public void Where_WithEmptyColumn_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.Where("", 1));
     }
 }
 
