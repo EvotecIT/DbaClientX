@@ -26,6 +26,7 @@
     <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
     <ProjectReference Include="..\DbaClientX.PowerShell\DbaClientX.PowerShell.csproj" />
     <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
+    <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
   </ItemGroup>
 
 </Project>
