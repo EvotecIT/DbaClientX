@@ -18,12 +18,13 @@ public class CmdletInvokeDbaXQueryTests
         row["name"] = "one";
         table.Rows.Add(row);
 
-        var cmdlet = new CmdletIInvokeDbaXQuery
+        _ = new CmdletIInvokeDbaXQuery
         {
             ReturnType = ReturnType.PSObject
         };
 
-        var method = typeof(CmdletIInvokeDbaXQuery).GetMethod("DataRowToPSObject", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = typeof(CmdletIInvokeDbaXQuery)
+            .GetMethod("DataRowToPSObject", BindingFlags.NonPublic | BindingFlags.Static);
         var psObject = (PSObject)method!.Invoke(null, new object[] { row })!;
 
         Assert.Equal(1, (int)psObject.Properties["id"].Value);
