@@ -167,6 +167,13 @@ public class QueryCompiler
         {
             sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
         }
+        if (query.CompoundQueries.Count > 0)
+        {
+            foreach (var (type, q) in query.CompoundQueries)
+            {
+                sb.Append(' ').Append(type).Append(' ').Append(CompileInternal(q, parameters));
+            }
+        }
 
         return sb.ToString();
     }

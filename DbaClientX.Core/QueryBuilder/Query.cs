@@ -22,6 +22,7 @@ public class Query
     private int? _limit;
     private int? _offset;
     private bool _useTop;
+    private readonly List<(string Type, Query Query)> _compoundQueries = new();
 
     public Query Select(params string[] columns)
     {
@@ -408,6 +409,36 @@ public class Query
         return this;
     }
 
+    public Query Union(Query query)
+    {
+        if (query == null)
+        {
+            throw new ArgumentException("Query cannot be null.", nameof(query));
+        }
+        _compoundQueries.Add(("UNION", query));
+        return this;
+    }
+
+    public Query UnionAll(Query query)
+    {
+        if (query == null)
+        {
+            throw new ArgumentException("Query cannot be null.", nameof(query));
+        }
+        _compoundQueries.Add(("UNION ALL", query));
+        return this;
+    }
+
+    public Query Intersect(Query query)
+    {
+        if (query == null)
+        {
+            throw new ArgumentException("Query cannot be null.", nameof(query));
+        }
+        _compoundQueries.Add(("INTERSECT", query));
+        return this;
+    }
+
     public Query Values(params object[] values)
     {
         _values.AddRange(values);
@@ -462,6 +493,7 @@ public class Query
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
     public IReadOnlyList<(string Type, string Table, string Condition)> Joins => _joins;
+    public IReadOnlyList<(string Type, Query Query)> CompoundQueries => _compoundQueries;
     public int? LimitValue => _limit;
     public int? OffsetValue => _offset;
     public bool UseTop => _useTop;
