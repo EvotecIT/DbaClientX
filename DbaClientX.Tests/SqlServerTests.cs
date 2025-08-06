@@ -33,7 +33,7 @@ public class SqlServerTests
             _delay = delay;
         }
 
-        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             await Task.Delay(_delay, cancellationToken);
             return null;
@@ -99,7 +99,7 @@ public class SqlServerTests
             }
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             var command = new SqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -159,14 +159,14 @@ public class SqlServerTests
         public string? CapturedQuery;
         public IDictionary<string, object?>? CapturedParameters;
 
-        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
             return null;
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
@@ -203,7 +203,7 @@ public class SqlServerTests
     {
         public bool TransactionStarted { get; private set; }
 
-        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
+        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
         {
             TransactionStarted = true;
         }
@@ -220,15 +220,15 @@ public class SqlServerTests
             TransactionStarted = false;
         }
 
-        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
-            return Task.FromResult<object?>(SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction));
+            return Task.FromResult<object?>(SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password));
         }
     }
 

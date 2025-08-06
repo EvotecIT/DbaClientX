@@ -35,6 +35,14 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public Hashtable Parameters { get; set; }
 
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    public string Username { get; set; }
+
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    public string Password { get; set; }
+
     private ActionPreference ErrorAction;
 
     /// <summary>
@@ -60,6 +68,7 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
         var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
+        var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
             IDictionary<string, object?>? parameters = null;
             if (Parameters != null)
@@ -72,7 +81,7 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
-                var enumerable = sqlServer.SqlQueryStreamAsync(Server, Database, true, Query, parameters, cancellationToken: CancellationToken.None);
+                var enumerable = sqlServer.SqlQueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancellationToken.None, username: Username, password: Password);
                 var enumerator = enumerable.GetAsyncEnumerator();
                 try
                 {
@@ -133,9 +142,9 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
 
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {
-                result = sqlServer.ExecuteStoredProcedure(Server, Database, true, StoredProcedure, parameters);
+                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, parameters, username: Username, password: Password);
             } else {
-                result = sqlServer.SqlQuery(Server, Database, true, Query, parameters);
+                result = sqlServer.SqlQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

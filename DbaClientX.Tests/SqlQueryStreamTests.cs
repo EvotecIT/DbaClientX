@@ -30,7 +30,7 @@ public class SqlQueryStreamTests
             _rows = table.Rows.Cast<DataRow>().ToList();
         }
 
-        public override async IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override async IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             foreach (var row in _rows)
             {
