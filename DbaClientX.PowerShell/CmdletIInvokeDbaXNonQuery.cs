@@ -3,6 +3,7 @@ namespace DBAClientX.PowerShell;
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXNonQuery", DefaultParameterSetName = "DefaultCredentials", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
+    internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     public string Server { get; set; }
@@ -19,6 +20,12 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
     public Hashtable Parameters { get; set; }
 
+    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    public string Username { get; set; }
+
+    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    public string Password { get; set; }
+
     private ActionPreference ErrorAction;
 
     protected override void BeginProcessing() {
@@ -32,9 +39,9 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     }
 
     protected override void ProcessRecord() {
-        var sqlServer = new DBAClientX.SqlServer {
-            CommandTimeout = QueryTimeout
-        };
+        var sqlServer = SqlServerFactory();
+        sqlServer.CommandTimeout = QueryTimeout;
+        var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
             IDictionary<string, object?>? parameters = null;
             if (Parameters != null) {
@@ -43,7 +50,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
                     de => de.Value);
             }
 
-            var affected = sqlServer.SqlQueryNonQuery(Server, Database, true, Query, parameters);
+            var affected = sqlServer.SqlQueryNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {ex.Message}");

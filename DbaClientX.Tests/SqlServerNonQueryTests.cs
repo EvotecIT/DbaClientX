@@ -22,7 +22,7 @@ public class SqlServerNonQueryTests
             return 1;
         }
 
-        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             IDictionary<string, DbType>? dbTypes = null;
             if (parameterTypes != null)
@@ -79,7 +79,7 @@ public class SqlServerNonQueryTests
     {
         public bool TransactionStarted { get; private set; }
 
-        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity)
+        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
         {
             TransactionStarted = true;
         }
@@ -96,7 +96,7 @@ public class SqlServerNonQueryTests
             TransactionStarted = false;
         }
 
-        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null)
+        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return 0;
