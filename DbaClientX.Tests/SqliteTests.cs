@@ -1,7 +1,8 @@
 using System.Data;
 using System.IO;
-using Xunit;
 using DBAClientX;
+using Microsoft.Data.Sqlite;
+using Xunit;
 
 namespace DbaClientX.Tests;
 
@@ -23,7 +24,7 @@ public class SqliteTests
         }
         finally
         {
-            File.Delete(path);
+            Cleanup(path);
         }
     }
 
@@ -39,7 +40,7 @@ public class SqliteTests
         }
         finally
         {
-            File.Delete(path);
+            Cleanup(path);
         }
     }
 
@@ -61,7 +62,7 @@ public class SqliteTests
         }
         finally
         {
-            File.Delete(path);
+            Cleanup(path);
         }
     }
 
@@ -81,6 +82,15 @@ public class SqliteTests
             Assert.Equal(0, table.Rows.Count);
         }
         finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    private static void Cleanup(string path)
+    {
+        SqliteConnection.ClearAllPools();
+        if (File.Exists(path))
         {
             File.Delete(path);
         }
