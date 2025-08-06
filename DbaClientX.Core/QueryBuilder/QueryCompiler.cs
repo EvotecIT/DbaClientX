@@ -149,9 +149,9 @@ public class QueryCompiler
             }
         }
 
-        if (query.OrderByExpressions.Count > 0)
+        if (query.OrderByColumns.Count > 0)
         {
-            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByExpressions));
+            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns));
         }
 
         if (query.LimitValue.HasValue && !query.UseTop)

@@ -488,7 +488,6 @@ public class Query
     public string UpdateTable => _updateTable;
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;
-    public IReadOnlyList<string> OrderByExpressions => _orderBy;
     public IReadOnlyList<string> OrderByColumns => _orderBy;
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
