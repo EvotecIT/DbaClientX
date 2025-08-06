@@ -487,6 +487,42 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void UnionQueries()
+    {
+        var query = new Query()
+            .Select("id")
+            .From("users1")
+            .Union(new Query().Select("id").From("users2"));
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT id FROM users1 UNION SELECT id FROM users2", sql);
+    }
+
+    [Fact]
+    public void UnionAllQueries()
+    {
+        var query = new Query()
+            .Select("id")
+            .From("users1")
+            .UnionAll(new Query().Select("id").From("users2"));
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT id FROM users1 UNION ALL SELECT id FROM users2", sql);
+    }
+
+    [Fact]
+    public void IntersectQueries()
+    {
+        var query = new Query()
+            .Select("id")
+            .From("users1")
+            .Intersect(new Query().Select("id").From("users2"));
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT id FROM users1 INTERSECT SELECT id FROM users2", sql);
+    }
+
+    [Fact]
     public void Select_WithNoColumns_Throws()
     {
         var query = new Query();
