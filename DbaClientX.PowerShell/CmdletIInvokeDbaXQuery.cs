@@ -76,9 +76,46 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
                 var enumerator = enumerable.GetAsyncEnumerator();
                 try
                 {
-                    while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                    switch (ReturnType)
                     {
-                        WriteObject(DataRowToPSObject(enumerator.Current));
+                        case ReturnType.DataRow:
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                WriteObject(enumerator.Current);
+                            }
+                            break;
+                        case ReturnType.DataTable:
+                            DataTable? table = null;
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                table ??= enumerator.Current.Table.Clone();
+                                table.ImportRow(enumerator.Current);
+                            }
+                            if (table != null)
+                            {
+                                WriteObject(table);
+                            }
+                            break;
+                        case ReturnType.DataSet:
+                            DataTable? dataTable = null;
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                dataTable ??= enumerator.Current.Table.Clone();
+                                dataTable.ImportRow(enumerator.Current);
+                            }
+                            DataSet set = new DataSet();
+                            if (dataTable != null)
+                            {
+                                set.Tables.Add(dataTable);
+                            }
+                            WriteObject(set);
+                            break;
+                        default:
+                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+                            {
+                                WriteObject(DataRowToPSObject(enumerator.Current));
+                            }
+                            break;
                     }
                 }
                 finally
