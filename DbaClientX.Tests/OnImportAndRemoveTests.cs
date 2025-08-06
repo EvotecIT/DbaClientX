@@ -15,4 +15,12 @@ public class OnImportAndRemoveTests
         var result = (Assembly?)method!.Invoke(null, new object?[] { null, resolveArgs });
         Assert.Null(result);
     }
+
+#if NET5_0_OR_GREATER
+    [Fact]
+    public void LoadContext_IsAvailable()
+    {
+        Assert.NotNull(OnModuleImportAndRemove.LoadContext);
+    }
+#endif
 }
