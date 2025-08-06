@@ -218,6 +218,80 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void WhereInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereIn("id", 1, 2, 3);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE id IN (1, 2, 3)", sql);
+    }
+
+    [Fact]
+    public void OrWhereInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("age", ">", 18)
+            .OrWhereIn("id", 1, 2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age > 18 OR id IN (1, 2)", sql);
+    }
+
+    [Fact]
+    public void WhereNotInCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNotIn("id", 1, 2);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE id NOT IN (1, 2)", sql);
+    }
+
+    [Fact]
+    public void WhereBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
+    public void OrWhereBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("status", "=", "active")
+            .OrWhereBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE status = 'active' OR age BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
+    public void WhereNotBetweenCondition()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .WhereNotBetween("age", 18, 30);
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users WHERE age NOT BETWEEN 18 AND 30", sql);
+    }
+
+    [Fact]
     public void SelectWithoutFrom()
     {
         var query = new Query()
