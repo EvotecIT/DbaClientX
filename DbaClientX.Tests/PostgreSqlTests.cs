@@ -185,7 +185,7 @@ public class PostgreSqlTests
             ["@name"] = "n"
         };
         pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
-        Assert.Equal("CALL sp_test @id, @name", pg.CapturedQuery);
+        Assert.Equal("CALL sp_test(@id, @name)", pg.CapturedQuery);
     }
 
     [Fact]
@@ -197,6 +197,14 @@ public class PostgreSqlTests
             ["@id"] = 1
         };
         await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters);
-        Assert.Equal("CALL sp_test @id", pg.CapturedQuery);
+        Assert.Equal("CALL sp_test(@id)", pg.CapturedQuery);
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_NoParameters_AddsEmptyParentheses()
+    {
+        var pg = new CaptureStoredProcPostgreSql();
+        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
+        Assert.Equal("CALL sp_test()", pg.CapturedQuery);
     }
 }
