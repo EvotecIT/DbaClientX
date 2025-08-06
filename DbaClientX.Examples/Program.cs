@@ -13,6 +13,9 @@ public class Program
             case "pgasyncquery":
                 await QueryPostgreSqlAsyncExample.RunAsync();
                 break;
+            case "mysqlasyncquery":
+                await QueryMySqlAsyncExample.RunAsync();
+                break;
             case "nestedquery":
                 NestedQueryExample.Run();
                 break;
@@ -41,7 +44,7 @@ public class Program
                 ParameterizedQueryExample.Run();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized");
                 break;
         }
     }
