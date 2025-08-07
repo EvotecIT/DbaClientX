@@ -24,6 +24,51 @@ public class SqlServerTests
         Assert.Contains("SELECT 1", ex.Message);
     }
 
+    private class PingSqlServer : DBAClientX.SqlServer
+    {
+        public bool ShouldFail { get; set; }
+
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return null;
+        }
+
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void Ping_ReturnsTrue_OnSuccess()
+    {
+        using var sqlServer = new PingSqlServer { ShouldFail = false };
+        Assert.True(sqlServer.Ping("s", "db", true));
+    }
+
+    [Fact]
+    public void Ping_ReturnsFalse_OnFailure()
+    {
+        using var sqlServer = new PingSqlServer { ShouldFail = true };
+        Assert.False(sqlServer.Ping("s", "db", true));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsTrue_OnSuccess()
+    {
+        using var sqlServer = new PingSqlServer { ShouldFail = false };
+        Assert.True(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsFalse_OnFailure()
+    {
+        using var sqlServer = new PingSqlServer { ShouldFail = true };
+        Assert.False(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+    }
+
     private class DelaySqlServer : DBAClientX.SqlServer
     {
         private readonly TimeSpan _delay;

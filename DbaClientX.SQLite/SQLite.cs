@@ -33,6 +33,32 @@ public class SQLite : DatabaseClientBase
         }.ConnectionString;
     }
 
+    public virtual bool Ping(string database)
+    {
+        try
+        {
+            Query(database, "SELECT 1");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public virtual async Task<bool> PingAsync(string database, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await QueryAsync(database, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = BuildConnectionString(database);
