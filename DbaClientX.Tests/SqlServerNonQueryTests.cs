@@ -41,7 +41,7 @@ public class SqlServerNonQueryTests
     [Fact]
     public void ExecuteNonQuery_BindsParameters()
     {
-        var sqlServer = new CaptureParametersSqlServer();
+        using var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -57,7 +57,7 @@ public class SqlServerNonQueryTests
     [Fact]
     public void ExecuteNonQuery_PreservesParameterTypes()
     {
-        var sqlServer = new CaptureParametersSqlServer();
+        using var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -106,14 +106,14 @@ public class SqlServerNonQueryTests
     [Fact]
     public void ExecuteNonQuery_WithTransactionNotStarted_Throws()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.ExecuteNonQuery("s", "db", true, "q", useTransaction: true));
     }
 
     [Fact]
     public void ExecuteNonQuery_UsesTransaction_WhenStarted()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         var ex = Record.Exception(() => sqlServer.ExecuteNonQuery("s", "db", true, "q", useTransaction: true));
         Assert.Null(ex);

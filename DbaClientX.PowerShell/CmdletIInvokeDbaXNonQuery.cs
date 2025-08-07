@@ -42,7 +42,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     }
 
     protected override void ProcessRecord() {
-        var sqlServer = SqlServerFactory();
+        using var sqlServer = SqlServerFactory();
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {

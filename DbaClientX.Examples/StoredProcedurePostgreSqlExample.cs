@@ -6,7 +6,7 @@ public static class StoredProcedurePostgreSqlExample
 {
     public static void Run()
     {
-        var pg = new PostgreSql
+        using var pg = new PostgreSql
         {
             ReturnType = ReturnType.DataTable,
         };

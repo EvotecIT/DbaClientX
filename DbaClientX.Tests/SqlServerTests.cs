@@ -16,7 +16,7 @@ public class SqlServerTests
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
-        var sqlServer = new DBAClientX.SqlServer();
+        using var sqlServer = new DBAClientX.SqlServer();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
             await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1");
@@ -44,7 +44,7 @@ public class SqlServerTests
     public async Task RunQueriesInParallel_ExecutesConcurrently()
     {
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
-        var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(200));
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(200));
 
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
@@ -63,7 +63,7 @@ public class SqlServerTests
     [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
-        var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
@@ -74,7 +74,7 @@ public class SqlServerTests
     [Fact]
     public async Task RunQueriesInParallel_ForwardsCancellation()
     {
-        var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
         var queries = new[] { "q1", "q2" };
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
@@ -120,7 +120,7 @@ public class SqlServerTests
     [Fact]
     public async Task QueryAsync_BindsParameters()
     {
-        var sqlServer = new CaptureParametersSqlServer();
+        using var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -136,7 +136,7 @@ public class SqlServerTests
     [Fact]
     public async Task QueryAsync_PreservesParameterTypes()
     {
-        var sqlServer = new CaptureParametersSqlServer();
+        using var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -177,7 +177,7 @@ public class SqlServerTests
     [Fact]
     public void ExecuteStoredProcedure_BuildsExecStatement()
     {
-        var sqlServer = new CaptureStoredProcSqlServer();
+        using var sqlServer = new CaptureStoredProcSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 1,
@@ -190,7 +190,7 @@ public class SqlServerTests
     [Fact]
     public async Task ExecuteStoredProcedureAsync_BuildsExecStatement()
     {
-        var sqlServer = new CaptureStoredProcSqlServer();
+        using var sqlServer = new CaptureStoredProcSqlServer();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 1
@@ -235,14 +235,14 @@ public class SqlServerTests
     [Fact]
     public void Query_WithTransactionNotStarted_Throws()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
     }
 
     [Fact]
     public void Commit_EndsTransaction()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Commit();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
@@ -251,7 +251,7 @@ public class SqlServerTests
     [Fact]
     public void Rollback_EndsTransaction()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Rollback();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
@@ -260,7 +260,7 @@ public class SqlServerTests
     [Fact]
     public void Query_UsesTransaction_WhenStarted()
     {
-        var sqlServer = new FakeTransactionSqlServer();
+        using var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         var ex = Record.Exception(() => sqlServer.Query("s", "db", true, "q", null, true));
         Assert.Null(ex);
@@ -273,7 +273,7 @@ public class SqlServerTests
     [Fact]
     public void BuildResult_ReturnsDataTable_ForDataTableReturnType()
     {
-        var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataTable };
+        using var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataTable };
         var ds = new DataSet();
         var table = new DataTable();
         table.Columns.Add("id", typeof(int));
@@ -291,7 +291,7 @@ public class SqlServerTests
     [Fact]
     public void BuildResult_ReturnsDataRow_ForDataRowReturnType()
     {
-        var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataRow };
+        using var client = new TestClient { ReturnType = DBAClientX.ReturnType.DataRow };
         var ds = new DataSet();
         var table = new DataTable();
         table.Columns.Add("id", typeof(int));

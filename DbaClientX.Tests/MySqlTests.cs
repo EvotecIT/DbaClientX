@@ -15,7 +15,7 @@ public class MySqlTests
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
-        var mySql = new DBAClientX.MySql();
+        using var mySql = new DBAClientX.MySql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
             await mySql.QueryAsync("invalid", "mysql", "user", "pass", "SELECT 1");
@@ -43,7 +43,7 @@ public class MySqlTests
     public async Task RunQueriesInParallel_ExecutesConcurrently()
     {
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
-        var mySql = new DelayMySql(TimeSpan.FromMilliseconds(200));
+        using var mySql = new DelayMySql(TimeSpan.FromMilliseconds(200));
 
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
@@ -62,7 +62,7 @@ public class MySqlTests
     [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
-        var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
+        using var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
@@ -73,7 +73,7 @@ public class MySqlTests
     [Fact]
     public async Task RunQueriesInParallel_ForwardsCancellation()
     {
-        var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
+        using var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
         var queries = new[] { "q1", "q2" };
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
@@ -119,7 +119,7 @@ public class MySqlTests
     [Fact]
     public async Task QueryAsync_BindsParameters()
     {
-        var mySql = new CaptureParametersMySql();
+        using var mySql = new CaptureParametersMySql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -135,7 +135,7 @@ public class MySqlTests
     [Fact]
     public async Task QueryAsync_PreservesParameterTypes()
     {
-        var mySql = new CaptureParametersMySql();
+        using var mySql = new CaptureParametersMySql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -189,14 +189,14 @@ public class MySqlTests
     [Fact]
     public void Query_WithTransactionNotStarted_Throws()
     {
-        var mySql = new FakeTransactionMySql();
+        using var mySql = new FakeTransactionMySql();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
     }
 
     [Fact]
     public void Commit_EndsTransaction()
     {
-        var mySql = new FakeTransactionMySql();
+        using var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
         mySql.Commit();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
@@ -205,7 +205,7 @@ public class MySqlTests
     [Fact]
     public void Rollback_EndsTransaction()
     {
-        var mySql = new FakeTransactionMySql();
+        using var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
         mySql.Rollback();
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
@@ -214,7 +214,7 @@ public class MySqlTests
     [Fact]
     public void Query_UsesTransaction_WhenStarted()
     {
-        var mySql = new FakeTransactionMySql();
+        using var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
         var ex = Record.Exception(() => mySql.Query("h", "d", "u", "p", "q", null, true));
         Assert.Null(ex);

@@ -6,7 +6,7 @@ public static class QueryMySqlAsyncExample
 {
     public static async Task RunAsync()
     {
-        var mySql = new MySql
+        using var mySql = new MySql
         {
             ReturnType = ReturnType.DataTable,
         };

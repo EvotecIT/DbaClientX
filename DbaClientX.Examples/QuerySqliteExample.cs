@@ -5,7 +5,7 @@ public static class QuerySqliteExample
 {
     public static void Run()
     {
-        var sqlite = new SQLite
+        using var sqlite = new SQLite
         {
             ReturnType = ReturnType.DataTable,
         };

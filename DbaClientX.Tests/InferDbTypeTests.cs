@@ -18,7 +18,7 @@ public class InferDbTypeTests
     [Fact]
     public void AddParameters_InfersGuidType()
     {
-        var client = new TestClient();
+        using var client = new TestClient();
         using var command = new SqlCommand();
         var guid = Guid.NewGuid();
         client.InvokeAddParameters(command, new Dictionary<string, object?> { ["@id"] = guid });
@@ -30,7 +30,7 @@ public class InferDbTypeTests
     [Fact]
     public void AddParameters_InfersBinaryType()
     {
-        var client = new TestClient();
+        using var client = new TestClient();
         using var command = new SqlCommand();
         var bytes = new byte[] { 1, 2, 3 };
         client.InvokeAddParameters(command, new Dictionary<string, object?> { ["@data"] = bytes });
