@@ -56,6 +56,8 @@ public abstract class DatabaseClientBase
     private static DbType InferDbType(object? value)
     {
         if (value == null || value == DBNull.Value) return DbType.Object;
+        if (value is Guid) return DbType.Guid;
+        if (value is byte[]) return DbType.Binary;
         return Type.GetTypeCode(value.GetType()) switch
         {
             TypeCode.Byte => DbType.Byte,
