@@ -29,13 +29,13 @@ public class PostgreSqlTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(null);
@@ -79,7 +79,7 @@ public class PostgreSqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
             return null;
@@ -145,7 +145,7 @@ public class PostgreSqlTests
             }
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             var command = new NpgsqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -205,14 +205,14 @@ public class PostgreSqlTests
         public string? CapturedQuery;
         public IDictionary<string, object?>? CapturedParameters;
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
@@ -264,6 +264,26 @@ public class PostgreSqlTests
     public void Rollback_WithoutTransaction_Throws()
     {
         using var pg = new DBAClientX.PostgreSql();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Rollback());
+       Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Rollback());
+    }
+
+    private class CaptureConnectionStringPostgreSql : DBAClientX.PostgreSql
+    {
+        public string? Captured;
+
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, string? connectionString = null)
+        {
+            Captured = connectionString ?? BuildConnectionString(host, database, username, password);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UsesProvidedConnectionString()
+    {
+        var expected = "Host=localhost;Database=db;Username=u;Password=p;";
+        using var pg = new CaptureConnectionStringPostgreSql();
+        pg.Query("h", "d", "u", "p", "q", connectionString: expected);
+        Assert.Equal(expected, pg.Captured);
     }
 }

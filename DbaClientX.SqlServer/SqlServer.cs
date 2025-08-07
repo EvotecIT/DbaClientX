@@ -40,11 +40,11 @@ public class SqlServer : DatabaseClientBase
         return connectionStringBuilder.ConnectionString;
     }
 
-    public virtual bool Ping(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+    public virtual bool Ping(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null, string? connectionString = null)
     {
         try
         {
-            Query(serverOrInstance, database, integratedSecurity, "SELECT 1", username: username, password: password);
+            Query(serverOrInstance, database, integratedSecurity, "SELECT 1", username: username, password: password, connectionString: connectionString);
             return true;
         }
         catch
@@ -53,11 +53,11 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    public virtual async Task<bool> PingAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    public virtual async Task<bool> PingAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null, string? connectionString = null)
     {
         try
         {
-            await QueryAsync(serverOrInstance, database, integratedSecurity, "SELECT 1", cancellationToken: cancellationToken, username: username, password: password).ConfigureAwait(false);
+            await QueryAsync(serverOrInstance, database, integratedSecurity, "SELECT 1", cancellationToken: cancellationToken, username: username, password: password, connectionString: connectionString).ConfigureAwait(false);
             return true;
         }
         catch
@@ -66,9 +66,9 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -84,7 +84,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new SqlConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -108,9 +108,9 @@ public class SqlServer : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
 
-    public virtual int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -126,7 +126,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new SqlConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -147,9 +147,9 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -165,7 +165,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new SqlConnection(cs);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -196,26 +196,26 @@ public class SqlServer : DatabaseClientBase
         return $"EXEC {procedure} {joined}";
     }
 
-    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password);
+        return Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password, connectionString);
     }
 
-    public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return QueryAsync(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, cancellationToken, parameterTypes, username, password);
+        return QueryAsync(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, cancellationToken, parameterTypes, username, password, connectionString);
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
     {
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+            var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             SqlConnection? connection = null;
             bool dispose = false;
@@ -229,7 +229,7 @@ public class SqlServer : DatabaseClientBase
             }
             else
             {
-                connection = new SqlConnection(connectionString);
+                connection = new SqlConnection(cs);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -254,7 +254,7 @@ public class SqlServer : DatabaseClientBase
 #endif
 
 
-    public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+    public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null, string? connectionString = null)
     {
         lock (_syncRoot)
         {
@@ -263,24 +263,24 @@ public class SqlServer : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+            var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
-            _transactionConnection = new SqlConnection(connectionString);
+            _transactionConnection = new SqlConnection(cs);
             _transactionConnection.Open();
             _transaction = _transactionConnection.BeginTransaction();
         }
     }
 
-    public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null, string? connectionString = null)
     {
         if (_transaction != null)
         {
             throw new DbaTransactionException("Transaction already started.");
         }
 
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        var cs = connectionString ?? BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
-        _transactionConnection = new SqlConnection(connectionString);
+        _transactionConnection = new SqlConnection(cs);
         await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
         _transaction = (SqlTransaction)await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -368,14 +368,14 @@ public class SqlServer : DatabaseClientBase
         base.Dispose(disposing);
     }
 
-    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null, string? connectionString = null)
     {
         if (queries == null)
         {
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => QueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken, username: username, password: password));
+        var tasks = queries.Select(q => QueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken, null, username, password, connectionString));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

@@ -46,7 +46,7 @@ public class SqlServerTransactionAsyncTests
         public FakeSqlConnection? Connection { get; private set; }
         public FakeSqlTransaction? Transaction { get; private set; }
 
-        public override async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+        public override async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null, string? connectionString = null)
         {
             Connection = new FakeSqlConnection();
             Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -72,7 +72,7 @@ public class SqlServerTransactionAsyncTests
             Transaction = null;
         }
 
-        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
         {
             if (useTransaction && Transaction == null)
             {

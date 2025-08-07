@@ -33,11 +33,11 @@ public class SQLite : DatabaseClientBase
         }.ConnectionString;
     }
 
-    public virtual bool Ping(string database)
+    public virtual bool Ping(string database, string? connectionString = null)
     {
         try
         {
-            Query(database, "SELECT 1");
+            Query(database, "SELECT 1", connectionString: connectionString);
             return true;
         }
         catch
@@ -46,11 +46,11 @@ public class SQLite : DatabaseClientBase
         }
     }
 
-    public virtual async Task<bool> PingAsync(string database, CancellationToken cancellationToken = default)
+    public virtual async Task<bool> PingAsync(string database, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         try
         {
-            await QueryAsync(database, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
+            await QueryAsync(database, "SELECT 1", cancellationToken: cancellationToken, connectionString: connectionString).ConfigureAwait(false);
             return true;
         }
         catch
@@ -59,9 +59,9 @@ public class SQLite : DatabaseClientBase
         }
     }
 
-    public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var cs = connectionString ?? BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -77,7 +77,7 @@ public class SQLite : DatabaseClientBase
             }
             else
             {
-                connection = new SqliteConnection(connectionString);
+                connection = new SqliteConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -101,9 +101,9 @@ public class SQLite : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
 
-    public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var cs = connectionString ?? BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -119,7 +119,7 @@ public class SQLite : DatabaseClientBase
             }
             else
             {
-                connection = new SqliteConnection(connectionString);
+                connection = new SqliteConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -140,9 +140,9 @@ public class SQLite : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var cs = connectionString ?? BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -158,7 +158,7 @@ public class SQLite : DatabaseClientBase
             }
             else
             {
-                connection = new SqliteConnection(connectionString);
+                connection = new SqliteConnection(cs);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -180,9 +180,9 @@ public class SQLite : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var cs = connectionString ?? BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -197,10 +197,10 @@ public class SQLite : DatabaseClientBase
         }
         else
         {
-            connection = new SqliteConnection(connectionString);
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            dispose = true;
-        }
+                connection = new SqliteConnection(cs);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
 
         var dbTypes = ConvertParameterTypes(parameterTypes);
         try
@@ -220,7 +220,7 @@ public class SQLite : DatabaseClientBase
     }
 #endif
 
-    public virtual void BeginTransaction(string database)
+    public virtual void BeginTransaction(string database, string? connectionString = null)
     {
         lock (_syncRoot)
         {
@@ -229,24 +229,24 @@ public class SQLite : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = BuildConnectionString(database);
+            var cs = connectionString ?? BuildConnectionString(database);
 
-            _transactionConnection = new SqliteConnection(connectionString);
+            _transactionConnection = new SqliteConnection(cs);
             _transactionConnection.Open();
             _transaction = _transactionConnection.BeginTransaction();
         }
     }
 
-    public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
+    public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         if (_transaction != null)
         {
             throw new DbaTransactionException("Transaction already started.");
         }
 
-        var connectionString = BuildConnectionString(database);
+        var cs = connectionString ?? BuildConnectionString(database);
 
-        _transactionConnection = new SqliteConnection(connectionString);
+        _transactionConnection = new SqliteConnection(cs);
         await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
         _transaction = (SqliteTransaction)await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -336,14 +336,14 @@ public class SQLite : DatabaseClientBase
         base.Dispose(disposing);
     }
 
-    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string database, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string database, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         if (queries == null)
         {
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => QueryAsync(database, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => QueryAsync(database, q, null, false, cancellationToken, connectionString: connectionString));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

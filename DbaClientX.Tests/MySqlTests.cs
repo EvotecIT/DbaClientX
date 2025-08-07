@@ -27,13 +27,13 @@ public class MySqlTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(null);
@@ -77,7 +77,7 @@ public class MySqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
             return null;
@@ -143,7 +143,7 @@ public class MySqlTests
             }
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             var command = new MySqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -202,7 +202,7 @@ public class MySqlTests
     {
         public bool TransactionStarted { get; private set; }
 
-        public override void BeginTransaction(string host, string database, string username, string password)
+        public override void BeginTransaction(string host, string database, string username, string password, string? connectionString = null)
         {
             TransactionStarted = true;
         }
@@ -219,13 +219,13 @@ public class MySqlTests
             TransactionStarted = false;
         }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             return Task.FromResult<object?>(Query(host, database, username, password, query, parameters, useTransaction));
         }
@@ -277,5 +277,25 @@ public class MySqlTests
         mySql.BeginTransaction("h", "d", "u", "p");
         var ex = Record.Exception(() => mySql.Query("h", "d", "u", "p", "q", null, true));
         Assert.Null(ex);
+    }
+
+    private class CaptureConnectionStringMySql : DBAClientX.MySql
+    {
+        public string? Captured;
+
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
+        {
+            Captured = connectionString ?? BuildConnectionString(host, database, username, password);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UsesProvidedConnectionString()
+    {
+        var expected = "Server=localhost;Database=db;User ID=u;Password=p;";
+        using var mySql = new CaptureConnectionStringMySql();
+        mySql.Query("h", "d", "u", "p", "q", connectionString: expected);
+        Assert.Equal(expected, mySql.Captured);
     }
 }

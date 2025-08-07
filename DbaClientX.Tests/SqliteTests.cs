@@ -115,13 +115,13 @@ public class SqliteTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return null;
         }
 
-        public override Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(null);
@@ -154,6 +154,26 @@ public class SqliteTests
     {
         using var sqlite = new PingSqlite { ShouldFail = true };
         Assert.False(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+    }
+
+    private class CaptureConnectionStringSqlite : DBAClientX.SQLite
+    {
+        public string? Captured;
+
+        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, string? connectionString = null)
+        {
+            Captured = connectionString ?? BuildConnectionString(database);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UsesProvidedConnectionString()
+    {
+        var expected = "Data Source=test.db;";
+        using var sqlite = new CaptureConnectionStringSqlite();
+        sqlite.Query("db", "q", connectionString: expected);
+        Assert.Equal(expected, sqlite.Captured);
     }
 
     private static void Cleanup(string path)

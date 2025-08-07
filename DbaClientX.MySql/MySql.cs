@@ -36,11 +36,11 @@ public class MySql : DatabaseClientBase
         }.ConnectionString;
     }
 
-    public virtual bool Ping(string host, string database, string username, string password)
+    public virtual bool Ping(string host, string database, string username, string password, string? connectionString = null)
     {
         try
         {
-            Query(host, database, username, password, "SELECT 1");
+            Query(host, database, username, password, "SELECT 1", connectionString: connectionString);
             return true;
         }
         catch
@@ -49,11 +49,11 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<bool> PingAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    public virtual async Task<bool> PingAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         try
         {
-            await QueryAsync(host, database, username, password, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
+            await QueryAsync(host, database, username, password, "SELECT 1", cancellationToken: cancellationToken, connectionString: connectionString).ConfigureAwait(false);
             return true;
         }
         catch
@@ -62,9 +62,9 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -80,7 +80,7 @@ public class MySql : DatabaseClientBase
             }
             else
             {
-                connection = new MySqlConnection(connectionString);
+                connection = new MySqlConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -104,9 +104,9 @@ public class MySql : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, MySqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
 
-    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -122,7 +122,7 @@ public class MySql : DatabaseClientBase
             }
             else
             {
-                connection = new MySqlConnection(connectionString);
+                connection = new MySqlConnection(cs);
                 connection.Open();
                 dispose = true;
             }
@@ -143,9 +143,9 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
     {
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -161,7 +161,7 @@ public class MySql : DatabaseClientBase
             }
             else
             {
-                connection = new MySqlConnection(connectionString);
+                connection = new MySqlConnection(cs);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -183,13 +183,13 @@ public class MySql : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
     {
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var connectionString = BuildConnectionString(host, database, username, password);
+            var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
             MySqlConnection? connection = null;
             bool dispose = false;
@@ -203,7 +203,7 @@ public class MySql : DatabaseClientBase
             }
             else
             {
-                connection = new MySqlConnection(connectionString);
+                connection = new MySqlConnection(cs);
                 await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
                 dispose = true;
             }
@@ -227,7 +227,7 @@ public class MySql : DatabaseClientBase
     }
 #endif
 
-    public virtual void BeginTransaction(string host, string database, string username, string password)
+    public virtual void BeginTransaction(string host, string database, string username, string password, string? connectionString = null)
     {
         lock (_syncRoot)
         {
@@ -236,24 +236,24 @@ public class MySql : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = BuildConnectionString(host, database, username, password);
+            var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
-            _transactionConnection = new MySqlConnection(connectionString);
+            _transactionConnection = new MySqlConnection(cs);
             _transactionConnection.Open();
             _transaction = _transactionConnection.BeginTransaction();
         }
     }
 
-    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         if (_transaction != null)
         {
             throw new DbaTransactionException("Transaction already started.");
         }
 
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var cs = connectionString ?? BuildConnectionString(host, database, username, password);
 
-        _transactionConnection = new MySqlConnection(connectionString);
+        _transactionConnection = new MySqlConnection(cs);
         await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
         _transaction = await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -331,14 +331,14 @@ public class MySql : DatabaseClientBase
         base.Dispose(disposing);
     }
 
-    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default, string? connectionString = null)
     {
         if (queries == null)
         {
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => QueryAsync(host, database, username, password, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => QueryAsync(host, database, username, password, q, null, false, cancellationToken, connectionString: connectionString));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

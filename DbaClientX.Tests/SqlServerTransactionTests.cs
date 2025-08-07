@@ -35,7 +35,7 @@ public class SqlServerTransactionTests
         public FakeSqlConnection? Connection { get; private set; }
         public FakeSqlTransaction? Transaction { get; private set; }
 
-        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null, string? connectionString = null)
         {
             Connection = new FakeSqlConnection();
             Transaction = Connection.BeginTransaction();
@@ -61,7 +61,7 @@ public class SqlServerTransactionTests
             Transaction = null;
         }
 
-        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null, string? connectionString = null)
         {
             if (useTransaction && Transaction == null)
             {

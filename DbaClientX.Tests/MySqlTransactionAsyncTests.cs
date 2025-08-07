@@ -47,7 +47,7 @@ public class MySqlTransactionAsyncTests
         public FakeMySqlConnection? Connection { get; private set; }
         public FakeMySqlTransaction? Transaction { get; private set; }
 
-        public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+        public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default, string? connectionString = null)
         {
             Connection = new FakeMySqlConnection();
             Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -73,7 +73,7 @@ public class MySqlTransactionAsyncTests
             Transaction = null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, string? connectionString = null)
         {
             if (useTransaction && Transaction == null)
             {
