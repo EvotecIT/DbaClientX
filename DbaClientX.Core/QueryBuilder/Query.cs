@@ -8,7 +8,7 @@ public class Query
     private readonly List<string> _select = new();
     private string _from;
     private (Query Query, string Alias)? _fromSubquery;
-    private readonly List<(string Type, string Table, string Condition)> _joins = new();
+    private readonly List<(string Type, string Table, string? Condition)> _joins = new();
     private readonly List<IWhereToken> _where = new();
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
@@ -72,6 +72,21 @@ public class Query
         ValidateString(table, nameof(table));
         ValidateString(condition, nameof(condition));
         _joins.Add(("RIGHT JOIN", table, condition));
+        return this;
+    }
+
+    public Query CrossJoin(string table)
+    {
+        ValidateString(table, nameof(table));
+        _joins.Add(("CROSS JOIN", table, null));
+        return this;
+    }
+
+    public Query FullOuterJoin(string table, string condition)
+    {
+        ValidateString(table, nameof(table));
+        ValidateString(condition, nameof(condition));
+        _joins.Add(("FULL OUTER JOIN", table, condition));
         return this;
     }
 
@@ -491,7 +506,7 @@ public class Query
     public IReadOnlyList<string> OrderByColumns => _orderBy;
     public IReadOnlyList<string> GroupByColumns => _groupBy;
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
-    public IReadOnlyList<(string Type, string Table, string Condition)> Joins => _joins;
+    public IReadOnlyList<(string Type, string Table, string? Condition)> Joins => _joins;
     public IReadOnlyList<(string Type, Query Query)> CompoundQueries => _compoundQueries;
     public int? LimitValue => _limit;
     public int? OffsetValue => _offset;
