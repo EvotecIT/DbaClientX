@@ -17,7 +17,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
-        var pg = new DBAClientX.PostgreSql();
+        using var pg = new DBAClientX.PostgreSql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
             await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
@@ -45,7 +45,7 @@ public class PostgreSqlTests
     public async Task RunQueriesInParallel_ExecutesConcurrently()
     {
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
-        var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(200));
+        using var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(200));
 
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
@@ -64,7 +64,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
-        var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
+        using var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
@@ -75,7 +75,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task RunQueriesInParallel_ForwardsCancellation()
     {
-        var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
+        using var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
         var queries = new[] { "q1", "q2" };
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
@@ -121,7 +121,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task QueryAsync_BindsParameters()
     {
-        var pg = new CaptureParametersPostgreSql();
+        using var pg = new CaptureParametersPostgreSql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -137,7 +137,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task QueryAsync_PreservesParameterTypes()
     {
-        var pg = new CaptureParametersPostgreSql();
+        using var pg = new CaptureParametersPostgreSql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5,
@@ -178,7 +178,7 @@ public class PostgreSqlTests
     [Fact]
     public void ExecuteStoredProcedure_BuildsCallStatement()
     {
-        var pg = new CaptureStoredProcPostgreSql();
+        using var pg = new CaptureStoredProcPostgreSql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 1,
@@ -191,7 +191,7 @@ public class PostgreSqlTests
     [Fact]
     public async Task ExecuteStoredProcedureAsync_BuildsCallStatement()
     {
-        var pg = new CaptureStoredProcPostgreSql();
+        using var pg = new CaptureStoredProcPostgreSql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 1
@@ -203,7 +203,7 @@ public class PostgreSqlTests
     [Fact]
     public void ExecuteStoredProcedure_NoParameters_AddsEmptyParentheses()
     {
-        var pg = new CaptureStoredProcPostgreSql();
+        using var pg = new CaptureStoredProcPostgreSql();
         pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
         Assert.Equal("CALL sp_test()", pg.CapturedQuery);
     }

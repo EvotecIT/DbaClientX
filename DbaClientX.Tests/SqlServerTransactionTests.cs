@@ -74,7 +74,7 @@ public class SqlServerTransactionTests
     [Fact]
     public void BeginTransaction_UsesConnection()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         server.BeginTransaction("s", "db", true);
         Assert.NotNull(server.Connection);
         Assert.True(server.Connection!.BeginCalled);
@@ -84,7 +84,7 @@ public class SqlServerTransactionTests
     [Fact]
     public void Commit_CallsCommitOnTransaction()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         server.BeginTransaction("s", "db", true);
         var txn = server.Transaction!;
         server.Commit();
@@ -95,7 +95,7 @@ public class SqlServerTransactionTests
     [Fact]
     public void Rollback_CallsRollbackOnTransaction()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         server.BeginTransaction("s", "db", true);
         var txn = server.Transaction!;
         server.Rollback();

@@ -233,6 +233,15 @@ public class MySql : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeTransaction();
+        }
+        base.Dispose(disposing);
+    }
+
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
         if (queries == null)

@@ -15,7 +15,7 @@ public static class ParallelQueriesExample
             "SELECT TOP 1 * FROM sys.schemas"
         };
 
-        var sqlServer = new SqlServer
+        using var sqlServer = new SqlServer
         {
             ReturnType = ReturnType.DataTable,
         };

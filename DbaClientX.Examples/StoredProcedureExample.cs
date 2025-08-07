@@ -6,7 +6,7 @@ public static class StoredProcedureExample
 {
     public static void Run()
     {
-        var sqlServer = new SqlServer
+        using var sqlServer = new SqlServer
         {
             ReturnType = ReturnType.DataTable,
         };

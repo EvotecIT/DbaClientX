@@ -7,7 +7,7 @@ public static class TransactionAsyncExample
 {
     public static async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        var sql = new SqlServer();
+        using var sql = new SqlServer();
         await sql.BeginTransactionAsync("SQL1", "master", true, cancellationToken);
         try
         {

@@ -7,7 +7,7 @@ public static class QueryPostgreSqlAsyncExample
 {
     public static async Task RunAsync()
     {
-        var pg = new PostgreSql
+        using var pg = new PostgreSql
         {
             ReturnType = ReturnType.DataTable,
         };

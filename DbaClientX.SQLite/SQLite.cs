@@ -271,6 +271,15 @@ public class SQLite : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeTransaction();
+        }
+        base.Dispose(disposing);
+    }
+
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string database, CancellationToken cancellationToken = default)
     {
         if (queries == null)

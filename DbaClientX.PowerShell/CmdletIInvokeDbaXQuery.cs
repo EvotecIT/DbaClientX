@@ -71,7 +71,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// Process method for PowerShell cmdlet
     /// </summary>
     protected override async Task ProcessRecordAsync() {
-        var sqlServer = SqlServerFactory();
+        using var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);

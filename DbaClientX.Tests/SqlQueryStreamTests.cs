@@ -43,7 +43,7 @@ public class QueryStreamTests
     [Fact]
     public async Task QueryStreamAsync_EnumeratesRows()
     {
-        var server = new DummySqlServer();
+        using var server = new DummySqlServer();
         var list = new List<int>();
 
         await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q"))

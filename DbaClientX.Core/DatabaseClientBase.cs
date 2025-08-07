@@ -10,11 +10,12 @@ using System.Runtime.CompilerServices;
 
 namespace DBAClientX;
 
-public abstract class DatabaseClientBase
+public abstract class DatabaseClientBase : IDisposable
 {
     private readonly object _syncRoot = new();
     private ReturnType _returnType;
     private int _commandTimeout;
+    private bool _disposed;
 
     public ReturnType ReturnType
     {
@@ -195,6 +196,21 @@ public abstract class DatabaseClientBase
             return dataSet;
         }
         return null;
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
     }
 }
 

@@ -14,7 +14,7 @@ public class SqliteTests
         var path = Path.GetTempFileName();
         try
         {
-            var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
             sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);");
             var result = sqlite.Query(path, "SELECT id FROM t;");
@@ -34,7 +34,7 @@ public class SqliteTests
         var path = Path.GetTempFileName();
         try
         {
-            var sqlite = new DBAClientX.SQLite();
+            using var sqlite = new DBAClientX.SQLite();
             var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlite.Query(path, "SELECT 1", useTransaction: true));
             Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
         }
@@ -50,7 +50,7 @@ public class SqliteTests
         var path = Path.GetTempFileName();
         try
         {
-            var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
             sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.BeginTransaction(path);
             sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
@@ -72,7 +72,7 @@ public class SqliteTests
         var path = Path.GetTempFileName();
         try
         {
-            var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
             sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.BeginTransaction(path);
             sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
@@ -85,6 +85,16 @@ public class SqliteTests
         {
             Cleanup(path);
         }
+    }
+
+    [Fact]
+    public void Dispose_EndsTransaction()
+    {
+        var sqlite = new DBAClientX.SQLite();
+        sqlite.BeginTransaction(":memory:");
+        Assert.True(sqlite.IsInTransaction);
+        sqlite.Dispose();
+        Assert.False(sqlite.IsInTransaction);
     }
 
     private static void Cleanup(string path)

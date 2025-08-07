@@ -8,7 +8,7 @@ public class SQLiteTransactionConcurrencyTests
     [Fact]
     public async Task CommitAndRollback_AreThreadSafe()
     {
-        var sqlite = new DBAClientX.SQLite();
+        using var sqlite = new DBAClientX.SQLite();
         sqlite.BeginTransaction(":memory:");
 
         bool commitThrows = false;

@@ -351,6 +351,15 @@ public class SqlServer : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeTransaction();
+        }
+        base.Dispose(disposing);
+    }
+
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
     {
         if (queries == null)

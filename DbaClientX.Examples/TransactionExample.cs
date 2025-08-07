@@ -6,7 +6,7 @@ public static class TransactionExample
 {
     public static Task RunAsync()
     {
-        var sql = new SqlServer();
+        using var sql = new SqlServer();
         sql.BeginTransaction("SQL1", "master", true);
         try
         {

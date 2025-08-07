@@ -85,7 +85,7 @@ public class SqlServerTransactionAsyncTests
     [Fact]
     public async Task BeginTransactionAsync_UsesConnection()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         await server.BeginTransactionAsync("s", "db", true);
         Assert.NotNull(server.Connection);
         Assert.True(server.Connection!.BeginCalled);
@@ -95,7 +95,7 @@ public class SqlServerTransactionAsyncTests
     [Fact]
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         await server.BeginTransactionAsync("s", "db", true);
         var txn = server.Transaction!;
         await server.CommitAsync();
@@ -106,7 +106,7 @@ public class SqlServerTransactionAsyncTests
     [Fact]
     public async Task RollbackAsync_CallsRollbackOnTransaction()
     {
-        var server = new TestSqlServer();
+        using var server = new TestSqlServer();
         await server.BeginTransactionAsync("s", "db", true);
         var txn = server.Transaction!;
         await server.RollbackAsync();

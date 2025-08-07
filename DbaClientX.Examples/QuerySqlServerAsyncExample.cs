@@ -6,7 +6,7 @@ public static class QuerySqlServerAsyncExample
 {
     public static async Task RunAsync()
     {
-        var sqlServer = new SqlServer
+        using var sqlServer = new SqlServer
         {
             ReturnType = ReturnType.DataTable,
         };
