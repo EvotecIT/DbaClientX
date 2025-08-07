@@ -45,6 +45,20 @@ public class SqliteTests
     }
 
     [Fact]
+    public void Commit_WithoutTransaction_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WithoutTransaction_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.Rollback());
+    }
+
+    [Fact]
     public void Commit_PersistsChanges()
     {
         var path = Path.GetTempFileName();

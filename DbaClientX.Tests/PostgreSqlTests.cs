@@ -207,4 +207,18 @@ public class PostgreSqlTests
         pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
         Assert.Equal("CALL sp_test()", pg.CapturedQuery);
     }
+
+    [Fact]
+    public void Commit_WithoutTransaction_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WithoutTransaction_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Rollback());
+    }
 }

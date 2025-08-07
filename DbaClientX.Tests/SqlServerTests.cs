@@ -240,6 +240,20 @@ public class SqlServerTests
     }
 
     [Fact]
+    public void Commit_WithoutTransaction_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WithoutTransaction_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Rollback());
+    }
+
+    [Fact]
     public void Commit_EndsTransaction()
     {
         using var sqlServer = new FakeTransactionSqlServer();
