@@ -20,7 +20,6 @@ public class SqlServer : DatabaseClientBase
     private readonly object _syncRoot = new();
     private SqlConnection? _transactionConnection;
     private SqlTransaction? _transaction;
-    private static readonly ConcurrentDictionary<SqlDbType, DbType> TypeCache = new();
 
     public bool IsInTransaction => _transaction != null;
 
@@ -80,25 +79,8 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types)
-    {
-        if (types == null)
-        {
-            return null;
-        }
-
-        var result = new Dictionary<string, DbType>(types.Count);
-        foreach (var pair in types)
-        {
-            var dbType = TypeCache.GetOrAdd(pair.Value, static s =>
-            {
-                var parameter = new SqlParameter { SqlDbType = s };
-                return parameter.DbType;
-            });
-            result[pair.Key] = dbType;
-        }
-        return result;
-    }
+    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types) =>
+        DbTypeConverter.ConvertParameterTypes(types, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
 
     public virtual int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
