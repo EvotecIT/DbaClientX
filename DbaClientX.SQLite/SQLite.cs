@@ -25,13 +25,18 @@ public class SQLite : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public static string BuildConnectionString(string database)
     {
-        var connectionString = new SqliteConnectionStringBuilder
+        return new SqliteConnectionStringBuilder
         {
             DataSource = database,
             Pooling = true
         }.ConnectionString;
+    }
+
+    public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -90,11 +95,7 @@ public class SQLite : DatabaseClientBase
 
     public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = database,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -133,11 +134,7 @@ public class SQLite : DatabaseClientBase
 
     public virtual async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = database,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -177,11 +174,7 @@ public class SQLite : DatabaseClientBase
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
     public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = database,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(database);
 
         SqliteConnection? connection = null;
         bool dispose = false;
@@ -228,11 +221,7 @@ public class SQLite : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = new SqliteConnectionStringBuilder
-            {
-                DataSource = database,
-                Pooling = true
-            }.ConnectionString;
+            var connectionString = BuildConnectionString(database);
 
             _transactionConnection = new SqliteConnection(connectionString);
             _transactionConnection.Open();

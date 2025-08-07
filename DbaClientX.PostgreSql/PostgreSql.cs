@@ -26,9 +26,9 @@ public class PostgreSql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public static string BuildConnectionString(string host, string database, string username, string password)
     {
-        var connectionString = new NpgsqlConnectionStringBuilder
+        return new NpgsqlConnectionStringBuilder
         {
             Host = host,
             Database = database,
@@ -36,6 +36,11 @@ public class PostgreSql : DatabaseClientBase
             Password = password,
             Pooling = true
         }.ConnectionString;
+    }
+
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
         bool dispose = false;
@@ -94,14 +99,7 @@ public class PostgreSql : DatabaseClientBase
 
     public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
-        var connectionString = new NpgsqlConnectionStringBuilder
-        {
-            Host = host,
-            Database = database,
-            Username = username,
-            Password = password,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
         bool dispose = false;
@@ -140,14 +138,7 @@ public class PostgreSql : DatabaseClientBase
 
     public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
-        var connectionString = new NpgsqlConnectionStringBuilder
-        {
-            Host = host,
-            Database = database,
-            Username = username,
-            Password = password,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
         bool dispose = false;
@@ -213,14 +204,7 @@ public class PostgreSql : DatabaseClientBase
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var connectionString = new NpgsqlConnectionStringBuilder
-            {
-                Host = host,
-                Database = database,
-                Username = username,
-                Password = password,
-                Pooling = true
-            }.ConnectionString;
+            var connectionString = BuildConnectionString(host, database, username, password);
 
             NpgsqlConnection? connection = null;
             bool dispose = false;
@@ -267,14 +251,7 @@ public class PostgreSql : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = new NpgsqlConnectionStringBuilder
-            {
-                Host = host,
-                Database = database,
-                Username = username,
-                Password = password,
-                Pooling = true
-            }.ConnectionString;
+            var connectionString = BuildConnectionString(host, database, username, password);
 
             _transactionConnection = new NpgsqlConnection(connectionString);
             _transactionConnection.Open();

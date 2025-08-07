@@ -25,9 +25,9 @@ public class MySql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public static string BuildConnectionString(string host, string database, string username, string password)
     {
-        var connectionString = new MySqlConnectionStringBuilder
+        return new MySqlConnectionStringBuilder
         {
             Server = host,
             Database = database,
@@ -35,6 +35,11 @@ public class MySql : DatabaseClientBase
             Password = password,
             Pooling = true
         }.ConnectionString;
+    }
+
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -93,14 +98,7 @@ public class MySql : DatabaseClientBase
 
     public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
-        var connectionString = new MySqlConnectionStringBuilder
-        {
-            Server = host,
-            Database = database,
-            UserID = username,
-            Password = password,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -139,14 +137,7 @@ public class MySql : DatabaseClientBase
 
     public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
-        var connectionString = new MySqlConnectionStringBuilder
-        {
-            Server = host,
-            Database = database,
-            UserID = username,
-            Password = password,
-            Pooling = true
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
         bool dispose = false;
@@ -192,14 +183,7 @@ public class MySql : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = new MySqlConnectionStringBuilder
-            {
-                Server = host,
-                Database = database,
-                UserID = username,
-                Password = password,
-                Pooling = true
-            }.ConnectionString;
+            var connectionString = BuildConnectionString(host, database, username, password);
 
             _transactionConnection = new MySqlConnection(connectionString);
             _transactionConnection.Open();

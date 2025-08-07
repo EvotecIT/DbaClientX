@@ -24,7 +24,7 @@ public class SqlServer : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public static string BuildConnectionString(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
     {
         var connectionStringBuilder = new SqlConnectionStringBuilder
         {
@@ -38,7 +38,12 @@ public class SqlServer : DatabaseClientBase
             connectionStringBuilder.UserID = username;
             connectionStringBuilder.Password = password;
         }
-        var connectionString = connectionStringBuilder.ConnectionString;
+        return connectionStringBuilder.ConnectionString;
+    }
+
+    public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    {
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -97,19 +102,7 @@ public class SqlServer : DatabaseClientBase
 
     public virtual int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
-        var connectionStringBuilder = new SqlConnectionStringBuilder
-        {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
-            Pooling = true
-        };
-        if (!integratedSecurity)
-        {
-            connectionStringBuilder.UserID = username;
-            connectionStringBuilder.Password = password;
-        }
-        var connectionString = connectionStringBuilder.ConnectionString;
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -148,19 +141,7 @@ public class SqlServer : DatabaseClientBase
 
     public virtual async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
-        var connectionStringBuilder = new SqlConnectionStringBuilder
-        {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
-            Pooling = true
-        };
-        if (!integratedSecurity)
-        {
-            connectionStringBuilder.UserID = username;
-            connectionStringBuilder.Password = password;
-        }
-        var connectionString = connectionStringBuilder.ConnectionString;
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         bool dispose = false;
@@ -226,19 +207,7 @@ public class SqlServer : DatabaseClientBase
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var connectionStringBuilder = new SqlConnectionStringBuilder
-            {
-                DataSource = serverOrInstance,
-                InitialCatalog = database,
-                IntegratedSecurity = integratedSecurity,
-                Pooling = true
-            };
-            if (!integratedSecurity)
-            {
-                connectionStringBuilder.UserID = username;
-                connectionStringBuilder.Password = password;
-            }
-            var connectionString = connectionStringBuilder.ConnectionString;
+            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             SqlConnection? connection = null;
             bool dispose = false;
@@ -286,19 +255,7 @@ public class SqlServer : DatabaseClientBase
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionStringBuilder = new SqlConnectionStringBuilder
-            {
-                DataSource = serverOrInstance,
-                InitialCatalog = database,
-                IntegratedSecurity = integratedSecurity,
-                Pooling = true
-            };
-            if (!integratedSecurity)
-            {
-                connectionStringBuilder.UserID = username;
-                connectionStringBuilder.Password = password;
-            }
-            var connectionString = connectionStringBuilder.ConnectionString;
+            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             _transactionConnection = new SqlConnection(connectionString);
             _transactionConnection.Open();
@@ -313,19 +270,7 @@ public class SqlServer : DatabaseClientBase
             throw new DbaTransactionException("Transaction already started.");
         }
 
-        var connectionStringBuilder = new SqlConnectionStringBuilder
-        {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
-            Pooling = true
-        };
-        if (!integratedSecurity)
-        {
-            connectionStringBuilder.UserID = username;
-            connectionStringBuilder.Password = password;
-        }
-        var connectionString = connectionStringBuilder.ConnectionString;
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         _transactionConnection = new SqlConnection(connectionString);
         await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
