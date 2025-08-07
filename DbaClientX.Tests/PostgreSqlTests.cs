@@ -15,12 +15,12 @@ namespace DbaClientX.Tests;
 public class PostgreSqlTests
 {
     [Fact]
-    public async Task PgQueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
+    public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
         var pg = new DBAClientX.PostgreSql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await pg.PgQueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
+            await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
         });
         Assert.Contains("SELECT 1", ex.Message);
     }
@@ -34,7 +34,7 @@ public class PostgreSqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> PgQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
             await Task.Delay(_delay, cancellationToken);
             return null;
@@ -50,7 +50,7 @@ public class PostgreSqlTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await pg.PgQueryAsync("h", "d", "u", "p", query);
+            await pg.QueryAsync("h", "d", "u", "p", query);
         }
         sequential.Stop();
 
@@ -62,13 +62,13 @@ public class PostgreSqlTests
     }
 
     [Fact]
-    public async Task PgQueryAsync_CanBeCancelled()
+    public async Task QueryAsync_CanBeCancelled()
     {
         var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await pg.PgQueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
+            await pg.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
         });
     }
 
@@ -100,7 +100,7 @@ public class PostgreSqlTests
             }
         }
 
-        public override Task<object?> PgQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
             var command = new NpgsqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -119,7 +119,7 @@ public class PostgreSqlTests
     }
 
     [Fact]
-    public async Task PgQueryAsync_BindsParameters()
+    public async Task QueryAsync_BindsParameters()
     {
         var pg = new CaptureParametersPostgreSql();
         var parameters = new Dictionary<string, object?>
@@ -128,14 +128,14 @@ public class PostgreSqlTests
             ["@name"] = "test"
         };
 
-        await pg.PgQueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && (string)p.Value == "test");
     }
 
     [Fact]
-    public async Task PgQueryAsync_PreservesParameterTypes()
+    public async Task QueryAsync_PreservesParameterTypes()
     {
         var pg = new CaptureParametersPostgreSql();
         var parameters = new Dictionary<string, object?>
@@ -149,7 +149,7 @@ public class PostgreSqlTests
             ["@name"] = NpgsqlDbType.Text
         };
 
-        await pg.PgQueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Type == NpgsqlDbType.Integer);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
@@ -160,14 +160,14 @@ public class PostgreSqlTests
         public string? CapturedQuery;
         public IDictionary<string, object?>? CapturedParameters;
 
-        public override object? PgQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
             return null;
         }
 
-        public override Task<object?> PgQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;

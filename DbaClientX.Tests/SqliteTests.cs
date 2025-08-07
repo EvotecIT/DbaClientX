@@ -9,15 +9,15 @@ namespace DbaClientX.Tests;
 public class SqliteTests
 {
     [Fact]
-    public void SqliteQueryNonQuery_CreatesAndReadsData()
+    public void ExecuteNonQuery_CreatesAndReadsData()
     {
         var path = Path.GetTempFileName();
         try
         {
             var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
-            sqlite.SqliteQueryNonQuery(path, "CREATE TABLE t(id INTEGER);");
-            sqlite.SqliteQueryNonQuery(path, "INSERT INTO t(id) VALUES (1);");
-            var result = sqlite.SqliteQuery(path, "SELECT id FROM t;");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);");
+            var result = sqlite.Query(path, "SELECT id FROM t;");
             var table = Assert.IsType<DataTable>(result);
             Assert.Single(table.Rows);
             Assert.Equal(1L, table.Rows[0]["id"]);
@@ -29,13 +29,13 @@ public class SqliteTests
     }
 
     [Fact]
-    public void SqliteQuery_WithTransactionNotStarted_Throws()
+    public void Query_WithTransactionNotStarted_Throws()
     {
         var path = Path.GetTempFileName();
         try
         {
             var sqlite = new DBAClientX.SQLite();
-            var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlite.SqliteQuery(path, "SELECT 1", useTransaction: true));
+            var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlite.Query(path, "SELECT 1", useTransaction: true));
             Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
         }
         finally
@@ -51,11 +51,11 @@ public class SqliteTests
         try
         {
             var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
-            sqlite.SqliteQueryNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.BeginTransaction(path);
-            sqlite.SqliteQueryNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
+            sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
             sqlite.Commit();
-            var result = sqlite.SqliteQuery(path, "SELECT id FROM t;");
+            var result = sqlite.Query(path, "SELECT id FROM t;");
             var table = Assert.IsType<DataTable>(result);
             Assert.Single(table.Rows);
             Assert.Equal(1L, table.Rows[0]["id"]);
@@ -73,11 +73,11 @@ public class SqliteTests
         try
         {
             var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
-            sqlite.SqliteQueryNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.BeginTransaction(path);
-            sqlite.SqliteQueryNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
+            sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
             sqlite.Rollback();
-            var result = sqlite.SqliteQuery(path, "SELECT id FROM t;");
+            var result = sqlite.Query(path, "SELECT id FROM t;");
             var table = Assert.IsType<DataTable>(result);
             Assert.Equal(0, table.Rows.Count);
         }

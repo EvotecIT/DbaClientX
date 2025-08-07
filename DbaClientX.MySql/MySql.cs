@@ -25,7 +25,7 @@ public class MySql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? MySqlQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
         {
@@ -91,7 +91,7 @@ public class MySql : DatabaseClientBase
         return result;
     }
 
-    public virtual int MySqlQueryNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
         {
@@ -137,7 +137,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> MySqlQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
         {
@@ -239,7 +239,7 @@ public class MySql : DatabaseClientBase
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => MySqlQueryAsync(host, database, username, password, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => QueryAsync(host, database, username, password, q, null, false, cancellationToken));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

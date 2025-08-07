@@ -13,12 +13,12 @@ namespace DbaClientX.Tests;
 public class MySqlTests
 {
     [Fact]
-    public async Task MySqlQueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
+    public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
         var mySql = new DBAClientX.MySql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await mySql.MySqlQueryAsync("invalid", "mysql", "user", "pass", "SELECT 1");
+            await mySql.QueryAsync("invalid", "mysql", "user", "pass", "SELECT 1");
         });
         Assert.Contains("SELECT 1", ex.Message);
     }
@@ -32,7 +32,7 @@ public class MySqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> MySqlQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
             await Task.Delay(_delay, cancellationToken);
             return null;
@@ -48,7 +48,7 @@ public class MySqlTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await mySql.MySqlQueryAsync("h", "d", "u", "p", query);
+            await mySql.QueryAsync("h", "d", "u", "p", query);
         }
         sequential.Stop();
 
@@ -60,13 +60,13 @@ public class MySqlTests
     }
 
     [Fact]
-    public async Task MySqlQueryAsync_CanBeCancelled()
+    public async Task QueryAsync_CanBeCancelled()
     {
         var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await mySql.MySqlQueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
+            await mySql.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
         });
     }
 
@@ -98,7 +98,7 @@ public class MySqlTests
             }
         }
 
-        public override Task<object?> MySqlQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
             var command = new MySqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -117,7 +117,7 @@ public class MySqlTests
     }
 
     [Fact]
-    public async Task MySqlQueryAsync_BindsParameters()
+    public async Task QueryAsync_BindsParameters()
     {
         var mySql = new CaptureParametersMySql();
         var parameters = new Dictionary<string, object?>
@@ -126,14 +126,14 @@ public class MySqlTests
             ["@name"] = "test"
         };
 
-        await mySql.MySqlQueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
+        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
 
         Assert.Contains(mySql.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && (string)p.Value == "test");
     }
 
     [Fact]
-    public async Task MySqlQueryAsync_PreservesParameterTypes()
+    public async Task QueryAsync_PreservesParameterTypes()
     {
         var mySql = new CaptureParametersMySql();
         var parameters = new Dictionary<string, object?>
@@ -147,7 +147,7 @@ public class MySqlTests
             ["@name"] = MySqlDbType.VarChar
         };
 
-        await mySql.MySqlQueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == MySqlDbType.Int32);
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);
@@ -174,23 +174,23 @@ public class MySqlTests
             TransactionStarted = false;
         }
 
-        public override object? MySqlQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> MySqlQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
-            return Task.FromResult<object?>(MySqlQuery(host, database, username, password, query, parameters, useTransaction));
+            return Task.FromResult<object?>(Query(host, database, username, password, query, parameters, useTransaction));
         }
     }
 
     [Fact]
-    public void MySqlQuery_WithTransactionNotStarted_Throws()
+    public void Query_WithTransactionNotStarted_Throws()
     {
         var mySql = new FakeTransactionMySql();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.MySqlQuery("h", "d", "u", "p", "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
     }
 
     [Fact]
@@ -199,7 +199,7 @@ public class MySqlTests
         var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
         mySql.Commit();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.MySqlQuery("h", "d", "u", "p", "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
     }
 
     [Fact]
@@ -208,15 +208,15 @@ public class MySqlTests
         var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
         mySql.Rollback();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.MySqlQuery("h", "d", "u", "p", "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Query("h", "d", "u", "p", "q", null, true));
     }
 
     [Fact]
-    public void MySqlQuery_UsesTransaction_WhenStarted()
+    public void Query_UsesTransaction_WhenStarted()
     {
         var mySql = new FakeTransactionMySql();
         mySql.BeginTransaction("h", "d", "u", "p");
-        var ex = Record.Exception(() => mySql.MySqlQuery("h", "d", "u", "p", "q", null, true));
+        var ex = Record.Exception(() => mySql.Query("h", "d", "u", "p", "q", null, true));
         Assert.Null(ex);
     }
 }

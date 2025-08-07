@@ -14,12 +14,12 @@ namespace DbaClientX.Tests;
 public class SqlServerTests
 {
     [Fact]
-    public async Task SqlQueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
+    public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
         var sqlServer = new DBAClientX.SqlServer();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await sqlServer.SqlQueryAsync("invalid", "master", true, "SELECT 1");
+            await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1");
         });
         Assert.Contains("SELECT 1", ex.Message);
     }
@@ -33,7 +33,7 @@ public class SqlServerTests
             _delay = delay;
         }
 
-        public override async Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             await Task.Delay(_delay, cancellationToken);
             return null;
@@ -49,7 +49,7 @@ public class SqlServerTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await sqlServer.SqlQueryAsync("ignored", "ignored", true, query);
+            await sqlServer.QueryAsync("ignored", "ignored", true, query);
         }
         sequential.Stop();
 
@@ -61,13 +61,13 @@ public class SqlServerTests
     }
 
     [Fact]
-    public async Task SqlQueryAsync_CanBeCancelled()
+    public async Task QueryAsync_CanBeCancelled()
     {
         var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlServer.SqlQueryAsync("s", "db", true, "q", cancellationToken: cts.Token);
+            await sqlServer.QueryAsync("s", "db", true, "q", cancellationToken: cts.Token);
         });
     }
 
@@ -99,7 +99,7 @@ public class SqlServerTests
             }
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             var command = new SqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -118,7 +118,7 @@ public class SqlServerTests
     }
 
     [Fact]
-    public async Task SqlQueryAsync_BindsParameters()
+    public async Task QueryAsync_BindsParameters()
     {
         var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
@@ -127,14 +127,14 @@ public class SqlServerTests
             ["@name"] = "test"
         };
 
-        await sqlServer.SqlQueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
     }
 
     [Fact]
-    public async Task SqlQueryAsync_PreservesParameterTypes()
+    public async Task QueryAsync_PreservesParameterTypes()
     {
         var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
@@ -148,7 +148,7 @@ public class SqlServerTests
             ["@name"] = SqlDbType.NVarChar
         };
 
-        await sqlServer.SqlQueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == SqlDbType.Int);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
@@ -159,14 +159,14 @@ public class SqlServerTests
         public string? CapturedQuery;
         public IDictionary<string, object?>? CapturedParameters;
 
-        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
             return null;
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             CapturedQuery = query;
             CapturedParameters = parameters;
@@ -220,23 +220,23 @@ public class SqlServerTests
             TransactionStarted = false;
         }
 
-        public override object? SqlQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> SqlQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
-            return Task.FromResult<object?>(SqlQuery(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password));
+            return Task.FromResult<object?>(Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password));
         }
     }
 
     [Fact]
-    public void SqlQuery_WithTransactionNotStarted_Throws()
+    public void Query_WithTransactionNotStarted_Throws()
     {
         var sqlServer = new FakeTransactionSqlServer();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class SqlServerTests
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Commit();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
     }
 
     [Fact]
@@ -254,15 +254,15 @@ public class SqlServerTests
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
         sqlServer.Rollback();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.Query("s", "db", true, "q", null, true));
     }
 
     [Fact]
-    public void SqlQuery_UsesTransaction_WhenStarted()
+    public void Query_UsesTransaction_WhenStarted()
     {
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
-        var ex = Record.Exception(() => sqlServer.SqlQuery("s", "db", true, "q", null, true));
+        var ex = Record.Exception(() => sqlServer.Query("s", "db", true, "q", null, true));
         Assert.Null(ex);
     }
 

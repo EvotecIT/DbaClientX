@@ -11,7 +11,7 @@ public static class TransactionAsyncExample
         await sql.BeginTransactionAsync("SQL1", "master", true, cancellationToken);
         try
         {
-            await sql.SqlQueryAsync("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true, cancellationToken);
+            await sql.QueryAsync("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true, cancellationToken);
             await sql.CommitAsync(cancellationToken);
             Console.WriteLine("Committed");
         }

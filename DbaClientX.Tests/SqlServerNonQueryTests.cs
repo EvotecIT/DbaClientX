@@ -22,7 +22,7 @@ public class SqlServerNonQueryTests
             return 1;
         }
 
-        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             IDictionary<string, DbType>? dbTypes = null;
             if (parameterTypes != null)
@@ -39,7 +39,7 @@ public class SqlServerNonQueryTests
     }
 
     [Fact]
-    public void SqlQueryNonQuery_BindsParameters()
+    public void ExecuteNonQuery_BindsParameters()
     {
         var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
@@ -48,14 +48,14 @@ public class SqlServerNonQueryTests
             ["@name"] = "test"
         };
 
-        sqlServer.SqlQueryNonQuery("s", "db", true, "UPDATE t SET c=1 WHERE id=@id", parameters);
+        sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET c=1 WHERE id=@id", parameters);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
     }
 
     [Fact]
-    public void SqlQueryNonQuery_PreservesParameterTypes()
+    public void ExecuteNonQuery_PreservesParameterTypes()
     {
         var sqlServer = new CaptureParametersSqlServer();
         var parameters = new Dictionary<string, object?>
@@ -69,7 +69,7 @@ public class SqlServerNonQueryTests
             ["@name"] = SqlDbType.NVarChar
         };
 
-        sqlServer.SqlQueryNonQuery("s", "db", true, "UPDATE t SET name=@name WHERE id=@id", parameters, parameterTypes: types);
+        sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET name=@name WHERE id=@id", parameters, parameterTypes: types);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == DbType.Int32);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == DbType.String);
@@ -96,7 +96,7 @@ public class SqlServerNonQueryTests
             TransactionStarted = false;
         }
 
-        public override int SqlQueryNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return 0;
@@ -104,18 +104,18 @@ public class SqlServerNonQueryTests
     }
 
     [Fact]
-    public void SqlQueryNonQuery_WithTransactionNotStarted_Throws()
+    public void ExecuteNonQuery_WithTransactionNotStarted_Throws()
     {
         var sqlServer = new FakeTransactionSqlServer();
-        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.SqlQueryNonQuery("s", "db", true, "q", useTransaction: true));
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.ExecuteNonQuery("s", "db", true, "q", useTransaction: true));
     }
 
     [Fact]
-    public void SqlQueryNonQuery_UsesTransaction_WhenStarted()
+    public void ExecuteNonQuery_UsesTransaction_WhenStarted()
     {
         var sqlServer = new FakeTransactionSqlServer();
         sqlServer.BeginTransaction("s", "db", true);
-        var ex = Record.Exception(() => sqlServer.SqlQueryNonQuery("s", "db", true, "q", useTransaction: true));
+        var ex = Record.Exception(() => sqlServer.ExecuteNonQuery("s", "db", true, "q", useTransaction: true));
         Assert.Null(ex);
     }
 }

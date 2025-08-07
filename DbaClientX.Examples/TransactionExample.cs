@@ -10,7 +10,7 @@ public static class TransactionExample
         sql.BeginTransaction("SQL1", "master", true);
         try
         {
-            sql.SqlQuery("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true);
+            sql.Query("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true);
             sql.Commit();
             Console.WriteLine("Committed");
         }

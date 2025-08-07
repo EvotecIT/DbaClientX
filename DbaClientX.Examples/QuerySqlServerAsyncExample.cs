@@ -11,7 +11,7 @@ public static class QuerySqlServerAsyncExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var result = await sqlServer.SqlQueryAsync("SQL1", "master", true, "SELECT TOP 1 * FROM sys.databases", cancellationToken: CancellationToken.None);
+        var result = await sqlServer.QueryAsync("SQL1", "master", true, "SELECT TOP 1 * FROM sys.databases", cancellationToken: CancellationToken.None);
 
         if (result is DataTable table)
         {
