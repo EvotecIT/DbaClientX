@@ -21,7 +21,6 @@ public class SQLite : DatabaseClientBase
     private readonly object _syncRoot = new();
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
-    private static readonly ConcurrentDictionary<SqliteType, DbType> TypeCache = new();
 
     public bool IsInTransaction => _transaction != null;
 
@@ -73,25 +72,8 @@ public class SQLite : DatabaseClientBase
         }
     }
 
-    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types)
-    {
-        if (types == null)
-        {
-            return null;
-        }
-
-        var result = new Dictionary<string, DbType>(types.Count);
-        foreach (var pair in types)
-        {
-            var dbType = TypeCache.GetOrAdd(pair.Value, static s =>
-            {
-                var parameter = new SqliteParameter { SqliteType = s };
-                return parameter.DbType;
-            });
-            result[pair.Key] = dbType;
-        }
-        return result;
-    }
+    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>
+        DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
 
     public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {

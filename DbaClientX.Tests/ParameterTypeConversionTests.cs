@@ -1,57 +1,63 @@
+using System.Collections.Concurrent;
 using System.Data;
 using System.Data.SqlClient;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Reflection;
-using Xunit;
+using Microsoft.Data.Sqlite;
+using MySqlConnector;
+using Npgsql;
+using NpgsqlTypes;
+using DBAClientX;
 
 namespace DbaClientX.Tests;
 
 public class ParameterTypeConversionTests
 {
-    private static IDictionary<string, DbType>? InvokeConvert(IDictionary<string, SqlDbType>? types)
-    {
-        var sqlServerType = typeof(DBAClientX.SqlServer);
-        var method = sqlServerType.GetMethod("ConvertParameterTypes", BindingFlags.Static | BindingFlags.NonPublic)!;
-        return (IDictionary<string, DbType>?)method.Invoke(null, new object?[] { types });
-    }
-
-    private static ConcurrentDictionary<SqlDbType, DbType> GetCache()
-    {
-        var sqlServerType = typeof(DBAClientX.SqlServer);
-        var field = sqlServerType.GetField("TypeCache", BindingFlags.Static | BindingFlags.NonPublic)!;
-        return (ConcurrentDictionary<SqlDbType, DbType>)field.GetValue(null)!;
-    }
-
     [Fact]
-    public void ConvertParameterTypes_CachesConversions()
+    public void SqlServer_ConvertsTypes()
     {
-        var cache = GetCache();
-        cache.Clear();
-
-        var first = new Dictionary<string, SqlDbType>
+        var types = new Dictionary<string, SqlDbType>
         {
             ["@id"] = SqlDbType.Int,
             ["@name"] = SqlDbType.NVarChar
         };
+        var result = DbTypeConverter.ConvertParameterTypes(types, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t)!;
+        Assert.Equal(DbType.Int32, result["@id"]);
+        Assert.Equal(DbType.String, result["@name"]);
+    }
 
-        var result1 = InvokeConvert(first)!;
-
-        Assert.Equal(DbType.Int32, result1["@id"]);
-        Assert.Equal(DbType.String, result1["@name"]);
-        Assert.Equal(2, cache.Count);
-
-        var result2 = InvokeConvert(first)!;
-        Assert.Equal(2, cache.Count);
-
-        var second = new Dictionary<string, SqlDbType>
+    [Fact]
+    public void PostgreSql_ConvertsTypes()
+    {
+        var types = new Dictionary<string, NpgsqlDbType>
         {
-            ["@date"] = SqlDbType.DateTime
+            ["@id"] = NpgsqlDbType.Integer,
+            ["@name"] = NpgsqlDbType.Text
         };
+        var result = DbTypeConverter.ConvertParameterTypes(types, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t)!;
+        Assert.Equal(DbType.Int32, result["@id"]);
+        Assert.Equal(DbType.String, result["@name"]);
+    }
 
-        var result3 = InvokeConvert(second)!;
-        Assert.Equal(DbType.DateTime, result3["@date"]);
-        Assert.Equal(3, cache.Count);
+    [Fact]
+    public void MySql_ConvertsTypes()
+    {
+        var types = new Dictionary<string, MySqlDbType>
+        {
+            ["@id"] = MySqlDbType.Int32,
+            ["@name"] = MySqlDbType.VarString
+        };
+        var result = DbTypeConverter.ConvertParameterTypes(types, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t)!;
+        Assert.Equal(DbType.Int32, result["@id"]);
+        Assert.Equal(DbType.String, result["@name"]);
+    }
+
+    [Fact]
+    public void SQLite_ConvertsTypes()
+    {
+        var types = new Dictionary<string, SqliteType>
+        {
+            ["@name"] = SqliteType.Text
+        };
+        var result = DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t)!;
+        Assert.Equal(DbType.String, result["@name"]);
     }
 }
-
