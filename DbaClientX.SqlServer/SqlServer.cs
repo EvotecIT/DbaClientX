@@ -279,28 +279,31 @@ public class SqlServer : DatabaseClientBase
 
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
-        }
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
 
-        var connectionStringBuilder = new SqlConnectionStringBuilder
-        {
-            DataSource = serverOrInstance,
-            InitialCatalog = database,
-            IntegratedSecurity = integratedSecurity,
-            Pooling = true
-        };
-        if (!integratedSecurity)
-        {
-            connectionStringBuilder.UserID = username;
-            connectionStringBuilder.Password = password;
-        }
-        var connectionString = connectionStringBuilder.ConnectionString;
+            var connectionStringBuilder = new SqlConnectionStringBuilder
+            {
+                DataSource = serverOrInstance,
+                InitialCatalog = database,
+                IntegratedSecurity = integratedSecurity,
+                Pooling = true
+            };
+            if (!integratedSecurity)
+            {
+                connectionStringBuilder.UserID = username;
+                connectionStringBuilder.Password = password;
+            }
+            var connectionString = connectionStringBuilder.ConnectionString;
 
-        _transactionConnection = new SqlConnection(connectionString);
-        _transactionConnection.Open();
-        _transaction = _transactionConnection.BeginTransaction();
+            _transactionConnection = new SqlConnection(connectionString);
+            _transactionConnection.Open();
+            _transaction = _transactionConnection.BeginTransaction();
+        }
     }
 
     public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
@@ -335,12 +338,15 @@ public class SqlServer : DatabaseClientBase
 
     public virtual void Commit()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Commit();
+            DisposeTransactionLocked();
         }
-        _transaction.Commit();
-        DisposeTransaction();
     }
 
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -359,12 +365,15 @@ public class SqlServer : DatabaseClientBase
 
     public virtual void Rollback()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Rollback();
+            DisposeTransactionLocked();
         }
-        _transaction.Rollback();
-        DisposeTransaction();
     }
 
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
@@ -382,6 +391,14 @@ public class SqlServer : DatabaseClientBase
     }
 
     private void DisposeTransaction()
+    {
+        lock (_syncRoot)
+        {
+            DisposeTransactionLocked();
+        }
+    }
+
+    private void DisposeTransactionLocked()
     {
         _transaction?.Dispose();
         _transaction = null;
