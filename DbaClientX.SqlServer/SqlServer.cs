@@ -40,6 +40,32 @@ public class SqlServer : DatabaseClientBase
         return connectionStringBuilder.ConnectionString;
     }
 
+    public virtual bool Ping(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+    {
+        try
+        {
+            Query(serverOrInstance, database, integratedSecurity, "SELECT 1", username: username, password: password);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public virtual async Task<bool> PingAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    {
+        try
+        {
+            await QueryAsync(serverOrInstance, database, integratedSecurity, "SELECT 1", cancellationToken: cancellationToken, username: username, password: password).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);

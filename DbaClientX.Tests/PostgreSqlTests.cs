@@ -25,6 +25,51 @@ public class PostgreSqlTests
         Assert.Contains("SELECT 1", ex.Message);
     }
 
+    private class PingPostgreSql : DBAClientX.PostgreSql
+    {
+        public bool ShouldFail { get; set; }
+
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return null;
+        }
+
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void Ping_ReturnsTrue_OnSuccess()
+    {
+        using var pg = new PingPostgreSql { ShouldFail = false };
+        Assert.True(pg.Ping("h", "d", "u", "p"));
+    }
+
+    [Fact]
+    public void Ping_ReturnsFalse_OnFailure()
+    {
+        using var pg = new PingPostgreSql { ShouldFail = true };
+        Assert.False(pg.Ping("h", "d", "u", "p"));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsTrue_OnSuccess()
+    {
+        using var pg = new PingPostgreSql { ShouldFail = false };
+        Assert.True(await pg.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsFalse_OnFailure()
+    {
+        using var pg = new PingPostgreSql { ShouldFail = true };
+        Assert.False(await pg.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+    }
+
     private class DelayPostgreSql : DBAClientX.PostgreSql
     {
         private readonly TimeSpan _delay;

@@ -37,6 +37,32 @@ public class PostgreSql : DatabaseClientBase
         }.ConnectionString;
     }
 
+    public virtual bool Ping(string host, string database, string username, string password)
+    {
+        try
+        {
+            Query(host, database, username, password, "SELECT 1");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public virtual async Task<bool> PingAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await QueryAsync(host, database, username, password, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);

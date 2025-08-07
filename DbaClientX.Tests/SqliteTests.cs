@@ -111,6 +111,51 @@ public class SqliteTests
         Assert.False(sqlite.IsInTransaction);
     }
 
+    private class PingSqlite : DBAClientX.SQLite
+    {
+        public bool ShouldFail { get; set; }
+
+        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return null;
+        }
+
+        public override Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void Ping_ReturnsTrue_OnSuccess()
+    {
+        using var sqlite = new PingSqlite { ShouldFail = false };
+        Assert.True(sqlite.Ping(":memory:"));
+    }
+
+    [Fact]
+    public void Ping_ReturnsFalse_OnFailure()
+    {
+        using var sqlite = new PingSqlite { ShouldFail = true };
+        Assert.False(sqlite.Ping(":memory:"));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsTrue_OnSuccess()
+    {
+        using var sqlite = new PingSqlite { ShouldFail = false };
+        Assert.True(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsFalse_OnFailure()
+    {
+        using var sqlite = new PingSqlite { ShouldFail = true };
+        Assert.False(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+    }
+
     private static void Cleanup(string path)
     {
         SqliteConnection.ClearAllPools();

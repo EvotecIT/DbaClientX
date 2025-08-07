@@ -23,6 +23,51 @@ public class MySqlTests
         Assert.Contains("SELECT 1", ex.Message);
     }
 
+    private class PingMySql : DBAClientX.MySql
+    {
+        public bool ShouldFail { get; set; }
+
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return null;
+        }
+
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        {
+            if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void Ping_ReturnsTrue_OnSuccess()
+    {
+        using var mySql = new PingMySql { ShouldFail = false };
+        Assert.True(mySql.Ping("h", "d", "u", "p"));
+    }
+
+    [Fact]
+    public void Ping_ReturnsFalse_OnFailure()
+    {
+        using var mySql = new PingMySql { ShouldFail = true };
+        Assert.False(mySql.Ping("h", "d", "u", "p"));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsTrue_OnSuccess()
+    {
+        using var mySql = new PingMySql { ShouldFail = false };
+        Assert.True(await mySql.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+    }
+
+    [Fact]
+    public async Task PingAsync_ReturnsFalse_OnFailure()
+    {
+        using var mySql = new PingMySql { ShouldFail = true };
+        Assert.False(await mySql.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+    }
+
     private class DelayMySql : DBAClientX.MySql
     {
         private readonly TimeSpan _delay;
