@@ -14,7 +14,19 @@ public class QueryBuilderTests
             .Where("id", 1);
 
         var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE id = 1", sql);
+        Assert.Equal("SELECT * FROM [users] WHERE [id] = 1", sql);
+    }
+
+    [Fact]
+    public void InstanceCompile_DefaultsToSqlServer()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", 1);
+
+        var sql = query.Compile();
+        Assert.Equal("SELECT * FROM [users] WHERE [id] = 1", sql);
     }
 
     [Fact]
@@ -24,8 +36,8 @@ public class QueryBuilderTests
             .InsertInto("users", "name", "age")
             .Values("Bob", 42);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("INSERT INTO users (name, age) VALUES ('Bob', 42)", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("INSERT INTO \"users\" (\"name\", \"age\") VALUES ('Bob', 42)", sql);
     }
 
     [Fact]
@@ -36,8 +48,8 @@ public class QueryBuilderTests
             .Set("name", "Alice")
             .Where("id", 1);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("UPDATE users SET name = 'Alice' WHERE id = 1", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("UPDATE \"users\" SET \"name\" = 'Alice' WHERE \"id\" = 1", sql);
     }
 
     [Fact]
@@ -47,8 +59,8 @@ public class QueryBuilderTests
             .DeleteFrom("users")
             .Where("id", 1);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("DELETE FROM users WHERE id = 1", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("DELETE FROM \"users\" WHERE \"id\" = 1", sql);
     }
 
     [Fact]
@@ -60,8 +72,8 @@ public class QueryBuilderTests
             .OrderBy("name")
             .Limit(10);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users ORDER BY name LIMIT 10", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY \"name\" LIMIT 10", sql);
     }
 
     [Fact]
@@ -74,8 +86,48 @@ public class QueryBuilderTests
             .Limit(5)
             .Offset(2);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users ORDER BY name LIMIT 5 OFFSET 2", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY \"name\" LIMIT 5 OFFSET 2", sql);
+    }
+
+    [Fact]
+    public void SelectLimit_MySqlDialectUsesBackticks()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(3);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
+        Assert.Equal("SELECT * FROM `users` ORDER BY `name` LIMIT 3", sql);
+    }
+
+    [Fact]
+    public void SelectLimit_SqliteDialectUsesQuotes()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(3);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY \"name\" LIMIT 3", sql);
+    }
+
+    [Fact]
+    public void SelectLimitOffset_SqlServerUsesOffsetFetch()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(5)
+            .Offset(10);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("SELECT * FROM [users] ORDER BY [name] OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY", sql);
     }
 
     [Fact]
@@ -87,8 +139,8 @@ public class QueryBuilderTests
             .From("users")
             .OrderBy("age");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT TOP 5 * FROM users ORDER BY age", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("SELECT TOP 5 * FROM [users] ORDER BY [age]", sql);
     }
 
     [Fact]
@@ -101,8 +153,8 @@ public class QueryBuilderTests
             .Where("age", ">", 18)
             .OrderBy("age");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT TOP 3 name FROM users WHERE age > 18 ORDER BY age", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("SELECT TOP 3 [name] FROM [users] WHERE [age] > 18 ORDER BY [age]", sql);
     }
 
     [Fact]
@@ -113,8 +165,8 @@ public class QueryBuilderTests
             .From("users")
             .OrderByDescending("age");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users ORDER BY age DESC", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY \"age\" DESC", sql);
     }
 
     [Fact]
@@ -125,8 +177,8 @@ public class QueryBuilderTests
             .From("users")
             .OrderByRaw("RAND()");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users ORDER BY RAND()", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY RAND()", sql);
     }
 
     [Fact]
@@ -139,8 +191,8 @@ public class QueryBuilderTests
             .Offset(2)
             .Top(3);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT TOP 3 * FROM users", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("SELECT TOP 3 * FROM [users]", sql);
     }
 
     [Fact]
@@ -152,8 +204,8 @@ public class QueryBuilderTests
             .Select("*")
             .From("users");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users LIMIT 2", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" LIMIT 2", sql);
     }
 
     [Fact]
@@ -163,8 +215,8 @@ public class QueryBuilderTests
             .Select("name", "age")
             .From("users");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT name, age FROM users", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"name\", \"age\" FROM \"users\"", sql);
     }
 
     [Fact]
@@ -176,8 +228,8 @@ public class QueryBuilderTests
             .Where("age", ">", 18)
             .Where("active", true);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE age > 18 AND active = 1", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" > 18 AND \"active\" = 1", sql);
     }
 
     [Fact]
@@ -188,8 +240,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereNull("deleted_at");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE deleted_at IS NULL", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"deleted_at\" IS NULL", sql);
     }
 
     [Fact]
@@ -200,8 +252,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereNotNull("email");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE email IS NOT NULL", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"email\" IS NOT NULL", sql);
     }
 
     [Fact]
@@ -213,8 +265,8 @@ public class QueryBuilderTests
             .Where("age", ">", 18)
             .OrWhereNull("deleted_at");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE age > 18 OR deleted_at IS NULL", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" > 18 OR \"deleted_at\" IS NULL", sql);
     }
 
     [Fact]
@@ -225,8 +277,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereIn("id", 1, 2, 3);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE id IN (1, 2, 3)", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"id\" IN (1, 2, 3)", sql);
     }
 
     [Fact]
@@ -238,8 +290,8 @@ public class QueryBuilderTests
             .Where("age", ">", 18)
             .OrWhereIn("id", 1, 2);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE age > 18 OR id IN (1, 2)", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" > 18 OR \"id\" IN (1, 2)", sql);
     }
 
     [Fact]
@@ -250,8 +302,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereNotIn("id", 1, 2);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE id NOT IN (1, 2)", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"id\" NOT IN (1, 2)", sql);
     }
 
     [Fact]
@@ -262,8 +314,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereBetween("age", 18, 30);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE age BETWEEN 18 AND 30", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" BETWEEN 18 AND 30", sql);
     }
 
     [Fact]
@@ -275,8 +327,8 @@ public class QueryBuilderTests
             .Where("status", "=", "active")
             .OrWhereBetween("age", 18, 30);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE status = 'active' OR age BETWEEN 18 AND 30", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"status\" = 'active' OR \"age\" BETWEEN 18 AND 30", sql);
     }
 
     [Fact]
@@ -287,8 +339,8 @@ public class QueryBuilderTests
             .From("users")
             .WhereNotBetween("age", 18, 30);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE age NOT BETWEEN 18 AND 30", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" NOT BETWEEN 18 AND 30", sql);
     }
 
     [Fact]
@@ -297,7 +349,7 @@ public class QueryBuilderTests
         var query = new Query()
             .Select("1");
 
-        var sql = QueryBuilder.Compile(query);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
         Assert.Equal("SELECT 1", sql);
     }
 
@@ -312,8 +364,8 @@ public class QueryBuilderTests
             .Select("u.id")
             .From(sub, "u");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT u.id FROM (SELECT * FROM users) AS u", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"u\".\"id\" FROM (SELECT * FROM \"users\") AS \"u\"", sql);
     }
 
     [Fact]
@@ -328,8 +380,8 @@ public class QueryBuilderTests
             .From("users")
             .Where("id", "IN", sub);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE id IN (SELECT id FROM admins)", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"id\" IN (SELECT \"id\" FROM \"admins\")", sql);
     }
 
     [Fact]
@@ -349,8 +401,8 @@ public class QueryBuilderTests
             .From("items")
             .Where("user_id", "IN", middle);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM items WHERE user_id IN (SELECT id FROM users WHERE owner_id IN (SELECT id FROM admins))", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"items\" WHERE \"user_id\" IN (SELECT \"id\" FROM \"users\" WHERE \"owner_id\" IN (SELECT \"id\" FROM \"admins\"))", sql);
     }
 
     [Fact]
@@ -362,8 +414,8 @@ public class QueryBuilderTests
             .GroupBy("age")
             .Having("COUNT(*)", ">", 1);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT age, COUNT(*) FROM users GROUP BY age HAVING COUNT(*) > 1", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"age\", COUNT(*) FROM \"users\" GROUP BY \"age\" HAVING COUNT(*) > 1", sql);
     }
 
     [Fact]
@@ -378,8 +430,8 @@ public class QueryBuilderTests
             .EndGroup()
             .Where("active", true);
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT * FROM users WHERE (age < 18 OR age > 60) AND active = 1", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE (\"age\" < 18 OR \"age\" > 60) AND \"active\" = 1", sql);
     }
 
     [Fact]
@@ -412,8 +464,8 @@ public class QueryBuilderTests
             .From("users u")
             .Join("orders o", "u.id = o.user_id");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM users u JOIN orders o ON u.id = o.user_id", sql);
     }
 
     [Fact]
@@ -425,7 +477,7 @@ public class QueryBuilderTests
             .LeftJoin("profiles p", "u.id = p.user_id")
             .RightJoin("photos ph", "u.id = ph.user_id");
 
-        var sql = QueryBuilder.Compile(query);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
         Assert.Equal("SELECT * FROM users u LEFT JOIN profiles p ON u.id = p.user_id RIGHT JOIN photos ph ON u.id = ph.user_id", sql);
     }
     [Fact]
@@ -436,7 +488,7 @@ public class QueryBuilderTests
             .From("users u")
             .CrossJoin("orders o");
 
-        var sql = QueryBuilder.Compile(query);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
         Assert.Equal("SELECT * FROM users u CROSS JOIN orders o", sql);
     }
 
@@ -448,8 +500,8 @@ public class QueryBuilderTests
             .From("users u")
             .FullOuterJoin("orders o", "u.id = o.user_id");
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT u.name, o.total FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id", sql);
     }
 
      
@@ -465,8 +517,8 @@ public class QueryBuilderTests
                 .From("prices")
                 .Where("amount", 10.5m);
 
-            var sql = QueryBuilder.Compile(query);
-            Assert.Equal("SELECT * FROM prices WHERE amount = 10.5", sql);
+            var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+            Assert.Equal("SELECT * FROM \"prices\" WHERE \"amount\" = 10.5", sql);
         }
         finally
         {
@@ -487,8 +539,8 @@ public class QueryBuilderTests
                 .From("events")
                 .Where("created", date);
 
-            var sql = QueryBuilder.Compile(query);
-            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+            var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+            Assert.Equal("SELECT * FROM \"events\" WHERE \"created\" = '2024-01-02 03:04:05'", sql);
         }
         finally
         {
@@ -509,8 +561,8 @@ public class QueryBuilderTests
                 .From("events")
                 .Where("created", dateOffset);
 
-            var sql = QueryBuilder.Compile(query);
-            Assert.Equal("SELECT * FROM events WHERE created = '2024-01-02 03:04:05'", sql);
+            var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+            Assert.Equal("SELECT * FROM \"events\" WHERE \"created\" = '2024-01-02 03:04:05'", sql);
         }
         finally
         {
@@ -527,8 +579,22 @@ public class QueryBuilderTests
             .Where("id", 1)
             .Where("name", "Bob");
 
-        var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
-        Assert.Equal("SELECT * FROM users WHERE id = @p0 AND name = @p1", sql);
+        var (sql, parameters) = QueryBuilder.CompileWithParameters(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"id\" = @p0 AND \"name\" = @p1", sql);
+        Assert.Equal(new object[] { 1, "Bob" }, parameters);
+    }
+
+    [Fact]
+    public void InstanceCompileWithParameters_DefaultsToSqlServer()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Where("id", 1)
+            .Where("name", "Bob");
+
+        var (sql, parameters) = query.CompileWithParameters();
+        Assert.Equal("SELECT * FROM [users] WHERE [id] = @p0 AND [name] = @p1", sql);
         Assert.Equal(new object[] { 1, "Bob" }, parameters);
     }
 
@@ -540,8 +606,8 @@ public class QueryBuilderTests
             .From("users1")
             .Union(new Query().Select("id").From("users2"));
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT id FROM users1 UNION SELECT id FROM users2", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"id\" FROM \"users1\" UNION SELECT \"id\" FROM \"users2\"", sql);
     }
 
     [Fact]
@@ -552,8 +618,8 @@ public class QueryBuilderTests
             .From("users1")
             .UnionAll(new Query().Select("id").From("users2"));
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT id FROM users1 UNION ALL SELECT id FROM users2", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"id\" FROM \"users1\" UNION ALL SELECT \"id\" FROM \"users2\"", sql);
     }
 
     [Fact]
@@ -564,8 +630,8 @@ public class QueryBuilderTests
             .From("users1")
             .Intersect(new Query().Select("id").From("users2"));
 
-        var sql = QueryBuilder.Compile(query);
-        Assert.Equal("SELECT id FROM users1 INTERSECT SELECT id FROM users2", sql);
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT \"id\" FROM \"users1\" INTERSECT SELECT \"id\" FROM \"users2\"", sql);
     }
 
     [Fact]
