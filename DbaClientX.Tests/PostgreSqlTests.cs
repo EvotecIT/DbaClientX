@@ -20,8 +20,8 @@ public class PostgreSqlTests
         using var pg = new DBAClientX.PostgreSql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
-        });
+            await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1").ConfigureAwait(false);
+        }).ConfigureAwait(false);
         Assert.Contains("SELECT 1", ex.Message);
     }
 
@@ -36,7 +36,7 @@ public class PostgreSqlTests
 
         public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
-            await Task.Delay(_delay, cancellationToken);
+            await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
             return null;
         }
     }
@@ -50,12 +50,12 @@ public class PostgreSqlTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await pg.QueryAsync("h", "d", "u", "p", query);
+            await pg.QueryAsync("h", "d", "u", "p", query).ConfigureAwait(false);
         }
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p");
+        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p").ConfigureAwait(false);
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
@@ -68,8 +68,8 @@ public class PostgreSqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await pg.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
-        });
+            await pg.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     [Fact]
@@ -80,8 +80,8 @@ public class PostgreSqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token);
-        });
+            await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     private class CaptureParametersPostgreSql : DBAClientX.PostgreSql
@@ -128,7 +128,7 @@ public class PostgreSqlTests
             ["@name"] = "test"
         };
 
-        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters).ConfigureAwait(false);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && (string)p.Value == "test");
@@ -149,7 +149,7 @@ public class PostgreSqlTests
             ["@name"] = NpgsqlDbType.Text
         };
 
-        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types).ConfigureAwait(false);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Type == NpgsqlDbType.Integer);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
@@ -196,7 +196,7 @@ public class PostgreSqlTests
         {
             ["@id"] = 1
         };
-        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters);
+        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters).ConfigureAwait(false);
         Assert.Equal("CALL sp_test(@id)", pg.CapturedQuery);
     }
 

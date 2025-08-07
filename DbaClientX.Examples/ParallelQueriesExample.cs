@@ -20,7 +20,7 @@ public static class ParallelQueriesExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var results = await sqlServer.RunQueriesInParallel(queries, "SQL1", "master", true, CancellationToken.None);
+        var results = await sqlServer.RunQueriesInParallel(queries, "SQL1", "master", true, CancellationToken.None).ConfigureAwait(false);
 
         var index = 0;
         foreach (var result in results)

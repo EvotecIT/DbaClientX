@@ -8,16 +8,16 @@ public static class TransactionAsyncExample
     public static async Task RunAsync(CancellationToken cancellationToken = default)
     {
         using var sql = new SqlServer();
-        await sql.BeginTransactionAsync("SQL1", "master", true, cancellationToken);
+        await sql.BeginTransactionAsync("SQL1", "master", true, cancellationToken).ConfigureAwait(false);
         try
         {
-            await sql.QueryAsync("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true, cancellationToken);
-            await sql.CommitAsync(cancellationToken);
+            await sql.QueryAsync("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true, cancellationToken).ConfigureAwait(false);
+            await sql.CommitAsync(cancellationToken).ConfigureAwait(false);
             Console.WriteLine("Committed");
         }
         catch
         {
-            await sql.RollbackAsync(cancellationToken);
+            await sql.RollbackAsync(cancellationToken).ConfigureAwait(false);
             Console.WriteLine("Rolled back");
         }
     }

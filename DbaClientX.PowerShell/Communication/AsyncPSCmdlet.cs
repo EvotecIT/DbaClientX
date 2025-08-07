@@ -87,7 +87,7 @@ public abstract class AsyncPSCmdlet : PSCmdlet, IDisposable {
             try {
                 _currentOutPipe = outPipe;
                 _currentReplyPipe = replyPipe;
-                await task();
+                await task().ConfigureAwait(false);
             } finally {
                 _currentOutPipe = null;
                 _currentReplyPipe = null;

@@ -18,8 +18,8 @@ public class MySqlTests
         using var mySql = new DBAClientX.MySql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await mySql.QueryAsync("invalid", "mysql", "user", "pass", "SELECT 1");
-        });
+            await mySql.QueryAsync("invalid", "mysql", "user", "pass", "SELECT 1").ConfigureAwait(false);
+        }).ConfigureAwait(false);
         Assert.Contains("SELECT 1", ex.Message);
     }
 
@@ -34,7 +34,7 @@ public class MySqlTests
 
         public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
-            await Task.Delay(_delay, cancellationToken);
+            await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
             return null;
         }
     }
@@ -48,12 +48,12 @@ public class MySqlTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await mySql.QueryAsync("h", "d", "u", "p", query);
+            await mySql.QueryAsync("h", "d", "u", "p", query).ConfigureAwait(false);
         }
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p");
+        await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p").ConfigureAwait(false);
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
@@ -66,8 +66,8 @@ public class MySqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await mySql.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
-        });
+            await mySql.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     [Fact]
@@ -78,8 +78,8 @@ public class MySqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token);
-        });
+            await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     private class CaptureParametersMySql : DBAClientX.MySql
@@ -126,7 +126,7 @@ public class MySqlTests
             ["@name"] = "test"
         };
 
-        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
+        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters).ConfigureAwait(false);
 
         Assert.Contains(mySql.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && (string)p.Value == "test");
@@ -147,7 +147,7 @@ public class MySqlTests
             ["@name"] = MySqlDbType.VarChar
         };
 
-        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types).ConfigureAwait(false);
 
         Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == MySqlDbType.Int32);
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);

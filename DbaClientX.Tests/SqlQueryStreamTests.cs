@@ -46,7 +46,7 @@ public class QueryStreamTests
         using var server = new DummySqlServer();
         var list = new List<int>();
 
-        await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q"))
+        await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q").ConfigureAwait(false))
         {
             list.Add((int)row["id"]);
         }
