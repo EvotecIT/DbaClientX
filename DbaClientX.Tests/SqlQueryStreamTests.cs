@@ -8,7 +8,7 @@ using Xunit;
 
 namespace DbaClientX.Tests;
 
-public class SqlQueryStreamTests
+public class QueryStreamTests
 {
     private class DummySqlServer : DBAClientX.SqlServer
     {
@@ -30,7 +30,7 @@ public class SqlQueryStreamTests
             _rows = table.Rows.Cast<DataRow>().ToList();
         }
 
-        public override async IAsyncEnumerable<DataRow> SqlQueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
             foreach (var row in _rows)
             {
@@ -41,12 +41,12 @@ public class SqlQueryStreamTests
     }
 
     [Fact]
-    public async Task SqlQueryStreamAsync_EnumeratesRows()
+    public async Task QueryStreamAsync_EnumeratesRows()
     {
         var server = new DummySqlServer();
         var list = new List<int>();
 
-        await foreach (DataRow row in server.SqlQueryStreamAsync("s", "d", true, "q"))
+        await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q"))
         {
             list.Add((int)row["id"]);
         }

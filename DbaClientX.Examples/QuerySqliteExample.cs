@@ -10,7 +10,7 @@ public static class QuerySqliteExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var result = sqlite.SqliteQuery("example.db", "SELECT 1");
+        var result = sqlite.Query("example.db", "SELECT 1");
 
         if (result is DataTable table)
         {

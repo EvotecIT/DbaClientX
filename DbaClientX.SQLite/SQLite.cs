@@ -25,7 +25,7 @@ public class SQLite : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? SqliteQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -88,7 +88,7 @@ public class SQLite : DatabaseClientBase
         return result;
     }
 
-    public virtual int SqliteQueryNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -131,7 +131,7 @@ public class SQLite : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> SqliteQueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -175,7 +175,7 @@ public class SQLite : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual async IAsyncEnumerable<DataRow> SqliteQueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
         {
@@ -272,7 +272,7 @@ public class SQLite : DatabaseClientBase
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => SqliteQueryAsync(database, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => QueryAsync(database, q, null, false, cancellationToken));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

@@ -81,7 +81,7 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
-                var enumerable = sqlServer.SqlQueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancellationToken.None, username: Username, password: Password);
+                var enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancellationToken.None, username: Username, password: Password);
                 var enumerator = enumerable.GetAsyncEnumerator();
                 try
                 {
@@ -144,7 +144,7 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
             if (!string.IsNullOrEmpty(StoredProcedure)) {
                 result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, parameters, username: Username, password: Password);
             } else {
-                result = sqlServer.SqlQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
+                result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

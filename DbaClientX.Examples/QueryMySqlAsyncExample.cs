@@ -11,7 +11,7 @@ public static class QueryMySqlAsyncExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var result = await mySql.MySqlQueryAsync("MYSQL1", "mysql", "user", "password", "SELECT 1", cancellationToken: CancellationToken.None);
+        var result = await mySql.QueryAsync("MYSQL1", "mysql", "user", "password", "SELECT 1", cancellationToken: CancellationToken.None);
 
         if (result is DataTable table)
         {

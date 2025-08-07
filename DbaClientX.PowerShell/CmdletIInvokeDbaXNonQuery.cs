@@ -50,7 +50,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
                     de => de.Value);
             }
 
-            var affected = sqlServer.SqlQueryNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
+            var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {ex.Message}");

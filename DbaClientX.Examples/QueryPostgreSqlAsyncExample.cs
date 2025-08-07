@@ -12,7 +12,7 @@ public static class QueryPostgreSqlAsyncExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var result = await pg.PgQueryAsync("localhost", "postgres", "user", "password", "SELECT 1", cancellationToken: CancellationToken.None);
+        var result = await pg.QueryAsync("localhost", "postgres", "user", "password", "SELECT 1", cancellationToken: CancellationToken.None);
 
         if (result is DataTable table)
         {

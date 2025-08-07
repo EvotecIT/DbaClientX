@@ -26,7 +26,7 @@ public class PostgreSql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public virtual object? PgQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
         {
@@ -92,7 +92,7 @@ public class PostgreSql : DatabaseClientBase
         return result;
     }
 
-    public virtual int PgQueryNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
         {
@@ -138,7 +138,7 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> PgQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
         {
@@ -197,17 +197,17 @@ public class PostgreSql : DatabaseClientBase
     public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return PgQuery(host, database, username, password, query, parameters, useTransaction, parameterTypes);
+        return Query(host, database, username, password, query, parameters, useTransaction, parameterTypes);
     }
 
     public virtual Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
-        return PgQueryAsync(host, database, username, password, query, parameters, useTransaction, cancellationToken, parameterTypes);
+        return QueryAsync(host, database, username, password, query, parameters, useTransaction, cancellationToken, parameterTypes);
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual IAsyncEnumerable<DataRow> PgQueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         return Stream();
 
@@ -314,7 +314,7 @@ public class PostgreSql : DatabaseClientBase
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => PgQueryAsync(host, database, username, password, q, null, false, cancellationToken));
+        var tasks = queries.Select(q => QueryAsync(host, database, username, password, q, null, false, cancellationToken));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results;
     }

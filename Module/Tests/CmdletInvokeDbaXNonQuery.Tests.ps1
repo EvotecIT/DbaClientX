@@ -17,7 +17,7 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
             [string] $User
             [string] $Pass
             TestSqlServer () { [TestSqlServer]::Last = $this }
-            [int] SqlQueryNonQuery([string]$serverOrInstance, [string]$database, [bool]$integratedSecurity, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[System.Data.SqlDbType]]] $parameterTypes = $null, [string]$username = $null, [string]$password = $null) {
+            [int] ExecuteNonQuery([string]$serverOrInstance, [string]$database, [bool]$integratedSecurity, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[System.Data.SqlDbType]]] $parameterTypes = $null, [string]$username = $null, [string]$password = $null) {
                 $this.Integrated = $integratedSecurity
                 $this.User = $username
                 $this.Pass = $password

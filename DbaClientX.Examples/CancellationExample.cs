@@ -11,7 +11,7 @@ public static class CancellationExample
         var sqlServer = new SqlServer();
         try
         {
-            await sqlServer.SqlQueryAsync("SQL1", "master", true, "WAITFOR DELAY '00:00:05'", cancellationToken: cts.Token);
+            await sqlServer.QueryAsync("SQL1", "master", true, "WAITFOR DELAY '00:00:05'", cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
