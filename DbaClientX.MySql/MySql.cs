@@ -185,46 +185,63 @@ public class MySql : DatabaseClientBase
 
     public virtual void BeginTransaction(string host, string database, string username, string password)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            var connectionString = new MySqlConnectionStringBuilder
+            {
+                Server = host,
+                Database = database,
+                UserID = username,
+                Password = password,
+                Pooling = true
+            }.ConnectionString;
+
+            _transactionConnection = new MySqlConnection(connectionString);
+            _transactionConnection.Open();
+            _transaction = _transactionConnection.BeginTransaction();
         }
-
-        var connectionString = new MySqlConnectionStringBuilder
-        {
-            Server = host,
-            Database = database,
-            UserID = username,
-            Password = password,
-            Pooling = true
-        }.ConnectionString;
-
-        _transactionConnection = new MySqlConnection(connectionString);
-        _transactionConnection.Open();
-        _transaction = _transactionConnection.BeginTransaction();
     }
 
     public virtual void Commit()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Commit();
+            DisposeTransactionLocked();
         }
-        _transaction.Commit();
-        DisposeTransaction();
     }
 
     public virtual void Rollback()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Rollback();
+            DisposeTransactionLocked();
         }
-        _transaction.Rollback();
-        DisposeTransaction();
     }
 
     private void DisposeTransaction()
+    {
+        lock (_syncRoot)
+        {
+            DisposeTransactionLocked();
+        }
+    }
+
+    private void DisposeTransactionLocked()
     {
         _transaction?.Dispose();
         _transaction = null;

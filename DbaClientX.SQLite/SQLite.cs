@@ -221,43 +221,60 @@ public class SQLite : DatabaseClientBase
 
     public virtual void BeginTransaction(string database)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = true
+            }.ConnectionString;
+
+            _transactionConnection = new SqliteConnection(connectionString);
+            _transactionConnection.Open();
+            _transaction = _transactionConnection.BeginTransaction();
         }
-
-        var connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = database,
-            Pooling = true
-        }.ConnectionString;
-
-        _transactionConnection = new SqliteConnection(connectionString);
-        _transactionConnection.Open();
-        _transaction = _transactionConnection.BeginTransaction();
     }
 
     public virtual void Commit()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Commit();
+            DisposeTransactionLocked();
         }
-        _transaction.Commit();
-        DisposeTransaction();
     }
 
     public virtual void Rollback()
     {
-        if (_transaction == null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Rollback();
+            DisposeTransactionLocked();
         }
-        _transaction.Rollback();
-        DisposeTransaction();
     }
 
     private void DisposeTransaction()
+    {
+        lock (_syncRoot)
+        {
+            DisposeTransactionLocked();
+        }
+    }
+
+    private void DisposeTransactionLocked()
     {
         _transaction?.Dispose();
         _transaction = null;
