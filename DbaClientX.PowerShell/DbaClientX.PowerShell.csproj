@@ -22,6 +22,8 @@
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
                 <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
                 <ProjectReference Include="..\DbaClientX.SQLite\DbaClientX.SQLite.csproj" />
+                <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
+                <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
         </ItemGroup>
 
 	<ItemGroup>
