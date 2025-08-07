@@ -211,6 +211,24 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
+    {
+        if (_transaction != null)
+        {
+            throw new DbaTransactionException("Transaction already started.");
+        }
+
+        var connectionString = BuildConnectionString(database);
+
+        _transactionConnection = new SqliteConnection(connectionString);
+        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        _transaction = (SqliteTransaction)await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+#else
+        _transaction = _transactionConnection.BeginTransaction();
+#endif
+    }
+
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -224,6 +242,21 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+        _transaction.Commit();
+#endif
+        DisposeTransaction();
+    }
+
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -235,6 +268,21 @@ public class SQLite : DatabaseClientBase
             _transaction.Rollback();
             DisposeTransactionLocked();
         }
+    }
+
+    public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+#else
+        _transaction.Rollback();
+#endif
+        DisposeTransaction();
     }
 
     private void DisposeTransaction()
