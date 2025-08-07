@@ -7,16 +7,20 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
+    [ValidateNotNullOrEmpty]
     public string Server { get; set; }
 
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
+    [ValidateNotNullOrEmpty]
     public string Database { get; set; }
 
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [ValidateNotNullOrEmpty]
     public string Query { get; set; }
 
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
+    [ValidateNotNullOrEmpty]
     public string StoredProcedure { get; set; }
 
     [Parameter(Mandatory = false, ParameterSetName = "Query")]

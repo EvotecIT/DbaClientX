@@ -18,6 +18,22 @@ describe 'Invoke-DbaXQuery cmdlet' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'fails when Server is empty' {
+        { Invoke-DbaXQuery -Server '' -Database db -Query 'SELECT 1' -ErrorAction Stop } | Should -Throw
+    }
+
+    it 'fails when Database is empty' {
+        { Invoke-DbaXQuery -Server s -Database '' -Query 'SELECT 1' -ErrorAction Stop } | Should -Throw
+    }
+
+    it 'fails when Query is empty' {
+        { Invoke-DbaXQuery -Server s -Database db -Query '' -ErrorAction Stop } | Should -Throw
+    }
+
+    it 'fails when StoredProcedure is empty' {
+        { Invoke-DbaXQuery -Server s -Database db -StoredProcedure '' -ErrorAction Stop } | Should -Throw
+    }
+
     it 'passes credentials to provider when supplied' {
         class TestSqlServer : DBAClientX.SqlServer {
             static [TestSqlServer] $Last
