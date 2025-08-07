@@ -8,28 +8,28 @@ public class Program
         switch (example)
         {
             case "asyncquery":
-                await QuerySqlServerAsyncExample.RunAsync();
+                await QuerySqlServerAsyncExample.RunAsync().ConfigureAwait(false);
                 break;
             case "pgasyncquery":
-                await QueryPostgreSqlAsyncExample.RunAsync();
+                await QueryPostgreSqlAsyncExample.RunAsync().ConfigureAwait(false);
                 break;
             case "mysqlasyncquery":
-                await QueryMySqlAsyncExample.RunAsync();
+                await QueryMySqlAsyncExample.RunAsync().ConfigureAwait(false);
                 break;
             case "nestedquery":
                 NestedQueryExample.Run();
                 break;
             case "parallelqueries":
-                await ParallelQueriesExample.RunAsync();
+                await ParallelQueriesExample.RunAsync().ConfigureAwait(false);
                 break;
             case "transaction":
-                await TransactionExample.RunAsync();
+                await TransactionExample.RunAsync().ConfigureAwait(false);
                 break;
             case "cancellation":
-                await CancellationExample.RunAsync();
+                await CancellationExample.RunAsync().ConfigureAwait(false);
                 break;
             case "streamquery":
-                await StreamQueryExample.RunAsync();
+                await StreamQueryExample.RunAsync().ConfigureAwait(false);
                 break;
             case "orderby":
                 OrderByExample.Run();

@@ -36,7 +36,7 @@ public class ParallelQueriesTests
         };
 
         using var sqlServer = new MockSqlServer(mapping);
-        var results = await sqlServer.RunQueriesInParallel(queries, "s", "db", true, CancellationToken.None);
+        var results = await sqlServer.RunQueriesInParallel(queries, "s", "db", true, CancellationToken.None).ConfigureAwait(false);
 
         Assert.Equal(new object?[] { 1, 2, 3 }, results);
     }

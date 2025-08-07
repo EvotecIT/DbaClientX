@@ -92,14 +92,14 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 switch (ReturnType)
                 {
                     case ReturnType.DataRow:
-                        await foreach (var row in enumerable)
+                        await foreach (var row in enumerable.ConfigureAwait(false))
                         {
                             WriteObject(row);
                         }
                         break;
                     case ReturnType.DataTable:
                         DataTable? table = null;
-                        await foreach (var row in enumerable)
+                        await foreach (var row in enumerable.ConfigureAwait(false))
                         {
                             table ??= row.Table.Clone();
                             table.ImportRow(row);
@@ -111,7 +111,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                         break;
                     case ReturnType.DataSet:
                         DataTable? dataTable = null;
-                        await foreach (var row in enumerable)
+                        await foreach (var row in enumerable.ConfigureAwait(false))
                         {
                             dataTable ??= row.Table.Clone();
                             dataTable.ImportRow(row);
@@ -124,7 +124,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                         WriteObject(set);
                         break;
                     default:
-                        await foreach (var row in enumerable)
+                        await foreach (var row in enumerable.ConfigureAwait(false))
                         {
                             WriteObject(DataRowToPSObject(row));
                         }
