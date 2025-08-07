@@ -1,7 +1,7 @@
 ﻿@{
     AliasesToExport      = @()
     Author               = 'Przemyslaw Klys'
-    CmdletsToExport      = @('Invoke-DbaXQuery', 'Invoke-DbaXNonQuery', 'New-DbaXQuery')
+    CmdletsToExport      = @('Invoke-DbaXQuery', 'Invoke-DbaXNonQuery', 'New-DbaXQuery', 'Invoke-DbaXMySql', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXSQLite')
     CompanyName          = 'Evotec'
     CompatiblePSEditions = @('Desktop', 'Core')
     Copyright            = '(c) 2011 - 2024 Przemyslaw Klys @ Evotec. All rights reserved.'
