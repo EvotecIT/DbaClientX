@@ -1,4 +1,6 @@
-﻿namespace DBAClientX.PowerShell;
+﻿using System.Runtime.CompilerServices;
+
+namespace DBAClientX.PowerShell;
 
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
@@ -168,17 +170,27 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// </summary>
     /// <param name="row"></param>
     /// <returns></returns>
+    private static readonly ConditionalWeakTable<DataTable, PSNoteProperty[]> _psNotePropertyCache = new();
+
     private static PSObject DataRowToPSObject(DataRow row) {
         PSObject psObject = new PSObject();
 
         if (row != null && (row.RowState & DataRowState.Detached) != DataRowState.Detached) {
-            foreach (DataColumn column in row.Table.Columns) {
-                Object value = null;
-                if (!row.IsNull(column)) {
-                    value = row[column];
+            var table = row.Table;
+            if (!_psNotePropertyCache.TryGetValue(table, out var propertyTemplates)) {
+                propertyTemplates = new PSNoteProperty[table.Columns.Count];
+                for (int i = 0; i < table.Columns.Count; i++) {
+                    propertyTemplates[i] = new PSNoteProperty(table.Columns[i].ColumnName, null);
                 }
+                _psNotePropertyCache.Add(table, propertyTemplates);
+            }
 
-                psObject.Properties.Add(new PSNoteProperty(column.ColumnName, value));
+            for (int i = 0; i < propertyTemplates.Length; i++) {
+                var prop = (PSNoteProperty)propertyTemplates[i].Copy();
+                if (!row.IsNull(i)) {
+                    prop.Value = row[i];
+                }
+                psObject.Properties.Add(prop);
             }
         }
 
