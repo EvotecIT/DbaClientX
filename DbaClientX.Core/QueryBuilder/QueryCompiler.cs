@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -18,6 +19,10 @@ public class QueryCompiler
 
     private string CompileInternal(Query query, List<object>? parameters)
     {
+        if (query.OpenGroups != 0)
+        {
+            throw new InvalidOperationException("Unbalanced groupings: some groups have not been closed.");
+        }
         var sb = new StringBuilder();
 
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
