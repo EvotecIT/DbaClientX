@@ -44,7 +44,7 @@ public class SqlServer : DatabaseClientBase
     {
         try
         {
-            Query(serverOrInstance, database, integratedSecurity, "SELECT 1", username: username, password: password);
+            ExecuteScalar(serverOrInstance, database, integratedSecurity, "SELECT 1", username: username, password: password);
             return true;
         }
         catch
@@ -57,7 +57,7 @@ public class SqlServer : DatabaseClientBase
     {
         try
         {
-            await QueryAsync(serverOrInstance, database, integratedSecurity, "SELECT 1", cancellationToken: cancellationToken, username: username, password: password).ConfigureAwait(false);
+            await ExecuteScalarAsync(serverOrInstance, database, integratedSecurity, "SELECT 1", cancellationToken: cancellationToken, username: username, password: password).ConfigureAwait(false);
             return true;
         }
         catch
@@ -95,6 +95,45 @@ public class SqlServer : DatabaseClientBase
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual object? ExecuteScalar(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    {
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -176,6 +215,45 @@ public class SqlServer : DatabaseClientBase
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteScalarAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    {
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {

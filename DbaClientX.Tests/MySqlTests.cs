@@ -27,16 +27,16 @@ public class MySqlTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
-            return null;
+            return 1;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
-            return Task.FromResult<object?>(null);
+            return Task.FromResult<object?>(1);
         }
     }
 

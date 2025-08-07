@@ -116,6 +116,21 @@ public abstract class DatabaseClientBase : IDisposable
         return command.ExecuteNonQuery();
     }
 
+    protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        return command.ExecuteScalar();
+    }
+
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
     {
         using var command = connection.CreateCommand();
@@ -140,6 +155,21 @@ public abstract class DatabaseClientBase : IDisposable
         } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
 
         return BuildResult(dataSet);
+    }
+
+    protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
