@@ -4,11 +4,24 @@ using System.Text;
 
 namespace DBAClientX.QueryBuilder;
 
+/// <summary>
+/// Converts <see cref="Query"/> instances into SQL statements.
+/// </summary>
 public class QueryCompiler
 {
+    /// <summary>
+    /// Compiles the specified query to a SQL string.
+    /// </summary>
+    /// <param name="query">The query to compile.</param>
+    /// <returns>The compiled SQL statement.</returns>
     public string Compile(Query query)
         => CompileInternal(query, null);
 
+    /// <summary>
+    /// Compiles the specified query and returns the SQL string and parameters separately.
+    /// </summary>
+    /// <param name="query">The query to compile.</param>
+    /// <returns>A tuple containing the SQL statement and parameter values.</returns>
     public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
     {
         var parameters = new List<object>();

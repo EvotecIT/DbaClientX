@@ -25,6 +25,15 @@ public class SQLite : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
+    /// <summary>
+    /// Executes a query against a SQLite database file.
+    /// </summary>
+    /// <param name="database">Path to the SQLite database file.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The query result, depending on <see cref="DatabaseClientBase.ReturnType"/>.</returns>
     public virtual object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -88,6 +97,15 @@ public class SQLite : DatabaseClientBase
         return result;
     }
 
+    /// <summary>
+    /// Executes a non-query SQL command against a SQLite database.
+    /// </summary>
+    /// <param name="database">Path to the SQLite database file.</param>
+    /// <param name="query">The SQL command to execute.</param>
+    /// <param name="parameters">Optional command parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The number of affected rows.</returns>
     public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -131,6 +149,16 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a query against a SQLite database file.
+    /// </summary>
+    /// <param name="database">Path to the SQLite database file.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>A task representing the asynchronous operation with the query result.</returns>
     public virtual async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -175,6 +203,16 @@ public class SQLite : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    /// <summary>
+    /// Asynchronously streams query results from a SQLite database file.
+    /// </summary>
+    /// <param name="database">Path to the SQLite database file.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects.</returns>
     public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -219,6 +257,10 @@ public class SQLite : DatabaseClientBase
     }
 #endif
 
+    /// <summary>
+    /// Begins a database transaction.
+    /// </summary>
+    /// <param name="database">Path to the SQLite database file.</param>
     public virtual void BeginTransaction(string database)
     {
         lock (_syncRoot)
@@ -240,6 +282,9 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Commits the current transaction.
+    /// </summary>
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -253,6 +298,9 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Rolls back the current transaction.
+    /// </summary>
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -282,6 +330,13 @@ public class SQLite : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    /// <summary>
+    /// Executes multiple queries in parallel.
+    /// </summary>
+    /// <param name="queries">The collection of queries to execute.</param>
+    /// <param name="database">Path to the SQLite database file.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A list of results for each executed query.</returns>
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string database, CancellationToken cancellationToken = default)
     {
         if (queries == null)

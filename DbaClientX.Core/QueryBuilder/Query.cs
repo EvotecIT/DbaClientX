@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace DBAClientX.QueryBuilder;
 
+/// <summary>
+/// Provides a fluent API for building SQL queries.
+/// </summary>
 public class Query
 {
     private readonly List<string> _select = new();
@@ -24,6 +27,11 @@ public class Query
     private bool _useTop;
     private readonly List<(string Type, Query Query)> _compoundQueries = new();
 
+    /// <summary>
+    /// Adds columns to the SELECT clause of the query.
+    /// </summary>
+    /// <param name="columns">The column names to select.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Select(params string[] columns)
     {
         ValidateStrings(columns, nameof(columns));
@@ -31,6 +39,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Specifies the table to select from.
+    /// </summary>
+    /// <param name="table">The table name.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query From(string table)
     {
         ValidateString(table, nameof(table));
@@ -39,6 +52,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Specifies a subquery and alias to select from.
+    /// </summary>
+    /// <param name="subQuery">The subquery to use as the data source.</param>
+    /// <param name="alias">The alias for the subquery.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query From(Query subQuery, string alias)
     {
         if (subQuery == null)
@@ -51,6 +70,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds an INNER JOIN clause to the query.
+    /// </summary>
+    /// <param name="table">The table to join.</param>
+    /// <param name="condition">The join condition.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Join(string table, string condition)
     {
         ValidateString(table, nameof(table));
@@ -59,6 +84,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a LEFT JOIN clause to the query.
+    /// </summary>
+    /// <param name="table">The table to join.</param>
+    /// <param name="condition">The join condition.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query LeftJoin(string table, string condition)
     {
         ValidateString(table, nameof(table));
@@ -67,6 +98,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a RIGHT JOIN clause to the query.
+    /// </summary>
+    /// <param name="table">The table to join.</param>
+    /// <param name="condition">The join condition.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query RightJoin(string table, string condition)
     {
         ValidateString(table, nameof(table));
@@ -75,6 +112,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a CROSS JOIN clause to the query.
+    /// </summary>
+    /// <param name="table">The table to join.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query CrossJoin(string table)
     {
         ValidateString(table, nameof(table));
@@ -82,6 +124,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a FULL OUTER JOIN clause to the query.
+    /// </summary>
+    /// <param name="table">The table to join.</param>
+    /// <param name="condition">The join condition.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query FullOuterJoin(string table, string condition)
     {
         ValidateString(table, nameof(table));
@@ -90,31 +138,71 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a WHERE clause with equality comparison.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Where(string column, object value)
     {
         return Where(column, "=", value);
     }
 
+    /// <summary>
+    /// Adds a WHERE clause with the specified operator and value.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="op">The comparison operator.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Where(string column, string op, object value)
     {
         return AddCondition(column, op, value);
     }
 
+    /// <summary>
+    /// Adds a WHERE clause comparing a column to a subquery.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="op">The comparison operator.</param>
+    /// <param name="subQuery">The subquery to compare with.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Where(string column, string op, Query subQuery)
     {
         return AddCondition(column, op, subQuery);
     }
 
+    /// <summary>
+    /// Adds an OR WHERE clause with equality comparison.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhere(string column, object value)
     {
         return OrWhere(column, "=", value);
     }
 
+    /// <summary>
+    /// Adds an OR WHERE clause with the specified operator and value.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="op">The comparison operator.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhere(string column, string op, object value)
     {
         return AddCondition(column, op, value, "OR");
     }
 
+    /// <summary>
+    /// Adds an OR WHERE clause comparing a column to a subquery.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="op">The comparison operator.</param>
+    /// <param name="subQuery">The subquery to compare with.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhere(string column, string op, Query subQuery)
     {
         return AddCondition(column, op, subQuery, "OR");
@@ -170,36 +258,74 @@ public class Query
         return AddBetweenCondition(column, start, end, "OR");
     }
 
+    /// <summary>
+    /// Adds a NOT BETWEEN condition to the query.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="start">The lower bound.</param>
+    /// <param name="end">The upper bound.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query WhereNotBetween(string column, object start, object end)
     {
         return AddBetweenCondition(column, start, end, null, true);
     }
 
+    /// <summary>
+    /// Adds an OR NOT BETWEEN condition to the query.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="start">The lower bound.</param>
+    /// <param name="end">The upper bound.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhereNotBetween(string column, object start, object end)
     {
         return AddBetweenCondition(column, start, end, "OR", true);
     }
 
+    /// <summary>
+    /// Adds a WHERE clause checking if a column is NULL.
+    /// </summary>
+    /// <param name="column">The column to check.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query WhereNull(string column)
     {
         return AddNullCondition(column);
     }
 
+    /// <summary>
+    /// Adds an OR WHERE clause checking if a column is NULL.
+    /// </summary>
+    /// <param name="column">The column to check.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhereNull(string column)
     {
         return AddNullCondition(column, "OR");
     }
 
+    /// <summary>
+    /// Adds a WHERE clause checking if a column is NOT NULL.
+    /// </summary>
+    /// <param name="column">The column to check.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query WhereNotNull(string column)
     {
         return AddNotNullCondition(column);
     }
 
+    /// <summary>
+    /// Adds an OR WHERE clause checking if a column is NOT NULL.
+    /// </summary>
+    /// <param name="column">The column to check.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrWhereNotNull(string column)
     {
         return AddNotNullCondition(column, "OR");
     }
 
+    /// <summary>
+    /// Begins a grouped set of WHERE clauses.
+    /// </summary>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query BeginGroup()
     {
         AddDefaultAndIfRequired();
@@ -207,12 +333,20 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Ends a grouped set of WHERE clauses.
+    /// </summary>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query EndGroup()
     {
         _where.Add(new GroupEndToken());
         return this;
     }
 
+    /// <summary>
+    /// Adds a logical OR to the WHERE clause.
+    /// </summary>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Or()
     {
         _where.Add(new OperatorToken("OR"));
@@ -317,6 +451,12 @@ public class Query
         }
     }
 
+    /// <summary>
+    /// Specifies the table and columns for an INSERT statement.
+    /// </summary>
+    /// <param name="table">The table to insert into.</param>
+    /// <param name="columns">The columns to populate.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query InsertInto(string table, params string[] columns)
     {
         ValidateString(table, nameof(table));
@@ -326,6 +466,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Specifies the table for an UPDATE statement.
+    /// </summary>
+    /// <param name="table">The table to update.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Update(string table)
     {
         ValidateString(table, nameof(table));
@@ -333,6 +478,12 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a column value assignment for an UPDATE statement.
+    /// </summary>
+    /// <param name="column">The column to update.</param>
+    /// <param name="value">The value to assign.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Set(string column, object value)
     {
         ValidateString(column, nameof(column));
@@ -344,6 +495,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Specifies the table for a DELETE statement.
+    /// </summary>
+    /// <param name="table">The table to delete from.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query DeleteFrom(string table)
     {
         ValidateString(table, nameof(table));
@@ -351,6 +507,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds columns to the ORDER BY clause.
+    /// </summary>
+    /// <param name="columns">The columns to sort by.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrderBy(params string[] columns)
     {
         ValidateStrings(columns, nameof(columns));
@@ -358,6 +519,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds columns to the ORDER BY clause in descending order.
+    /// </summary>
+    /// <param name="columns">The columns to sort by.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrderByDescending(params string[] columns)
     {
         ValidateStrings(columns, nameof(columns));
@@ -368,6 +534,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds raw expressions to the ORDER BY clause.
+    /// </summary>
+    /// <param name="expressions">The expressions to order by.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query OrderByRaw(params string[] expressions)
     {
         ValidateStrings(expressions, nameof(expressions));
@@ -375,6 +546,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds columns to the GROUP BY clause.
+    /// </summary>
+    /// <param name="columns">The columns to group by.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query GroupBy(params string[] columns)
     {
         ValidateStrings(columns, nameof(columns));
@@ -382,11 +558,24 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a HAVING clause with equality comparison.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Having(string column, object value)
     {
         return Having(column, "=", value);
     }
 
+    /// <summary>
+    /// Adds a HAVING clause with the specified operator and value.
+    /// </summary>
+    /// <param name="column">The column to filter.</param>
+    /// <param name="op">The comparison operator.</param>
+    /// <param name="value">The value to compare against.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Having(string column, string op, object value)
     {
         ValidateString(column, nameof(column));
@@ -399,6 +588,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Limits the number of rows returned by the query.
+    /// </summary>
+    /// <param name="limit">The maximum number of rows to return.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Limit(int limit)
     {
         _limit = limit;
@@ -408,6 +602,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Skips the specified number of rows before returning results.
+    /// </summary>
+    /// <param name="offset">The number of rows to skip.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Offset(int offset)
     {
         _offset = offset;
@@ -415,6 +614,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Limits the number of rows using the TOP clause (SQL Server).
+    /// </summary>
+    /// <param name="top">The number of rows to return.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Top(int top)
     {
         _limit = top;
@@ -424,6 +628,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a UNION clause combining the results of another query.
+    /// </summary>
+    /// <param name="query">The query to union with.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Union(Query query)
     {
         if (query == null)
@@ -434,6 +643,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds a UNION ALL clause combining the results of another query.
+    /// </summary>
+    /// <param name="query">The query to union with.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query UnionAll(Query query)
     {
         if (query == null)
@@ -444,6 +658,11 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds an INTERSECT clause combining the results of another query.
+    /// </summary>
+    /// <param name="query">The query to intersect with.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Intersect(Query query)
     {
         if (query == null)
@@ -454,8 +673,24 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Adds VALUES for an INSERT statement.
+    /// </summary>
+    /// <param name="values">The values to insert.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query Values(params object[] values)
     {
+        if (values == null || values.Length == 0)
+        {
+            throw new ArgumentException("Values cannot be null or empty.", nameof(values));
+        }
+        foreach (var value in values)
+        {
+            if (value == null)
+            {
+                throw new ArgumentException("Values cannot contain null.", nameof(values));
+            }
+        }
         _values.AddRange(values);
         return this;
     }
@@ -481,12 +716,20 @@ public class Query
         }
     }
 
+    /// <summary>
+    /// Compiles the current query to a SQL string.
+    /// </summary>
+    /// <returns>The compiled SQL statement.</returns>
     public string Compile()
     {
         var compiler = new QueryCompiler();
         return compiler.Compile(this);
     }
 
+    /// <summary>
+    /// Compiles the current query and returns the SQL string and parameters separately.
+    /// </summary>
+    /// <returns>A tuple containing the SQL statement and parameter values.</returns>
     public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters()
     {
         var compiler = new QueryCompiler();

@@ -26,6 +26,18 @@ public class PostgreSql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
+    /// <summary>
+    /// Executes a query against a PostgreSQL database.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The query result, depending on <see cref="DatabaseClientBase.ReturnType"/>.</returns>
     public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
@@ -92,6 +104,18 @@ public class PostgreSql : DatabaseClientBase
         return result;
     }
 
+    /// <summary>
+    /// Executes a non-query SQL command against a PostgreSQL database.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL command to execute.</param>
+    /// <param name="parameters">Optional command parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The number of affected rows.</returns>
     public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
@@ -138,6 +162,19 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a query against a PostgreSQL database.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>A task representing the asynchronous operation with the query result.</returns>
     public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var connectionString = new NpgsqlConnectionStringBuilder
@@ -194,12 +231,37 @@ public class PostgreSql : DatabaseClientBase
         return $"CALL {procedure}({joined})";
     }
 
+    /// <summary>
+    /// Executes a stored procedure and returns the result.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="procedure">The stored procedure name.</param>
+    /// <param name="parameters">Optional procedure parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The result of the stored procedure.</returns>
     public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
         return Query(host, database, username, password, query, parameters, useTransaction, parameterTypes);
     }
 
+    /// <summary>
+    /// Asynchronously executes a stored procedure and returns the result.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="procedure">The stored procedure name.</param>
+    /// <param name="parameters">Optional procedure parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>A task representing the asynchronous operation with the procedure result.</returns>
     public virtual Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
@@ -207,6 +269,19 @@ public class PostgreSql : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    /// <summary>
+    /// Asynchronously streams query results from a PostgreSQL database.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects.</returns>
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
     {
         return Stream();
@@ -258,6 +333,13 @@ public class PostgreSql : DatabaseClientBase
     }
 #endif
 
+    /// <summary>
+    /// Begins a database transaction.
+    /// </summary>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
     public virtual void BeginTransaction(string host, string database, string username, string password)
     {
         lock (_syncRoot)
@@ -282,6 +364,9 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Commits the current transaction.
+    /// </summary>
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -295,6 +380,9 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Rolls back the current transaction.
+    /// </summary>
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -324,6 +412,16 @@ public class PostgreSql : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    /// <summary>
+    /// Executes multiple queries in parallel.
+    /// </summary>
+    /// <param name="queries">The collection of queries to execute.</param>
+    /// <param name="host">The PostgreSQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A list of results for each executed query.</returns>
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
         if (queries == null)

@@ -24,6 +24,19 @@ public class SqlServer : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
+    /// <summary>
+    /// Executes a query against a SQL Server database.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>The query result, depending on <see cref="DatabaseClientBase.ReturnType"/>.</returns>
     public virtual object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var connectionStringBuilder = new SqlConnectionStringBuilder
@@ -95,6 +108,19 @@ public class SqlServer : DatabaseClientBase
         return result;
     }
 
+    /// <summary>
+    /// Executes a non-query SQL command against a SQL Server database.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="query">The SQL command to execute.</param>
+    /// <param name="parameters">Optional command parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>The number of affected rows.</returns>
     public virtual int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var connectionStringBuilder = new SqlConnectionStringBuilder
@@ -146,6 +172,20 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a query against a SQL Server database.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>A task representing the asynchronous operation with the query result.</returns>
     public virtual async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var connectionStringBuilder = new SqlConnectionStringBuilder
@@ -207,12 +247,39 @@ public class SqlServer : DatabaseClientBase
         return $"EXEC {procedure} {joined}";
     }
 
+    /// <summary>
+    /// Executes a stored procedure and returns the result.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="procedure">The stored procedure name.</param>
+    /// <param name="parameters">Optional procedure parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>The result of the stored procedure.</returns>
     public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
         return Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password);
     }
 
+    /// <summary>
+    /// Asynchronously executes a stored procedure and returns the result.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="procedure">The stored procedure name.</param>
+    /// <param name="parameters">Optional procedure parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>A task representing the asynchronous operation with the procedure result.</returns>
     public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         var query = BuildStoredProcedureQuery(procedure, parameters);
@@ -220,6 +287,20 @@ public class SqlServer : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    /// <summary>
+    /// Asynchronously streams query results from a SQL Server database.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects.</returns>
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
     {
         return Stream();
@@ -277,6 +358,14 @@ public class SqlServer : DatabaseClientBase
 #endif
 
 
+    /// <summary>
+    /// Begins a database transaction.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
     {
         lock (_syncRoot)
@@ -306,6 +395,15 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously begins a database transaction.
+    /// </summary>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
     public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
     {
         if (_transaction != null)
@@ -336,6 +434,9 @@ public class SqlServer : DatabaseClientBase
 #endif
     }
 
+    /// <summary>
+    /// Commits the current transaction.
+    /// </summary>
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -349,6 +450,10 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously commits the current transaction.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
     {
         if (_transaction == null)
@@ -363,6 +468,9 @@ public class SqlServer : DatabaseClientBase
         DisposeTransaction();
     }
 
+    /// <summary>
+    /// Rolls back the current transaction.
+    /// </summary>
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -376,6 +484,10 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously rolls back the current transaction.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
         if (_transaction == null)
@@ -406,6 +518,17 @@ public class SqlServer : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    /// <summary>
+    /// Executes multiple queries in parallel.
+    /// </summary>
+    /// <param name="queries">The collection of queries to execute.</param>
+    /// <param name="serverOrInstance">The server or instance name.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="integratedSecurity">True to use Windows authentication.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="username">The SQL login name when not using integrated security.</param>
+    /// <param name="password">The SQL login password when not using integrated security.</param>
+    /// <returns>A list of results for each executed query.</returns>
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
     {
         if (queries == null)

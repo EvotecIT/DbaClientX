@@ -27,6 +27,9 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
 
     private ActionPreference errorAction = ActionPreference.Continue;
 
+    /// <summary>
+    /// Initializes cmdlet processing and captures error preferences.
+    /// </summary>
     protected override void BeginProcessing() {
         if (MyInvocation.BoundParameters.TryGetValue("ErrorAction", out var value)) {
             if (Enum.TryParse(value.ToString(), true, out ActionPreference actionPreference)) {
@@ -35,6 +38,9 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
     }
 
+    /// <summary>
+    /// Builds a query object or SQL string based on provided parameters.
+    /// </summary>
     protected override void ProcessRecord() {
         var query = DBAClientX.QueryBuilder.QueryBuilder.Query().From(TableName);
 

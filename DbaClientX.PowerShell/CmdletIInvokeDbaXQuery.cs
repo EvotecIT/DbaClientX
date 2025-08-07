@@ -164,10 +164,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     }
 
     /// <summary>
-    /// Convert DataRow to PSObject
+    /// Converts a <see cref="DataRow"/> to a <see cref="PSObject"/>.
     /// </summary>
-    /// <param name="row"></param>
-    /// <returns></returns>
+    /// <param name="row">The data row to convert.</param>
+    /// <returns>A <see cref="PSObject"/> representing the row.</returns>
     private static PSObject DataRowToPSObject(DataRow row) {
         PSObject psObject = new PSObject();
 

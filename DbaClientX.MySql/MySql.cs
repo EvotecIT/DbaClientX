@@ -25,6 +25,18 @@ public class MySql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
+    /// <summary>
+    /// Executes a query against a MySQL database.
+    /// </summary>
+    /// <param name="host">The MySQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The query result, depending on <see cref="DatabaseClientBase.ReturnType"/>.</returns>
     public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
@@ -91,6 +103,18 @@ public class MySql : DatabaseClientBase
         return result;
     }
 
+    /// <summary>
+    /// Executes a non-query SQL command against a MySQL database.
+    /// </summary>
+    /// <param name="host">The MySQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL command to execute.</param>
+    /// <param name="parameters">Optional command parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>The number of affected rows.</returns>
     public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
@@ -137,6 +161,19 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a query against a MySQL database.
+    /// </summary>
+    /// <param name="host">The MySQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="query">The SQL query to execute.</param>
+    /// <param name="parameters">Optional query parameters.</param>
+    /// <param name="useTransaction">True to execute within an existing transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter type mapping.</param>
+    /// <returns>A task representing the asynchronous operation with the query result.</returns>
     public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
         var connectionString = new MySqlConnectionStringBuilder
@@ -183,6 +220,13 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Begins a database transaction.
+    /// </summary>
+    /// <param name="host">The MySQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
     public virtual void BeginTransaction(string host, string database, string username, string password)
     {
         lock (_syncRoot)
@@ -207,6 +251,9 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Commits the current transaction.
+    /// </summary>
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -220,6 +267,9 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Rolls back the current transaction.
+    /// </summary>
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -249,6 +299,16 @@ public class MySql : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    /// <summary>
+    /// Executes multiple queries in parallel.
+    /// </summary>
+    /// <param name="queries">The collection of queries to execute.</param>
+    /// <param name="host">The MySQL host name or IP.</param>
+    /// <param name="database">The database name.</param>
+    /// <param name="username">The user name for authentication.</param>
+    /// <param name="password">The password for authentication.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A list of results for each executed query.</returns>
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
         if (queries == null)

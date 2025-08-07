@@ -31,6 +31,9 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
 
     private ActionPreference ErrorAction;
 
+    /// <summary>
+    /// Initializes cmdlet processing and captures error preferences.
+    /// </summary>
     protected override void BeginProcessing() {
         ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
         if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
@@ -41,6 +44,9 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
         }
     }
 
+    /// <summary>
+    /// Executes the non-query command against SQL Server.
+    /// </summary>
     protected override void ProcessRecord() {
         var sqlServer = SqlServerFactory();
         sqlServer.CommandTimeout = QueryTimeout;
