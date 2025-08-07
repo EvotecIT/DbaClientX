@@ -173,6 +173,20 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    {
+        if (_transaction != null)
+        {
+            throw new DbaTransactionException("Transaction already started.");
+        }
+
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        _transactionConnection = new MySqlConnection(connectionString);
+        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        _transaction = await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -186,6 +200,17 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+
+        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        DisposeTransaction();
+    }
+
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -197,6 +222,17 @@ public class MySql : DatabaseClientBase
             _transaction.Rollback();
             DisposeTransactionLocked();
         }
+    }
+
+    public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+
+        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+        DisposeTransaction();
     }
 
     private void DisposeTransaction()
