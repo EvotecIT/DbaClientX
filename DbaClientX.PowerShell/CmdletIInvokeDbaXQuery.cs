@@ -2,7 +2,7 @@
 
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
-public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
+public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
@@ -52,7 +52,7 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
     /// <summary>
     /// Begin processing method for PowerShell cmdlet
     /// </summary>
-    protected override void BeginProcessing() {
+    protected override Task BeginProcessingAsync() {
         // Get the error action preference as user requested
         // It first sets the error action to the default error action preference
         // If the user has specified the error action, it will set the error action to the user specified error action
@@ -63,12 +63,14 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
                 ErrorAction = actionPreference;
             }
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// Process method for PowerShell cmdlet
     /// </summary>
-    protected override void ProcessRecord() {
+    protected override async Task ProcessRecordAsync() {
         var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
@@ -82,58 +84,51 @@ public sealed class CmdletIInvokeDbaXQuery : PSCmdlet {
                     de => de.Value);
             }
 
+            // Streaming branch using asynchronous enumeration when supported
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
-                var enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancellationToken.None, username: Username, password: Password);
-                var enumerator = enumerable.GetAsyncEnumerator();
-                try
+                var enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password);
+                switch (ReturnType)
                 {
-                    switch (ReturnType)
-                    {
-                        case ReturnType.DataRow:
-                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
-                            {
-                                WriteObject(enumerator.Current);
-                            }
-                            break;
-                        case ReturnType.DataTable:
-                            DataTable? table = null;
-                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
-                            {
-                                table ??= enumerator.Current.Table.Clone();
-                                table.ImportRow(enumerator.Current);
-                            }
-                            if (table != null)
-                            {
-                                WriteObject(table);
-                            }
-                            break;
-                        case ReturnType.DataSet:
-                            DataTable? dataTable = null;
-                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
-                            {
-                                dataTable ??= enumerator.Current.Table.Clone();
-                                dataTable.ImportRow(enumerator.Current);
-                            }
-                            DataSet set = new DataSet();
-                            if (dataTable != null)
-                            {
-                                set.Tables.Add(dataTable);
-                            }
-                            WriteObject(set);
-                            break;
-                        default:
-                            while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult())
-                            {
-                                WriteObject(DataRowToPSObject(enumerator.Current));
-                            }
-                            break;
-                    }
-                }
-                finally
-                {
-                    enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    case ReturnType.DataRow:
+                        await foreach (var row in enumerable)
+                        {
+                            WriteObject(row);
+                        }
+                        break;
+                    case ReturnType.DataTable:
+                        DataTable? table = null;
+                        await foreach (var row in enumerable)
+                        {
+                            table ??= row.Table.Clone();
+                            table.ImportRow(row);
+                        }
+                        if (table != null)
+                        {
+                            WriteObject(table);
+                        }
+                        break;
+                    case ReturnType.DataSet:
+                        DataTable? dataTable = null;
+                        await foreach (var row in enumerable)
+                        {
+                            dataTable ??= row.Table.Clone();
+                            dataTable.ImportRow(row);
+                        }
+                        DataSet set = new DataSet();
+                        if (dataTable != null)
+                        {
+                            set.Tables.Add(dataTable);
+                        }
+                        WriteObject(set);
+                        break;
+                    default:
+                        await foreach (var row in enumerable)
+                        {
+                            WriteObject(DataRowToPSObject(row));
+                        }
+                        break;
                 }
                 return;
             }
