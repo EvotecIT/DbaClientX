@@ -43,8 +43,11 @@ public class Program
             case "parameterized":
                 ParameterizedQueryExample.Run();
                 break;
+            case "joins":
+                JoinExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, joins");
                 break;
         }
     }

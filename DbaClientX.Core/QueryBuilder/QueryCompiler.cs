@@ -118,7 +118,11 @@ public class QueryCompiler
         {
             foreach (var join in query.Joins)
             {
-                sb.Append(' ').Append(join.Type).Append(' ').Append(join.Table).Append(" ON ").Append(join.Condition);
+                sb.Append(' ').Append(join.Type).Append(' ').Append(join.Table);
+                if (!string.IsNullOrWhiteSpace(join.Condition))
+                {
+                    sb.Append(" ON ").Append(join.Condition);
+                }
             }
         }
 

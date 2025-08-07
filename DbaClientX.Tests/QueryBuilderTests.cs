@@ -406,6 +406,30 @@ public class QueryBuilderTests
         var sql = QueryBuilder.Compile(query);
         Assert.Equal("SELECT * FROM users u LEFT JOIN profiles p ON u.id = p.user_id RIGHT JOIN photos ph ON u.id = ph.user_id", sql);
     }
+    [Fact]
+    public void CrossJoinQueries()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users u")
+            .CrossJoin("orders o");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT * FROM users u CROSS JOIN orders o", sql);
+    }
+
+    [Fact]
+    public void FullOuterJoinQueries()
+    {
+        var query = new Query()
+            .Select("u.name", "o.total")
+            .From("users u")
+            .FullOuterJoin("orders o", "u.id = o.user_id");
+
+        var sql = QueryBuilder.Compile(query);
+        Assert.Equal("SELECT u.name, o.total FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id", sql);
+    }
+
      
     [Fact]
     public void DecimalFormatting_UsesInvariantCulture()
@@ -541,6 +565,20 @@ public class QueryBuilderTests
     {
         var query = new Query();
         Assert.Throws<ArgumentException>(() => query.InsertInto("users"));
+    }
+
+    [Fact]
+    public void CrossJoin_WithEmptyTable_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.CrossJoin(""));
+    }
+
+    [Fact]
+    public void FullOuterJoin_WithNullCondition_Throws()
+    {
+        var query = new Query();
+        Assert.Throws<ArgumentException>(() => query.FullOuterJoin("orders", null!));
     }
 
     [Fact]
