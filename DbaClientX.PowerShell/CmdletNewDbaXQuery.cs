@@ -12,6 +12,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletNewDbaXQuery : PSCmdlet {
     [Parameter(Mandatory = true, Position = 0)]
+    [ValidateNotNullOrEmpty]
     public string TableName { get; set; }
 
     [Parameter(Mandatory = false)]
