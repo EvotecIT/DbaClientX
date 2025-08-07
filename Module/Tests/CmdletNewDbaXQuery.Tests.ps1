@@ -23,5 +23,13 @@ Describe 'New-DbaXQuery builder' {
     It 'Honors ErrorAction Stop for negative offset' {
         { New-DbaXQuery -TableName users -Compile -Offset -2 -ErrorAction Stop } | Should -Throw
     }
+
+    It 'Throws when TableName is empty' {
+        { New-DbaXQuery -TableName '' -Compile } | Should -Throw
+    }
+
+    It 'Throws when TableName is null' {
+        { New-DbaXQuery -TableName $null -Compile } | Should -Throw
+    }
 }
 
