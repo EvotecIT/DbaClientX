@@ -194,6 +194,20 @@ public class MySqlTests
     }
 
     [Fact]
+    public void Commit_WithoutTransaction_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WithoutTransaction_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Rollback());
+    }
+
+    [Fact]
     public void Commit_EndsTransaction()
     {
         using var mySql = new FakeTransactionMySql();
