@@ -23,6 +23,7 @@ public class Query
     private int? _offset;
     private bool _useTop;
     private readonly List<(string Type, Query Query)> _compoundQueries = new();
+    private int _openGroups;
 
     public Query Select(params string[] columns)
     {
@@ -204,12 +205,18 @@ public class Query
     {
         AddDefaultAndIfRequired();
         _where.Add(new GroupStartToken());
+        _openGroups++;
         return this;
     }
 
     public Query EndGroup()
     {
+        if (_openGroups == 0)
+        {
+            throw new InvalidOperationException("EndGroup called without a matching BeginGroup.");
+        }
         _where.Add(new GroupEndToken());
+        _openGroups--;
         return this;
     }
 
@@ -511,6 +518,7 @@ public class Query
     public int? LimitValue => _limit;
     public int? OffsetValue => _offset;
     public bool UseTop => _useTop;
+    public int OpenGroups => _openGroups;
 }
 
 public interface IWhereToken { }

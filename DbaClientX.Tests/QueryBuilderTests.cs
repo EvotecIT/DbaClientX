@@ -383,6 +383,28 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void EndGroupWithoutBegin_Throws()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users");
+
+        Assert.Throws<InvalidOperationException>(() => query.EndGroup());
+    }
+
+    [Fact]
+    public void UnclosedGroup_ThrowsOnCompile()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .BeginGroup()
+            .Where("age", "<", 18);
+
+        Assert.Throws<InvalidOperationException>(() => QueryBuilder.Compile(query));
+    }
+
+    [Fact]
     public void JoinQueries()
     {
         var query = new Query()
