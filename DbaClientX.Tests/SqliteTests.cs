@@ -115,16 +115,16 @@ public class SqliteTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override object? ExecuteScalar(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
-            return null;
+            return 1;
         }
 
-        public override Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override Task<object?> ExecuteScalarAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
-            return Task.FromResult<object?>(null);
+            return Task.FromResult<object?>(1);
         }
     }
 
@@ -154,6 +154,42 @@ public class SqliteTests
     {
         using var sqlite = new PingSqlite { ShouldFail = true };
         Assert.False(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+    }
+
+    [Fact]
+    public void ExecuteScalar_ReturnsValue()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);");
+            var result = sqlite.ExecuteScalar(path, "SELECT id FROM t;");
+            Assert.Equal(1L, result);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteScalarAsync_ReturnsValue()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);");
+            var result = await sqlite.ExecuteScalarAsync(path, "SELECT id FROM t;").ConfigureAwait(false);
+            Assert.Equal(1L, result);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
     }
 
     private static void Cleanup(string path)

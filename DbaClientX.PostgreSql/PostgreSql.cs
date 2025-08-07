@@ -41,7 +41,7 @@ public class PostgreSql : DatabaseClientBase
     {
         try
         {
-            Query(host, database, username, password, "SELECT 1");
+            ExecuteScalar(host, database, username, password, "SELECT 1");
             return true;
         }
         catch
@@ -54,7 +54,7 @@ public class PostgreSql : DatabaseClientBase
     {
         try
         {
-            await QueryAsync(host, database, username, password, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
+            await ExecuteScalarAsync(host, database, username, password, "SELECT 1", cancellationToken: cancellationToken).ConfigureAwait(false);
             return true;
         }
         catch
@@ -92,6 +92,45 @@ public class PostgreSql : DatabaseClientBase
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        NpgsqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new NpgsqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -173,6 +212,45 @@ public class PostgreSql : DatabaseClientBase
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        NpgsqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
