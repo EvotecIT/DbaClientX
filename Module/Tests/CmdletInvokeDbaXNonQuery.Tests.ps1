@@ -37,4 +37,16 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
             $prop.SetValue($null, $orig)
         }
     }
+
+    It 'fails when Server is empty' {
+        { Invoke-DbaXNonQuery -Server '' -Database db -Query 'Q' } | Should -Throw
+    }
+
+    It 'fails when Database is empty' {
+        { Invoke-DbaXNonQuery -Server s -Database '' -Query 'Q' } | Should -Throw
+    }
+
+    It 'fails when Query is empty' {
+        { Invoke-DbaXNonQuery -Server s -Database db -Query '' } | Should -Throw
+    }
 }

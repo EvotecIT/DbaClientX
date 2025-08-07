@@ -6,12 +6,15 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [Alias("DBServer", "SqlInstance", "Instance")]
+    [ValidateNotNullOrEmpty]
     public string Server { get; set; }
 
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
+    [ValidateNotNullOrEmpty]
     public string Database { get; set; }
 
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
+    [ValidateNotNullOrEmpty]
     public string Query { get; set; }
 
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
