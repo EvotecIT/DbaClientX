@@ -16,6 +16,7 @@ public abstract class DatabaseClientBase : IDisposable
     private ReturnType _returnType;
     private int _commandTimeout;
     private bool _disposed;
+    private Action<string>? _logAction;
 
     public ReturnType ReturnType
     {
@@ -27,6 +28,12 @@ public abstract class DatabaseClientBase : IDisposable
     {
         get { lock (_syncRoot) { return _commandTimeout; } }
         set { lock (_syncRoot) { _commandTimeout = value; } }
+    }
+
+    public Action<string>? LogAction
+    {
+        get { lock (_syncRoot) { return _logAction; } }
+        set { lock (_syncRoot) { _logAction = value; } }
     }
 
     protected virtual void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
@@ -99,7 +106,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         var dataSet = new DataSet();
         using var reader = command.ExecuteReader();
         var tableIndex = 0;
@@ -125,7 +133,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         return command.ExecuteNonQuery();
     }
 
@@ -140,7 +149,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         return command.ExecuteScalar();
     }
 
@@ -155,7 +165,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         var dataSet = new DataSet();
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var tableIndex = 0;
@@ -181,7 +192,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -197,7 +209,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             command.CommandTimeout = commandTimeout;
         }
-
+        var logAction = LogAction;
+        logAction?.Invoke(command.CommandText);
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var table = new DataTable();
         for (int i = 0; i < reader.FieldCount; i++)
