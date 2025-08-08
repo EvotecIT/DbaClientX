@@ -35,6 +35,10 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
         {
+            if (query.IsUpsert)
+            {
+                return CompileUpsert(query, parameters);
+            }
             sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
 
             if (query.InsertColumns.Count > 0)
@@ -210,6 +214,110 @@ public class QueryCompiler
         }
 
         return sb.ToString();
+    }
+
+    private string CompileUpsert(Query query, List<object>? parameters)
+    {
+        var sb = new StringBuilder();
+        var row = query.InsertValues[0];
+        switch (_dialect)
+        {
+            case SqlDialect.PostgreSql:
+            case SqlDialect.SQLite:
+                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
+                sb.Append(" (").Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier))).Append(") VALUES (");
+                for (int i = 0; i < row.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    AppendValue(sb, row[i], parameters);
+                }
+                sb.Append(") ON CONFLICT (")
+                  .Append(string.Join(", ", query.ConflictColumns.Select(QuoteIdentifier)))
+                  .Append(") DO UPDATE SET ");
+                for (int i = 0; i < query.InsertColumns.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    var col = query.InsertColumns[i];
+                    sb.Append(QuoteIdentifier(col)).Append(" = EXCLUDED.").Append(QuoteIdentifier(col));
+                }
+                return sb.ToString();
+            case SqlDialect.MySql:
+                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
+                sb.Append(" (").Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier))).Append(") VALUES (");
+                for (int i = 0; i < row.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    AppendValue(sb, row[i], parameters);
+                }
+                sb.Append(") ON DUPLICATE KEY UPDATE ");
+                for (int i = 0; i < query.InsertColumns.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    var col = query.InsertColumns[i];
+                    sb.Append(QuoteIdentifier(col)).Append(" = VALUES(").Append(QuoteIdentifier(col)).Append(')');
+                }
+                return sb.ToString();
+            case SqlDialect.SqlServer:
+                sb.Append("MERGE INTO ").Append(QuoteIdentifier(query.InsertTable)).Append(" AS target USING (VALUES (");
+                for (int i = 0; i < row.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    AppendValue(sb, row[i], parameters);
+                }
+                sb.Append(")) AS source (")
+                  .Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier)))
+                  .Append(") ON (");
+                for (int i = 0; i < query.ConflictColumns.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(" AND ");
+                    }
+                    var col = query.ConflictColumns[i];
+                    sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
+                }
+                sb.Append(") WHEN MATCHED THEN UPDATE SET ");
+                for (int i = 0; i < query.InsertColumns.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    var col = query.InsertColumns[i];
+                    sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
+                }
+                sb.Append(" WHEN NOT MATCHED THEN INSERT (")
+                  .Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier)))
+                  .Append(") VALUES (");
+                for (int i = 0; i < query.InsertColumns.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(", ");
+                    }
+                    var col = query.InsertColumns[i];
+                    sb.Append("source.").Append(QuoteIdentifier(col));
+                }
+                sb.Append(")");
+                return sb.ToString();
+            default:
+                throw new NotSupportedException($"Upsert not supported for {_dialect}");
+        }
     }
 
     private void AppendWhereTokens(StringBuilder sb, IReadOnlyList<IWhereToken> tokens, List<object>? parameters)

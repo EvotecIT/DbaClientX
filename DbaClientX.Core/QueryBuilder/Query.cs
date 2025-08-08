@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DBAClientX.QueryBuilder;
 
@@ -13,6 +14,8 @@ public class Query
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
     private readonly List<IReadOnlyList<object>> _values = new();
+    private bool _isUpsert;
+    private readonly List<string> _conflictColumns = new();
     private string _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
     private string _deleteTable;
@@ -333,6 +336,41 @@ public class Query
         return this;
     }
 
+    public Query InsertOrUpdate(string table, IEnumerable<(string Column, object Value)> values, params string[] conflictColumns)
+    {
+        ValidateString(table, nameof(table));
+        if (values == null)
+        {
+            throw new ArgumentException("Values cannot be null.", nameof(values));
+        }
+        var valueList = values.ToList();
+        if (valueList.Count == 0)
+        {
+            throw new ArgumentException("Values cannot be empty.", nameof(values));
+        }
+        ValidateStrings(conflictColumns, nameof(conflictColumns));
+
+        _insertTable = table;
+        _insertColumns.Clear();
+        _values.Clear();
+        var row = new List<object>(valueList.Count);
+        foreach (var (column, value) in valueList)
+        {
+            ValidateString(column, nameof(values));
+            if (value == null)
+            {
+                throw new ArgumentException("Value cannot be null.", nameof(values));
+            }
+            _insertColumns.Add(column);
+            row.Add(value);
+        }
+        _values.Add(row);
+        _conflictColumns.Clear();
+        _conflictColumns.AddRange(conflictColumns);
+        _isUpsert = true;
+        return this;
+    }
+
     public Query Update(string table)
     {
         ValidateString(table, nameof(table));
@@ -507,6 +545,8 @@ public class Query
     public string InsertTable => _insertTable;
     public IReadOnlyList<string> InsertColumns => _insertColumns;
     public IReadOnlyList<IReadOnlyList<object>> InsertValues => _values;
+    public bool IsUpsert => _isUpsert;
+    public IReadOnlyList<string> ConflictColumns => _conflictColumns;
     public string UpdateTable => _updateTable;
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;

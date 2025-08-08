@@ -53,6 +53,46 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void InsertOrUpdate_PostgreSql_UsesOnConflict()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_MySql_UsesOnDuplicateKey()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
+        Assert.Equal("INSERT INTO `users` (`id`, `name`) VALUES (1, 'Bob') ON DUPLICATE KEY UPDATE `id` = VALUES(`id`), `name` = VALUES(`name`)", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_Sqlite_UsesOnConflict()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_SqlServer_UsesMerge()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'Bob')) AS source ([id], [name]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[id] = source.[id], target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name]) VALUES (source.[id], source.[name])", sql);
+    }
+
+    [Fact]
     public void UpdateWithWhere()
     {
         var query = new Query()
