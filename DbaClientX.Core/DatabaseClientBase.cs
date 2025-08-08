@@ -54,6 +54,19 @@ public abstract class DatabaseClientBase : IDisposable
         }
     }
 
+    protected virtual void AddParameters(DbCommand command, IEnumerable<DbParameter>? parameters)
+    {
+        if (parameters == null)
+        {
+            return;
+        }
+
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.Add(parameter);
+        }
+    }
+
     private static DbType InferDbType(object? value)
     {
         if (value == null || value == DBNull.Value) return DbType.Object;
@@ -204,7 +217,7 @@ public abstract class DatabaseClientBase : IDisposable
     }
 #endif
 
-    private object? BuildResult(DataSet dataSet)
+    protected object? BuildResult(DataSet dataSet)
     {
         var returnType = ReturnType;
         if (returnType == ReturnType.DataRow)

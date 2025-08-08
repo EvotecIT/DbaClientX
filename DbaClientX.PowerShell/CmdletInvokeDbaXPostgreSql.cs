@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Data.Common;
+using Npgsql;
 
 namespace DBAClientX.PowerShell;
 
@@ -71,10 +73,12 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
         postgreSql.CommandTimeout = QueryTimeout;
         try {
             IDictionary<string, object?>? parameters = null;
+            IEnumerable<DbParameter>? dbParameters = null;
             if (Parameters != null) {
                 parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
                     de => de.Key.ToString(),
                     de => de.Value);
+                dbParameters = parameters.Select(kvp => (DbParameter)new NpgsqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
             }
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
@@ -122,7 +126,7 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
 #endif
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {
-                result = postgreSql.ExecuteStoredProcedure(Server, Database, Username, Password, StoredProcedure, parameters);
+                result = postgreSql.ExecuteStoredProcedure(Server, Database, Username, Password, StoredProcedure, dbParameters);
             } else {
                 result = postgreSql.Query(Server, Database, Username, Password, Query, parameters);
             }

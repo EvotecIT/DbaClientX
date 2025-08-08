@@ -200,57 +200,45 @@ public class PostgreSqlTests
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
     }
 
-    private class CaptureStoredProcPostgreSql : DBAClientX.PostgreSql
+    private class OutputStoredProcPostgreSql : DBAClientX.PostgreSql
     {
-        public string? CapturedQuery;
-        public IDictionary<string, object?>? CapturedParameters;
-
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            using var command = new NpgsqlCommand();
+            AddParameters(command, parameters);
+            foreach (NpgsqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction);
             return Task.FromResult<object?>(null);
         }
     }
 
     [Fact]
-    public void ExecuteStoredProcedure_BuildsCallStatement()
+    public void ExecuteStoredProcedure_PopulatesOutputParameter()
     {
-        using var pg = new CaptureStoredProcPostgreSql();
-        var parameters = new Dictionary<string, object?>
-        {
-            ["@id"] = 1,
-            ["@name"] = "n"
-        };
-        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
-        Assert.Equal("CALL sp_test(@id, @name)", pg.CapturedQuery);
+        using var pg = new OutputStoredProcPostgreSql();
+        var outParam = new NpgsqlParameter("@out", NpgsqlDbType.Integer) { Direction = ParameterDirection.Output };
+        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", new[] { outParam });
+        Assert.Equal(5, outParam.Value);
     }
 
     [Fact]
-    public async Task ExecuteStoredProcedureAsync_BuildsCallStatement()
+    public async Task ExecuteStoredProcedureAsync_PopulatesOutputParameter()
     {
-        using var pg = new CaptureStoredProcPostgreSql();
-        var parameters = new Dictionary<string, object?>
-        {
-            ["@id"] = 1
-        };
-        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters).ConfigureAwait(false);
-        Assert.Equal("CALL sp_test(@id)", pg.CapturedQuery);
-    }
-
-    [Fact]
-    public void ExecuteStoredProcedure_NoParameters_AddsEmptyParentheses()
-    {
-        using var pg = new CaptureStoredProcPostgreSql();
-        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
-        Assert.Equal("CALL sp_test()", pg.CapturedQuery);
+        using var pg = new OutputStoredProcPostgreSql();
+        var outParam = new NpgsqlParameter("@out", NpgsqlDbType.Integer) { Direction = ParameterDirection.Output };
+        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam }).ConfigureAwait(false);
+        Assert.Equal(5, outParam.Value);
     }
 
     [Fact]

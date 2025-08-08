@@ -264,26 +264,124 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    private static string BuildStoredProcedureQuery(string procedure, IDictionary<string, object?>? parameters)
+    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, string? username = null, string? password = null)
     {
-        if (parameters == null || parameters.Count == 0)
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
         {
-            return $"EXEC {procedure}";
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = command.ExecuteReader();
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && reader.NextResult());
+
+            return BuildResult(dataSet);
         }
-        var joined = string.Join(", ", parameters.Keys);
-        return $"EXEC {procedure} {joined}";
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
     }
 
-    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, string? username = null, string? password = null)
     {
-        var query = BuildStoredProcedureQuery(procedure, parameters);
-        return Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password);
-    }
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
-    public virtual Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
-    {
-        var query = BuildStoredProcedureQuery(procedure, parameters);
-        return QueryAsync(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, cancellationToken, parameterTypes, username, password);
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+            return BuildResult(dataSet);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
