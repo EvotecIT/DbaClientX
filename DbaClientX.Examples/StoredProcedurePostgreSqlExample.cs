@@ -1,6 +1,7 @@
 using DBAClientX;
 using System.Collections.Generic;
 using System.Data;
+using Npgsql;
 
 public static class StoredProcedurePostgreSqlExample
 {
@@ -11,9 +12,9 @@ public static class StoredProcedurePostgreSqlExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var parameters = new Dictionary<string, object?>
+        var parameters = new List<NpgsqlParameter>
         {
-            ["@id"] = 1
+            new("@id", 1)
         };
 
         var result = pg.ExecuteStoredProcedure("localhost", "postgres", "user", "password", "sp_test", parameters);

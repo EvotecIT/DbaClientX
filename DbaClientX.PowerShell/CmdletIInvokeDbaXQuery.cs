@@ -1,4 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Data.Common;
+using System.Data.SqlClient;
 
 namespace DBAClientX.PowerShell;
 
@@ -79,11 +81,13 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
             IDictionary<string, object?>? parameters = null;
+            IEnumerable<DbParameter>? dbParameters = null;
             if (Parameters != null)
             {
                 parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
                     de => de.Key.ToString(),
                     de => de.Value);
+                dbParameters = parameters.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
             }
 
             // Streaming branch using asynchronous enumeration when supported
@@ -143,7 +147,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {
-                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, parameters, username: Username, password: Password);
+                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, dbParameters, username: Username, password: Password);
             } else {
                 result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             }

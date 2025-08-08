@@ -199,49 +199,45 @@ public class SqlServerTests
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
     }
 
-    private class CaptureStoredProcSqlServer : DBAClientX.SqlServer
+    private class OutputStoredProcSqlServer : DBAClientX.SqlServer
     {
-        public string? CapturedQuery;
-        public IDictionary<string, object?>? CapturedParameters;
-
-        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, string? username = null, string? password = null)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            using var command = new SqlCommand();
+            AddParameters(command, parameters);
+            foreach (SqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
             return null;
         }
 
-        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, string? username = null, string? password = null)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            ExecuteStoredProcedure(serverOrInstance, database, integratedSecurity, procedure, parameters, useTransaction, username, password);
             return Task.FromResult<object?>(null);
         }
     }
 
     [Fact]
-    public void ExecuteStoredProcedure_BuildsExecStatement()
+    public void ExecuteStoredProcedure_PopulatesOutputParameter()
     {
-        using var sqlServer = new CaptureStoredProcSqlServer();
-        var parameters = new Dictionary<string, object?>
-        {
-            ["@id"] = 1,
-            ["@name"] = "n"
-        };
-        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", parameters);
-        Assert.Equal("EXEC sp_test @id, @name", sqlServer.CapturedQuery);
+        using var sqlServer = new OutputStoredProcSqlServer();
+        var outParam = new SqlParameter("@out", SqlDbType.Int) { Direction = ParameterDirection.Output };
+        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", new[] { outParam });
+        Assert.Equal(5, outParam.Value);
     }
 
     [Fact]
-    public async Task ExecuteStoredProcedureAsync_BuildsExecStatement()
+    public async Task ExecuteStoredProcedureAsync_PopulatesOutputParameter()
     {
-        using var sqlServer = new CaptureStoredProcSqlServer();
-        var parameters = new Dictionary<string, object?>
-        {
-            ["@id"] = 1
-        };
-        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", parameters).ConfigureAwait(false);
-        Assert.Equal("EXEC sp_test @id", sqlServer.CapturedQuery);
+        using var sqlServer = new OutputStoredProcSqlServer();
+        var outParam = new SqlParameter("@out", SqlDbType.Int) { Direction = ParameterDirection.Output };
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam }).ConfigureAwait(false);
+        Assert.Equal(5, outParam.Value);
     }
 
     private class FakeTransactionSqlServer : DBAClientX.SqlServer
