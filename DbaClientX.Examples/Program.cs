@@ -46,8 +46,11 @@ public class Program
             case "joins":
                 JoinExample.Run();
                 break;
+            case "upsert":
+                InsertOrUpdateExample.Run();
+                break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, joins");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, joins, upsert");
                 break;
         }
     }
