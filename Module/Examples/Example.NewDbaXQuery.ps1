@@ -3,6 +3,7 @@ Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force -Verbose
 
 # Build query with modern pagination
 $query = New-DbaXQuery -TableName users -Compile -Limit 5 -Offset 2
+# Outputs: SELECT * FROM [users] OFFSET 2 ROWS FETCH NEXT 5 ROWS ONLY
 $query
 
 # Invalid pagination values emit warnings and can be converted to errors
