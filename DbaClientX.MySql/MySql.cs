@@ -260,6 +260,28 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    private static string BuildStoredProcedureQuery(string procedure, IDictionary<string, object?>? parameters)
+    {
+        if (parameters == null || parameters.Count == 0)
+        {
+            return $"CALL {procedure}()";
+        }
+        var joined = string.Join(", ", parameters.Keys);
+        return $"CALL {procedure}({joined})";
+    }
+
+    public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    {
+        var query = BuildStoredProcedureQuery(procedure, parameters);
+        return Query(host, database, username, password, query, parameters, useTransaction, parameterTypes);
+    }
+
+    public virtual Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    {
+        var query = BuildStoredProcedureQuery(procedure, parameters);
+        return QueryAsync(host, database, username, password, query, parameters, useTransaction, cancellationToken, parameterTypes);
+    }
+
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
     {
