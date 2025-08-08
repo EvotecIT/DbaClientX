@@ -41,6 +41,18 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void InsertMultipleRows()
+    {
+        var query = new Query()
+            .InsertInto("users", "name", "age")
+            .Values("Alice", 30)
+            .Values("Bob", 40);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("INSERT INTO \"users\" (\"name\", \"age\") VALUES ('Alice', 30), ('Bob', 40)", sql);
+    }
+
+    [Fact]
     public void UpdateWithWhere()
     {
         var query = new Query()
