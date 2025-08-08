@@ -12,7 +12,7 @@ public class Query
     private readonly List<IWhereToken> _where = new();
     private string _insertTable;
     private readonly List<string> _insertColumns = new();
-    private readonly List<object> _values = new();
+    private readonly List<IReadOnlyList<object>> _values = new();
     private string _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
     private string _deleteTable;
@@ -463,7 +463,7 @@ public class Query
 
     public Query Values(params object[] values)
     {
-        _values.AddRange(values);
+        _values.Add(new List<object>(values));
         return this;
     }
 
@@ -506,7 +506,7 @@ public class Query
     public IReadOnlyList<IWhereToken> WhereTokens => _where;
     public string InsertTable => _insertTable;
     public IReadOnlyList<string> InsertColumns => _insertColumns;
-    public IReadOnlyList<object> InsertValues => _values;
+    public IReadOnlyList<IReadOnlyList<object>> InsertValues => _values;
     public string UpdateTable => _updateTable;
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;

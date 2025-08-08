@@ -44,18 +44,26 @@ public class QueryCompiler
 
             if (query.InsertValues.Count > 0)
             {
-                sb.Append(" VALUES (");
-                bool firstValue = true;
-                foreach (var value in query.InsertValues)
+                sb.Append(" VALUES ");
+                bool firstRow = true;
+                foreach (var row in query.InsertValues)
                 {
-                    if (!firstValue)
+                    if (!firstRow)
                     {
                         sb.Append(", ");
                     }
-                    AppendValue(sb, value, parameters);
-                    firstValue = false;
+                    sb.Append('(');
+                    for (int i = 0; i < row.Count; i++)
+                    {
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        AppendValue(sb, row[i], parameters);
+                    }
+                    sb.Append(')');
+                    firstRow = false;
                 }
-                sb.Append(')');
             }
 
             return sb.ToString();
