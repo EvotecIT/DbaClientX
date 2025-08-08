@@ -488,15 +488,15 @@ public class Query
         }
     }
 
-    public string Compile()
+    public string Compile(SqlDialect dialect = SqlDialect.SqlServer)
     {
-        var compiler = new QueryCompiler();
+        var compiler = new QueryCompiler(dialect);
         return compiler.Compile(this);
     }
 
-    public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters()
+    public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(SqlDialect dialect = SqlDialect.SqlServer)
     {
-        var compiler = new QueryCompiler();
+        var compiler = new QueryCompiler(dialect);
         return compiler.CompileWithParameters(this);
     }
 

@@ -1,12 +1,20 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace DBAClientX.QueryBuilder;
 
 public class QueryCompiler
 {
+    private readonly SqlDialect _dialect;
+
+    public QueryCompiler(SqlDialect dialect = SqlDialect.SqlServer)
+    {
+        _dialect = dialect;
+    }
+
     public string Compile(Query query)
         => CompileInternal(query, null);
 
@@ -27,11 +35,11 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
         {
-            sb.Append("INSERT INTO ").Append(query.InsertTable);
+            sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
 
             if (query.InsertColumns.Count > 0)
             {
-                sb.Append(" (").Append(string.Join(", ", query.InsertColumns)).Append(')');
+                sb.Append(" (").Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier))).Append(')');
             }
 
             if (query.InsertValues.Count > 0)
@@ -55,7 +63,7 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.UpdateTable))
         {
-            sb.Append("UPDATE ").Append(query.UpdateTable);
+            sb.Append("UPDATE ").Append(QuoteIdentifier(query.UpdateTable));
             if (query.SetValues.Count > 0)
             {
                 sb.Append(" SET ");
@@ -66,7 +74,7 @@ public class QueryCompiler
                     {
                         sb.Append(", ");
                     }
-                    sb.Append(set.Column).Append(" = ");
+                    sb.Append(QuoteIdentifier(set.Column)).Append(" = ");
                     AppendValue(sb, set.Value, parameters);
                     firstSet = false;
                 }
@@ -83,7 +91,7 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.DeleteTable))
         {
-            sb.Append("DELETE FROM ").Append(query.DeleteTable);
+            sb.Append("DELETE FROM ").Append(QuoteIdentifier(query.DeleteTable));
 
             if (query.WhereTokens.Count > 0)
             {
@@ -95,14 +103,14 @@ public class QueryCompiler
         }
 
         sb.Append("SELECT ");
-        if (query.LimitValue.HasValue && query.UseTop)
+        if (_dialect == SqlDialect.SqlServer && query.LimitValue.HasValue && (query.UseTop || !query.OffsetValue.HasValue))
         {
             sb.Append("TOP ").Append(query.LimitValue.Value).Append(' ');
         }
 
         if (query.SelectColumns.Count > 0)
         {
-            sb.Append(string.Join(", ", query.SelectColumns));
+            sb.Append(string.Join(", ", query.SelectColumns.Select(QuoteIdentifier)));
         }
         else
         {
@@ -111,19 +119,19 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.Table))
         {
-            sb.Append(" FROM ").Append(query.Table);
+            sb.Append(" FROM ").Append(QuoteIdentifier(query.Table));
         }
         else if (query.FromSubquery.HasValue)
         {
             var (subQuery, alias) = query.FromSubquery.Value;
-            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(") AS ").Append(alias);
+            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(") AS ").Append(QuoteIdentifier(alias));
         }
 
         if (query.Joins.Count > 0)
         {
             foreach (var join in query.Joins)
             {
-                sb.Append(' ').Append(join.Type).Append(' ').Append(join.Table);
+                sb.Append(' ').Append(join.Type).Append(' ').Append(QuoteIdentifier(join.Table));
                 if (!string.IsNullOrWhiteSpace(join.Condition))
                 {
                     sb.Append(" ON ").Append(join.Condition);
@@ -139,7 +147,7 @@ public class QueryCompiler
 
         if (query.GroupByColumns.Count > 0)
         {
-            sb.Append(" GROUP BY ").Append(string.Join(", ", query.GroupByColumns));
+            sb.Append(" GROUP BY ").Append(string.Join(", ", query.GroupByColumns.Select(QuoteIdentifier)));
         }
 
         if (query.HavingClauses.Count > 0)
@@ -152,7 +160,7 @@ public class QueryCompiler
                 {
                     sb.Append(" AND ");
                 }
-                sb.Append(clause.Column).Append(' ').Append(clause.Operator).Append(' ');
+                sb.Append(QuoteIdentifier(clause.Column)).Append(' ').Append(clause.Operator).Append(' ');
                 AppendValue(sb, clause.Value, parameters);
                 first = false;
             }
@@ -160,21 +168,30 @@ public class QueryCompiler
 
         if (query.OrderByColumns.Count > 0)
         {
-            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns));
+            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns.Select(QuoteIdentifier)));
         }
 
-        if (query.LimitValue.HasValue && !query.UseTop)
+        if (_dialect == SqlDialect.SqlServer)
         {
-            sb.Append(" LIMIT ").Append(query.LimitValue.Value);
-
+            if (query.OffsetValue.HasValue)
+            {
+                sb.Append(" OFFSET ").Append(query.OffsetValue.Value).Append(" ROWS");
+                if (query.LimitValue.HasValue && !query.UseTop)
+                {
+                    sb.Append(" FETCH NEXT ").Append(query.LimitValue.Value).Append(" ROWS ONLY");
+                }
+            }
+        }
+        else
+        {
+            if (query.LimitValue.HasValue)
+            {
+                sb.Append(" LIMIT ").Append(query.LimitValue.Value);
+            }
             if (query.OffsetValue.HasValue)
             {
                 sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
             }
-        }
-        else if (query.OffsetValue.HasValue)
-        {
-            sb.Append(" OFFSET ").Append(query.OffsetValue.Value);
         }
         if (query.CompoundQueries.Count > 0)
         {
@@ -197,7 +214,7 @@ public class QueryCompiler
                     sb.Append(' ').Append(op.Operator).Append(' ');
                     break;
                 case ConditionToken cond:
-                    sb.Append(cond.Column).Append(' ').Append(cond.Operator).Append(' ');
+                    sb.Append(QuoteIdentifier(cond.Column)).Append(' ').Append(cond.Operator).Append(' ');
                     AppendValue(sb, cond.Value, parameters);
                     break;
                 case GroupStartToken:
@@ -207,13 +224,13 @@ public class QueryCompiler
                     sb.Append(')');
                     break;
                 case NullToken n:
-                    sb.Append(n.Column).Append(" IS NULL");
+                    sb.Append(QuoteIdentifier(n.Column)).Append(" IS NULL");
                     break;
                 case NotNullToken nn:
-                    sb.Append(nn.Column).Append(" IS NOT NULL");
+                    sb.Append(QuoteIdentifier(nn.Column)).Append(" IS NOT NULL");
                     break;
                 case InToken it:
-                    sb.Append(it.Column).Append(" IN (");
+                    sb.Append(QuoteIdentifier(it.Column)).Append(" IN (");
                     for (int i = 0; i < it.Values.Count; i++)
                     {
                         if (i > 0)
@@ -225,7 +242,7 @@ public class QueryCompiler
                     sb.Append(')');
                     break;
                 case NotInToken nit:
-                    sb.Append(nit.Column).Append(" NOT IN (");
+                    sb.Append(QuoteIdentifier(nit.Column)).Append(" NOT IN (");
                     for (int i = 0; i < nit.Values.Count; i++)
                     {
                         if (i > 0)
@@ -237,19 +254,65 @@ public class QueryCompiler
                     sb.Append(')');
                     break;
                 case BetweenToken bt:
-                    sb.Append(bt.Column).Append(" BETWEEN ");
+                    sb.Append(QuoteIdentifier(bt.Column)).Append(" BETWEEN ");
                     AppendValue(sb, bt.Start, parameters);
                     sb.Append(" AND ");
                     AppendValue(sb, bt.End, parameters);
                     break;
                 case NotBetweenToken nbt:
-                    sb.Append(nbt.Column).Append(" NOT BETWEEN ");
+                    sb.Append(QuoteIdentifier(nbt.Column)).Append(" NOT BETWEEN ");
                     AppendValue(sb, nbt.Start, parameters);
                     sb.Append(" AND ");
                     AppendValue(sb, nbt.End, parameters);
                     break;
             }
         }
+    }
+
+    private string QuoteIdentifier(string identifier)
+    {
+        if (string.IsNullOrEmpty(identifier))
+        {
+            return identifier;
+        }
+
+        string suffix = string.Empty;
+        if (identifier.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase))
+        {
+            suffix = " DESC";
+            identifier = identifier.Substring(0, identifier.Length - 5);
+        }
+        else if (identifier.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase))
+        {
+            suffix = " ASC";
+            identifier = identifier.Substring(0, identifier.Length - 4);
+        }
+
+        if (identifier == "*" || identifier.Contains(' ') || identifier.Contains('(') || identifier.Contains(')') || identifier.All(char.IsDigit))
+        {
+            return identifier + suffix;
+        }
+
+        var (open, close) = _dialect switch
+        {
+            SqlDialect.SqlServer => ('[', ']'),
+            SqlDialect.MySql => ('`', '`'),
+            _ => ('"', '"')
+        };
+
+        var parts = identifier.Split('.');
+        var sb = new StringBuilder();
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append('.');
+            }
+            sb.Append(open).Append(parts[i]).Append(close);
+        }
+
+        sb.Append(suffix);
+        return sb.ToString();
     }
 
     private void AppendValue(StringBuilder sb, object value, List<object>? parameters)
@@ -293,4 +356,3 @@ public class QueryCompiler
         };
     }
 }
-
