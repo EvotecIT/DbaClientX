@@ -198,6 +198,77 @@ public class MySqlTests
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);
     }
 
+    private class CaptureStoredProcMySql : DBAClientX.MySql
+    {
+        public string? CapturedQuery;
+        public IDictionary<string, object?>? CapturedParameters;
+
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        {
+            CapturedQuery = query;
+            CapturedParameters = parameters;
+            return null;
+        }
+
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        {
+            CapturedQuery = query;
+            CapturedParameters = parameters;
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_BuildsCallStatement()
+    {
+        using var mySql = new CaptureStoredProcMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1,
+            ["@name"] = "n"
+        };
+        mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
+        Assert.Equal("CALL sp_test(@id, @name)", mySql.CapturedQuery);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_BuildsCallStatement()
+    {
+        using var mySql = new CaptureStoredProcMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1
+        };
+        await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters).ConfigureAwait(false);
+        Assert.Equal("CALL sp_test(@id)", mySql.CapturedQuery);
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_NoParameters_AddsEmptyParentheses()
+    {
+        using var mySql = new CaptureStoredProcMySql();
+        mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
+        Assert.Equal("CALL sp_test()", mySql.CapturedQuery);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_PreservesParameterTypes()
+    {
+        using var mySql = new CaptureParametersMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5
+        };
+        var types = new Dictionary<string, MySqlDbType>
+        {
+            ["@id"] = MySqlDbType.Int32
+        };
+
+        await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types).ConfigureAwait(false);
+
+        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == MySqlDbType.Int32);
+    }
+
     private class FakeTransactionMySql : DBAClientX.MySql
     {
         public bool TransactionStarted { get; private set; }
