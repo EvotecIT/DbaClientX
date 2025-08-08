@@ -4,49 +4,83 @@ using System.Data.SqlClient;
 
 namespace DBAClientX.PowerShell;
 
+/// <summary>Invokes a SQL Server query or stored procedure.</summary>
+/// <para>Connects to a SQL Server instance using integrated security or supplied credentials and executes the specified command.</para>
+/// <para>Supports streaming results and multiple return formats via the <see cref="ReturnType"/> parameter.</para>
+/// <list type="alertSet">
+/// <item>
+/// <term>Note</term>
+/// <description>When <c>-ErrorAction Stop</c> is used, execution will terminate on the first error.</description>
+/// </item>
+/// </list>
+/// <example>
+/// <summary>Run a query with integrated security.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXQuery -Server 'sqlsrv' -Database 'app' -Query 'SELECT * FROM Users'</code>
+/// <para>Executes the query and returns each row as a <see cref="DataRow"/>.</para>
+/// </example>
+/// <example>
+/// <summary>Execute a stored procedure using credentials.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXQuery -Server 'sqlsrv' -Database 'app' -StoredProcedure 'usp_DoWork' -Username 'user' -Password 'p@ss' -ReturnType DataTable</code>
+/// <para>Runs the stored procedure and outputs a <see cref="DataTable"/>.</para>
+/// </example>
+/// <seealso href="https://learn.microsoft.com/dotnet/framework/data/adonet/using-sqlclient">Using SqlClient</seealso>
+/// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
+
+    /// <summary>Specifies the SQL Server instance.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
     public string Server { get; set; }
 
+    /// <summary>Defines the database name.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
     public string Database { get; set; }
 
+    /// <summary>The SQL statement to execute.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [ValidateNotNullOrEmpty]
     public string Query { get; set; }
 
+    /// <summary>Name of the stored procedure to run.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
     public string StoredProcedure { get; set; }
 
+    /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public int QueryTimeout { get; set; }
 
+    /// <summary>Streams results instead of buffering them.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     public SwitchParameter Stream { get; set; }
 
+    /// <summary>Selects the type of returned objects.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
+    /// <summary>Provides additional parameters for the query or procedure.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public Hashtable Parameters { get; set; }
 
+    /// <summary>Optional user name for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Username { get; set; }
 
+    /// <summary>Optional password for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Password { get; set; }
