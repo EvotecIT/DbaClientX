@@ -1,8 +1,6 @@
 using System;
 using DBAClientX.QueryBuilder;
 
-namespace DbaClientX.Examples;
-
 public static class InsertOrUpdateExample
 {
     public static void Run()
