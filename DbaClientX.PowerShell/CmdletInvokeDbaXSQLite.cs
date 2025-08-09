@@ -2,29 +2,58 @@ using System.Runtime.CompilerServices;
 
 namespace DBAClientX.PowerShell;
 
+/// <summary>Invokes a query against a SQLite database.</summary>
+/// <para>Executes SQL statements on a specified SQLite database and returns data in the format you choose.</para>
+/// <para>Supports streaming results for large data sets when the platform allows asynchronous enumeration.</para>
+/// <list type="alertSet">
+/// <item>
+/// <term>Note</term>
+/// <description>When <c>-Stream</c> is used on platforms without streaming support, a <see cref="NotSupportedException"/> is thrown.</description>
+/// </item>
+/// </list>
+/// <example>
+/// <summary>Run a query and return rows.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Users'</code>
+/// <para>Executes the query and outputs each row as a <see cref="DataRow"/>.</para>
+/// </example>
+/// <example>
+/// <summary>Stream results from a large query.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Logs' -Stream -ReturnType DataRow</code>
+/// <para>Streams each row as it is received, which is useful for large result sets.</para>
+/// </example>
+/// <seealso href="https://learn.microsoft.com/dotnet/standard/data/sqlite/">SQLite in .NET</seealso>
+/// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXSQLite", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
     internal static Func<DBAClientX.SQLite> SQLiteFactory { get; set; } = () => new DBAClientX.SQLite();
 
+    /// <summary>Specifies the path to the SQLite database file.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
     public string Database { get; set; }
 
+    /// <summary>Defines the SQL query to execute.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
     public string Query { get; set; }
 
+    /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter]
     public int QueryTimeout { get; set; }
 
+    /// <summary>Streams results instead of buffering them.</summary>
     [Parameter]
     public SwitchParameter Stream { get; set; }
 
+    /// <summary>Selects the format of returned data.</summary>
     [Parameter]
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
+    /// <summary>Provides additional query parameters.</summary>
     [Parameter]
     public Hashtable Parameters { get; set; }
 
