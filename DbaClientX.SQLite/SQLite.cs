@@ -317,20 +317,36 @@ public class SQLite : DatabaseClientBase
 
     public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
         }
 
         var connectionString = BuildConnectionString(database);
 
-        _transactionConnection = new SqliteConnection(connectionString);
-        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        _transaction = (SqliteTransaction)await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction = _transactionConnection.BeginTransaction();
+        var transaction = connection.BeginTransaction();
 #endif
+
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                transaction.Dispose();
+                connection.Dispose();
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            _transactionConnection = connection;
+            _transaction = transaction;
+        }
     }
 
     public virtual void Commit()

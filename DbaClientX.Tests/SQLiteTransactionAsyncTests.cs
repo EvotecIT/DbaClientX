@@ -11,10 +11,11 @@ public class SQLiteTransactionAsyncTests
     private class FakeSqliteConnection
     {
         public bool BeginCalled { get; private set; }
-        public Task<FakeSqliteTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public async Task<FakeSqliteTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
-            return Task.FromResult(new FakeSqliteTransaction(this));
+            await Task.Yield();
+            return new FakeSqliteTransaction(this);
         }
     }
 
@@ -44,13 +45,33 @@ public class SQLiteTransactionAsyncTests
 
     private class TestSQLite : DBAClientX.SQLite
     {
+        private readonly object _syncRoot = new();
         public FakeSqliteConnection? Connection { get; private set; }
         public FakeSqliteTransaction? Transaction { get; private set; }
 
         public override async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
         {
-            Connection = new FakeSqliteConnection();
-            Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeSqliteConnection();
+            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
         }
 
         public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -90,6 +111,21 @@ public class SQLiteTransactionAsyncTests
         await sqlite.BeginTransactionAsync(":memory:").ConfigureAwait(false);
         Assert.NotNull(sqlite.Connection);
         Assert.True(sqlite.Connection!.BeginCalled);
+        Assert.NotNull(sqlite.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenCalledConcurrently_Throws()
+    {
+        using var sqlite = new TestSQLite();
+
+        var tasks = new[]
+        {
+            Task.Run(() => sqlite.BeginTransactionAsync(":memory:")),
+            Task.Run(() => sqlite.BeginTransactionAsync(":memory:"))
+        };
+
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
         Assert.NotNull(sqlite.Transaction);
     }
 
