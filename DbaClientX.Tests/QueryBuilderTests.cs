@@ -53,6 +53,24 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void ValuesCountMismatchThrows()
+    {
+        var query = new Query().InsertInto("users", "name", "age");
+
+        Assert.Throws<InvalidOperationException>(() => query.Values("Bob"));
+    }
+
+    [Fact]
+    public void SecondValuesCountMismatchThrows()
+    {
+        var query = new Query()
+            .InsertInto("users", "name", "age")
+            .Values("Alice", 30);
+
+        Assert.Throws<InvalidOperationException>(() => query.Values("Bob"));
+    }
+
+    [Fact]
     public void InsertOrUpdate_PostgreSql_UsesOnConflict()
     {
         var query = new Query()
