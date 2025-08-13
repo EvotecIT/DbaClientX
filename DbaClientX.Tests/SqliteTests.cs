@@ -1,5 +1,8 @@
 using System.Data;
 using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using DBAClientX;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -190,6 +193,44 @@ public class SqliteTests
         {
             Cleanup(path);
         }
+    }
+
+    private class DelaySqlite : DBAClientX.SQLite
+    {
+        private readonly TimeSpan _delay;
+        private int _current;
+        public int MaxConcurrency { get; private set; }
+
+        public DelaySqlite(TimeSpan delay)
+        {
+            _delay = delay;
+        }
+
+        public override async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        {
+            var running = Interlocked.Increment(ref _current);
+            try
+            {
+                MaxConcurrency = Math.Max(MaxConcurrency, running);
+                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_RespectsMaxDegreeOfParallelism()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
+        using var sqlite = new DelaySqlite(TimeSpan.FromMilliseconds(200));
+
+        await sqlite.RunQueriesInParallel(queries, ":memory:", maxDegreeOfParallelism: 1).ConfigureAwait(false);
+
+        Assert.Equal(1, sqlite.MaxConcurrency);
     }
 
     private static void Cleanup(string path)

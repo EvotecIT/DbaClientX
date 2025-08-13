@@ -72,6 +72,8 @@ public class SqlServerTests
     private class DelaySqlServer : DBAClientX.SqlServer
     {
         private readonly TimeSpan _delay;
+        private int _current;
+        public int MaxConcurrency { get; private set; }
 
         public DelaySqlServer(TimeSpan delay)
         {
@@ -80,8 +82,17 @@ public class SqlServerTests
 
         public override async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
         {
-            await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
-            return null;
+            var running = Interlocked.Increment(ref _current);
+            try
+            {
+                MaxConcurrency = Math.Max(MaxConcurrency, running);
+                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
         }
     }
 
@@ -103,6 +114,17 @@ public class SqlServerTests
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_RespectsMaxDegreeOfParallelism()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(200));
+
+        await sqlServer.RunQueriesInParallel(queries, "s", "db", true, maxDegreeOfParallelism: 1).ConfigureAwait(false);
+
+        Assert.Equal(1, sqlServer.MaxConcurrency);
     }
 
     [Fact]

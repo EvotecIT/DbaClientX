@@ -73,6 +73,8 @@ public class PostgreSqlTests
     private class DelayPostgreSql : DBAClientX.PostgreSql
     {
         private readonly TimeSpan _delay;
+        private int _current;
+        public int MaxConcurrency { get; private set; }
 
         public DelayPostgreSql(TimeSpan delay)
         {
@@ -81,8 +83,17 @@ public class PostgreSqlTests
 
         public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
         {
-            await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
-            return null;
+            var running = Interlocked.Increment(ref _current);
+            try
+            {
+                MaxConcurrency = Math.Max(MaxConcurrency, running);
+                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
         }
     }
 
@@ -104,6 +115,17 @@ public class PostgreSqlTests
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_RespectsMaxDegreeOfParallelism()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
+        using var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(200));
+
+        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", maxDegreeOfParallelism: 1).ConfigureAwait(false);
+
+        Assert.Equal(1, pg.MaxConcurrency);
     }
 
     [Fact]
