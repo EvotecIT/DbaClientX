@@ -279,53 +279,54 @@ public abstract class DatabaseClientBase : IDisposable
     {
         var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
         var attempt = 0;
-        while (true)
+
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        AddParameters(command, parameters, parameterTypes);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
         {
-            using var command = connection.CreateCommand();
-            command.CommandText = query;
-            command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            command.CommandTimeout = commandTimeout;
+        }
 
-            DbDataReader reader;
-            try
+        async Task<DbDataReader> OpenReaderAsync()
+        {
+            while (true)
             {
-                reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-            {
-                var delay = RetryDelay;
-                if (delay > TimeSpan.Zero)
+                try
                 {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
                 }
-                continue;
-            }
-
-            using (reader)
-            {
-                var table = new DataTable();
-                for (int i = 0; i < reader.FieldCount; i++)
+                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {
-                    table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
-                }
-
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    var row = table.NewRow();
-                    for (int i = 0; i < reader.FieldCount; i++)
+                    var delay = RetryDelay;
+                    if (delay > TimeSpan.Zero)
                     {
-                        row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                     }
-                    yield return row;
                 }
-                yield break;
             }
         }
+
+        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+
+        var table = new DataTable();
+        for (int i = 0; i < reader.FieldCount; i++)
+        {
+            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+        }
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var row = table.NewRow();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+            }
+            yield return row;
+        }
+        yield break;
     }
 #endif
 
