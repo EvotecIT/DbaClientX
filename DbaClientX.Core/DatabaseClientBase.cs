@@ -176,8 +176,34 @@ public abstract class DatabaseClientBase : IDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var dataSet = new DataSet();
             using var reader = command.ExecuteReader();
+            var returnType = ReturnType;
+            if (returnType == ReturnType.DataRow)
+            {
+                if (reader.Read())
+                {
+                    var table = new DataTable("Table0");
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                    }
+                    var row = table.NewRow();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                    }
+                    return row;
+                }
+                return null;
+            }
+            if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
+            {
+                var table = new DataTable("Table0");
+                table.Load(reader);
+                return table;
+            }
+
+            var dataSet = new DataSet();
             var tableIndex = 0;
             do
             {
@@ -241,8 +267,34 @@ public abstract class DatabaseClientBase : IDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var dataSet = new DataSet();
             using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var returnType = ReturnType;
+            if (returnType == ReturnType.DataRow)
+            {
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var table = new DataTable("Table0");
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                    }
+                    var row = table.NewRow();
+                    for (int i = 0; i < reader.FieldCount; i++)
+                    {
+                        row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                    }
+                    return row;
+                }
+                return null;
+            }
+            if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
+            {
+                var table = new DataTable("Table0");
+                table.Load(reader);
+                return table;
+            }
+
+            var dataSet = new DataSet();
             var tableIndex = 0;
             do
             {
