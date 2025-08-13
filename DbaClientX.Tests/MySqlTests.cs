@@ -200,26 +200,41 @@ public class MySqlTests
 
     private class CaptureStoredProcMySql : DBAClientX.MySql
     {
-        public string? CapturedQuery;
-        public IDictionary<string, object?>? CapturedParameters;
+        public List<MySqlParameter> Captured { get; } = new();
+        public CommandType CapturedCommandType { get; private set; }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            using var command = new MySqlCommand(procedure);
+            command.CommandType = CommandType.StoredProcedure;
+            IDictionary<string, DbType>? dbTypes = null;
+            if (parameterTypes != null)
+            {
+                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
+                foreach (var kv in parameterTypes)
+                {
+                    var p = new MySqlParameter { MySqlDbType = kv.Value };
+                    dbTypes[kv.Key] = p.DbType;
+                }
+            }
+            AddParameters(command, parameters, dbTypes);
+            CapturedCommandType = command.CommandType;
+            foreach (MySqlParameter p in command.Parameters)
+            {
+                Captured.Add(p);
+            }
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
-            CapturedQuery = query;
-            CapturedParameters = parameters;
+            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction, parameterTypes);
             return Task.FromResult<object?>(null);
         }
     }
 
     [Fact]
-    public void ExecuteStoredProcedure_BuildsCallStatement()
+    public void ExecuteStoredProcedure_BindsParameters()
     {
         using var mySql = new CaptureStoredProcMySql();
         var parameters = new Dictionary<string, object?>
@@ -228,33 +243,24 @@ public class MySqlTests
             ["@name"] = "n"
         };
         mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
-        Assert.Equal("CALL sp_test(@id, @name)", mySql.CapturedQuery);
+        Assert.Equal(CommandType.StoredProcedure, mySql.CapturedCommandType);
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
     }
 
     [Fact]
-    public async Task ExecuteStoredProcedureAsync_BuildsCallStatement()
-    {
-        using var mySql = new CaptureStoredProcMySql();
-        var parameters = new Dictionary<string, object?>
-        {
-            ["@id"] = 1
-        };
-        await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters).ConfigureAwait(false);
-        Assert.Equal("CALL sp_test(@id)", mySql.CapturedQuery);
-    }
-
-    [Fact]
-    public void ExecuteStoredProcedure_NoParameters_AddsEmptyParentheses()
+    public void ExecuteStoredProcedure_NoParameters_AddsNoParameters()
     {
         using var mySql = new CaptureStoredProcMySql();
         mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
-        Assert.Equal("CALL sp_test()", mySql.CapturedQuery);
+        Assert.Equal(CommandType.StoredProcedure, mySql.CapturedCommandType);
+        Assert.Empty(mySql.Captured);
     }
 
     [Fact]
     public async Task ExecuteStoredProcedureAsync_PreservesParameterTypes()
     {
-        using var mySql = new CaptureParametersMySql();
+        using var mySql = new CaptureStoredProcMySql();
         var parameters = new Dictionary<string, object?>
         {
             ["@id"] = 5
@@ -266,7 +272,7 @@ public class MySqlTests
 
         await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types).ConfigureAwait(false);
 
-        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == MySqlDbType.Int32);
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && p.MySqlDbType == MySqlDbType.Int32);
     }
 
     private class FakeTransactionMySql : DBAClientX.MySql
