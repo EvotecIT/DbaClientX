@@ -730,15 +730,37 @@ public class SqlServer : DatabaseClientBase
         base.Dispose(disposing);
     }
 
-    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    public async Task<IReadOnlyList<object?>> RunQueriesInParallel(IEnumerable<string> queries, string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null, int? maxDegreeOfParallelism = null)
     {
         if (queries == null)
         {
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var tasks = queries.Select(q => QueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken, username: username, password: password));
+        SemaphoreSlim? throttler = null;
+        if (maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0)
+        {
+            throttler = new SemaphoreSlim(maxDegreeOfParallelism.Value);
+        }
+
+        var tasks = queries.Select(async q =>
+        {
+            if (throttler != null)
+            {
+                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            try
+            {
+                return await QueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken, username: username, password: password).ConfigureAwait(false);
+            }
+            finally
+            {
+                throttler?.Release();
+            }
+        });
+
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        throttler?.Dispose();
         return results;
     }
 }

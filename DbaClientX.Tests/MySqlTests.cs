@@ -71,6 +71,8 @@ public class MySqlTests
     private class DelayMySql : DBAClientX.MySql
     {
         private readonly TimeSpan _delay;
+        private int _current;
+        public int MaxConcurrency { get; private set; }
 
         public DelayMySql(TimeSpan delay)
         {
@@ -79,8 +81,17 @@ public class MySqlTests
 
         public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
         {
-            await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
-            return null;
+            var running = Interlocked.Increment(ref _current);
+            try
+            {
+                MaxConcurrency = Math.Max(MaxConcurrency, running);
+                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
         }
     }
 
@@ -102,6 +113,17 @@ public class MySqlTests
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_RespectsMaxDegreeOfParallelism()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
+        using var mySql = new DelayMySql(TimeSpan.FromMilliseconds(200));
+
+        await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p", maxDegreeOfParallelism: 1).ConfigureAwait(false);
+
+        Assert.Equal(1, mySql.MaxConcurrency);
     }
 
     [Fact]
