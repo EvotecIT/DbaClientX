@@ -446,16 +446,32 @@ public class MySql : DatabaseClientBase
 
     public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
         }
 
         var connectionString = BuildConnectionString(host, database, username, password);
 
-        _transactionConnection = new MySqlConnection(connectionString);
-        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        _transaction = await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                transaction.Dispose();
+                connection.Dispose();
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            _transactionConnection = connection;
+            _transaction = transaction;
+        }
     }
 
     public virtual void Commit()

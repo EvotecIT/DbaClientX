@@ -10,10 +10,11 @@ public class SqlServerTransactionAsyncTests
     private class FakeSqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public Task<FakeSqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public async Task<FakeSqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
-            return Task.FromResult(new FakeSqlTransaction(this));
+            await Task.Yield();
+            return new FakeSqlTransaction(this);
         }
     }
 
@@ -43,13 +44,33 @@ public class SqlServerTransactionAsyncTests
 
     private class TestSqlServer : DBAClientX.SqlServer
     {
+        private readonly object _syncRoot = new();
         public FakeSqlConnection? Connection { get; private set; }
         public FakeSqlTransaction? Transaction { get; private set; }
 
         public override async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
         {
-            Connection = new FakeSqlConnection();
-            Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeSqlConnection();
+            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
         }
 
         public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -89,6 +110,21 @@ public class SqlServerTransactionAsyncTests
         await server.BeginTransactionAsync("s", "db", true).ConfigureAwait(false);
         Assert.NotNull(server.Connection);
         Assert.True(server.Connection!.BeginCalled);
+        Assert.NotNull(server.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenCalledConcurrently_Throws()
+    {
+        using var server = new TestSqlServer();
+
+        var tasks = new[]
+        {
+            Task.Run(() => server.BeginTransactionAsync("s", "db", true)),
+            Task.Run(() => server.BeginTransactionAsync("s", "db", true))
+        };
+
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
         Assert.NotNull(server.Transaction);
     }
 

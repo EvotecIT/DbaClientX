@@ -11,10 +11,11 @@ public class MySqlTransactionAsyncTests
     private class FakeMySqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public Task<FakeMySqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public async Task<FakeMySqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
-            return Task.FromResult(new FakeMySqlTransaction(this));
+            await Task.Yield();
+            return new FakeMySqlTransaction(this);
         }
     }
 
@@ -44,13 +45,33 @@ public class MySqlTransactionAsyncTests
 
     private class TestMySql : DBAClientX.MySql
     {
+        private readonly object _syncRoot = new();
         public FakeMySqlConnection? Connection { get; private set; }
         public FakeMySqlTransaction? Transaction { get; private set; }
 
         public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
         {
-            Connection = new FakeMySqlConnection();
-            Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeMySqlConnection();
+            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
         }
 
         public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -90,6 +111,21 @@ public class MySqlTransactionAsyncTests
         await mySql.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
         Assert.NotNull(mySql.Connection);
         Assert.True(mySql.Connection!.BeginCalled);
+        Assert.NotNull(mySql.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenCalledConcurrently_Throws()
+    {
+        using var mySql = new TestMySql();
+
+        var tasks = new[]
+        {
+            Task.Run(() => mySql.BeginTransactionAsync("h", "d", "u", "p")),
+            Task.Run(() => mySql.BeginTransactionAsync("h", "d", "u", "p"))
+        };
+
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
         Assert.NotNull(mySql.Transaction);
     }
 

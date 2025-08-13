@@ -11,10 +11,11 @@ public class PostgreSqlTransactionAsyncTests
     private class FakeNpgsqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public Task<FakeNpgsqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public async Task<FakeNpgsqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
-            return Task.FromResult(new FakeNpgsqlTransaction(this));
+            await Task.Yield();
+            return new FakeNpgsqlTransaction(this);
         }
     }
 
@@ -44,13 +45,33 @@ public class PostgreSqlTransactionAsyncTests
 
     private class TestPostgreSql : DBAClientX.PostgreSql
     {
+        private readonly object _syncRoot = new();
         public FakeNpgsqlConnection? Connection { get; private set; }
         public FakeNpgsqlTransaction? Transaction { get; private set; }
 
         public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
         {
-            Connection = new FakeNpgsqlConnection();
-            Transaction = await Connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeNpgsqlConnection();
+            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
         }
 
         public override async Task CommitAsync(CancellationToken cancellationToken = default)
@@ -90,6 +111,21 @@ public class PostgreSqlTransactionAsyncTests
         await pg.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
         Assert.NotNull(pg.Connection);
         Assert.True(pg.Connection!.BeginCalled);
+        Assert.NotNull(pg.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenCalledConcurrently_Throws()
+    {
+        using var pg = new TestPostgreSql();
+
+        var tasks = new[]
+        {
+            Task.Run(() => pg.BeginTransactionAsync("h", "d", "u", "p")),
+            Task.Run(() => pg.BeginTransactionAsync("h", "d", "u", "p"))
+        };
+
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
         Assert.NotNull(pg.Transaction);
     }
 

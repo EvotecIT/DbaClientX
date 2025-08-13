@@ -445,20 +445,36 @@ public class PostgreSql : DatabaseClientBase
 
     public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
-        if (_transaction != null)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("Transaction already started.");
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
         }
 
         var connectionString = BuildConnectionString(host, database, username, password);
 
-        _transactionConnection = new NpgsqlConnection(connectionString);
-        await _transactionConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        _transaction = await _transactionConnection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction = _transactionConnection.BeginTransaction();
+        var transaction = connection.BeginTransaction();
 #endif
+
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                transaction.Dispose();
+                connection.Dispose();
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            _transactionConnection = connection;
+            _transaction = transaction;
+        }
     }
 
     public virtual void Commit()
