@@ -24,16 +24,25 @@ public class MySql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public static string BuildConnectionString(string host, string database, string username, string password)
+    public static string BuildConnectionString(string host, string database, string username, string password, uint? port = null, bool? ssl = null)
     {
-        return new MySqlConnectionStringBuilder
+        var builder = new MySqlConnectionStringBuilder
         {
             Server = host,
             Database = database,
             UserID = username,
             Password = password,
             Pooling = true
-        }.ConnectionString;
+        };
+        if (port.HasValue)
+        {
+            builder.Port = port.Value;
+        }
+        if (ssl.HasValue)
+        {
+            builder.SslMode = ssl.Value ? MySqlSslMode.Required : MySqlSslMode.None;
+        }
+        return builder.ConnectionString;
     }
 
     public virtual bool Ping(string host, string database, string username, string password)

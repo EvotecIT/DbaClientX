@@ -20,6 +20,15 @@ public class ConnectionStringBuilderTests
     }
 
     [Fact]
+    public void MySql_BuildConnectionString_SetsPortAndSsl()
+    {
+        var cs = DBAClientX.MySql.BuildConnectionString("host", "db", "user", "pass", port: 3307, ssl: true);
+        var builder = new MySqlConnectionStringBuilder(cs);
+        Assert.Equal((uint)3307, builder.Port);
+        Assert.Equal(MySqlSslMode.Required, builder.SslMode);
+    }
+
+    [Fact]
     public void PostgreSql_BuildConnectionString_CreatesExpectedValues()
     {
         var cs = DBAClientX.PostgreSql.BuildConnectionString("host", "db", "user", "pass");
@@ -28,6 +37,15 @@ public class ConnectionStringBuilderTests
         Assert.Equal("db", builder.Database);
         Assert.Equal("user", builder.Username);
         Assert.Equal("pass", builder.Password);
+    }
+
+    [Fact]
+    public void PostgreSql_BuildConnectionString_SetsPortAndSsl()
+    {
+        var cs = DBAClientX.PostgreSql.BuildConnectionString("host", "db", "user", "pass", port: 5433, ssl: true);
+        var builder = new NpgsqlConnectionStringBuilder(cs);
+        Assert.Equal(5433, builder.Port);
+        Assert.Equal(SslMode.Require, builder.SslMode);
     }
 
     [Fact]
@@ -58,5 +76,14 @@ public class ConnectionStringBuilderTests
         Assert.False(builder.IntegratedSecurity);
         Assert.Equal("user", builder.UserID);
         Assert.Equal("pass", builder.Password);
+    }
+
+    [Fact]
+    public void SqlServer_BuildConnectionString_SetsPortAndSsl()
+    {
+        var cs = DBAClientX.SqlServer.BuildConnectionString("srv", "db", true, port: 1444, ssl: true);
+        var builder = new SqlConnectionStringBuilder(cs);
+        Assert.Equal("srv,1444", builder.DataSource);
+        Assert.True(builder.Encrypt);
     }
 }
