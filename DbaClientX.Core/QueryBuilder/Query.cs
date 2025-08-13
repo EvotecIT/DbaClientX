@@ -501,6 +501,16 @@ public class Query
 
     public Query Values(params object[] values)
     {
+        if (_insertColumns.Count == 0)
+        {
+            throw new InvalidOperationException("InsertInto must be called before Values.");
+        }
+
+        if (values == null || values.Length != _insertColumns.Count)
+        {
+            throw new InvalidOperationException($"Expected {_insertColumns.Count} values, but got {values?.Length ?? 0}.");
+        }
+
         _values.Add(new List<object>(values));
         return this;
     }
