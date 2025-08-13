@@ -430,6 +430,129 @@ public class SqlServer : DatabaseClientBase
 #endif
 
 
+    public virtual void BulkInsert(string serverOrInstance, string database, bool integratedSecurity, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, string? username = null, string? password = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            OpenConnection(connection);
+            dispose = true;
+        }
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (batchSize.HasValue)
+            {
+                bulkCopy.BatchSize = batchSize.Value;
+            }
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            WriteToServer(bulkCopy, table);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task BulkInsertAsync(string serverOrInstance, string database, bool integratedSecurity, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            dispose = true;
+        }
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (batchSize.HasValue)
+            {
+                bulkCopy.BatchSize = batchSize.Value;
+            }
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    protected virtual SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction) => new(connection, SqlBulkCopyOptions.Default, transaction);
+
+    protected virtual void WriteToServer(SqlBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+
+    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken);
+
+    protected virtual SqlConnection CreateConnection(string connectionString) => new(connectionString);
+
+    protected virtual void OpenConnection(SqlConnection connection) => connection.Open();
+
+    protected virtual Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
     {
         lock (_syncRoot)
