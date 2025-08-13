@@ -23,11 +23,12 @@ public class SqlServer : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public static string BuildConnectionString(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+    public static string BuildConnectionString(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null, int? port = null, bool? ssl = null)
     {
+        var dataSource = port.HasValue ? $"{serverOrInstance},{port.Value}" : serverOrInstance;
         var connectionStringBuilder = new SqlConnectionStringBuilder
         {
-            DataSource = serverOrInstance,
+            DataSource = dataSource,
             InitialCatalog = database,
             IntegratedSecurity = integratedSecurity,
             Pooling = true
@@ -36,6 +37,10 @@ public class SqlServer : DatabaseClientBase
         {
             connectionStringBuilder.UserID = username;
             connectionStringBuilder.Password = password;
+        }
+        if (ssl.HasValue)
+        {
+            connectionStringBuilder.Encrypt = ssl.Value;
         }
         return connectionStringBuilder.ConnectionString;
     }

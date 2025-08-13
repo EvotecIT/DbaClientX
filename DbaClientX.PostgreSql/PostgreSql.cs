@@ -25,16 +25,25 @@ public class PostgreSql : DatabaseClientBase
 
     public bool IsInTransaction => _transaction != null;
 
-    public static string BuildConnectionString(string host, string database, string username, string password)
+    public static string BuildConnectionString(string host, string database, string username, string password, int? port = null, bool? ssl = null)
     {
-        return new NpgsqlConnectionStringBuilder
+        var builder = new NpgsqlConnectionStringBuilder
         {
             Host = host,
             Database = database,
             Username = username,
             Password = password,
             Pooling = true
-        }.ConnectionString;
+        };
+        if (port.HasValue)
+        {
+            builder.Port = port.Value;
+        }
+        if (ssl.HasValue)
+        {
+            builder.SslMode = ssl.Value ? SslMode.Require : SslMode.Disable;
+        }
+        return builder.ConnectionString;
     }
 
     public virtual bool Ping(string host, string database, string username, string password)
