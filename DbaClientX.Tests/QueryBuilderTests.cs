@@ -111,6 +111,46 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void InsertOrUpdate_MySql_WithCompositeKey()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
+        Assert.Equal("INSERT INTO `users` (`id`, `email`, `name`) VALUES (1, 'bob@example.com', 'Bob') ON DUPLICATE KEY UPDATE `id` = VALUES(`id`), `email` = VALUES(`email`), `name` = VALUES(`name`)", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_PostgreSql_WithCompositeKey()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"email\" = EXCLUDED.\"email\", \"name\" = EXCLUDED.\"name\"", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_Sqlite_WithCompositeKey()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"email\" = EXCLUDED.\"email\", \"name\" = EXCLUDED.\"name\"", sql);
+    }
+
+    [Fact]
+    public void InsertOrUpdate_SqlServer_WithCompositeKey()
+    {
+        var query = new Query()
+            .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'bob@example.com', 'Bob')) AS source ([id], [email], [name]) ON (target.[id] = source.[id] AND target.[email] = source.[email]) WHEN MATCHED THEN UPDATE SET target.[id] = source.[id], target.[email] = source.[email], target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [email], [name]) VALUES (source.[id], source.[email], source.[name])", sql);
+    }
+
+    [Fact]
     public void UpdateWithWhere()
     {
         var query = new Query()
