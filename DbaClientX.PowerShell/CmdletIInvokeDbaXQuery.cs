@@ -61,6 +61,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
     /// <summary>Streams results instead of buffering them.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public SwitchParameter Stream { get; set; }
 
     /// <summary>Selects the type of returned objects.</summary>
@@ -127,7 +128,15 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
-                var enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password);
+                IAsyncEnumerable<DataRow> enumerable;
+                if (!string.IsNullOrEmpty(StoredProcedure))
+                {
+                    enumerable = sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: Username, password: Password);
+                }
+                else
+                {
+                    enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password);
+                }
                 switch (ReturnType)
                 {
                     case ReturnType.DataRow:

@@ -433,6 +433,48 @@ public class PostgreSql : DatabaseClientBase
             }
         }
     }
+
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            var connectionString = BuildConnectionString(host, database, username, password);
+
+            NpgsqlConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
+        }
+    }
 #endif
 
     public virtual void BeginTransaction(string host, string database, string username, string password)

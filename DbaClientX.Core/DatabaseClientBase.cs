@@ -327,7 +327,15 @@ public abstract class DatabaseClientBase : IDisposable
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    protected virtual async IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual async IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IEnumerable<DbParameter>? dbParameters = null,
+        CommandType commandType = CommandType.Text)
     {
         var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
         var attempt = 0;
@@ -335,7 +343,9 @@ public abstract class DatabaseClientBase : IDisposable
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
+        command.CommandType = commandType;
         AddParameters(command, parameters, parameterTypes);
+        AddParameters(command, dbParameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
         {

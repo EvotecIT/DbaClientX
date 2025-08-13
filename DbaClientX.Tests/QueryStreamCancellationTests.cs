@@ -175,6 +175,11 @@ public class QueryStreamCancellationTests
         public IAsyncEnumerable<DataRow> Stream(DbConnection connection, CancellationToken token) => ExecuteQueryStreamAsync(connection, null, "q", null, token);
     }
 
+    private class TestClientStoredProc : DatabaseClientBase
+    {
+        public IAsyncEnumerable<DataRow> Stream(DbConnection connection, CancellationToken token) => ExecuteQueryStreamAsync(connection, null, "sp", null, token, commandType: CommandType.StoredProcedure);
+    }
+
     [Fact]
     public async Task ExecuteQueryStreamAsync_DisposesReader_OnCancellation()
     {
@@ -190,6 +195,34 @@ public class QueryStreamCancellationTests
         var disposed = false;
         var connection = new TestDbConnection(table, () => disposed = true);
         var client = new TestClient();
+
+        using var cts = new CancellationTokenSource();
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var row in client.Stream(connection, cts.Token).WithCancellation(cts.Token))
+            {
+                cts.Cancel();
+            }
+        });
+
+        Assert.True(disposed);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureStreamAsync_DisposesReader_OnCancellation()
+    {
+        var table = new DataTable();
+        table.Columns.Add("id", typeof(int));
+        var r1 = table.NewRow();
+        r1["id"] = 1;
+        table.Rows.Add(r1);
+        var r2 = table.NewRow();
+        r2["id"] = 2;
+        table.Rows.Add(r2);
+
+        var disposed = false;
+        var connection = new TestDbConnection(table, () => disposed = true);
+        var client = new TestClientStoredProc();
 
         using var cts = new CancellationTokenSource();
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>

@@ -136,4 +136,63 @@ public class TestSqlServerStream : DBAClientX.SqlServer
             $prop.SetValue($null, $orig)
         }
     }
+
+    it 'streams stored procedure rows asynchronously' {
+        $code = @"
+using System.Collections.Generic;
+using System.Data;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Data.Common;
+
+public class TestSqlServerStoredProcStream : DBAClientX.SqlServer
+{
+    public override async IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(
+        string serverOrInstance, string database, bool integratedSecurity, string procedure,
+        IEnumerable<DbParameter> parameters = null, bool useTransaction = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        string username = null, string password = null)
+    {
+        var table = new DataTable();
+        table.Columns.Add("id", typeof(int));
+        for (int i = 1; i <= 2; i++)
+        {
+            var row = table.NewRow();
+            row["id"] = i;
+            table.Rows.Add(row);
+        }
+        for (int i = 0; i < table.Rows.Count; i++)
+        {
+            await Task.Yield();
+            yield return table.Rows[i];
+        }
+    }
+}
+"@
+        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll'
+        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll',
+                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
+                  [System.Data.DataTable].Assembly.Location,
+                  [object].Assembly.Location,
+                  [System.Runtime.GCSettings].Assembly.Location)
+        try {
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+        } catch {
+            Set-ItResult -Skipped -Because $_.Exception.Message
+            return
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('SqlServerFactory',$binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServerStoredProcStream]::new() })
+        try {
+            $rows = @(Invoke-DbaXQuery -Server s -Database db -StoredProcedure sp -Stream)
+            $rows.Count | Should -Be 2
+            $rows[0].id | Should -Be 1
+            $rows[1].id | Should -Be 2
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
 }
