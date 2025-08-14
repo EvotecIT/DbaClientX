@@ -408,7 +408,7 @@ public class QueryCompiler
             identifier = identifier.Substring(0, identifier.Length - 4);
         }
 
-        if (identifier == "*" || identifier.Contains(' ') || identifier.Contains('(') || identifier.Contains(')') || identifier.All(char.IsDigit))
+        if (identifier == "*" || identifier.Contains(' ') || identifier.Contains('(') || identifier.Contains(')'))
         {
             return identifier + suffix;
         }

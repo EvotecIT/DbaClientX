@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Data;
 using MySqlConnector;
 using Xunit;
 
@@ -60,7 +61,7 @@ public class MySqlTransactionAsyncTests
             }
 
             var connection = new FakeMySqlConnection();
-            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             lock (_syncRoot)
             {
@@ -80,7 +81,7 @@ public class MySqlTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.CommitAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -90,11 +91,11 @@ public class MySqlTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.RollbackAsync(cancellationToken);
             Transaction = null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (useTransaction && Transaction == null)
             {
@@ -108,7 +109,7 @@ public class MySqlTransactionAsyncTests
     public async Task BeginTransactionAsync_UsesConnection()
     {
         using var mySql = new TestMySql();
-        await mySql.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await mySql.BeginTransactionAsync("h", "d", "u", "p");
         Assert.NotNull(mySql.Connection);
         Assert.True(mySql.Connection!.BeginCalled);
         Assert.NotNull(mySql.Transaction);
@@ -125,7 +126,7 @@ public class MySqlTransactionAsyncTests
             Task.Run(() => mySql.BeginTransactionAsync("h", "d", "u", "p"))
         };
 
-        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks));
         Assert.NotNull(mySql.Transaction);
     }
 
@@ -133,9 +134,9 @@ public class MySqlTransactionAsyncTests
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var mySql = new TestMySql();
-        await mySql.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await mySql.BeginTransactionAsync("h", "d", "u", "p");
         var txn = mySql.Transaction!;
-        await mySql.CommitAsync().ConfigureAwait(false);
+        await mySql.CommitAsync();
         Assert.True(txn.CommitCalled);
         Assert.Null(mySql.Transaction);
     }
@@ -144,9 +145,9 @@ public class MySqlTransactionAsyncTests
     public async Task RollbackAsync_CallsRollbackOnTransaction()
     {
         using var mySql = new TestMySql();
-        await mySql.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await mySql.BeginTransactionAsync("h", "d", "u", "p");
         var txn = mySql.Transaction!;
-        await mySql.RollbackAsync().ConfigureAwait(false);
+        await mySql.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(mySql.Transaction);
     }

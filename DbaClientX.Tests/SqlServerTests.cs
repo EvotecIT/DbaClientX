@@ -1,3 +1,4 @@
+using DBAClientX;
 using System.Data.SqlClient;
 using System.Data.Common;
 using System.Diagnostics;
@@ -19,8 +20,8 @@ public class SqlServerTests
         using var sqlServer = new DBAClientX.SqlServer();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1").ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1");
+        });
         Assert.Contains("SELECT 1", ex.Message);
     }
 
@@ -28,13 +29,13 @@ public class SqlServerTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? ExecuteScalar(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? ExecuteScalar(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return 1;
         }
 
-        public override Task<object?> ExecuteScalarAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> ExecuteScalarAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(1);
@@ -59,14 +60,14 @@ public class SqlServerTests
     public async Task PingAsync_ReturnsTrue_OnSuccess()
     {
         using var sqlServer = new PingSqlServer { ShouldFail = false };
-        Assert.True(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+        Assert.True(await sqlServer.PingAsync("s", "db", true));
     }
 
     [Fact]
     public async Task PingAsync_ReturnsFalse_OnFailure()
     {
         using var sqlServer = new PingSqlServer { ShouldFail = true };
-        Assert.False(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+        Assert.False(await sqlServer.PingAsync("s", "db", true));
     }
 
     private class DelaySqlServer : DBAClientX.SqlServer
@@ -80,13 +81,13 @@ public class SqlServerTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override async Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             var running = Interlocked.Increment(ref _current);
             try
             {
                 MaxConcurrency = Math.Max(MaxConcurrency, running);
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(_delay, cancellationToken);
                 return null;
             }
             finally
@@ -105,12 +106,12 @@ public class SqlServerTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await sqlServer.QueryAsync("ignored", "ignored", true, query).ConfigureAwait(false);
+            await sqlServer.QueryAsync("ignored", "ignored", true, query);
         }
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await sqlServer.RunQueriesInParallel(queries, "ignored", "ignored", true).ConfigureAwait(false);
+        await sqlServer.RunQueriesInParallel(queries, "ignored", "ignored", true);
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
@@ -122,7 +123,7 @@ public class SqlServerTests
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
         using var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(200));
 
-        await sqlServer.RunQueriesInParallel(queries, "s", "db", true, maxDegreeOfParallelism: 1).ConfigureAwait(false);
+        await sqlServer.RunQueriesInParallel(queries, "s", "db", true, maxDegreeOfParallelism: 1);
 
         Assert.Equal(1, sqlServer.MaxConcurrency);
     }
@@ -134,8 +135,8 @@ public class SqlServerTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlServer.QueryAsync("s", "db", true, "q", cancellationToken: cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.QueryAsync("s", "db", true, "q", cancellationToken: cts.Token);
+        });
     }
 
     [Fact]
@@ -146,17 +147,17 @@ public class SqlServerTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlServer.RunQueriesInParallel(queries, "s", "db", true, cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.RunQueriesInParallel(queries, "s", "db", true, cts.Token);
+        });
     }
 
     private class CaptureParametersSqlServer : DBAClientX.SqlServer
     {
         public List<(string Name, object? Value, SqlDbType Type)> Captured { get; } = new();
 
-        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
+        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            base.AddParameters(command, parameters, parameterTypes);
+            base.AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
                 if (p is SqlParameter sp)
@@ -166,7 +167,7 @@ public class SqlServerTests
             }
         }
 
-        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             var command = new SqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -179,7 +180,7 @@ public class SqlServerTests
                     dbTypes[kv.Key] = p.DbType;
                 }
             }
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
     }
@@ -194,7 +195,7 @@ public class SqlServerTests
             ["@name"] = "test"
         };
 
-        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters).ConfigureAwait(false);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
@@ -215,10 +216,39 @@ public class SqlServerTests
             ["@name"] = SqlDbType.NVarChar
         };
 
-        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types).ConfigureAwait(false);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == SqlDbType.Int);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
+    }
+
+    private class OutputDictionarySqlServer : DBAClientX.SqlServer
+    {
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            using var command = new SqlCommand();
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            foreach (SqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UpdatesOutputParameters()
+    {
+        using var sqlServer = new OutputDictionarySqlServer();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        sqlServer.Query("s", "d", true, "q", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
     }
 
     private class OutputStoredProcSqlServer : DBAClientX.SqlServer
@@ -258,7 +288,7 @@ public class SqlServerTests
     {
         using var sqlServer = new OutputStoredProcSqlServer();
         var outParam = new SqlParameter("@out", SqlDbType.Int) { Direction = ParameterDirection.Output };
-        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam }).ConfigureAwait(false);
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
     }
 
@@ -283,15 +313,15 @@ public class SqlServerTests
             TransactionStarted = false;
         }
 
-        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            return Task.FromResult<object?>(Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, username, password));
+            return Task.FromResult<object?>(Query(serverOrInstance, database, integratedSecurity, query, parameters, useTransaction, parameterTypes, parameterDirections, username, password));
         }
     }
 

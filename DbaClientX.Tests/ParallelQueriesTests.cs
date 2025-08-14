@@ -17,7 +17,7 @@ public class ParallelQueriesTests
             _responses = responses;
         }
 
-        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             _responses.TryGetValue(query, out var result);
             return Task.FromResult(result);
@@ -36,7 +36,7 @@ public class ParallelQueriesTests
         };
 
         using var sqlServer = new MockSqlServer(mapping);
-        var results = await sqlServer.RunQueriesInParallel(queries, "s", "db", true, CancellationToken.None).ConfigureAwait(false);
+        var results = await sqlServer.RunQueriesInParallel(queries, "s", "db", true, CancellationToken.None);
 
         Assert.Equal(new object?[] { 1, 2, 3 }, results);
     }

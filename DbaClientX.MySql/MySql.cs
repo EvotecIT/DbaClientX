@@ -71,7 +71,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -95,7 +95,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -110,7 +110,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -134,7 +134,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -191,7 +191,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -215,7 +215,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -230,7 +230,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -254,7 +254,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -269,7 +269,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -297,7 +297,7 @@ public class MySql : DatabaseClientBase
             command.CommandType = CommandType.StoredProcedure;
             command.Transaction = useTransaction ? _transaction : null;
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
@@ -315,7 +315,9 @@ public class MySql : DatabaseClientBase
                 tableIndex++;
             } while (!reader.IsClosed && reader.NextResult());
 
-            return BuildResult(dataSet);
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
         }
         catch (Exception ex)
         {
@@ -330,7 +332,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -358,7 +360,7 @@ public class MySql : DatabaseClientBase
             command.CommandType = CommandType.StoredProcedure;
             command.Transaction = useTransaction ? _transaction : null;
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
@@ -376,7 +378,9 @@ public class MySql : DatabaseClientBase
                 tableIndex++;
             } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
 
-            return BuildResult(dataSet);
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
         }
         catch (Exception ex)
         {
@@ -392,7 +396,7 @@ public class MySql : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return Stream();
 
@@ -420,7 +424,7 @@ public class MySql : DatabaseClientBase
             var dbTypes = ConvertParameterTypes(parameterTypes);
             try
             {
-                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -435,7 +439,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return Stream();
 
@@ -463,7 +467,7 @@ public class MySql : DatabaseClientBase
             var dbTypes = ConvertParameterTypes(parameterTypes);
             try
             {
-                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }

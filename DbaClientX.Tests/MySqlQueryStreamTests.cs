@@ -31,7 +31,7 @@ public class MySqlQueryStreamTests
             _rows = table.Rows.Cast<DataRow>().ToList();
         }
 
-        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             foreach (var row in _rows)
             {
@@ -47,11 +47,33 @@ public class MySqlQueryStreamTests
         using var mySql = new DummyMySql();
         var list = new List<int>();
 
-        await foreach (DataRow row in mySql.QueryStreamAsync("h", "d", "u", "p", "q").ConfigureAwait(false))
+        await foreach (DataRow row in mySql.QueryStreamAsync("h", "d", "u", "p", "q"))
         {
             list.Add((int)row["id"]);
         }
 
         Assert.Equal(new[] { 1, 2 }, list);
+    }
+
+    private class CancelMySql : DBAClientX.MySql
+    {
+        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            yield break;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_CanBeCancelled()
+    {
+        using var mySql = new CancelMySql();
+        using var cts = new CancellationTokenSource(100);
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            await foreach (var _ in mySql.QueryStreamAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token))
+            {
+            }
+        });
     }
 }

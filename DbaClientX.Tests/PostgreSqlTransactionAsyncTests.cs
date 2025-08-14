@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Data;
 using NpgsqlTypes;
 using Xunit;
 
@@ -60,7 +61,7 @@ public class PostgreSqlTransactionAsyncTests
             }
 
             var connection = new FakeNpgsqlConnection();
-            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             lock (_syncRoot)
             {
@@ -80,7 +81,7 @@ public class PostgreSqlTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.CommitAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -90,11 +91,11 @@ public class PostgreSqlTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.RollbackAsync(cancellationToken);
             Transaction = null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (useTransaction && Transaction == null)
             {
@@ -108,7 +109,7 @@ public class PostgreSqlTransactionAsyncTests
     public async Task BeginTransactionAsync_UsesConnection()
     {
         using var pg = new TestPostgreSql();
-        await pg.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await pg.BeginTransactionAsync("h", "d", "u", "p");
         Assert.NotNull(pg.Connection);
         Assert.True(pg.Connection!.BeginCalled);
         Assert.NotNull(pg.Transaction);
@@ -125,7 +126,7 @@ public class PostgreSqlTransactionAsyncTests
             Task.Run(() => pg.BeginTransactionAsync("h", "d", "u", "p"))
         };
 
-        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks));
         Assert.NotNull(pg.Transaction);
     }
 
@@ -133,9 +134,9 @@ public class PostgreSqlTransactionAsyncTests
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var pg = new TestPostgreSql();
-        await pg.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await pg.BeginTransactionAsync("h", "d", "u", "p");
         var txn = pg.Transaction!;
-        await pg.CommitAsync().ConfigureAwait(false);
+        await pg.CommitAsync();
         Assert.True(txn.CommitCalled);
         Assert.Null(pg.Transaction);
     }
@@ -144,9 +145,9 @@ public class PostgreSqlTransactionAsyncTests
     public async Task RollbackAsync_CallsRollbackOnTransaction()
     {
         using var pg = new TestPostgreSql();
-        await pg.BeginTransactionAsync("h", "d", "u", "p").ConfigureAwait(false);
+        await pg.BeginTransactionAsync("h", "d", "u", "p");
         var txn = pg.Transaction!;
-        await pg.RollbackAsync().ConfigureAwait(false);
+        await pg.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(pg.Transaction);
     }
