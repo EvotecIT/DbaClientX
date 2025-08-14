@@ -29,13 +29,13 @@ public class PostgreSqlTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return 1;
         }
 
-        public override Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(1);
@@ -81,7 +81,7 @@ public class PostgreSqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var running = Interlocked.Increment(ref _current);
             try
@@ -155,9 +155,9 @@ public class PostgreSqlTests
     {
         public List<(string Name, object? Value, NpgsqlDbType Type)> Captured { get; } = new();
 
-        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
+        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            base.AddParameters(command, parameters, parameterTypes);
+            base.AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
                 if (p is NpgsqlParameter np)
@@ -167,7 +167,7 @@ public class PostgreSqlTests
             }
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new NpgsqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -180,7 +180,7 @@ public class PostgreSqlTests
                     dbTypes[kv.Key] = p.DbType;
                 }
             }
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
     }
@@ -220,6 +220,34 @@ public class PostgreSqlTests
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Type == NpgsqlDbType.Integer);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
+    }
+
+    private class OutputDictionaryPostgreSql : DBAClientX.PostgreSql
+    {
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new NpgsqlCommand();
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (NpgsqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UpdatesOutputParameters()
+    {
+        using var pg = new OutputDictionaryPostgreSql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        pg.Query("h", "d", "u", "p", "q", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
     }
 
     private class OutputStoredProcPostgreSql : DBAClientX.PostgreSql

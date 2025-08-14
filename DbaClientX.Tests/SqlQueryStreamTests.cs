@@ -30,7 +30,7 @@ public class QueryStreamTests
             _rows = table.Rows.Cast<DataRow>().ToList();
         }
 
-        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             foreach (var row in _rows)
             {
@@ -52,5 +52,27 @@ public class QueryStreamTests
         }
 
         Assert.Equal(new[] { 1, 2 }, list);
+    }
+
+    private class CancelSqlServer : DBAClientX.SqlServer
+    {
+        public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            yield break;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_CanBeCancelled()
+    {
+        using var server = new CancelSqlServer();
+        using var cts = new CancellationTokenSource(100);
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            await foreach (var _ in server.QueryStreamAsync("s", "d", true, "q", cancellationToken: cts.Token))
+            {
+            }
+        }).ConfigureAwait(false);
     }
 }

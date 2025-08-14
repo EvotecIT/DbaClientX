@@ -27,13 +27,13 @@ public class MySqlTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? ExecuteScalar(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return 1;
         }
 
-        public override Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteScalarAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(1);
@@ -79,7 +79,7 @@ public class MySqlTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var running = Interlocked.Increment(ref _current);
             try
@@ -153,9 +153,9 @@ public class MySqlTests
     {
         public List<(string Name, object? Value, MySqlDbType Type)> Captured { get; } = new();
 
-        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
+        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            base.AddParameters(command, parameters, parameterTypes);
+            base.AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
                 if (p is MySqlParameter mp)
@@ -165,7 +165,7 @@ public class MySqlTests
             }
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new MySqlCommand(query);
             IDictionary<string, DbType>? dbTypes = null;
@@ -178,7 +178,7 @@ public class MySqlTests
                     dbTypes[kv.Key] = p.DbType;
                 }
             }
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
     }
@@ -220,12 +220,40 @@ public class MySqlTests
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);
     }
 
+    private class OutputDictionaryMySql : DBAClientX.MySql
+    {
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new MySqlCommand();
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (MySqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UpdatesOutputParameters()
+    {
+        using var mySql = new OutputDictionaryMySql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        mySql.Query("h", "d", "u", "p", "q", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
     private class CaptureStoredProcMySql : DBAClientX.MySql
     {
         public List<MySqlParameter> Captured { get; } = new();
         public CommandType CapturedCommandType { get; private set; }
 
-        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new MySqlCommand(procedure);
             command.CommandType = CommandType.StoredProcedure;
@@ -239,7 +267,7 @@ public class MySqlTests
                     dbTypes[kv.Key] = p.DbType;
                 }
             }
-            AddParameters(command, parameters, dbTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             CapturedCommandType = command.CommandType;
             foreach (MySqlParameter p in command.Parameters)
             {
@@ -248,9 +276,9 @@ public class MySqlTests
             return null;
         }
 
-        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction, parameterTypes);
+            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
     }
@@ -318,15 +346,15 @@ public class MySqlTests
             TransactionStarted = false;
         }
 
-        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return null;
         }
 
-        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+        public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            return Task.FromResult<object?>(Query(host, database, username, password, query, parameters, useTransaction));
+            return Task.FromResult<object?>(Query(host, database, username, password, query, parameters, useTransaction, parameterTypes, parameterDirections));
         }
     }
 

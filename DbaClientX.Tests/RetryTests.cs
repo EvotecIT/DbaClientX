@@ -132,4 +132,11 @@ public class RetryTests
         Assert.Equal(1, result);
         Assert.Equal(2, connection.Attempts);
     }
+
+    [Fact]
+    public void MaxRetryAttempts_Negative_Throws()
+    {
+        var client = new RetryClient();
+        Assert.Throws<ArgumentOutOfRangeException>(() => client.MaxRetryAttempts = -1);
+    }
 }

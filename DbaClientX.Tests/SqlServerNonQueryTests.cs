@@ -11,10 +11,10 @@ public class SqlServerNonQueryTests
     {
         public List<(string Name, object? Value, DbType Type)> Captured { get; } = new();
 
-        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new SqlCommand(query);
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
                 Captured.Add((p.ParameterName, p.Value, p.DbType));

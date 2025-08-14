@@ -34,7 +34,14 @@ public abstract class DatabaseClientBase : IDisposable
     public int MaxRetryAttempts
     {
         get { lock (_syncRoot) { return _maxRetryAttempts; } }
-        set { lock (_syncRoot) { _maxRetryAttempts = value; } }
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "MaxRetryAttempts cannot be negative.");
+            }
+            lock (_syncRoot) { _maxRetryAttempts = value; }
+        }
     }
 
     public TimeSpan RetryDelay
@@ -103,7 +110,7 @@ public abstract class DatabaseClientBase : IDisposable
         throw lastException ?? new Exception("Operation failed.");
     }
 
-    protected virtual void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         if (parameters == null)
         {
@@ -124,7 +131,26 @@ public abstract class DatabaseClientBase : IDisposable
             {
                 parameter.DbType = InferDbType(value);
             }
+            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            {
+                parameter.Direction = direction;
+            }
             command.Parameters.Add(parameter);
+        }
+    }
+
+    protected virtual void UpdateOutputParameters(DbCommand command, IDictionary<string, object?>? parameters)
+    {
+        if (parameters == null)
+        {
+            return;
+        }
+        foreach (DbParameter p in command.Parameters)
+        {
+            if (p.Direction != ParameterDirection.Input)
+            {
+                parameters[p.ParameterName] = p.Value == DBNull.Value ? null : p.Value;
+            }
         }
     }
 
@@ -162,14 +188,14 @@ public abstract class DatabaseClientBase : IDisposable
         };
     }
 
-    protected virtual object? ExecuteQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual object? ExecuteQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry<object?>(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
@@ -213,54 +239,59 @@ public abstract class DatabaseClientBase : IDisposable
                 tableIndex++;
             } while (!reader.IsClosed && reader.NextResult());
 
-            return BuildResult(dataSet);
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
         });
     }
 
-    protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
                 command.CommandTimeout = commandTimeout;
             }
 
-            return command.ExecuteNonQuery();
+            var affected = command.ExecuteNonQuery();
+            UpdateOutputParameters(command, parameters);
+            return affected;
         });
     }
 
-    protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry<object?>(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
                 command.CommandTimeout = commandTimeout;
             }
-
-            return command.ExecuteScalar();
+            var result = command.ExecuteScalar();
+            UpdateOutputParameters(command, parameters);
+            return result;
         });
     }
 
-    protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return await ExecuteWithRetryAsync(async () =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
@@ -304,25 +335,29 @@ public abstract class DatabaseClientBase : IDisposable
                 tableIndex++;
             } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
 
-            return BuildResult(dataSet);
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null)
+    protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return await ExecuteWithRetryAsync(async () =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
-            AddParameters(command, parameters, parameterTypes);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
             {
                 command.CommandTimeout = commandTimeout;
             }
 
-            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            UpdateOutputParameters(command, parameters);
+            return result;
         }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -334,6 +369,7 @@ public abstract class DatabaseClientBase : IDisposable
         IDictionary<string, object?>? parameters = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
         IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
         IEnumerable<DbParameter>? dbParameters = null,
         CommandType commandType = CommandType.Text)
     {
@@ -344,7 +380,7 @@ public abstract class DatabaseClientBase : IDisposable
         command.CommandText = query;
         command.Transaction = transaction;
         command.CommandType = commandType;
-        AddParameters(command, parameters, parameterTypes);
+        AddParameters(command, parameters, parameterTypes, parameterDirections);
         AddParameters(command, dbParameters);
         var commandTimeout = CommandTimeout;
         if (commandTimeout > 0)
@@ -388,6 +424,8 @@ public abstract class DatabaseClientBase : IDisposable
             }
             yield return row;
         }
+
+        UpdateOutputParameters(command, parameters);
         yield break;
     }
 #endif

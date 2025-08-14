@@ -31,6 +31,34 @@ public class SqliteTests
         }
     }
 
+    private class OutputDictionarySqlite : DBAClientX.SQLite
+    {
+        public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new SqliteCommand();
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (SqliteParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void Query_UpdatesOutputParameters()
+    {
+        using var sqlite = new OutputDictionarySqlite();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        sqlite.Query(":memory:", "q", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
     [Fact]
     public void Query_WithTransactionNotStarted_Throws()
     {
@@ -118,13 +146,13 @@ public class SqliteTests
     {
         public bool ShouldFail { get; set; }
 
-        public override object? ExecuteScalar(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override object? ExecuteScalar(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return 1;
         }
 
-        public override Task<object?> ExecuteScalarAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override Task<object?> ExecuteScalarAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             if (ShouldFail) throw new DBAClientX.DbaQueryExecutionException("fail", query, new Exception());
             return Task.FromResult<object?>(1);
@@ -206,7 +234,7 @@ public class SqliteTests
             _delay = delay;
         }
 
-        public override async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null)
+        public override async Task<object?> QueryAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var running = Interlocked.Increment(ref _current);
             try
@@ -231,6 +259,17 @@ public class SqliteTests
         await sqlite.RunQueriesInParallel(queries, ":memory:", maxDegreeOfParallelism: 1).ConfigureAwait(false);
 
         Assert.Equal(1, sqlite.MaxConcurrency);
+    }
+
+    [Fact]
+    public async Task QueryAsync_CanBeCancelled()
+    {
+        using var sqlite = new DelaySqlite(TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource(100);
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            await sqlite.QueryAsync(":memory:", "q", cancellationToken: cts.Token).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     private static void Cleanup(string path)

@@ -840,5 +840,16 @@ public class QueryBuilderTests
         var query = new Query();
         Assert.Throws<ArgumentException>(() => query.Where("", 1));
     }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer, "SELECT [123] FROM [t]")]
+    [InlineData(SqlDialect.PostgreSql, "SELECT \"123\" FROM \"t\"")]
+    [InlineData(SqlDialect.MySql, "SELECT `123` FROM `t`")]
+    public void NumericColumnNames_AreQuoted(SqlDialect dialect, string expected)
+    {
+        var query = new Query().Select("123").From("t");
+        var sql = QueryBuilder.Compile(query, dialect);
+        Assert.Equal(expected, sql);
+    }
 }
 
