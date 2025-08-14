@@ -330,6 +330,54 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectDistinct_SqlServer()
+    {
+        var query = new Query()
+            .Select("name")
+            .Distinct()
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+        Assert.Equal("SELECT DISTINCT [name] FROM [users]", sql);
+    }
+
+    [Fact]
+    public void SelectDistinct_PostgreSql()
+    {
+        var query = new Query()
+            .Select("name")
+            .Distinct()
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+        Assert.Equal("SELECT DISTINCT \"name\" FROM \"users\"", sql);
+    }
+
+    [Fact]
+    public void SelectDistinct_MySql()
+    {
+        var query = new Query()
+            .Select("name")
+            .Distinct()
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
+        Assert.Equal("SELECT DISTINCT `name` FROM `users`", sql);
+    }
+
+    [Fact]
+    public void SelectDistinct_Sqlite()
+    {
+        var query = new Query()
+            .Select("name")
+            .Distinct()
+            .From("users");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
+        Assert.Equal("SELECT DISTINCT \"name\" FROM \"users\"", sql);
+    }
+
+    [Fact]
     public void MultipleWhereClauses()
     {
         var query = new Query()

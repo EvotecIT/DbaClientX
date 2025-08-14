@@ -7,6 +7,7 @@ namespace DBAClientX.QueryBuilder;
 public class Query
 {
     private readonly List<string> _select = new();
+    private bool _distinct;
     private string _from;
     private (Query Query, string Alias)? _fromSubquery;
     private readonly List<(string Type, string Table, string? Condition)> _joins = new();
@@ -32,6 +33,12 @@ public class Query
     {
         ValidateStrings(columns, nameof(columns));
         _select.AddRange(columns);
+        return this;
+    }
+
+    public Query Distinct()
+    {
+        _distinct = true;
         return this;
     }
 
@@ -565,6 +572,7 @@ public class Query
     public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
     public IReadOnlyList<(string Type, string Table, string? Condition)> Joins => _joins;
     public IReadOnlyList<(string Type, Query Query)> CompoundQueries => _compoundQueries;
+    public bool IsDistinct => _distinct;
     public int? LimitValue => _limit;
     public int? OffsetValue => _offset;
     public bool UseTop => _useTop;
