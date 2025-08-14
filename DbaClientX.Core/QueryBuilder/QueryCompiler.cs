@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -10,19 +11,177 @@ public class QueryCompiler
 {
     private readonly SqlDialect _dialect;
 
+    private const int MaxCacheSize = 1000;
+    private static readonly ConcurrentDictionary<string, string> _cache = new();
+    private static readonly ConcurrentQueue<string> _cacheOrder = new();
+
+    public static int CacheSizeLimit => MaxCacheSize;
+    public static int CacheCount => _cache.Count;
+
+    public static void ClearCache()
+    {
+        _cache.Clear();
+        while (_cacheOrder.TryDequeue(out _)) { }
+    }
+
     public QueryCompiler(SqlDialect dialect = SqlDialect.SqlServer)
     {
         _dialect = dialect;
     }
 
     public string Compile(Query query)
-        => CompileInternal(query, null);
+    {
+        var key = BuildCacheKey(query);
+        if (_cache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var sql = CompileInternal(query, null);
+        AddToCache(key, sql);
+        return sql;
+    }
 
     public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
     {
+        var key = BuildCacheKey(query);
         var parameters = new List<object>();
-        var sql = CompileInternal(query, parameters);
+        string sql;
+        if (_cache.TryGetValue(key, out var cached))
+        {
+            // still need to collect parameters
+            CompileInternal(query, parameters);
+            sql = cached;
+        }
+        else
+        {
+            sql = CompileInternal(query, parameters);
+            AddToCache(key, sql);
+        }
         return (sql, parameters);
+    }
+
+    private void AddToCache(string key, string sql)
+    {
+        if (_cache.TryAdd(key, sql))
+        {
+            _cacheOrder.Enqueue(key);
+            while (_cache.Count > MaxCacheSize && _cacheOrder.TryDequeue(out var old))
+            {
+                _cache.TryRemove(old, out _);
+            }
+        }
+    }
+
+    private string BuildCacheKey(Query query)
+    {
+        var sb = new StringBuilder();
+        sb.Append(_dialect).Append('|');
+        sb.Append(string.Join(",", query.SelectColumns)).Append('|');
+        sb.Append(query.IsDistinct).Append('|');
+        sb.Append(query.Table).Append('|');
+        if (query.FromSubquery.HasValue)
+        {
+            var (sub, alias) = query.FromSubquery.Value;
+            sb.Append("SUB:").Append(BuildCacheKey(sub)).Append(':').Append(alias).Append('|');
+        }
+        if (query.Joins.Count > 0)
+        {
+            foreach (var j in query.Joins)
+            {
+                sb.Append('J').Append(j.Type).Append(':').Append(j.Table).Append(':').Append(j.Condition != null).Append('|');
+            }
+        }
+        if (query.WhereTokens.Count > 0)
+        {
+            foreach (var token in query.WhereTokens)
+            {
+                switch (token)
+                {
+                    case ConditionToken cond:
+                        sb.Append("WC:").Append(cond.Column).Append(':').Append(cond.Operator).Append('|');
+                        break;
+                    case OperatorToken op:
+                        sb.Append("WO:").Append(op.Operator).Append('|');
+                        break;
+                    case GroupStartToken:
+                        sb.Append("WG(").Append('|');
+                        break;
+                    case GroupEndToken:
+                        sb.Append("WG)").Append('|');
+                        break;
+                    case NullToken n:
+                        sb.Append("WN:").Append(n.Column).Append('|');
+                        break;
+                    case NotNullToken nn:
+                        sb.Append("WNN:").Append(nn.Column).Append('|');
+                        break;
+                    case InToken it:
+                        sb.Append("WI:").Append(it.Column).Append(':').Append(it.Values.Count).Append('|');
+                        break;
+                    case NotInToken nit:
+                        sb.Append("WNI:").Append(nit.Column).Append(':').Append(nit.Values.Count).Append('|');
+                        break;
+                    case BetweenToken bt:
+                        sb.Append("WB:").Append(bt.Column).Append('|');
+                        break;
+                    case NotBetweenToken nbt:
+                        sb.Append("WNB:").Append(nbt.Column).Append('|');
+                        break;
+                }
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(query.InsertTable))
+        {
+            sb.Append("I:").Append(query.InsertTable).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':').Append(query.InsertValues.Count).Append('|');
+            if (query.IsUpsert)
+            {
+                sb.Append("U:").Append(string.Join(",", query.ConflictColumns)).Append('|');
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(query.UpdateTable))
+        {
+            sb.Append("UP:").Append(query.UpdateTable).Append('(').Append(string.Join(",", query.SetValues.Select(s => s.Column))).Append(')').Append('|');
+        }
+        if (!string.IsNullOrWhiteSpace(query.DeleteTable))
+        {
+            sb.Append("D:").Append(query.DeleteTable).Append('|');
+        }
+        if (query.OrderByColumns.Count > 0)
+        {
+            sb.Append("O:").Append(string.Join(",", query.OrderByColumns)).Append('|');
+        }
+        if (query.GroupByColumns.Count > 0)
+        {
+            sb.Append("G:").Append(string.Join(",", query.GroupByColumns)).Append('|');
+        }
+        if (query.HavingClauses.Count > 0)
+        {
+            foreach (var h in query.HavingClauses)
+            {
+                sb.Append("H:").Append(h.Column).Append(':').Append(h.Operator).Append('|');
+            }
+        }
+        if (query.LimitValue.HasValue)
+        {
+            sb.Append("L:").Append(query.LimitValue.Value).Append('|');
+        }
+        if (query.OffsetValue.HasValue)
+        {
+            sb.Append("Off:").Append(query.OffsetValue.Value).Append('|');
+        }
+        if (query.UseTop)
+        {
+            sb.Append("T|");
+        }
+        if (query.CompoundQueries.Count > 0)
+        {
+            foreach (var (type, q) in query.CompoundQueries)
+            {
+                sb.Append("C:").Append(type).Append('(').Append(BuildCacheKey(q)).Append(')').Append('|');
+            }
+        }
+        return sb.ToString();
     }
 
     private string CompileInternal(Query query, List<object>? parameters)
