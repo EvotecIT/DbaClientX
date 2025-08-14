@@ -115,6 +115,10 @@ public class QueryCompiler
         }
 
         sb.Append("SELECT ");
+        if (query.IsDistinct)
+        {
+            sb.Append("DISTINCT ");
+        }
         if (_dialect == SqlDialect.SqlServer && query.LimitValue.HasValue && (query.UseTop || !query.OffsetValue.HasValue))
         {
             sb.Append("TOP ").Append(query.LimitValue.Value).Append(' ');
