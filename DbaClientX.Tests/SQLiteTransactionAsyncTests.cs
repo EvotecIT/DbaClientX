@@ -61,7 +61,7 @@ public class SQLiteTransactionAsyncTests
             }
 
             var connection = new FakeSqliteConnection();
-            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             lock (_syncRoot)
             {
@@ -81,7 +81,7 @@ public class SQLiteTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.CommitAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -91,7 +91,7 @@ public class SQLiteTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.RollbackAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -109,7 +109,7 @@ public class SQLiteTransactionAsyncTests
     public async Task BeginTransactionAsync_UsesConnection()
     {
         using var sqlite = new TestSQLite();
-        await sqlite.BeginTransactionAsync(":memory:").ConfigureAwait(false);
+        await sqlite.BeginTransactionAsync(":memory:");
         Assert.NotNull(sqlite.Connection);
         Assert.True(sqlite.Connection!.BeginCalled);
         Assert.NotNull(sqlite.Transaction);
@@ -126,7 +126,7 @@ public class SQLiteTransactionAsyncTests
             Task.Run(() => sqlite.BeginTransactionAsync(":memory:"))
         };
 
-        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks));
         Assert.NotNull(sqlite.Transaction);
     }
 
@@ -134,9 +134,9 @@ public class SQLiteTransactionAsyncTests
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var sqlite = new TestSQLite();
-        await sqlite.BeginTransactionAsync(":memory:").ConfigureAwait(false);
+        await sqlite.BeginTransactionAsync(":memory:");
         var txn = sqlite.Transaction!;
-        await sqlite.CommitAsync().ConfigureAwait(false);
+        await sqlite.CommitAsync();
         Assert.True(txn.CommitCalled);
         Assert.Null(sqlite.Transaction);
     }
@@ -145,9 +145,9 @@ public class SQLiteTransactionAsyncTests
     public async Task RollbackAsync_CallsRollbackOnTransaction()
     {
         using var sqlite = new TestSQLite();
-        await sqlite.BeginTransactionAsync(":memory:").ConfigureAwait(false);
+        await sqlite.BeginTransactionAsync(":memory:");
         var txn = sqlite.Transaction!;
-        await sqlite.RollbackAsync().ConfigureAwait(false);
+        await sqlite.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(sqlite.Transaction);
     }

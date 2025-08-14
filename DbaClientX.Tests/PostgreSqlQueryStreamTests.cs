@@ -14,7 +14,7 @@ public class PostgreSqlQueryStreamTests
     {
         public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             yield break;
         }
     }
@@ -29,6 +29,6 @@ public class PostgreSqlQueryStreamTests
             await foreach (var _ in pg.QueryStreamAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token))
             {
             }
-        }).ConfigureAwait(false);
+        });
     }
 }

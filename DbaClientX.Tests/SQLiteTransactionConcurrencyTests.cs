@@ -38,7 +38,7 @@ public class SQLiteTransactionConcurrencyTests
             }
         });
 
-        await Task.WhenAll(commitTask, rollbackTask).ConfigureAwait(false);
+        await Task.WhenAll(commitTask, rollbackTask);
 
         Assert.True(commitThrows ^ rollbackThrows);
         Assert.False(sqlite.IsInTransaction);

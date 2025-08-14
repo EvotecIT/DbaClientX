@@ -59,7 +59,7 @@ public class SqlServerTransactionAsyncTests
             }
 
             var connection = new FakeSqlConnection();
-            var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             lock (_syncRoot)
             {
@@ -79,7 +79,7 @@ public class SqlServerTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.CommitAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -89,7 +89,7 @@ public class SqlServerTransactionAsyncTests
             {
                 throw new DBAClientX.DbaTransactionException("No active transaction.");
             }
-            await Transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await Transaction.RollbackAsync(cancellationToken);
             Transaction = null;
         }
 
@@ -107,7 +107,7 @@ public class SqlServerTransactionAsyncTests
     public async Task BeginTransactionAsync_UsesConnection()
     {
         using var server = new TestSqlServer();
-        await server.BeginTransactionAsync("s", "db", true).ConfigureAwait(false);
+        await server.BeginTransactionAsync("s", "db", true);
         Assert.NotNull(server.Connection);
         Assert.True(server.Connection!.BeginCalled);
         Assert.NotNull(server.Transaction);
@@ -124,7 +124,7 @@ public class SqlServerTransactionAsyncTests
             Task.Run(() => server.BeginTransactionAsync("s", "db", true))
         };
 
-        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks)).ConfigureAwait(false);
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() => Task.WhenAll(tasks));
         Assert.NotNull(server.Transaction);
     }
 
@@ -132,9 +132,9 @@ public class SqlServerTransactionAsyncTests
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var server = new TestSqlServer();
-        await server.BeginTransactionAsync("s", "db", true).ConfigureAwait(false);
+        await server.BeginTransactionAsync("s", "db", true);
         var txn = server.Transaction!;
-        await server.CommitAsync().ConfigureAwait(false);
+        await server.CommitAsync();
         Assert.True(txn.CommitCalled);
         Assert.Null(server.Transaction);
     }
@@ -143,9 +143,9 @@ public class SqlServerTransactionAsyncTests
     public async Task RollbackAsync_CallsRollbackOnTransaction()
     {
         using var server = new TestSqlServer();
-        await server.BeginTransactionAsync("s", "db", true).ConfigureAwait(false);
+        await server.BeginTransactionAsync("s", "db", true);
         var txn = server.Transaction!;
-        await server.RollbackAsync().ConfigureAwait(false);
+        await server.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(server.Transaction);
     }

@@ -508,7 +508,7 @@ public class QueryBuilderTests
             .Select("1");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT 1", sql);
+        Assert.Equal("SELECT \"1\"", sql);
     }
 
     [Fact]

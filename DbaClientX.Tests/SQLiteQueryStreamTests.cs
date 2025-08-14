@@ -14,7 +14,7 @@ public class SQLiteQueryStreamTests
     {
         public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             yield break;
         }
     }
@@ -29,6 +29,6 @@ public class SQLiteQueryStreamTests
             await foreach (var _ in sqlite.QueryStreamAsync(":memory:", "q", cancellationToken: cts.Token))
             {
             }
-        }).ConfigureAwait(false);
+        });
     }
 }

@@ -47,7 +47,7 @@ public class MySqlQueryStreamTests
         using var mySql = new DummyMySql();
         var list = new List<int>();
 
-        await foreach (DataRow row in mySql.QueryStreamAsync("h", "d", "u", "p", "q").ConfigureAwait(false))
+        await foreach (DataRow row in mySql.QueryStreamAsync("h", "d", "u", "p", "q"))
         {
             list.Add((int)row["id"]);
         }
@@ -59,7 +59,7 @@ public class MySqlQueryStreamTests
     {
         public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             yield break;
         }
     }
@@ -74,6 +74,6 @@ public class MySqlQueryStreamTests
             await foreach (var _ in mySql.QueryStreamAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token))
             {
             }
-        }).ConfigureAwait(false);
+        });
     }
 }

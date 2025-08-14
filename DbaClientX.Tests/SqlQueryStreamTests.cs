@@ -46,7 +46,7 @@ public class QueryStreamTests
         using var server = new DummySqlServer();
         var list = new List<int>();
 
-        await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q").ConfigureAwait(false))
+        await foreach (DataRow row in server.QueryStreamAsync("s", "d", true, "q"))
         {
             list.Add((int)row["id"]);
         }
@@ -58,7 +58,7 @@ public class QueryStreamTests
     {
         public override async IAsyncEnumerable<DataRow> QueryStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
             yield break;
         }
     }
@@ -73,6 +73,6 @@ public class QueryStreamTests
             await foreach (var _ in server.QueryStreamAsync("s", "d", true, "q", cancellationToken: cts.Token))
             {
             }
-        }).ConfigureAwait(false);
+        });
     }
 }

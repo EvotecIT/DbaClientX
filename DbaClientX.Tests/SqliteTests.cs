@@ -1,9 +1,10 @@
+using System;
+using DBAClientX;
 using System.Data;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using DBAClientX;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -36,7 +37,8 @@ public class SqliteTests
         public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new SqliteCommand();
-            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (SqliteParameter p in command.Parameters)
             {
                 if (p.Direction != ParameterDirection.Input)
@@ -50,13 +52,12 @@ public class SqliteTests
     }
 
     [Fact]
-    public void Query_UpdatesOutputParameters()
+    public void Query_WithOutputDirection_Throws()
     {
         using var sqlite = new OutputDictionarySqlite();
         var parameters = new Dictionary<string, object?> { ["@out"] = null };
         var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
-        sqlite.Query(":memory:", "q", parameters, parameterDirections: directions);
-        Assert.Equal(5, parameters["@out"]);
+        Assert.Throws<ArgumentException>(() => sqlite.Query(":memory:", "q", parameters, parameterDirections: directions));
     }
 
     [Fact]
@@ -177,14 +178,14 @@ public class SqliteTests
     public async Task PingAsync_ReturnsTrue_OnSuccess()
     {
         using var sqlite = new PingSqlite { ShouldFail = false };
-        Assert.True(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+        Assert.True(await sqlite.PingAsync(":memory:"));
     }
 
     [Fact]
     public async Task PingAsync_ReturnsFalse_OnFailure()
     {
         using var sqlite = new PingSqlite { ShouldFail = true };
-        Assert.False(await sqlite.PingAsync(":memory:").ConfigureAwait(false));
+        Assert.False(await sqlite.PingAsync(":memory:"));
     }
 
     [Fact]
@@ -214,7 +215,7 @@ public class SqliteTests
             using var sqlite = new DBAClientX.SQLite();
             sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
             sqlite.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);");
-            var result = await sqlite.ExecuteScalarAsync(path, "SELECT id FROM t;").ConfigureAwait(false);
+            var result = await sqlite.ExecuteScalarAsync(path, "SELECT id FROM t;");
             Assert.Equal(1L, result);
         }
         finally
@@ -240,7 +241,7 @@ public class SqliteTests
             try
             {
                 MaxConcurrency = Math.Max(MaxConcurrency, running);
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(_delay, cancellationToken);
                 return null;
             }
             finally
@@ -256,7 +257,7 @@ public class SqliteTests
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
         using var sqlite = new DelaySqlite(TimeSpan.FromMilliseconds(200));
 
-        await sqlite.RunQueriesInParallel(queries, ":memory:", maxDegreeOfParallelism: 1).ConfigureAwait(false);
+        await sqlite.RunQueriesInParallel(queries, ":memory:", maxDegreeOfParallelism: 1);
 
         Assert.Equal(1, sqlite.MaxConcurrency);
     }
@@ -268,8 +269,8 @@ public class SqliteTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlite.QueryAsync(":memory:", "q", cancellationToken: cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlite.QueryAsync(":memory:", "q", cancellationToken: cts.Token);
+        });
     }
 
     private static void Cleanup(string path)

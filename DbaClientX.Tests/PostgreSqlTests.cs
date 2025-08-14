@@ -1,4 +1,5 @@
 using System;
+using DBAClientX;
 using Npgsql;
 using NpgsqlTypes;
 using System.Data.Common;
@@ -20,8 +21,8 @@ public class PostgreSqlTests
         using var pg = new DBAClientX.PostgreSql();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1").ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
+        });
         Assert.Contains("SELECT 1", ex.Message);
     }
 
@@ -60,14 +61,14 @@ public class PostgreSqlTests
     public async Task PingAsync_ReturnsTrue_OnSuccess()
     {
         using var pg = new PingPostgreSql { ShouldFail = false };
-        Assert.True(await pg.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+        Assert.True(await pg.PingAsync("h", "d", "u", "p"));
     }
 
     [Fact]
     public async Task PingAsync_ReturnsFalse_OnFailure()
     {
         using var pg = new PingPostgreSql { ShouldFail = true };
-        Assert.False(await pg.PingAsync("h", "d", "u", "p").ConfigureAwait(false));
+        Assert.False(await pg.PingAsync("h", "d", "u", "p"));
     }
 
     private class DelayPostgreSql : DBAClientX.PostgreSql
@@ -87,7 +88,7 @@ public class PostgreSqlTests
             try
             {
                 MaxConcurrency = Math.Max(MaxConcurrency, running);
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(_delay, cancellationToken);
                 return null;
             }
             finally
@@ -106,12 +107,12 @@ public class PostgreSqlTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await pg.QueryAsync("h", "d", "u", "p", query).ConfigureAwait(false);
+            await pg.QueryAsync("h", "d", "u", "p", query);
         }
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p").ConfigureAwait(false);
+        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p");
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
@@ -123,7 +124,7 @@ public class PostgreSqlTests
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
         using var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(200));
 
-        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", maxDegreeOfParallelism: 1).ConfigureAwait(false);
+        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", maxDegreeOfParallelism: 1);
 
         Assert.Equal(1, pg.MaxConcurrency);
     }
@@ -135,8 +136,8 @@ public class PostgreSqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await pg.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await pg.QueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
+        });
     }
 
     [Fact]
@@ -147,8 +148,8 @@ public class PostgreSqlTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await pg.RunQueriesInParallel(queries, "h", "d", "u", "p", cts.Token);
+        });
     }
 
     private class CaptureParametersPostgreSql : DBAClientX.PostgreSql
@@ -195,7 +196,7 @@ public class PostgreSqlTests
             ["@name"] = "test"
         };
 
-        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters).ConfigureAwait(false);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && (string)p.Value == "test");
@@ -216,7 +217,7 @@ public class PostgreSqlTests
             ["@name"] = NpgsqlDbType.Text
         };
 
-        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types).ConfigureAwait(false);
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Type == NpgsqlDbType.Integer);
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
@@ -227,7 +228,8 @@ public class PostgreSqlTests
         public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new NpgsqlCommand();
-            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (NpgsqlParameter p in command.Parameters)
             {
                 if (p.Direction != ParameterDirection.Input)
@@ -287,7 +289,7 @@ public class PostgreSqlTests
     {
         using var pg = new OutputStoredProcPostgreSql();
         var outParam = new NpgsqlParameter("@out", NpgsqlDbType.Integer) { Direction = ParameterDirection.Output };
-        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam }).ConfigureAwait(false);
+        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
     }
 

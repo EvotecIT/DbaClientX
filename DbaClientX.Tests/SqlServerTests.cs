@@ -1,3 +1,4 @@
+using DBAClientX;
 using System.Data.SqlClient;
 using System.Data.Common;
 using System.Diagnostics;
@@ -19,8 +20,8 @@ public class SqlServerTests
         using var sqlServer = new DBAClientX.SqlServer();
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(async () =>
         {
-            await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1").ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1");
+        });
         Assert.Contains("SELECT 1", ex.Message);
     }
 
@@ -59,14 +60,14 @@ public class SqlServerTests
     public async Task PingAsync_ReturnsTrue_OnSuccess()
     {
         using var sqlServer = new PingSqlServer { ShouldFail = false };
-        Assert.True(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+        Assert.True(await sqlServer.PingAsync("s", "db", true));
     }
 
     [Fact]
     public async Task PingAsync_ReturnsFalse_OnFailure()
     {
         using var sqlServer = new PingSqlServer { ShouldFail = true };
-        Assert.False(await sqlServer.PingAsync("s", "db", true).ConfigureAwait(false));
+        Assert.False(await sqlServer.PingAsync("s", "db", true));
     }
 
     private class DelaySqlServer : DBAClientX.SqlServer
@@ -86,7 +87,7 @@ public class SqlServerTests
             try
             {
                 MaxConcurrency = Math.Max(MaxConcurrency, running);
-                await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(_delay, cancellationToken);
                 return null;
             }
             finally
@@ -105,12 +106,12 @@ public class SqlServerTests
         var sequential = Stopwatch.StartNew();
         foreach (var query in queries)
         {
-            await sqlServer.QueryAsync("ignored", "ignored", true, query).ConfigureAwait(false);
+            await sqlServer.QueryAsync("ignored", "ignored", true, query);
         }
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await sqlServer.RunQueriesInParallel(queries, "ignored", "ignored", true).ConfigureAwait(false);
+        await sqlServer.RunQueriesInParallel(queries, "ignored", "ignored", true);
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
@@ -122,7 +123,7 @@ public class SqlServerTests
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
         using var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(200));
 
-        await sqlServer.RunQueriesInParallel(queries, "s", "db", true, maxDegreeOfParallelism: 1).ConfigureAwait(false);
+        await sqlServer.RunQueriesInParallel(queries, "s", "db", true, maxDegreeOfParallelism: 1);
 
         Assert.Equal(1, sqlServer.MaxConcurrency);
     }
@@ -134,8 +135,8 @@ public class SqlServerTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlServer.QueryAsync("s", "db", true, "q", cancellationToken: cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.QueryAsync("s", "db", true, "q", cancellationToken: cts.Token);
+        });
     }
 
     [Fact]
@@ -146,8 +147,8 @@ public class SqlServerTests
         using var cts = new CancellationTokenSource(100);
         await Assert.ThrowsAsync<TaskCanceledException>(async () =>
         {
-            await sqlServer.RunQueriesInParallel(queries, "s", "db", true, cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await sqlServer.RunQueriesInParallel(queries, "s", "db", true, cts.Token);
+        });
     }
 
     private class CaptureParametersSqlServer : DBAClientX.SqlServer
@@ -194,7 +195,7 @@ public class SqlServerTests
             ["@name"] = "test"
         };
 
-        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters).ConfigureAwait(false);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
@@ -215,7 +216,7 @@ public class SqlServerTests
             ["@name"] = SqlDbType.NVarChar
         };
 
-        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types).ConfigureAwait(false);
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == SqlDbType.Int);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
@@ -226,7 +227,8 @@ public class SqlServerTests
         public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             using var command = new SqlCommand();
-            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (SqlParameter p in command.Parameters)
             {
                 if (p.Direction != ParameterDirection.Input)
@@ -286,7 +288,7 @@ public class SqlServerTests
     {
         using var sqlServer = new OutputStoredProcSqlServer();
         var outParam = new SqlParameter("@out", SqlDbType.Int) { Direction = ParameterDirection.Output };
-        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam }).ConfigureAwait(false);
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
     }
 
