@@ -600,6 +600,10 @@ public class PostgreSql : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override bool IsTransient(Exception ex) =>
+        ex is PostgresException pgEx &&
+        pgEx.SqlState is "40001" or "40P01" or "55P03" or "53300" or "55006";
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
