@@ -35,6 +35,31 @@ describe 'Invoke-DbaXMySqlNonQuery cmdlet' {
         }
     }
 
+    it 'passes QueryTimeout and Parameters to provider' {
+        class TestMySqlOptions : DBAClientX.MySql {
+            static [TestMySqlOptions] $Last
+            [int] $Timeout
+            [System.Collections.Generic.IDictionary[[string],[object]]] $Params
+            TestMySqlOptions () { [TestMySqlOptions]::Last = $this }
+            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[MySqlConnector.MySqlDbType]]] $parameterTypes = $null) {
+                $this.Timeout = $this.CommandTimeout
+                $this.Params = $parameters
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('MySqlFactory',$binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [System.Func[DBAClientX.MySql]]{ [TestMySqlOptions]::new() })
+        try {
+            Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -QueryTimeout 11 -Parameters @{ A = 1 } | Out-Null
+            [TestMySqlOptions]::Last.Timeout | Should -Be 11
+            [TestMySqlOptions]::Last.Params['A'] | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXMySqlNonQuery -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
     }

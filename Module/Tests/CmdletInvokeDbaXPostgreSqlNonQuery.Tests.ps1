@@ -35,6 +35,31 @@ describe 'Invoke-DbaXPostgreSqlNonQuery cmdlet' {
         }
     }
 
+    it 'passes QueryTimeout and Parameters to provider' {
+        class TestPostgreSqlOptions : DBAClientX.PostgreSql {
+            static [TestPostgreSqlOptions] $Last
+            [int] $Timeout
+            [System.Collections.Generic.IDictionary[[string],[object]]] $Params
+            TestPostgreSqlOptions () { [TestPostgreSqlOptions]::Last = $this }
+            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[NpgsqlTypes.NpgsqlDbType]]] $parameterTypes = $null) {
+                $this.Timeout = $this.CommandTimeout
+                $this.Params = $parameters
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('PostgreSqlFactory',$binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [System.Func[DBAClientX.PostgreSql]]{ [TestPostgreSqlOptions]::new() })
+        try {
+            Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -QueryTimeout 7 -Parameters @{ B = 2 } | Out-Null
+            [TestPostgreSqlOptions]::Last.Timeout | Should -Be 7
+            [TestPostgreSqlOptions]::Last.Params['B'] | Should -Be 2
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXPostgreSqlNonQuery -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
     }
