@@ -421,6 +421,10 @@ public class SQLite : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override bool IsTransient(Exception ex) =>
+        ex is SqliteException sqliteEx &&
+        sqliteEx.SqliteErrorCode is 5 or 6;
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)

@@ -594,6 +594,14 @@ public class MySql : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    protected override bool IsTransient(Exception ex) =>
+        ex is MySqlException mysqlEx &&
+        mysqlEx.ErrorCode is MySqlErrorCode.ConnectionCountError
+            or MySqlErrorCode.LockDeadlock
+            or MySqlErrorCode.LockWaitTimeout
+            or MySqlErrorCode.UnableToConnectToHost
+            or MySqlErrorCode.XARBDeadlock;
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
