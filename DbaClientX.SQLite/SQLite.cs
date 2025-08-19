@@ -354,6 +354,9 @@ public class SQLite : DatabaseClientBase
         }
     }
 
+    public virtual void BeginTransaction(string database, IsolationLevel isolationLevel)
+        => BeginTransaction(database);
+
     public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
     {
         lock (_syncRoot)
@@ -387,6 +390,9 @@ public class SQLite : DatabaseClientBase
             _transaction = transaction;
         }
     }
+
+    public virtual Task BeginTransactionAsync(string database, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        => BeginTransactionAsync(database, cancellationToken);
 
     public virtual void Commit()
     {
