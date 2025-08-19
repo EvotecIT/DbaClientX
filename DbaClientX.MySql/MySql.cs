@@ -215,7 +215,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+            return await ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
