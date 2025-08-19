@@ -223,6 +223,129 @@ public class PostgreSqlTests
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
     }
 
+    private class CaptureNonQueryParametersPostgreSql : DBAClientX.PostgreSql
+    {
+        public List<(string Name, object? Value, NpgsqlDbType Type)> Captured { get; } = new();
+
+        protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            base.AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (DbParameter p in command.Parameters)
+            {
+                if (p is NpgsqlParameter np)
+                {
+                    Captured.Add((np.ParameterName, np.Value, np.NpgsqlDbType));
+                }
+            }
+        }
+
+        public override Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var command = new NpgsqlCommand(query);
+            IDictionary<string, DbType>? dbTypes = null;
+            if (parameterTypes != null)
+            {
+                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
+                foreach (var kv in parameterTypes)
+                {
+                    var p = new NpgsqlParameter { NpgsqlDbType = kv.Value };
+                    dbTypes[kv.Key] = p.DbType;
+                }
+            }
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            return Task.FromResult(1);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_BindsParameters()
+    {
+        using var pg = new CaptureNonQueryParametersPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5,
+            ["@name"] = "test"
+        };
+
+        await pg.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE", parameters);
+
+        Assert.Contains(pg.Captured, p => p.Name == "@id" && (int)p.Value == 5);
+        Assert.Contains(pg.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_PreservesParameterTypes()
+    {
+        using var pg = new CaptureNonQueryParametersPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5,
+            ["@name"] = "test"
+        };
+        var types = new Dictionary<string, NpgsqlDbType>
+        {
+            ["@id"] = NpgsqlDbType.Integer,
+            ["@name"] = NpgsqlDbType.Text
+        };
+
+        await pg.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE", parameters, parameterTypes: types);
+
+        Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Type == NpgsqlDbType.Integer);
+        Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
+    }
+
+    private class DelayNonQueryPostgreSql : DBAClientX.PostgreSql
+    {
+        private readonly TimeSpan _delay;
+        public DelayNonQueryPostgreSql(TimeSpan delay) => _delay = delay;
+
+        public override async Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            await Task.Delay(_delay, cancellationToken);
+            return 1;
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_CanBeCancelled()
+    {
+        using var pg = new DelayNonQueryPostgreSql(TimeSpan.FromSeconds(5));
+        using var cts = new CancellationTokenSource(100);
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            await pg.ExecuteNonQueryAsync("h", "d", "u", "p", "q", cancellationToken: cts.Token);
+        });
+    }
+
+    private class OutputNonQueryPostgreSql : DBAClientX.PostgreSql
+    {
+        public override Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new NpgsqlCommand();
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            foreach (NpgsqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return Task.FromResult(0);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_UpdatesOutputParameter()
+    {
+        using var pg = new OutputNonQueryPostgreSql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        await pg.ExecuteNonQueryAsync("h", "d", "u", "p", "q", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
     private class OutputDictionaryPostgreSql : DBAClientX.PostgreSql
     {
         public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
