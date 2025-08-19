@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
+using System.Text;
 using Microsoft.Data.Sqlite;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
 using System.Runtime.CompilerServices;
@@ -336,6 +337,211 @@ public class SQLite : DatabaseClientBase
         }
     }
 #endif
+
+    public virtual void BulkInsert(string database, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(database);
+
+        SqliteConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = new SqliteConnection(connectionString);
+            connection.Open();
+            dispose = true;
+        }
+
+        SqliteTransaction? transaction = null;
+        if (!useTransaction)
+        {
+            transaction = connection.BeginTransaction();
+        }
+
+        try
+        {
+            var totalRows = table.Rows.Count;
+            var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
+            var rowsPerBatch = batchSize.HasValue && batchSize.Value > 0 ? batchSize.Value : totalRows;
+
+            for (int offset = 0; offset < totalRows; offset += rowsPerBatch)
+            {
+                var sb = new StringBuilder();
+                sb.Append($"INSERT INTO {destinationTable} ({columns}) VALUES ");
+                var parameters = new Dictionary<string, object?>();
+                int paramIndex = 0;
+                int max = Math.Min(offset + rowsPerBatch, totalRows);
+                for (int i = offset; i < max; i++)
+                {
+                    if (i > offset) sb.Append(", ");
+                    sb.Append("(");
+                    int colIndex = 0;
+                    foreach (DataColumn column in table.Columns)
+                    {
+                        var paramName = $"@p{paramIndex++}";
+                        parameters[paramName] = table.Rows[i][column] ?? DBNull.Value;
+                        if (colIndex > 0) sb.Append(", ");
+                        sb.Append(paramName);
+                        colIndex++;
+                    }
+                    sb.Append(")");
+                }
+                sb.Append(";");
+
+                ExecuteNonQuery(connection, useTransaction ? _transaction : transaction, sb.ToString(), parameters);
+            }
+
+            if (!useTransaction)
+            {
+                transaction?.Commit();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!useTransaction)
+            {
+                transaction?.Rollback();
+            }
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (!useTransaction)
+            {
+                transaction?.Dispose();
+            }
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task BulkInsertAsync(string database, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, CancellationToken cancellationToken = default)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(database);
+
+        SqliteConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            dispose = true;
+        }
+
+        SqliteTransaction? transaction = null;
+        if (!useTransaction)
+        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+#else
+            transaction = connection.BeginTransaction();
+#endif
+        }
+
+        try
+        {
+            var totalRows = table.Rows.Count;
+            var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
+            var rowsPerBatch = batchSize.HasValue && batchSize.Value > 0 ? batchSize.Value : totalRows;
+
+            for (int offset = 0; offset < totalRows; offset += rowsPerBatch)
+            {
+                var sb = new StringBuilder();
+                sb.Append($"INSERT INTO {destinationTable} ({columns}) VALUES ");
+                var parameters = new Dictionary<string, object?>();
+                int paramIndex = 0;
+                int max = Math.Min(offset + rowsPerBatch, totalRows);
+                for (int i = offset; i < max; i++)
+                {
+                    if (i > offset) sb.Append(", ");
+                    sb.Append("(");
+                    int colIndex = 0;
+                    foreach (DataColumn column in table.Columns)
+                    {
+                        var paramName = $"@p{paramIndex++}";
+                        parameters[paramName] = table.Rows[i][column] ?? DBNull.Value;
+                        if (colIndex > 0) sb.Append(", ");
+                        sb.Append(paramName);
+                        colIndex++;
+                    }
+                    sb.Append(")");
+                }
+                sb.Append(";");
+
+                await ExecuteNonQueryAsync(connection, useTransaction ? _transaction : transaction, sb.ToString(), parameters, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!useTransaction)
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                if (transaction != null)
+                {
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+#else
+                transaction?.Commit();
+#endif
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!useTransaction)
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                if (transaction != null)
+                {
+                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                }
+#else
+                transaction?.Rollback();
+#endif
+            }
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (!useTransaction)
+            {
+                if (transaction != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await transaction.DisposeAsync().ConfigureAwait(false);
+#else
+                    transaction.Dispose();
+#endif
+                }
+            }
+            if (dispose)
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                connection?.Dispose();
+#endif
+            }
+        }
+    }
 
     public virtual void BeginTransaction(string database)
     {
