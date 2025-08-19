@@ -191,7 +191,18 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
-    public virtual async Task<int> ExecuteNonQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+    public virtual async Task<int> ExecuteNonQueryAsync(
+        string serverOrInstance,
+        string database,
+        bool integratedSecurity,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        string? username = null,
+        string? password = null)
     {
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
@@ -215,7 +226,7 @@ public class SqlServer : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
