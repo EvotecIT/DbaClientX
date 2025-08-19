@@ -32,6 +32,26 @@ public class SqliteTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteNonQueryAsync_CreatesAndReadsData()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER);");
+            await sqlite.ExecuteNonQueryAsync(path, "INSERT INTO t(id) VALUES (1);");
+            var result = await sqlite.QueryAsync(path, "SELECT id FROM t;");
+            var table = Assert.IsType<DataTable>(result);
+            Assert.Single(table.Rows);
+            Assert.Equal(1L, table.Rows[0]["id"]);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     private class OutputDictionarySqlite : DBAClientX.SQLite
     {
         public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
