@@ -172,17 +172,24 @@ public abstract class DatabaseClientBase : IDisposable
         if (value == null || value == DBNull.Value) return DbType.Object;
         if (value is Guid) return DbType.Guid;
         if (value is byte[]) return DbType.Binary;
+        if (value is TimeSpan) return DbType.Time;
+        if (value is DateTimeOffset) return DbType.DateTimeOffset;
         return Type.GetTypeCode(value.GetType()) switch
         {
             TypeCode.Byte => DbType.Byte,
+            TypeCode.SByte => DbType.SByte,
             TypeCode.Int16 => DbType.Int16,
             TypeCode.Int32 => DbType.Int32,
             TypeCode.Int64 => DbType.Int64,
+            TypeCode.UInt16 => DbType.UInt16,
+            TypeCode.UInt32 => DbType.UInt32,
+            TypeCode.UInt64 => DbType.UInt64,
             TypeCode.Decimal => DbType.Decimal,
             TypeCode.Double => DbType.Double,
             TypeCode.Single => DbType.Single,
             TypeCode.Boolean => DbType.Boolean,
             TypeCode.String => DbType.String,
+            TypeCode.Char => DbType.StringFixedLength,
             TypeCode.DateTime => DbType.DateTime,
             _ => DbType.Object
         };
