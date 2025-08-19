@@ -28,6 +28,9 @@ public class Program
             case "mysqltransaction":
                 TransactionMySqlExample.Run();
                 break;
+            case "pgtransaction":
+                await TransactionPostgreSqlExample.RunAsync().ConfigureAwait(false);
+                break;
             case "cancellation":
                 await CancellationExample.RunAsync().ConfigureAwait(false);
                 break;
