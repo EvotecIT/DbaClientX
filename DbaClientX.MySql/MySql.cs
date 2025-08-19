@@ -668,6 +668,9 @@ public class MySql : DatabaseClientBase
 
     protected virtual Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
     public virtual void BeginTransaction(string host, string database, string username, string password)
+        => BeginTransaction(host, database, username, password, IsolationLevel.ReadCommitted);
+
+    public virtual void BeginTransaction(string host, string database, string username, string password, IsolationLevel isolationLevel)
     {
         lock (_syncRoot)
         {
@@ -680,11 +683,14 @@ public class MySql : DatabaseClientBase
 
             _transactionConnection = new MySqlConnection(connectionString);
             _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction();
+            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
         }
     }
 
-    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+    public virtual Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
+        => BeginTransactionAsync(host, database, username, password, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
     {
         lock (_syncRoot)
         {
@@ -698,7 +704,11 @@ public class MySql : DatabaseClientBase
 
         var connection = new MySqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        var transaction = connection.BeginTransaction(isolationLevel);
+#endif
 
         lock (_syncRoot)
         {

@@ -25,6 +25,9 @@ public class Program
             case "transaction":
                 await TransactionExample.RunAsync().ConfigureAwait(false);
                 break;
+            case "mysqltransaction":
+                TransactionMySqlExample.Run();
+                break;
             case "pgtransaction":
                 await TransactionPostgreSqlExample.RunAsync().ConfigureAwait(false);
                 break;
@@ -56,7 +59,7 @@ public class Program
                 InsertOrUpdateExample.Run();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, pgtransaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, inferdbtype, joins, upsert");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, mysqltransaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, inferdbtype, joins, upsert");
                 break;
         }
     }
