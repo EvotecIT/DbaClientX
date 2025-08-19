@@ -15,15 +15,21 @@
 		<Authors>Przemyslaw Klys</Authors>
 		<LangVersion>latest</LangVersion>
 	</PropertyGroup>
-	<ItemGroup>
-		<PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
-	</ItemGroup>
+        <ItemGroup>
+                <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
+        </ItemGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
                 <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
                 <ProjectReference Include="..\DbaClientX.SQLite\DbaClientX.SQLite.csproj" />
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
                 <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
+        </ItemGroup>
+
+        <ItemGroup>
+                <Compile Update="CmdletInvokeDbaXMySqlScalar.cs">
+                        <SubType>Code</SubType>
+                </Compile>
         </ItemGroup>
 
 	<ItemGroup>
