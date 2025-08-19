@@ -10,9 +10,15 @@ public class SqlServerTransactionAsyncTests
     private class FakeSqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public async Task<FakeSqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public IsolationLevel? Level { get; private set; }
+
+        public Task<FakeSqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+            => BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        public async Task<FakeSqlTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
+            Level = isolationLevel;
             await Task.Yield();
             return new FakeSqlTransaction(this);
         }
@@ -60,6 +66,31 @@ public class SqlServerTransactionAsyncTests
 
             var connection = new FakeSqlConnection();
             var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
+        }
+
+        public override async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, IsolationLevel isolationLevel, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+        {
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeSqlConnection();
+            var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken);
 
             lock (_syncRoot)
             {
@@ -148,5 +179,14 @@ public class SqlServerTransactionAsyncTests
         await server.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WithIsolationLevel_PassesIsolationLevel()
+    {
+        using var server = new TestSqlServer();
+        await server.BeginTransactionAsync("s", "db", true, IsolationLevel.Serializable);
+        Assert.NotNull(server.Connection);
+        Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
     }
 }

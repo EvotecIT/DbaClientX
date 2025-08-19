@@ -601,6 +601,9 @@ public class SqlServer : DatabaseClientBase
 
 
     public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, string? username = null, string? password = null)
+        => BeginTransaction(serverOrInstance, database, integratedSecurity, IsolationLevel.ReadCommitted, username, password);
+
+    public virtual void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, IsolationLevel isolationLevel, string? username = null, string? password = null)
     {
         lock (_syncRoot)
         {
@@ -613,11 +616,14 @@ public class SqlServer : DatabaseClientBase
 
             _transactionConnection = new SqlConnection(connectionString);
             _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction();
+            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
         }
     }
 
-    public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+    public virtual Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
+        => BeginTransactionAsync(serverOrInstance, database, integratedSecurity, IsolationLevel.ReadCommitted, cancellationToken, username, password);
+
+    public virtual async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, IsolationLevel isolationLevel, CancellationToken cancellationToken = default, string? username = null, string? password = null)
     {
         lock (_syncRoot)
         {
@@ -632,9 +638,9 @@ public class SqlServer : DatabaseClientBase
         var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var transaction = (SqlTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
 #else
-        var transaction = connection.BeginTransaction();
+        var transaction = connection.BeginTransaction(isolationLevel);
 #endif
 
         lock (_syncRoot)

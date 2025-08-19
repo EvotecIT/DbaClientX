@@ -8,9 +8,15 @@ public class SqlServerTransactionTests
     private class FakeSqlConnection
     {
         public bool BeginCalled { get; private set; }
+        public IsolationLevel? Level { get; private set; }
+
         public FakeSqlTransaction BeginTransaction()
+            => BeginTransaction(IsolationLevel.ReadCommitted);
+
+        public FakeSqlTransaction BeginTransaction(IsolationLevel isolationLevel)
         {
             BeginCalled = true;
+            Level = isolationLevel;
             return new FakeSqlTransaction(this);
         }
     }
@@ -39,6 +45,12 @@ public class SqlServerTransactionTests
         {
             Connection = new FakeSqlConnection();
             Transaction = Connection.BeginTransaction();
+        }
+
+        public override void BeginTransaction(string serverOrInstance, string database, bool integratedSecurity, IsolationLevel isolationLevel, string? username = null, string? password = null)
+        {
+            Connection = new FakeSqlConnection();
+            Transaction = Connection.BeginTransaction(isolationLevel);
         }
 
         public override void Commit()
@@ -101,5 +113,14 @@ public class SqlServerTransactionTests
         server.Rollback();
         Assert.True(txn.RollbackCalled);
         Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public void BeginTransaction_WithIsolationLevel_PassesIsolationLevel()
+    {
+        using var server = new TestSqlServer();
+        server.BeginTransaction("s", "db", true, IsolationLevel.Serializable);
+        Assert.NotNull(server.Connection);
+        Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
     }
 }
