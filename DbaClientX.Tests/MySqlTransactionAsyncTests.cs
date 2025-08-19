@@ -12,9 +12,15 @@ public class MySqlTransactionAsyncTests
     private class FakeMySqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public async Task<FakeMySqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public IsolationLevel? Level { get; private set; }
+
+        public Task<FakeMySqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+            => BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        public async Task<FakeMySqlTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
+            Level = isolationLevel;
             await Task.Yield();
             return new FakeMySqlTransaction(this);
         }
@@ -62,6 +68,31 @@ public class MySqlTransactionAsyncTests
 
             var connection = new FakeMySqlConnection();
             var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
+        }
+
+        public override async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeMySqlConnection();
+            var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken);
 
             lock (_syncRoot)
             {
@@ -150,5 +181,14 @@ public class MySqlTransactionAsyncTests
         await mySql.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(mySql.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WithIsolationLevel_PassesIsolationLevel()
+    {
+        using var mySql = new TestMySql();
+        await mySql.BeginTransactionAsync("h", "d", "u", "p", IsolationLevel.Serializable);
+        Assert.NotNull(mySql.Connection);
+        Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
     }
 }
