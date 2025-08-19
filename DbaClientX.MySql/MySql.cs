@@ -522,6 +522,151 @@ public class MySql : DatabaseClientBase
     }
 #endif
 
+    public virtual void BulkInsert(string host, string database, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        MySqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            OpenConnection(connection);
+            dispose = true;
+        }
+        try
+        {
+            var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
+            }
+
+            if (batchSize.HasValue && batchSize.Value > 0)
+            {
+                var totalRows = table.Rows.Count;
+                for (int offset = 0; offset < totalRows; offset += batchSize.Value)
+                {
+                    var batchTable = table.Clone();
+                    for (int i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
+                    {
+                        batchTable.ImportRow(table.Rows[i]);
+                    }
+                    WriteToServer(bulkCopy, batchTable);
+                }
+            }
+            else
+            {
+                WriteToServer(bulkCopy, table);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task BulkInsertAsync(string host, string database, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        MySqlConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            dispose = true;
+        }
+        try
+        {
+            var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
+            }
+
+            if (batchSize.HasValue && batchSize.Value > 0)
+            {
+                var totalRows = table.Rows.Count;
+                for (int offset = 0; offset < totalRows; offset += batchSize.Value)
+                {
+                    var batchTable = table.Clone();
+                    for (int i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
+                    {
+                        batchTable.ImportRow(table.Rows[i]);
+                    }
+                    await WriteToServerAsync(bulkCopy, batchTable, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    protected virtual MySqlBulkCopy CreateBulkCopy(MySqlConnection connection, MySqlTransaction? transaction) => new(connection, transaction);
+
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+
+    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken).AsTask();
+
+    protected virtual MySqlConnection CreateConnection(string connectionString) => new(connectionString);
+
+    protected virtual void OpenConnection(MySqlConnection connection) => connection.Open();
+
+    protected virtual Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
     public virtual void BeginTransaction(string host, string database, string username, string password)
     {
         lock (_syncRoot)
