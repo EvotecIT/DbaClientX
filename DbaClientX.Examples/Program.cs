@@ -43,6 +43,9 @@ public class Program
             case "parameterized":
                 ParameterizedQueryExample.Run();
                 break;
+            case "inferdbtype":
+                InferDbTypeExample.Run();
+                break;
             case "joins":
                 JoinExample.Run();
                 break;
@@ -50,7 +53,7 @@ public class Program
                 InsertOrUpdateExample.Run();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, joins, upsert");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, inferdbtype, joins, upsert");
                 break;
         }
     }
