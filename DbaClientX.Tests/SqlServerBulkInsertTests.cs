@@ -80,6 +80,23 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_DefaultOptions_AddsAllMappings()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("Name", typeof(string));
+        table.Rows.Add(1, "test");
+
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest");
+
+        Assert.Equal(0, sqlServer.BatchSize);
+        Assert.Equal(30, sqlServer.Timeout);
+        Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(table.Columns.Count, sqlServer.Mappings.Count);
+    }
+
+    [Fact]
     public void BulkInsert_WithTransactionNotStarted_Throws()
     {
         using var sqlServer = new DBAClientX.SqlServer();

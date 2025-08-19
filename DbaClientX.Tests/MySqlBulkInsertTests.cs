@@ -82,6 +82,24 @@ public class MySqlBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_DefaultOptions_AddsAllMappings()
+    {
+        using var mySql = new CaptureBulkCopyMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("Name", typeof(string));
+        table.Rows.Add(1, "a");
+        table.Rows.Add(2, "b");
+
+        mySql.BulkInsert("h", "db", "u", "p", table, "Dest");
+
+        Assert.Equal(0, mySql.Timeout);
+        Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(table.Columns.Count, mySql.Mappings.Count);
+        Assert.Equal(new[] { 2 }, mySql.BatchRowCounts);
+    }
+
+    [Fact]
     public void BulkInsert_WithTransactionNotStarted_Throws()
     {
         using var mySql = new DBAClientX.MySql();
