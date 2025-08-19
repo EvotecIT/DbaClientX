@@ -341,6 +341,44 @@ public abstract class DatabaseClientBase : IDisposable
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asynchronously executes a non-query command against the database, applying retry logic for transient errors.
+    /// </summary>
+    /// <param name="connection">The database connection.</param>
+    /// <param name="transaction">The transaction to use, or <c>null</c> if no transaction.</param>
+    /// <param name="query">The SQL command to execute.</param>
+    /// <param name="parameters">Optional parameters for the command.</param>
+    /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
+    /// <param name="parameterTypes">Explicit parameter types.</param>
+    /// <param name="parameterDirections">Explicit parameter directions.</param>
+    /// <returns>The number of rows affected.</returns>
+    protected virtual async Task<int> ExecuteNonQueryAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = query;
+            command.Transaction = transaction;
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            UpdateOutputParameters(command, parameters);
+            return affected;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return await ExecuteWithRetryAsync(async () =>

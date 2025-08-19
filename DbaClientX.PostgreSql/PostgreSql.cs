@@ -192,6 +192,45 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
+    public virtual async Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        NpgsqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new NpgsqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
     public virtual async Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);

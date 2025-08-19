@@ -45,7 +45,14 @@ public class RetryTests
             protected override DbParameterCollection DbParameterCollection { get; } = new FakeParameterCollection();
             protected override DbTransaction DbTransaction { get; set; } = null!;
             public override void Cancel() { }
-            public override int ExecuteNonQuery() => throw new NotSupportedException();
+            public override int ExecuteNonQuery()
+            {
+                if (_connection.ShouldThrow())
+                {
+                    throw new TransientTestException();
+                }
+                return 1;
+            }
             public override object? ExecuteScalar()
             {
                 if (_connection.ShouldThrow())
@@ -57,6 +64,7 @@ public class RetryTests
             public override void Prepare() { }
             protected override DbParameter CreateDbParameter() => new FakeParameter();
             protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) => throw new NotSupportedException();
+            public override Task<int> ExecuteNonQueryAsync(CancellationToken cancellationToken) => Task.FromResult(ExecuteNonQuery());
             public override Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken) => Task.FromResult(ExecuteScalar());
         }
 
@@ -104,6 +112,13 @@ public class RetryTests
         public Task<object?> RunAsync(DbConnection connection, CancellationToken token = default) => ExecuteScalarAsync(connection, null, "q", cancellationToken: token);
     }
 
+    private class RetryNonQueryClient : DBAClientX.DatabaseClientBase
+    {
+        protected override bool IsTransient(Exception ex) => ex is TransientTestException;
+        public int Run(DbConnection connection) => ExecuteNonQuery(connection, null, "q");
+        public Task<int> RunAsync(DbConnection connection, CancellationToken token = default) => ExecuteNonQueryAsync(connection, null, "q", cancellationToken: token);
+    }
+
     [Fact]
     public void ExecuteScalar_RetriesTransientErrors()
     {
@@ -127,6 +142,26 @@ public class RetryTests
     public async Task ExecuteScalarAsync_RetriesTransientErrors()
     {
         using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(1);
+        var result = await client.RunAsync(connection);
+        Assert.Equal(1, result);
+        Assert.Equal(2, connection.Attempts);
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_RetriesTransientErrors()
+    {
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(2);
+        var result = client.Run(connection);
+        Assert.Equal(1, result);
+        Assert.Equal(3, connection.Attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_RetriesTransientErrors()
+    {
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
         var connection = new TransientConnection(1);
         var result = await client.RunAsync(connection);
         Assert.Equal(1, result);
