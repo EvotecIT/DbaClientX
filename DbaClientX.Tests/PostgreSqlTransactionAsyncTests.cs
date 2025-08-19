@@ -12,9 +12,15 @@ public class PostgreSqlTransactionAsyncTests
     private class FakeNpgsqlConnection
     {
         public bool BeginCalled { get; private set; }
-        public async Task<FakeNpgsqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        public IsolationLevel? Level { get; private set; }
+
+        public Task<FakeNpgsqlTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+            => BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+
+        public async Task<FakeNpgsqlTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
         {
             BeginCalled = true;
+            Level = isolationLevel;
             await Task.Yield();
             return new FakeNpgsqlTransaction(this);
         }
@@ -62,6 +68,31 @@ public class PostgreSqlTransactionAsyncTests
 
             var connection = new FakeNpgsqlConnection();
             var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+
+                Connection = connection;
+                Transaction = transaction;
+            }
+        }
+
+        public override async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            lock (_syncRoot)
+            {
+                if (Transaction != null)
+                {
+                    throw new DBAClientX.DbaTransactionException("Transaction already started.");
+                }
+            }
+
+            var connection = new FakeNpgsqlConnection();
+            var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken);
 
             lock (_syncRoot)
             {
@@ -150,5 +181,14 @@ public class PostgreSqlTransactionAsyncTests
         await pg.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(pg.Transaction);
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WithIsolationLevel_PassesIsolationLevel()
+    {
+        using var pg = new TestPostgreSql();
+        await pg.BeginTransactionAsync("h", "d", "u", "p", IsolationLevel.Serializable);
+        Assert.NotNull(pg.Connection);
+        Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
     }
 }

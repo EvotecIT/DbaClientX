@@ -705,6 +705,23 @@ public class PostgreSql : DatabaseClientBase
         }
     }
 
+    public virtual void BeginTransaction(string host, string database, string username, string password, IsolationLevel isolationLevel)
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            var connectionString = BuildConnectionString(host, database, username, password);
+
+            _transactionConnection = new NpgsqlConnection(connectionString);
+            _transactionConnection.Open();
+            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+        }
+    }
+
     public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
     {
         lock (_syncRoot)
@@ -723,6 +740,40 @@ public class PostgreSql : DatabaseClientBase
         var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
         var transaction = connection.BeginTransaction();
+#endif
+
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                transaction.Dispose();
+                connection.Dispose();
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            _transactionConnection = connection;
+            _transaction = transaction;
+        }
+    }
+
+    public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+        }
+
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        var transaction = connection.BeginTransaction(isolationLevel);
 #endif
 
         lock (_syncRoot)
