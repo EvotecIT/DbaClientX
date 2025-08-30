@@ -251,6 +251,103 @@ public class SqlServerTests
         Assert.Equal(5, parameters["@out"]);
     }
 
+    private class CaptureStoredProcSqlServer : DBAClientX.SqlServer
+    {
+        public List<SqlParameter> Captured { get; } = new();
+        public CommandType CapturedCommandType { get; private set; }
+
+        public override object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            using var command = new SqlCommand(procedure);
+            command.CommandType = CommandType.StoredProcedure;
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            CapturedCommandType = command.CommandType;
+            foreach (SqlParameter p in command.Parameters)
+            {
+                Captured.Add(p);
+            }
+            return null;
+        }
+
+        public override Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            ExecuteStoredProcedure(serverOrInstance, database, integratedSecurity, procedure, parameters, useTransaction, parameterTypes, parameterDirections, username, password);
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_BindsParameters()
+    {
+        using var sqlServer = new CaptureStoredProcSqlServer();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1,
+            ["@name"] = "n"
+        };
+        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", parameters);
+        Assert.Equal(CommandType.StoredProcedure, sqlServer.CapturedCommandType);
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_NoParameters_AddsNoParameters()
+    {
+        using var sqlServer = new CaptureStoredProcSqlServer();
+        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", (IDictionary<string, object?>?)null);
+        Assert.Equal(CommandType.StoredProcedure, sqlServer.CapturedCommandType);
+        Assert.Empty(sqlServer.Captured);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureDictionaryAsync_PreservesParameterTypes()
+    {
+        using var sqlServer = new CaptureStoredProcSqlServer();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5
+        };
+        var types = new Dictionary<string, SqlDbType>
+        {
+            ["@id"] = SqlDbType.Int
+        };
+
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@id" && p.SqlDbType == SqlDbType.Int);
+    }
+
+    private class OutputDictionaryStoredProcSqlServer : DBAClientX.SqlServer
+    {
+        public override object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            using var command = new SqlCommand();
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            foreach (SqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_UpdatesOutputParameters()
+    {
+        using var sqlServer = new OutputDictionaryStoredProcSqlServer();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
     private class OutputStoredProcSqlServer : DBAClientX.SqlServer
     {
         public override object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, string? username = null, string? password = null)

@@ -252,6 +252,103 @@ public class PostgreSqlTests
         Assert.Equal(5, parameters["@out"]);
     }
 
+    private class CaptureStoredProcPostgreSql : DBAClientX.PostgreSql
+    {
+        public List<NpgsqlParameter> Captured { get; } = new();
+        public CommandType CapturedCommandType { get; private set; }
+
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new NpgsqlCommand(procedure);
+            command.CommandType = CommandType.StoredProcedure;
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            CapturedCommandType = command.CommandType;
+            foreach (NpgsqlParameter p in command.Parameters)
+            {
+                Captured.Add(p);
+            }
+            return null;
+        }
+
+        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_BindsParameters()
+    {
+        using var pg = new CaptureStoredProcPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 1,
+            ["@name"] = "n"
+        };
+        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
+        Assert.Equal(CommandType.StoredProcedure, pg.CapturedCommandType);
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_NoParameters_AddsNoParameters()
+    {
+        using var pg = new CaptureStoredProcPostgreSql();
+        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", (IDictionary<string, object?>?)null);
+        Assert.Equal(CommandType.StoredProcedure, pg.CapturedCommandType);
+        Assert.Empty(pg.Captured);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureDictionaryAsync_PreservesParameterTypes()
+    {
+        using var pg = new CaptureStoredProcPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@id"] = 5
+        };
+        var types = new Dictionary<string, NpgsqlDbType>
+        {
+            ["@id"] = NpgsqlDbType.Integer
+        };
+
+        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@id" && p.NpgsqlDbType == NpgsqlDbType.Integer);
+    }
+
+    private class OutputDictionaryStoredProcPostgreSql : DBAClientX.PostgreSql
+    {
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new NpgsqlCommand();
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            foreach (NpgsqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return null;
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedureDictionary_UpdatesOutputParameters()
+    {
+        using var pg = new OutputDictionaryStoredProcPostgreSql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters, parameterDirections: directions);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
     private class OutputStoredProcPostgreSql : DBAClientX.PostgreSql
     {
         public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)

@@ -1,7 +1,6 @@
 using DBAClientX;
 using System.Data;
 using System.Collections.Generic;
-using System.Data.SqlClient;
 
 public static class StoredProcedureExample
 {
@@ -12,9 +11,9 @@ public static class StoredProcedureExample
             ReturnType = ReturnType.DataTable,
         };
 
-        var parameters = new List<SqlParameter>
+        var parameters = new Dictionary<string, object?>
         {
-            new("@dbname", "master")
+            ["@dbname"] = "master"
         };
 
         var result = sqlServer.ExecuteStoredProcedure("SQL1", "master", true, "sp_helpdb", parameters);
