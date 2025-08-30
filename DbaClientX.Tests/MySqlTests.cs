@@ -304,7 +304,7 @@ public class MySqlTests
     public void ExecuteStoredProcedure_NoParameters_AddsNoParameters()
     {
         using var mySql = new CaptureStoredProcMySql();
-        mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", null);
+        mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", (IDictionary<string, object?>?)null);
         Assert.Equal(CommandType.StoredProcedure, mySql.CapturedCommandType);
         Assert.Empty(mySql.Captured);
     }
@@ -325,6 +325,47 @@ public class MySqlTests
         await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types);
 
         Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && p.MySqlDbType == MySqlDbType.Int32);
+    }
+
+    private class OutputStoredProcMySql : DBAClientX.MySql
+    {
+        public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)
+        {
+            using var command = new MySqlCommand();
+            AddParameters(command, parameters);
+            foreach (MySqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 5;
+                }
+            }
+            return null;
+        }
+
+        public override Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
+        {
+            ExecuteStoredProcedure(host, database, username, password, procedure, parameters, useTransaction);
+            return Task.FromResult<object?>(null);
+        }
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_PopulatesOutputParameter()
+    {
+        using var mySql = new OutputStoredProcMySql();
+        var outParam = new MySqlParameter("@out", MySqlDbType.Int32) { Direction = ParameterDirection.Output };
+        mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", new[] { outParam });
+        Assert.Equal(5, outParam.Value);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_PopulatesOutputParameter()
+    {
+        using var mySql = new OutputStoredProcMySql();
+        var outParam = new MySqlParameter("@out", MySqlDbType.Int32) { Direction = ParameterDirection.Output };
+        await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam });
+        Assert.Equal(5, outParam.Value);
     }
 
     private class FakeTransactionMySql : DBAClientX.MySql

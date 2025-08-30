@@ -434,6 +434,126 @@ public class MySql : DatabaseClientBase
         }
     }
 
+    public virtual object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        MySqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new MySqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = command.ExecuteReader();
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && reader.NextResult());
+
+            return BuildResult(dataSet);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+
+        MySqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new MySqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+            return BuildResult(dataSet);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
@@ -507,6 +627,48 @@ public class MySql : DatabaseClientBase
             try
             {
                 await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
+        }
+    }
+
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            var connectionString = BuildConnectionString(host, database, username, password);
+
+            MySqlConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new MySqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
