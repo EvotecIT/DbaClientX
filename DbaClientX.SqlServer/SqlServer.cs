@@ -319,6 +319,132 @@ public class SqlServer : DatabaseClientBase
         }
     }
 
+    public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+    {
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = command.ExecuteReader();
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && reader.NextResult());
+
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+    {
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+        SqlConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
     public virtual object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, string? username = null, string? password = null)
     {
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
@@ -469,6 +595,49 @@ public class SqlServer : DatabaseClientBase
             try
             {
                 await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
+        }
+    }
+
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+    {
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+            SqlConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
