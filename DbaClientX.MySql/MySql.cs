@@ -191,7 +191,7 @@ public class MySql : DatabaseClientBase
         }
     }
 
-    public virtual async Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual async Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -215,7 +215,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes).ConfigureAwait(false);
+            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
