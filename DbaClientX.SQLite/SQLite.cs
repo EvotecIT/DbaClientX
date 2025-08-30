@@ -141,7 +141,13 @@ public class SQLite : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
 
-    public virtual int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(
+        string database,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(database);
 
@@ -165,7 +171,7 @@ public class SQLite : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {

@@ -153,7 +153,16 @@ public class PostgreSql : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, NpgsqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
 
-    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(
+        string host,
+        string database,
+        string username,
+        string password,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -177,7 +186,7 @@ public class PostgreSql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {

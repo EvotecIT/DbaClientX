@@ -152,7 +152,16 @@ public class MySql : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, MySqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
 
-    public virtual int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null)
+    public virtual int ExecuteNonQuery(
+        string host,
+        string database,
+        string username,
+        string password,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -176,7 +185,7 @@ public class MySql : DatabaseClientBase
             }
 
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes);
+            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {

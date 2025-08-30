@@ -10,6 +10,40 @@ namespace DbaClientX.Tests;
 
 public class MySqlNonQueryTests
 {
+    private class OutputDictionaryMySql : DBAClientX.MySql
+    {
+        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new MySqlCommand(query);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (MySqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 7;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return 1;
+        }
+
+        public override int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_UpdatesOutputParameters()
+    {
+        using var mySql = new OutputDictionaryMySql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        mySql.ExecuteNonQuery("h", "d", "u", "p", "q", parameters, parameterDirections: directions);
+        Assert.Equal(7, parameters["@out"]);
+    }
+
     private class CaptureParametersMySql : DBAClientX.MySql
     {
         public List<(string Name, object? Value, DbType Type)> Captured { get; } = new();

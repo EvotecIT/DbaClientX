@@ -3,6 +3,7 @@ using System.Data;
 using System.Data.Common;
 using System.Data.SqlClient;
 using System.Threading;
+using DBAClientX;
 
 namespace DbaClientX.Tests;
 
@@ -23,7 +24,7 @@ public class SqlServerNonQueryTests
             return 1;
         }
 
-        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             IDictionary<string, DbType>? dbTypes = null;
             if (parameterTypes != null)
@@ -35,7 +36,7 @@ public class SqlServerNonQueryTests
                     dbTypes[kv.Key] = p.DbType;
                 }
             }
-            return ExecuteNonQuery(null!, null, query, parameters, dbTypes);
+            return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
         }
     }
 
@@ -97,7 +98,7 @@ public class SqlServerNonQueryTests
             TransactionStarted = false;
         }
 
-        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, string? username = null, string? password = null)
+        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             if (useTransaction && !TransactionStarted) throw new DBAClientX.DbaTransactionException("Transaction has not been started.");
             return 0;
@@ -118,6 +119,40 @@ public class SqlServerNonQueryTests
         sqlServer.BeginTransaction("s", "db", true);
         var ex = Record.Exception(() => sqlServer.ExecuteNonQuery("s", "db", true, "q", useTransaction: true));
         Assert.Null(ex);
+    }
+
+    private class OutputDictionarySqlServer : DBAClientX.SqlServer
+    {
+        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new SqlCommand(query);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            foreach (SqlParameter p in command.Parameters)
+            {
+                if (p.Direction != ParameterDirection.Input)
+                {
+                    p.Value = 7;
+                }
+            }
+            UpdateOutputParameters(command, parameters);
+            return 1;
+        }
+
+        public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_UpdatesOutputParameters()
+    {
+        using var sqlServer = new OutputDictionarySqlServer();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+        sqlServer.ExecuteNonQuery("s", "db", true, "q", parameters, parameterDirections: directions);
+        Assert.Equal(7, parameters["@out"]);
     }
 
     private class CaptureParametersSqlServerAsync : DBAClientX.SqlServer
