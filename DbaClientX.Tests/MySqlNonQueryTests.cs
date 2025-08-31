@@ -50,6 +50,36 @@ public class MySqlNonQueryTests
         }
     }
 
+    private class OutputParameterMySql : DBAClientX.MySql
+    {
+        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var command = new MySqlCommand(query);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            command.Parameters["@out"].Value = 42;
+            UpdateOutputParameters(command, parameters);
+            return 1;
+        }
+
+        public override int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_PopulatesOutputParameter()
+    {
+        using var mySql = new OutputParameterMySql();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+
+        mySql.ExecuteNonQuery("h", "d", "u", "p", "UPDATE t SET c=1", parameters, parameterDirections: directions);
+
+        Assert.Equal(42, parameters["@out"]);
+    }
+
     [Fact]
     public async Task ExecuteNonQueryAsync_BindsParameters()
     {
