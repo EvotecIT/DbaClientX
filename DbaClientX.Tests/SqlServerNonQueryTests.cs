@@ -151,6 +151,33 @@ public class SqlServerNonQueryTests
         }
     }
 
+    private class OutputParameterSqlServerAsync : DBAClientX.SqlServer
+    {
+        protected override Task<int> ExecuteNonQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var command = new SqlCommand(query);
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            command.Parameters["@out"].Value = 7;
+            UpdateOutputParameters(command, parameters);
+            return Task.FromResult(1);
+        }
+
+        public override Task<int> ExecuteNonQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
+        {
+            IDictionary<string, DbType>? dbTypes = null;
+            if (parameterTypes != null)
+            {
+                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
+                foreach (var kv in parameterTypes)
+                {
+                    var p = new SqlParameter { SqlDbType = kv.Value };
+                    dbTypes[kv.Key] = p.DbType;
+                }
+            }
+            return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
+        }
+    }
+
     [Fact]
     public async Task ExecuteNonQueryAsync_BindsParameters()
     {
@@ -186,6 +213,24 @@ public class SqlServerNonQueryTests
 
         Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == DbType.Int32);
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == DbType.String);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_PopulatesOutputParameter()
+    {
+        using var sqlServer = new OutputParameterSqlServerAsync();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@out"] = null
+        };
+        var directions = new Dictionary<string, ParameterDirection>
+        {
+            ["@out"] = ParameterDirection.Output
+        };
+
+        await sqlServer.ExecuteNonQueryAsync("s", "db", true, "UPDATE t SET c=1", parameters, parameterDirections: directions);
+
+        Assert.Equal(7, parameters["@out"]);
     }
 
     private class FakeTransactionSqlServerAsync : DBAClientX.SqlServer
