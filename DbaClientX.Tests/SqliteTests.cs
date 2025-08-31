@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using DBAClientX;
 using System.Data;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -78,6 +80,36 @@ public class SqliteTests
         var parameters = new Dictionary<string, object?> { ["@out"] = null };
         var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
         Assert.Throws<ArgumentException>(() => sqlite.Query(":memory:", "q", parameters, parameterDirections: directions));
+    }
+
+    private class OutputParameterSqlite : DBAClientX.SQLite
+    {
+        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            if (parameters != null && parameterDirections != null && parameterDirections.TryGetValue("@out", out var dir) && dir != ParameterDirection.Input)
+            {
+                parameters["@out"] = 9;
+            }
+            return 1;
+        }
+
+        public override int ExecuteNonQuery(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
+            return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_PopulatesOutputParameter()
+    {
+        using var sqlite = new OutputParameterSqlite();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+
+        sqlite.ExecuteNonQuery("db", "UPDATE t SET c=1", parameters, parameterDirections: directions);
+
+        Assert.Equal(9, parameters["@out"]);
     }
 
     [Fact]
