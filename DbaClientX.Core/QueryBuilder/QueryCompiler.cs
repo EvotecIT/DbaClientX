@@ -346,7 +346,7 @@ public class QueryCompiler
             sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns.Select(QuoteIdentifier)));
         }
 
-        if (_dialect == SqlDialect.SqlServer)
+        if (_dialect == SqlDialect.SqlServer || _dialect == SqlDialect.Oracle)
         {
             if (query.OffsetValue.HasValue)
             {
@@ -576,6 +576,9 @@ public class QueryCompiler
         {
             SqlDialect.SqlServer => ('[', ']'),
             SqlDialect.MySql => ('`', '`'),
+            SqlDialect.PostgreSql => ('"', '"'),
+            SqlDialect.SQLite => ('"', '"'),
+            SqlDialect.Oracle => ('"', '"'),
             _ => ('"', '"')
         };
 

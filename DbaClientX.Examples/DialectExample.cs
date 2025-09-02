@@ -15,5 +15,6 @@ public static class DialectExample
         Console.WriteLine("MySql:      " + QueryBuilder.Compile(query, SqlDialect.MySql));
         Console.WriteLine("SQLite:     " + QueryBuilder.Compile(query, SqlDialect.SQLite));
         Console.WriteLine("SqlServer:  " + QueryBuilder.Compile(query, SqlDialect.SqlServer));
+        Console.WriteLine("Oracle:     " + QueryBuilder.Compile(query, SqlDialect.Oracle));
     }
 }
