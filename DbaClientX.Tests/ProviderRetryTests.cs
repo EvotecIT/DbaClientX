@@ -156,4 +156,18 @@ public class ProviderRetryTests
         Assert.Equal(1, result);
         Assert.Equal(3, attempts);
     }
+
+    [Fact]
+    public void Oracle_DoesNotRetry_NonTransientErrors()
+    {
+        using var client = new OracleRetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var exception = CreateOracleException(942);
+        var attempts = 0;
+        Assert.Throws<OracleException>(() => client.Run<int>(() =>
+        {
+            attempts++;
+            throw exception;
+        }));
+        Assert.Equal(1, attempts);
+    }
 }
