@@ -8,5 +8,6 @@ public enum SqlDialect
     SqlServer,
     PostgreSql,
     MySql,
-    SQLite
+    SQLite,
+    Oracle
 }

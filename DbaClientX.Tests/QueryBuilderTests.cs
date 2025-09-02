@@ -241,6 +241,20 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectLimitOffset_OracleUsesOffsetFetch()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .OrderBy("name")
+            .Limit(5)
+            .Offset(10);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.Oracle);
+        Assert.Equal("SELECT * FROM \"users\" ORDER BY \"name\" OFFSET 10 ROWS FETCH NEXT 5 ROWS ONLY", sql);
+    }
+
+    [Fact]
     public void SelectOrderByTop()
     {
         var query = new Query()
@@ -845,6 +859,7 @@ public class QueryBuilderTests
     [InlineData(SqlDialect.SqlServer, "SELECT [123] FROM [t]")]
     [InlineData(SqlDialect.PostgreSql, "SELECT \"123\" FROM \"t\"")]
     [InlineData(SqlDialect.MySql, "SELECT `123` FROM `t`")]
+    [InlineData(SqlDialect.Oracle, "SELECT \"123\" FROM \"t\"")]
     public void NumericColumnNames_AreQuoted(SqlDialect dialect, string expected)
     {
         var query = new Query().Select("123").From("t");
