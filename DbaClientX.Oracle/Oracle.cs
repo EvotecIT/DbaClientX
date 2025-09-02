@@ -5,6 +5,9 @@ using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
 using Oracle.ManagedDataAccess.Client;
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+using System.Runtime.CompilerServices;
+#endif
 
 namespace DBAClientX;
 
@@ -42,6 +45,134 @@ public class Oracle : DatabaseClientBase
         {
             return false;
         }
+    }
+
+    public virtual void BulkInsert(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+
+        OracleConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            OpenConnection(connection);
+            dispose = true;
+        }
+
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (batchSize.HasValue)
+            {
+                bulkCopy.BatchSize = batchSize.Value;
+            }
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            WriteToServer(bulkCopy, table);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task BulkInsertAsync(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+
+        OracleConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            dispose = true;
+        }
+
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (batchSize.HasValue)
+            {
+                bulkCopy.BatchSize = batchSize.Value;
+            }
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    protected virtual OracleConnection CreateConnection(string connectionString) => new(connectionString);
+
+    protected virtual void OpenConnection(OracleConnection connection) => connection.Open();
+
+    protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+    protected virtual OracleBulkCopy CreateBulkCopy(OracleConnection connection, OracleTransaction? transaction) => new(connection);
+
+    protected virtual void WriteToServer(OracleBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+
+    protected virtual Task WriteToServerAsync(OracleBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
+    {
+        bulkCopy.WriteToServer(table);
+        return Task.CompletedTask;
     }
 
     public virtual async Task<bool> PingAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default)
@@ -133,6 +264,52 @@ public class Oracle : DatabaseClientBase
             }
         }
     }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            var connectionString = BuildConnectionString(host, serviceName, username, password);
+
+            OracleConnection? connection = null;
+            bool dispose = false;
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            try
+            {
+                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    connection?.Dispose();
+                }
+            }
+        }
+    }
+#endif
 
     public virtual object? ExecuteScalar(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {

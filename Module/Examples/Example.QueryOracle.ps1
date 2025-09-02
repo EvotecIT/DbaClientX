@@ -1,5 +1,8 @@
 Clear-Host
 Import-Module $PSScriptRoot\..\DBAClientX.psd1 -Force -Verbose
 
-$T = Invoke-DbaXOracle -Query "SELECT 1 FROM dual" -Server "OracleServer" -Database "ORCL" -Username "user" -Password "pass"
-$T | Format-Table
+$connectionString = [DBAClientX.Oracle]::BuildConnectionString('OracleServer', 'ORCL', 'user', 'pass')
+Write-Host $connectionString
+
+Invoke-DbaXOracle -Server 'OracleServer' -Database 'ORCL' -Username 'user' -Password 'pass' -Query 'SELECT 1 FROM dual' -Stream |
+    Format-Table

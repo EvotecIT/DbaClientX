@@ -3,12 +3,6 @@ namespace DBAClientX.PowerShell;
 /// <summary>Invokes commands against an Oracle database.</summary>
 /// <para>Connects to an Oracle server using provided credentials and executes a SQL query.</para>
 /// <para>Results can be returned in different formats based on the <see cref="ReturnType"/>.</para>
-/// <list type="alertSet">
-/// <item>
-/// <term>Note</term>
-/// <description>Streaming is not currently supported for Oracle.</description>
-/// </item>
-/// </list>
 /// <example>
 /// <summary>Query Oracle with credentials.</summary>
 /// <prefix>PS&gt; </prefix>
@@ -42,7 +36,7 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     [Parameter]
     public int QueryTimeout { get; set; }
 
-    /// <summary>Streams results without buffering. Not supported for Oracle.</summary>
+    /// <summary>Streams results without buffering.</summary>
     [Parameter]
     public SwitchParameter Stream { get; set; }
 
@@ -89,6 +83,29 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                     de => de.Key.ToString(),
                     de => de.Value);
             }
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            if (Stream.IsPresent) {
+                oracle.ReturnType = ReturnType.DataRow;
+                await foreach (DataRow row in oracle.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false)) {
+                    if (ReturnType == ReturnType.PSObject) {
+                        WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                    } else {
+                        WriteObject(row);
+                    }
+                }
+            } else {
+                var result = await oracle.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+                if (result != null) {
+                    if (ReturnType == ReturnType.PSObject) {
+                        foreach (DataRow row in ((DataTable)result).Rows) {
+                            WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                        }
+                    } else {
+                        WriteObject(result, true);
+                    }
+                }
+            }
+#else
             if (Stream.IsPresent) {
                 throw new NotSupportedException("Streaming is not supported for Oracle.");
             }
@@ -102,6 +119,7 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                     WriteObject(result, true);
                 }
             }
+#endif
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXOracle - Error querying Oracle: {ex.Message}");
             if (ErrorAction == ActionPreference.Stop) {
