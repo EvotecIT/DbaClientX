@@ -17,4 +17,28 @@ describe 'Invoke-DbaXOracle cmdlet' {
     it 'supports ReturnType parameter' {
         (Get-Command Invoke-DbaXOracle).Parameters.Keys | Should -Contain 'ReturnType'
     }
+
+    it 'passes credentials to provider when supplied' -Skip {}
+
+    it 'passes QueryTimeout and Parameters to provider' -Skip {}
+
+    it 'fails when Server is empty' {
+        { Invoke-DbaXOracle -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
+    }
+
+    it 'fails when Database is empty' {
+        { Invoke-DbaXOracle -Server s -Database '' -Query 'Q' -Username u -Password p } | Should -Throw
+    }
+
+    it 'fails when Query is empty' {
+        { Invoke-DbaXOracle -Server s -Database db -Query '' -Username u -Password p } | Should -Throw
+    }
+
+    it 'fails when Username is empty' {
+        { Invoke-DbaXOracle -Server s -Database db -Query 'Q' -Username '' -Password p } | Should -Throw
+    }
+
+    it 'fails when Password is empty' {
+        { Invoke-DbaXOracle -Server s -Database db -Query 'Q' -Username u -Password '' } | Should -Throw
+    }
 }
