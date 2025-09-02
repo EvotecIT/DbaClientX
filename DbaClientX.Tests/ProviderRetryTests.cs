@@ -5,6 +5,7 @@ using System.Data.SqlClient;
 using MySqlConnector;
 using Npgsql;
 using Microsoft.Data.Sqlite;
+using Oracle.ManagedDataAccess.Client;
 
 namespace DbaClientX.Tests;
 
@@ -113,6 +114,36 @@ public class ProviderRetryTests
     {
         using var client = new SqliteRetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
         var exception = new SqliteException("msg", 5);
+        var attempts = 0;
+        var result = client.Run(() =>
+        {
+            if (++attempts < 3)
+            {
+                throw exception;
+            }
+            return 1;
+        });
+        Assert.Equal(1, result);
+        Assert.Equal(3, attempts);
+    }
+
+    private class OracleRetryClient : DBAClientX.Oracle
+    {
+        public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+    }
+
+    private static OracleException CreateOracleException(int number)
+    {
+        var ctor = typeof(OracleException).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance,
+            null, new[] { typeof(int), typeof(string), typeof(string), typeof(string), typeof(int) }, null)!;
+        return (OracleException)ctor.Invoke(new object?[] { number, string.Empty, string.Empty, string.Empty, 0 });
+    }
+
+    [Fact]
+    public void Oracle_RetriesTransientErrors()
+    {
+        using var client = new OracleRetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var exception = CreateOracleException(12541);
         var attempts = 0;
         var result = client.Run(() =>
         {

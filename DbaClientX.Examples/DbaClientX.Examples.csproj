@@ -12,6 +12,7 @@
     <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
     <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
     <ProjectReference Include="..\DbaClientX.SQLite\DbaClientX.SQLite.csproj" />
+    <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
   </ItemGroup>
 
 </Project>

@@ -6,6 +6,7 @@ using MySqlConnector;
 using Npgsql;
 using NpgsqlTypes;
 using DBAClientX;
+using Oracle.ManagedDataAccess.Client;
 
 namespace DbaClientX.Tests;
 
@@ -59,5 +60,18 @@ public class ParameterTypeConversionTests
         };
         var result = DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t)!;
         Assert.Equal(DbType.String, result["@name"]);
+    }
+
+    [Fact]
+    public void Oracle_ConvertsTypes()
+    {
+        var types = new Dictionary<string, OracleDbType>
+        {
+            [":id"] = OracleDbType.Int32,
+            [":name"] = OracleDbType.Varchar2
+        };
+        var result = DbTypeConverter.ConvertParameterTypes(types, static () => new OracleParameter(), static (p, t) => p.OracleDbType = t)!;
+        Assert.Equal(DbType.Int32, result[":id"]);
+        Assert.Equal(DbType.String, result[":name"]);
     }
 }
