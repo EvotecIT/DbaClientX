@@ -6,7 +6,7 @@ namespace DBAClientX.PowerShell;
 /// <list type="alertSet">
 /// <item>
 /// <term>Note</term>
-/// <description>Streaming is not currently supported for Oracle.</description>
+/// <description>Network operations may incur latency; consider using <c>-Stream</c> for large result sets.</description>
 /// </item>
 /// </list>
 /// <example>
@@ -14,6 +14,12 @@ namespace DBAClientX.PowerShell;
 /// <prefix>PS&gt; </prefix>
 /// <code>Invoke-DbaXOracle -Server 'oraclesrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Users'</code>
 /// <para>Returns each row as a <see cref="DataRow"/>.</para>
+/// </example>
+/// <example>
+/// <summary>Stream results as they arrive.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXOracle -Server 'oraclesrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Logs' -Stream</code>
+/// <para>Streams rows without buffering the entire result.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/standard/data/sqlite/?tabs=netcore-cli">Oracle provider documentation</seealso>
 /// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
@@ -42,7 +48,7 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     [Parameter]
     public int QueryTimeout { get; set; }
 
-    /// <summary>Streams results without buffering. Not supported for Oracle.</summary>
+    /// <summary>Streams results without buffering.</summary>
     [Parameter]
     public SwitchParameter Stream { get; set; }
 
@@ -89,9 +95,50 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                     de => de.Key.ToString(),
                     de => de.Value);
             }
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
-                throw new NotSupportedException("Streaming is not supported for Oracle.");
+                var enumerable = oracle.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);
+                switch (ReturnType) {
+                    case ReturnType.DataRow:
+                        await foreach (var row in enumerable.ConfigureAwait(false)) {
+                            WriteObject(row);
+                        }
+                        break;
+                    case ReturnType.DataTable:
+                        DataTable? table = null;
+                        await foreach (var row in enumerable.ConfigureAwait(false)) {
+                            table ??= row.Table.Clone();
+                            table.ImportRow(row);
+                        }
+                        if (table != null) {
+                            WriteObject(table);
+                        }
+                        break;
+                    case ReturnType.DataSet:
+                        DataTable? dataTable = null;
+                        await foreach (var row in enumerable.ConfigureAwait(false)) {
+                            dataTable ??= row.Table.Clone();
+                            dataTable.ImportRow(row);
+                        }
+                        DataSet set = new DataSet();
+                        if (dataTable != null) {
+                            set.Tables.Add(dataTable);
+                        }
+                        WriteObject(set);
+                        break;
+                    default:
+                        await foreach (var row in enumerable.ConfigureAwait(false)) {
+                            WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                        }
+                        break;
+                }
+                return;
             }
+#else
+            if (Stream.IsPresent) {
+                throw new NotSupportedException("Streaming is not supported on this platform.");
+            }
+#endif
             var result = await oracle.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
