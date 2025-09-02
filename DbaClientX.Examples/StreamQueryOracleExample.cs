@@ -6,7 +6,7 @@ public static class StreamQueryOracleExample
 {
     public static async Task RunAsync()
     {
-        using var oracle = new Oracle
+        using var oracle = new DBAClientX.Oracle
         {
             ReturnType = ReturnType.DataRow
         };
