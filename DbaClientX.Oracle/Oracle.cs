@@ -512,6 +512,156 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    public virtual void BulkInsert(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+
+        OracleConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            OpenConnection(connection);
+            dispose = true;
+        }
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            if (batchSize.HasValue && batchSize.Value > 0)
+            {
+                var totalRows = table.Rows.Count;
+                for (int offset = 0; offset < totalRows; offset += batchSize.Value)
+                {
+                    var batchTable = table.Clone();
+                    for (int i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
+                    {
+                        batchTable.ImportRow(table.Rows[i]);
+                    }
+                    WriteToServer(bulkCopy, batchTable);
+                }
+            }
+            else
+            {
+                WriteToServer(bulkCopy, table);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task BulkInsertAsync(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default)
+    {
+        if (table == null) throw new ArgumentNullException(nameof(table));
+
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+
+        OracleConnection? connection = null;
+        bool dispose = false;
+        if (useTransaction)
+        {
+            if (_transaction == null || _transactionConnection == null)
+            {
+                throw new DbaTransactionException("Transaction has not been started.");
+            }
+            connection = _transactionConnection;
+        }
+        else
+        {
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            dispose = true;
+        }
+        try
+        {
+            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            bulkCopy.DestinationTableName = destinationTable;
+            if (bulkCopyTimeout.HasValue)
+            {
+                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+            }
+
+            foreach (DataColumn column in table.Columns)
+            {
+                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            }
+
+            if (batchSize.HasValue && batchSize.Value > 0)
+            {
+                var totalRows = table.Rows.Count;
+                for (int offset = 0; offset < totalRows; offset += batchSize.Value)
+                {
+                    var batchTable = table.Clone();
+                    for (int i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
+                    {
+                        batchTable.ImportRow(table.Rows[i]);
+                    }
+                    await WriteToServerAsync(bulkCopy, batchTable, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    protected virtual OracleBulkCopy CreateBulkCopy(OracleConnection connection, OracleTransaction? transaction) => new(connection);
+
+    protected virtual void WriteToServer(OracleBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+
+    protected virtual Task WriteToServerAsync(OracleBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
+    {
+        WriteToServer(bulkCopy, table);
+        return Task.CompletedTask;
+    }
+
+    protected virtual OracleConnection CreateConnection(string connectionString) => new(connectionString);
+
+    protected virtual void OpenConnection(OracleConnection connection) => connection.Open();
+
+    protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
     public virtual void BeginTransaction(string host, string serviceName, string username, string password) =>
         BeginTransaction(host, serviceName, username, password, IsolationLevel.ReadCommitted);
 
