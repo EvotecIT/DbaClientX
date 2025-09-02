@@ -2,6 +2,7 @@ using System.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using Npgsql;
+using Oracle.ManagedDataAccess.Client;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -85,5 +86,23 @@ public class ConnectionStringBuilderTests
         var builder = new SqlConnectionStringBuilder(cs);
         Assert.Equal("srv,1444", builder.DataSource);
         Assert.True(builder.Encrypt);
+    }
+
+    [Fact]
+    public void Oracle_BuildConnectionString_CreatesExpectedValues()
+    {
+        var cs = DBAClientX.Oracle.BuildConnectionString("host", "svc", "user", "pass");
+        var builder = new OracleConnectionStringBuilder(cs);
+        Assert.Equal("host/svc", builder.DataSource);
+        Assert.Equal("user", builder.UserID);
+        Assert.Equal("pass", builder.Password);
+    }
+
+    [Fact]
+    public void Oracle_BuildConnectionString_SetsPort()
+    {
+        var cs = DBAClientX.Oracle.BuildConnectionString("host", "svc", "user", "pass", port: 1522);
+        var builder = new OracleConnectionStringBuilder(cs);
+        Assert.Equal("host:1522/svc", builder.DataSource);
     }
 }

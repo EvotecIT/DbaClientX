@@ -1,0 +1,649 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.Common;
+using System.Threading;
+using System.Threading.Tasks;
+using Oracle.ManagedDataAccess.Client;
+
+namespace DBAClientX;
+
+/// <summary>
+/// Database client for Oracle
+/// </summary>
+public class Oracle : DatabaseClientBase
+{
+    private readonly object _syncRoot = new();
+    private OracleConnection? _transactionConnection;
+    private OracleTransaction? _transaction;
+
+    public bool IsInTransaction => _transaction != null;
+
+    public static string BuildConnectionString(string host, string serviceName, string username, string password, int? port = null)
+    {
+        var builder = new OracleConnectionStringBuilder
+        {
+            DataSource = port.HasValue ? $"{host}:{port}/{serviceName}" : $"{host}/{serviceName}",
+            UserID = username,
+            Password = password,
+            Pooling = true
+        };
+        return builder.ConnectionString;
+    }
+
+    public virtual bool Ping(string host, string serviceName, string username, string password)
+    {
+        try
+        {
+            ExecuteScalar(host, serviceName, username, password, "SELECT 1 FROM dual");
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public virtual async Task<bool> PingAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ExecuteScalarAsync(host, serviceName, username, password, "SELECT 1 FROM dual", cancellationToken: cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, OracleDbType>? types) =>
+        DbTypeConverter.ConvertParameterTypes(types, static () => new OracleParameter(), static (p, t) => p.OracleDbType = t);
+
+    public virtual object? Query(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> QueryAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual object? ExecuteScalar(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteScalarAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual int ExecuteNonQuery(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<int> ExecuteNonQueryAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual object? ExecuteStoredProcedure(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+            var dataSet = new DataSet();
+            using var reader = command.ExecuteReader();
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && reader.NextResult());
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            AddParameters(command, parameters, dbTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            var result = BuildResult(dataSet);
+            UpdateOutputParameters(command, parameters);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual object? ExecuteStoredProcedure(string host, string serviceName, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                dispose = true;
+            }
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+            var dataSet = new DataSet();
+            using var reader = command.ExecuteReader();
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && reader.NextResult());
+            return BuildResult(dataSet);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string serviceName, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
+    {
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        OracleConnection? connection = null;
+        bool dispose = false;
+        try
+        {
+            if (useTransaction)
+            {
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
+                connection = _transactionConnection;
+            }
+            else
+            {
+                connection = new OracleConnection(connectionString);
+                await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+                dispose = true;
+            }
+            using var command = connection.CreateCommand();
+            command.CommandText = procedure;
+            command.CommandType = CommandType.StoredProcedure;
+            command.Transaction = useTransaction ? _transaction : null;
+            AddParameters(command, parameters);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+            var dataSet = new DataSet();
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var tableIndex = 0;
+            do
+            {
+                var table = new DataTable($"Table{tableIndex}");
+                table.Load(reader);
+                dataSet.Tables.Add(table);
+                tableIndex++;
+            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            return BuildResult(dataSet);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                connection?.Dispose();
+            }
+        }
+    }
+
+    public virtual void BeginTransaction(string host, string serviceName, string username, string password) =>
+        BeginTransaction(host, serviceName, username, password, IsolationLevel.ReadCommitted);
+
+    public virtual void BeginTransaction(string host, string serviceName, string username, string password, IsolationLevel isolationLevel)
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+            var connectionString = BuildConnectionString(host, serviceName, username, password);
+            _transactionConnection = new OracleConnection(connectionString);
+            _transactionConnection.Open();
+            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+        }
+    }
+
+    public virtual Task BeginTransactionAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default) =>
+        BeginTransactionAsync(host, serviceName, username, password, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public virtual async Task BeginTransactionAsync(string host, string serviceName, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+        }
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        var connection = new OracleConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        var transaction = (OracleTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        var transaction = connection.BeginTransaction(isolationLevel);
+#endif
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                transaction.Dispose();
+                connection.Dispose();
+                throw new DbaTransactionException("Transaction already started.");
+            }
+            _transactionConnection = connection;
+            _transaction = transaction;
+        }
+    }
+
+    public virtual void Commit()
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Commit();
+            DisposeTransactionLocked();
+        }
+    }
+
+    public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+        _transaction.Commit();
+        await Task.CompletedTask;
+#endif
+        DisposeTransaction();
+    }
+
+    public virtual void Rollback()
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            _transaction.Rollback();
+            DisposeTransactionLocked();
+        }
+    }
+
+    public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
+    {
+        if (_transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+#else
+        _transaction.Rollback();
+        await Task.CompletedTask;
+#endif
+        DisposeTransaction();
+    }
+
+    private void DisposeTransaction()
+    {
+        lock (_syncRoot)
+        {
+            DisposeTransactionLocked();
+        }
+    }
+
+    private void DisposeTransactionLocked()
+    {
+        _transaction?.Dispose();
+        _transaction = null;
+        _transactionConnection?.Dispose();
+        _transactionConnection = null;
+    }
+
+    protected override bool IsTransient(Exception ex) =>
+        ex is OracleException oex && (oex.Number == 12541 || oex.Number == 12545 || oex.Number == 1089 || oex.Number == 3113 || oex.Number == 3114);
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            DisposeTransaction();
+        }
+        base.Dispose(disposing);
+    }
+}
