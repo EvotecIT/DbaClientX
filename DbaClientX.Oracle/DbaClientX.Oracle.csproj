@@ -28,6 +28,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.9.1" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' != 'net8.0'">
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="2.19.110" />
   </ItemGroup>
   <ItemGroup>
