@@ -1,10 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
                 <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">
-                        netstandard2.0;net472;net8.0
+                        net472;net8.0
                 </TargetFrameworks>
                 <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">
-                        netstandard2.0;net8.0
+                        net8.0
                 </TargetFrameworks>
 		<Description>PowerShell Module for working with databases</Description>
 		<AssemblyName>DBAClientX.PowerShell</AssemblyName>
@@ -17,6 +17,7 @@
 	</PropertyGroup>
         <ItemGroup>
                 <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
+                <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
         </ItemGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />

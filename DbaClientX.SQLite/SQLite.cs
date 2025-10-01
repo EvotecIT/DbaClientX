@@ -621,17 +621,32 @@ public class SQLite : DatabaseClientBase
 
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        SqliteTransaction? tx;
+        SqliteConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
-
+        try
+        {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction.Commit();
+            tx!.Commit();
 #endif
-        DisposeTransaction();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     public virtual void Rollback()
@@ -649,17 +664,32 @@ public class SQLite : DatabaseClientBase
 
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        SqliteTransaction? tx;
+        SqliteConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
-
+        try
+        {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction.Rollback();
+            tx!.Rollback();
 #endif
-        DisposeTransaction();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     private void DisposeTransaction()

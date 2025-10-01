@@ -4,8 +4,8 @@
     <AssemblyName>DbaClientX.SqlServer</AssemblyName>
     <AssemblyTitle>DbaClientX.SqlServer</AssemblyTitle>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">netstandard2.0;net472;net8.0</TargetFrameworks>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">netstandard2.0;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">net472;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">net8.0</TargetFrameworks>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <Company>Evotec</Company>
     <Authors>Przemyslaw Klys</Authors>
@@ -23,12 +23,12 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
     <SignAssembly>False</SignAssembly>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
-    <PackageReference Include="System.Data.SqlClient" Version="4.9.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Collections" />

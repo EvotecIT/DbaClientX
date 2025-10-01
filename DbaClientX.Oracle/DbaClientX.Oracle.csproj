@@ -4,8 +4,8 @@
     <AssemblyName>DbaClientX.Oracle</AssemblyName>
     <AssemblyTitle>DbaClientX.Oracle</AssemblyTitle>
     <VersionPrefix>0.1.0</VersionPrefix>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">netstandard2.0;net472;net8.0</TargetFrameworks>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">netstandard2.0;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">net472;net8.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">net8.0</TargetFrameworks>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <Company>Evotec</Company>
     <Authors>Przemyslaw Klys</Authors>
@@ -23,7 +23,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
     <SignAssembly>False</SignAssembly>
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NeutralLanguage>en</NeutralLanguage>
   </PropertyGroup>
   <ItemGroup>
@@ -32,8 +32,8 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.9.1" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'net8.0'">
-    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="2.19.110" />
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+    <PackageReference Include="Oracle.ManagedDataAccess" Version="21.13.0" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Collections" />

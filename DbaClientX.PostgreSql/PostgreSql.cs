@@ -983,17 +983,32 @@ public class PostgreSql : DatabaseClientBase
 
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        NpgsqlTransaction? tx;
+        NpgsqlConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
-
+        try
+        {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction.Commit();
+            tx!.Commit();
 #endif
-        DisposeTransaction();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     public virtual void Rollback()
@@ -1011,17 +1026,32 @@ public class PostgreSql : DatabaseClientBase
 
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        NpgsqlTransaction? tx;
+        NpgsqlConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
-
+        try
+        {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
 #else
-        _transaction.Rollback();
+            tx!.Rollback();
 #endif
-        DisposeTransaction();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     private void DisposeTransaction()
@@ -1066,23 +1096,23 @@ public class PostgreSql : DatabaseClientBase
             throttler = new SemaphoreSlim(maxDegreeOfParallelism.Value);
         }
 
-        var tasks = queries.Select(async q =>
+        var taskList = new List<Task<object?>>();
+        foreach (var q in queries)
         {
             if (throttler != null)
             {
                 await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
-            try
+            var task = QueryAsync(host, database, username, password, q, null, false, cancellationToken);
+            if (throttler != null)
             {
-                return await QueryAsync(host, database, username, password, q, null, false, cancellationToken).ConfigureAwait(false);
+                // Ensure release happens after completion; execute synchronously to reduce overhead
+                task = task.ContinueWith(t => { throttler.Release(); return t.Result; }, cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
-            finally
-            {
-                throttler?.Release();
-            }
-        });
+            taskList.Add(task);
+        }
 
-        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var results = await Task.WhenAll(taskList).ConfigureAwait(false);
         throttler?.Dispose();
         return results;
     }

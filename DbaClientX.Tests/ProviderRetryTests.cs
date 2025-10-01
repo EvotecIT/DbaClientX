@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using MySqlConnector;
 using Npgsql;
 using Microsoft.Data.Sqlite;

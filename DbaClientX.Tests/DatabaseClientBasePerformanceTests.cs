@@ -5,7 +5,7 @@ using System.Data;
 using System.Data.Common;
 using DBAClientX;
 using Xunit;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 namespace DbaClientX.Tests;
 
