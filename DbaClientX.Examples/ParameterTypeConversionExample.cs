@@ -1,6 +1,6 @@
 using DBAClientX;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 public static class ParameterTypeConversionExample
 {

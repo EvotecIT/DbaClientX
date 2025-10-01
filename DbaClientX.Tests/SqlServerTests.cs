@@ -1,5 +1,5 @@
 using DBAClientX;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Collections.Generic;

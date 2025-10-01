@@ -19,6 +19,9 @@ public abstract class DatabaseClientBase : IDisposable
     private TimeSpan _retryDelay = TimeSpan.FromMilliseconds(200);
     private bool _disposed;
 
+    private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
+    private static readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 31 + Thread.CurrentThread.ManagedThreadId)));
+
     public ReturnType ReturnType
     {
         get { lock (_syncRoot) { return _returnType; } }
@@ -71,7 +74,7 @@ public abstract class DatabaseClientBase : IDisposable
                 {
                     break;
                 }
-                var delay = RetryDelay;
+                var delay = ComputeBackoffDelay(attempts);
                 if (delay > TimeSpan.Zero)
                 {
                     Thread.Sleep(delay);
@@ -100,7 +103,7 @@ public abstract class DatabaseClientBase : IDisposable
                 {
                     break;
                 }
-                var delay = RetryDelay;
+                var delay = ComputeBackoffDelay(attempts);
                 if (delay > TimeSpan.Zero)
                 {
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
@@ -108,6 +111,21 @@ public abstract class DatabaseClientBase : IDisposable
             }
         }
         throw lastException ?? new Exception("Operation failed.");
+    }
+
+    private TimeSpan ComputeBackoffDelay(int attempt)
+    {
+        var baseDelay = RetryDelay;
+        if (baseDelay <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+        // Exponential backoff with jitter (full jitter)
+        var factor = Math.Pow(2, Math.Max(0, attempt - 1));
+        var ms = baseDelay.TotalMilliseconds * factor;
+        var jitter = _rand.Value!.NextDouble() * baseDelay.TotalMilliseconds; // 0..base
+        var total = Math.Min(ms + jitter, MaxBackoffMilliseconds);
+        return TimeSpan.FromMilliseconds(total);
     }
 
     protected virtual void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
@@ -443,7 +461,7 @@ public abstract class DatabaseClientBase : IDisposable
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {
-                    var delay = RetryDelay;
+                    var delay = ComputeBackoffDelay(attempt);
                     if (delay > TimeSpan.Zero)
                     {
                         await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
