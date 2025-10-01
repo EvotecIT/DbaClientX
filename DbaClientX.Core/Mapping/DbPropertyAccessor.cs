@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq.Expressions;
 using System.Reflection;
 
 namespace DBAClientX.Mapping;
@@ -65,6 +66,52 @@ public static class DbPropertyAccessor
             if (current is null) break;
         }
 
+        // If all segments resolved to properties (no dictionaries), build a compiled expression fast path
+        bool allProps = true;
+        for (int i = 0; i < props.Length; i++) { if (props[i] == null) { allProps = false; break; } }
+        if (allProps && props.Length > 0)
+        {
+            try
+            {
+                var objParam = Expression.Parameter(typeof(object), "obj");
+                // root may be null or not of the expected type
+                var rootAs = Expression.TypeAs(objParam, type);
+
+                Expression BuildChain(Expression curExpr, int index)
+                {
+                    if (index >= props.Length)
+                    {
+                        return Expression.Convert(curExpr, typeof(object));
+                    }
+                    var prop = props[index]!;
+                    var access = Expression.Property(curExpr, prop);
+                    var t = prop.PropertyType;
+                    bool isRef = !t.IsValueType;
+                    bool isNullableValue = Nullable.GetUnderlyingType(t) != null;
+                    if (isRef || isNullableValue)
+                    {
+                        return Expression.Condition(
+                            Expression.Equal(access, Expression.Constant(null, t)),
+                            Expression.Constant(null, typeof(object)),
+                            BuildChain(access, index + 1));
+                    }
+                    return BuildChain(access, index + 1);
+                }
+
+                var body = Expression.Condition(
+                    Expression.Equal(rootAs, Expression.Constant(null, type)),
+                    Expression.Constant(null, typeof(object)),
+                    BuildChain(rootAs, 0));
+                var lambda = Expression.Lambda<Func<object, object?>>(body, objParam);
+                return lambda.Compile();
+            }
+            catch
+            {
+                // fall back to reflective path below
+            }
+        }
+
+        // Fallback: reflective/dictionary-aware path
         return (obj) =>
         {
             object? cur = obj;
