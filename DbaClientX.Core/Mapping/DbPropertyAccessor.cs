@@ -18,6 +18,10 @@ public static class DbPropertyAccessor
     /// Tries to resolve a value from an item using a dotted path. Case-insensitive.
     /// Handles POCOs (public properties) and dictionaries (IDictionary and IDictionary&lt;string,object&gt;).
     /// </summary>
+    /// <param name="item">The source object (POCO or dictionary) to read from.</param>
+    /// <param name="path">Dotted, case-insensitive path (e.g., "User.Name" or "Metadata.Tags.0").</param>
+    /// <param name="value">When this method returns, contains the resolved value or null.</param>
+    /// <returns>True when a value was resolved; otherwise false.</returns>
     public static bool TryGetValue(object? item, string path, out object? value)
     {
         value = null;

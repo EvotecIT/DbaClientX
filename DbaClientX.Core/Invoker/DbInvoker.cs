@@ -8,8 +8,9 @@ using DBAClientX.Mapping;
 namespace DBAClientX.Invoker;
 
 /// <summary>
-/// Typed-first invoker that maps item properties to provider parameters and executes configured SQL.
-/// It discovers provider GenericExecutors via loaded assemblies or a provided assembly hint.
+/// Typed-first invoker that maps item properties to provider parameters and executes configured SQL or stored procedures.
+/// Discovers provider <c>GenericExecutors</c> via loaded assemblies or an optional assembly hint and calls static
+/// <c>ExecuteSqlAsync</c> / <c>ExecuteProcedureAsync</c> methods with a uniform signature.
 /// </summary>
 public static class DbInvoker
 {
@@ -17,6 +18,20 @@ public static class DbInvoker
     /// Executes the given SQL once per item, mapping properties to parameters using <paramref name="map"/>.
     /// Returns the sum of affected rows.
     /// </summary>
+    /// <summary>
+    /// Executes a parameterized SQL statement once per item, mapping properties to parameters using <paramref name="map"/>.
+    /// </summary>
+    /// <param name="providerAlias">Provider alias: sqlite, sqlserver|mssql, postgresql|pgsql|postgres, mysql, oracle.</param>
+    /// <param name="connectionString">Provider connection string (Oracle: DSN pieces are parsed from this string).</param>
+    /// <param name="sql">SQL text to execute.</param>
+    /// <param name="items">Items to map and execute against (one execution per item).</param>
+    /// <param name="map">Logical-to-provider parameter map (e.g., Map["User.Name"] = "@UserName").</param>
+    /// <param name="options">Mapping options (enum handling, time conversions, custom converters).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="providerAssembly">Optional provider assembly hint (when not already loaded).</param>
+    /// <param name="ambient">Ambient values available to mapping keys (e.g., RunId, TsUtc).</param>
+    /// <returns>Sum of affected rows reported by the provider (0 for providers that don’t return counts).</returns>
+    /// <exception cref="InvalidOperationException">Thrown when provider GenericExecutors cannot be resolved.</exception>
     public static async Task<int> ExecuteSqlAsync(
         string providerAlias,
         string connectionString,
@@ -28,7 +43,12 @@ public static class DbInvoker
         Assembly? providerAssembly = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
     {
-        var exec = ResolveExecutor(providerAlias, providerAssembly);
+        if (string.IsNullOrWhiteSpace(providerAlias)) throw new ArgumentException("providerAlias is required", nameof(providerAlias));
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("connectionString is required", nameof(connectionString));
+        if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("sql is required", nameof(sql));
+        if (items is null) throw new ArgumentNullException(nameof(items));
+        if (map is null) throw new ArgumentNullException(nameof(map));
+        var exec = ResolveExecutor(providerAlias, providerAssembly, methodName: "ExecuteSqlAsync");
         if (exec is null)
         {
             throw new InvalidOperationException($"GenericExecutors for provider '{providerAlias}' not found.");
@@ -44,7 +64,56 @@ public static class DbInvoker
         return affected;
     }
 
-    private static MethodInfo? ResolveExecutor(string providerAlias, Assembly? providerAssembly)
+    /// <summary>
+    /// Executes a stored procedure once per item, mapping properties to parameters.
+    /// </summary>
+    /// <summary>
+    /// Executes a stored procedure once per item, mapping properties to parameters using <paramref name="map"/>.
+    /// </summary>
+    /// <param name="providerAlias">Provider alias.</param>
+    /// <param name="connectionString">Provider connection string.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="items">Items to map and execute against (one execution per item).</param>
+    /// <param name="map">Logical-to-provider parameter map.</param>
+    /// <param name="options">Mapping options.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="providerAssembly">Optional provider assembly hint.</param>
+    /// <param name="ambient">Ambient values available to mappings.</param>
+    /// <returns>Sum of affected rows reported by the provider (0 for providers that don’t return counts).</returns>
+    /// <exception cref="InvalidOperationException">Thrown when provider GenericExecutors cannot be resolved.</exception>
+    public static async Task<int> ExecuteProcedureAsync(
+        string providerAlias,
+        string connectionString,
+        string procedure,
+        IEnumerable<object> items,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options = null,
+        CancellationToken ct = default,
+        Assembly? providerAssembly = null,
+        IReadOnlyDictionary<string, object?>? ambient = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerAlias)) throw new ArgumentException("providerAlias is required", nameof(providerAlias));
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("connectionString is required", nameof(connectionString));
+        if (string.IsNullOrWhiteSpace(procedure)) throw new ArgumentException("procedure is required", nameof(procedure));
+        if (items is null) throw new ArgumentNullException(nameof(items));
+        if (map is null) throw new ArgumentNullException(nameof(map));
+        var exec = ResolveExecutor(providerAlias, providerAssembly, methodName: "ExecuteProcedureAsync");
+        if (exec is null)
+        {
+            throw new InvalidOperationException($"GenericExecutors.ExecuteProcedureAsync for provider '{providerAlias}' not found.");
+        }
+        options ??= new DbParameterMapperOptions();
+        var affected = 0;
+        foreach (var item in items)
+        {
+            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+            var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
+            affected += await task.ConfigureAwait(false);
+        }
+        return affected;
+    }
+
+    private static MethodInfo? ResolveExecutor(string providerAlias, Assembly? providerAssembly, string methodName)
     {
         // Known type names for providers
         string? typeName = providerAlias?.Trim().ToLowerInvariant() switch
@@ -60,42 +129,27 @@ public static class DbInvoker
         // If assembly hint is provided, prefer it
         if (providerAssembly != null)
         {
-            var m = TryGetExec(providerAssembly, typeName);
+            var m = TryGetExec(providerAssembly, typeName, methodName);
             if (m != null) return m;
         }
 
-        // Search already loaded assemblies
+        // Search provided assembly then already loaded assemblies only (no implicit loads).
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
         {
-            var m = TryGetExec(asm, typeName);
+            var m = TryGetExec(asm, typeName, methodName);
             if (m != null) return m;
-        }
-        // Try loading by common assembly names
-        var assemblyNames = new[]
-        {
-            "DbaClientX.SQLite", "DbaClientX.SqlServer", "DbaClientX.PostgreSql", "DbaClientX.MySql", "DbaClientX.Oracle"
-        };
-        foreach (var name in assemblyNames)
-        {
-            try
-            {
-                var asm = Assembly.Load(new AssemblyName(name));
-                var m = TryGetExec(asm, typeName);
-                if (m != null) return m;
-            }
-            catch { /* ignore */ }
         }
         return null;
     }
 
-    private static MethodInfo? TryGetExec(Assembly asm, string? typeName)
+    private static MethodInfo? TryGetExec(Assembly asm, string? typeName, string methodName)
     {
         try
         {
             if (!string.IsNullOrEmpty(typeName))
             {
                 var t = asm.GetType(typeName!, throwOnError: false, ignoreCase: false);
-                var m = t?.GetMethod("ExecuteSqlAsync", BindingFlags.Public | BindingFlags.Static);
+                var m = FindPreferredOverload(t, methodName);
                 if (m != null) return m;
             }
             // Fallback: scan for any type named GenericExecutors
@@ -103,13 +157,40 @@ public static class DbInvoker
             {
                 if (string.Equals(t.Name, "GenericExecutors", StringComparison.Ordinal))
                 {
-                    var m = t.GetMethod("ExecuteSqlAsync", BindingFlags.Public | BindingFlags.Static);
+                    var m = FindPreferredOverload(t, methodName);
                     if (m != null) return m;
                 }
             }
         }
-        catch { }
+        catch (ReflectionTypeLoadException)
+        {
+            // ignore types we cannot load
+        }
         return null;
+    }
+
+    private static MethodInfo? FindPreferredOverload(Type? t, string methodName)
+    {
+        if (t == null) return null;
+        try
+        {
+            var methods = t.GetMethods(BindingFlags.Public | BindingFlags.Static);
+            MethodInfo? best = null;
+            foreach (var m in methods)
+            {
+                if (!string.Equals(m.Name, methodName, StringComparison.Ordinal)) continue;
+                var p = m.GetParameters();
+                // Prefer (string, string, IDictionary<string,object?>?, CancellationToken)
+                if (p.Length == 4 && p[0].ParameterType == typeof(string)) return m;
+                // Accept Oracle-style 7-arg overload as fallback
+                if (p.Length == 7 && best == null) best = m;
+            }
+            return best;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static Task<int> InvokeExecutor(MethodInfo exec, string connectionString, string sql, IDictionary<string, object?> parameters, CancellationToken ct)
@@ -153,15 +234,21 @@ public static class DbInvoker
     private static Dictionary<string, string> ParseConnectionString(string cs)
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var part in cs.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+        try
         {
-            var idx = part.IndexOf('=');
-            if (idx > 0)
+            var b = new System.Data.Common.DbConnectionStringBuilder { ConnectionString = cs };
+            foreach (string key in b.Keys)
             {
-                var k = part.Substring(0, idx).Trim();
-                var v = part.Substring(idx + 1).Trim();
-                dict[k] = v;
+                if (b.TryGetValue(key, out var val) && val is not null)
+                {
+                    dict[key] = val.ToString() ?? string.Empty;
+                }
             }
+        }
+        catch
+        {
+            // fall back to original string if builder fails
+            dict["Raw"] = cs;
         }
         return dict;
     }

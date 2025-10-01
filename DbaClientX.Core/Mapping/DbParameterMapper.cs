@@ -23,10 +23,19 @@ public sealed class DbParameterMapperOptions
 }
 
 /// <summary>
-/// Builds a dictionary of provider parameter name -> value from a typed item and a mapping.
+/// Builds a dictionary mapping provider parameter names (e.g., "@UserName") to values
+/// by reading properties from a typed item according to a logical-&gt;provider map.
 /// </summary>
 public static class DbParameterMapper
 {
+    /// <summary>
+    /// Maps a single item to a provider parameter dictionary using the supplied map and options.
+    /// </summary>
+    /// <param name="item">Typed source item (POCO or dictionary).</param>
+    /// <param name="map">Logical name to provider parameter map. Keys can be dotted paths (e.g., "User.Name"). Values are provider parameter names (e.g., "@UserName").</param>
+    /// <param name="options">Conversion options (enum handling, DateTimeOffset conversion, custom converters).</param>
+    /// <param name="ambient">Optional ambient values available to mappings when the item does not provide a value (e.g., RunId, TsUtc).</param>
+    /// <returns>A new dictionary of provider parameters to values.</returns>
     public static IDictionary<string, object?> MapItem(
         object? item,
         IReadOnlyDictionary<string, string> map,
@@ -83,4 +92,3 @@ public static class DbParameterMapper
         return value;
     }
 }
-
