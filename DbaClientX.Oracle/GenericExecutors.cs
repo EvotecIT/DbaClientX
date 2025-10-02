@@ -10,10 +10,9 @@ namespace DBAClientX.OracleGeneric;
 /// </summary>
 public static class GenericExecutors
 {
-    // For Oracle, DatabaseClientBase API uses (host, serviceName, username, password)
     /// <summary>Executes a parameterized SQL statement.</summary>
     /// <param name="host">Oracle host name or address.</param>
-    /// <param name="serviceName">Oracle service/SID.</param>
+    /// <param name="serviceName">Oracle service or SID.</param>
     /// <param name="username">User name.</param>
     /// <param name="password">Password.</param>
     /// <param name="sql">SQL text to execute.</param>
@@ -32,7 +31,6 @@ public static class GenericExecutors
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    /// <remarks>Choose this overload when a full Oracle connection string is already available. The helper splits the <c>Data Source</c> component into host and service name so the provider can reuse its standard execution pipeline.</remarks>
     public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
@@ -44,7 +42,7 @@ public static class GenericExecutors
     // Procedure variant mirrors the provider signature
     /// <summary>Executes a stored procedure.</summary>
     /// <param name="host">Oracle host name or address.</param>
-    /// <param name="serviceName">Oracle service/SID.</param>
+    /// <param name="serviceName">Oracle service or SID.</param>
     /// <param name="username">User name.</param>
     /// <param name="password">Password.</param>
     /// <param name="procedure">Stored procedure name.</param>
@@ -64,7 +62,6 @@ public static class GenericExecutors
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
-    /// <remarks>Prefer this overload when a full Oracle connection string is already managed by the caller. The helper extracts host and service name from the <c>Data Source</c> so the provider can delegate to its canonical stored-procedure execution path.</remarks>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
