@@ -87,6 +87,10 @@ public partial class SQLite
                 transaction?.Commit();
             }
         }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             if (!useTransaction)
@@ -197,6 +201,10 @@ public partial class SQLite
                 transaction?.Commit();
 #endif
             }
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
