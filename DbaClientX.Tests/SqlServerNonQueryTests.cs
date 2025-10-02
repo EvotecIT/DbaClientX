@@ -51,8 +51,8 @@ public class SqlServerNonQueryTests
 
         sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET c=1 WHERE id=@id", parameters);
 
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]
@@ -232,8 +232,8 @@ public class SqlServerNonQueryTests
 
         await sqlServer.ExecuteNonQueryAsync("s", "db", true, "UPDATE t SET c=1 WHERE id=@id", parameters);
 
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]

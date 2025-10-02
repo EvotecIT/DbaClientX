@@ -32,12 +32,12 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
     /// <summary>Specifies the path to the SQLite database file.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Database { get; set; }
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>Defines the SQL query to execute.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter]
@@ -54,31 +54,40 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
 
     /// <summary>Provides additional query parameters.</summary>
     [Parameter]
-    public Hashtable Parameters { get; set; }
+    public Hashtable? Parameters { get; set; }
 
     private ActionPreference ErrorAction;
 
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override Task BeginProcessingAsync() {
         ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
         if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
+            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
+            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
                 ErrorAction = actionPreference;
             }
         }
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override async Task ProcessRecordAsync() {
+        await Task.Yield();
         using var sqlite = SQLiteFactory();
         sqlite.ReturnType = ReturnType;
         sqlite.CommandTimeout = QueryTimeout;
         try {
             IDictionary<string, object?>? parameters = null;
             if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
-                    de => de.Key.ToString(),
-                    de => de.Value);
+                parameters = Parameters.Cast<DictionaryEntry>()
+                    .Where(de => de.Key != null)
+                    .ToDictionary(
+                        de => de.Key!.ToString()!,
+                        de => (object?)de.Value);
             }
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {

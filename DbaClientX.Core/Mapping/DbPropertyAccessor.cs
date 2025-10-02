@@ -216,8 +216,9 @@ public static class DbPropertyAccessor
         return false;
     }
 
-    private static PropertyInfo? FindPropertyIgnoreCase(Type type, string name)
+    private static PropertyInfo? FindPropertyIgnoreCase(Type? type, string name)
     {
+        if (type is null) return null;
         // Prefer case-insensitive name match, public instance properties
         var p = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
         return p;

@@ -239,7 +239,10 @@ public partial class SQLite
             if (dispose)
             {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
+                if (connection != null)
+                {
+                    await connection.DisposeAsync().ConfigureAwait(false);
+                }
 #else
                 connection?.Dispose();
 #endif

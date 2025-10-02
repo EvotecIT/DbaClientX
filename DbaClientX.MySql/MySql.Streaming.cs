@@ -22,7 +22,7 @@ public partial class MySql
         string query,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default,
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
@@ -77,7 +77,7 @@ public partial class MySql
         string procedure,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default,
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
@@ -132,7 +132,7 @@ public partial class MySql
         string procedure,
         IEnumerable<DbParameter>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default)
     {
         return Stream();
 

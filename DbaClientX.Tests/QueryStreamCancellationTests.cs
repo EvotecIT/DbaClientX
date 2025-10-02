@@ -1,4 +1,6 @@
 using System;
+#pragma warning disable CS8765 // Nullability of parameter doesn't match overridden member
+#pragma warning disable CS8764 // Nullability of return type doesn't match overridden member
 using System.Collections;
 using System.Collections.Generic;
 using System.Data;
@@ -49,12 +51,12 @@ public class QueryStreamCancellationTests
             _onDispose = onDispose;
         }
 
-        public override string? CommandText { get; set; }
+        public override string CommandText { get; set; } = string.Empty;
         public override int CommandTimeout { get; set; }
         public override CommandType CommandType { get; set; }
         public override bool DesignTimeVisible { get; set; }
         public override UpdateRowSource UpdatedRowSource { get; set; }
-        protected override DbConnection? DbConnection { get; set; }
+        protected override DbConnection DbConnection { get; set; } = null!;
         protected override DbParameterCollection DbParameterCollection { get; } = new TestDbParameterCollection();
         protected override DbTransaction? DbTransaction { get; set; }
 
@@ -162,7 +164,7 @@ public class QueryStreamCancellationTests
         public override bool IsNullable { get; set; }
         public override string ParameterName { get; set; } = string.Empty;
         public override string SourceColumn { get; set; } = string.Empty;
-        public override object? Value { get; set; }
+        public override object Value { get; set; } = new object();
         public override bool SourceColumnNullMapping { get; set; }
         public override int Size { get; set; }
         public override byte Precision { get; set; }

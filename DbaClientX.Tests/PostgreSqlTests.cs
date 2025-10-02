@@ -198,8 +198,8 @@ public class PostgreSqlTests
 
         await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
 
-        Assert.Contains(pg.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(pg.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(pg.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]
@@ -289,8 +289,8 @@ public class PostgreSqlTests
         };
         pg.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
         Assert.Equal(CommandType.StoredProcedure, pg.CapturedCommandType);
-        Assert.Contains(pg.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
-        Assert.Contains(pg.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@id" && p.Value is int v && v == 1);
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@name" && p.Value is string s && s == "n");
     }
 
     [Fact]

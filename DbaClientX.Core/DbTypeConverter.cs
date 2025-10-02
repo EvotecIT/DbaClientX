@@ -10,7 +10,7 @@ namespace DBAClientX;
 /// </summary>
 public static class DbTypeConverter
 {
-    private static class TypeCache<TDbType>
+    private static class TypeCache<TDbType> where TDbType : notnull
     {
         /// <summary>
         /// Cache of provider-specific types mapped to <see cref="DbType"/> values.
@@ -32,6 +32,7 @@ public static class DbTypeConverter
         Func<TParameter> parameterFactory,
         Action<TParameter, TDbType> assignType)
         where TParameter : DbParameter
+        where TDbType : notnull
     {
         if (types == null)
         {

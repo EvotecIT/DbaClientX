@@ -21,7 +21,7 @@ public partial class SqlServer
         string query,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default,
         IDictionary<string, SqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null,
         string? username = null,
@@ -64,7 +64,7 @@ public partial class SqlServer
         string procedure,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default,
         IDictionary<string, SqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null,
         string? username = null,
@@ -107,7 +107,7 @@ public partial class SqlServer
         string procedure,
         IEnumerable<DbParameter>? parameters = null,
         bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        CancellationToken cancellationToken = default,
         string? username = null,
         string? password = null)
     {

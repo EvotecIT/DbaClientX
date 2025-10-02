@@ -37,7 +37,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     /// <summary>Name of the table to select from.</summary>
     [Parameter(Mandatory = true, Position = 0)]
     [ValidateNotNullOrEmpty]
-    public string TableName { get; set; }
+    public string TableName { get; set; } = string.Empty;
 
     /// <summary>Compiles the query to a SQL string.</summary>
     [Parameter(Mandatory = false)]
@@ -53,6 +53,9 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
 
     private ActionPreference errorAction = ActionPreference.Continue;
 
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override void BeginProcessing() {
         if (MyInvocation.BoundParameters.TryGetValue("ErrorAction", out var value)) {
             if (Enum.TryParse(value.ToString(), true, out ActionPreference actionPreference)) {
@@ -61,6 +64,9 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
     }
 
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override void ProcessRecord() {
         var query = DBAClientX.QueryBuilder.QueryBuilder.Query().From(TableName);
 

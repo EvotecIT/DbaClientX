@@ -15,7 +15,7 @@ public class MySqlStoredProcedureStreamTests
     {
         public List<MySqlParameter> Captured { get; } = new();
 
-        public override IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public override IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string database, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
         {
             return Stream();
 
@@ -52,7 +52,7 @@ public class MySqlStoredProcedureStreamTests
         }
 
         Assert.Equal(new[] { 1 }, list);
-        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && p.Value is int v && v == 1);
     }
 }
 

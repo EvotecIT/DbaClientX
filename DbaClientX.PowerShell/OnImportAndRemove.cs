@@ -6,7 +6,13 @@ using System.Reflection;
 using System.Runtime.Loader;
 #endif
 
+/// <summary>
+/// Handles module import/removal events and resolves dependent assemblies for both .NET Framework and .NET (Core/5+).
+/// </summary>
 public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemblyCleanup {
+    /// <summary>
+    /// Called by PowerShell when the module is imported. Wires up assembly resolution for Framework/Core.
+    /// </summary>
     public void OnImport() {
         if (IsNetFramework()) {
             AppDomain.CurrentDomain.AssemblyResolve += MyResolveEventHandler;
@@ -18,6 +24,9 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 #endif
     }
 
+    /// <summary>
+    /// Called by PowerShell when the module is removed. Unhooks assembly resolvers.
+    /// </summary>
     public void OnRemove(PSModuleInfo module) {
         if (IsNetFramework()) {
             AppDomain.CurrentDomain.AssemblyResolve -= MyResolveEventHandler;
@@ -29,10 +38,13 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 #endif
     }
 
-    private static Assembly MyResolveEventHandler(object sender, ResolveEventArgs args) {
+    private static Assembly? MyResolveEventHandler(object? sender, ResolveEventArgs args) {
         //This code is used to resolve the assemblies
         //Console.WriteLine($"Resolving {args.Name}");
         var directoryPath = Path.GetDirectoryName(typeof(OnModuleImportAndRemove).Assembly.Location);
+        if (string.IsNullOrEmpty(directoryPath)) {
+            return null;
+        }
         var filesInDirectory = Directory.GetFiles(directoryPath);
 
         foreach (var file in filesInDirectory) {
@@ -44,7 +56,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 return Assembly.LoadFile(file);
             }
         }
-        return null!;
+        return null;
     }
 
 #if NET5_0_OR_GREATER
@@ -53,6 +65,9 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 
     private static readonly ModuleLoadContext _alc = new ModuleLoadContext(_assemblyDir);
 
+    /// <summary>
+    /// Gets the module's dedicated AssemblyLoadContext used for resolving dependent assemblies.
+    /// </summary>
     public static AssemblyLoadContext LoadContext => _alc;
 
     private static Assembly? ResolveAlc(AssemblyLoadContext defaultAlc, AssemblyName assemblyToResolve) {
