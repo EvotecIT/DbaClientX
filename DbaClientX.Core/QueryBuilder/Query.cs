@@ -17,6 +17,7 @@ public class Query
     private readonly List<IReadOnlyList<object>> _values = new();
     private bool _isUpsert;
     private readonly List<string> _conflictColumns = new();
+    private readonly List<string> _upsertUpdateOnly = new();
     private string _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
     private string _deleteTable;
@@ -378,6 +379,17 @@ public class Query
         return this;
     }
 
+    /// <summary>
+    /// Limits the set of columns updated during an UPSERT to the provided list. If not set, all insert columns are updated.
+    /// </summary>
+    public Query UpsertUpdateOnly(params string[] columns)
+    {
+        ValidateStrings(columns, nameof(columns));
+        _upsertUpdateOnly.Clear();
+        _upsertUpdateOnly.AddRange(columns);
+        return this;
+    }
+
     public Query Update(string table)
     {
         ValidateString(table, nameof(table));
@@ -564,6 +576,7 @@ public class Query
     public IReadOnlyList<IReadOnlyList<object>> InsertValues => _values;
     public bool IsUpsert => _isUpsert;
     public IReadOnlyList<string> ConflictColumns => _conflictColumns;
+    public IReadOnlyList<string> UpsertUpdateOnlyColumns => _upsertUpdateOnly;
     public string UpdateTable => _updateTable;
     public IReadOnlyList<(string Column, object Value)> SetValues => _set;
     public string DeleteTable => _deleteTable;
