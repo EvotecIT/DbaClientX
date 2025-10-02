@@ -15,6 +15,7 @@ public partial class SQLite : DatabaseClientBase
     private readonly object _syncRoot = new();
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
+    private bool _transactionInitializing;
 
     /// <summary>
     /// Gets a value indicating whether an explicit transaction scope is currently active.

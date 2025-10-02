@@ -29,7 +29,7 @@ public partial class SQLite
         {
             (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -39,7 +39,14 @@ public partial class SQLite
         {
             if (dispose)
             {
-                connection?.Dispose();
+                if (connection != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                    connection.Dispose();
+#endif
+                }
             }
         }
     }
@@ -74,7 +81,14 @@ public partial class SQLite
         {
             if (dispose)
             {
-                connection?.Dispose();
+                if (connection != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                    connection.Dispose();
+#endif
+                }
             }
         }
     }
@@ -99,7 +113,7 @@ public partial class SQLite
         {
             (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -109,7 +123,14 @@ public partial class SQLite
         {
             if (dispose)
             {
-                connection?.Dispose();
+                if (connection != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                    connection.Dispose();
+#endif
+                }
             }
         }
     }

@@ -131,6 +131,21 @@ public class SQLiteTransactionAsyncTests
     }
 
     [Fact]
+    public async Task BeginTransactionAsync_OnConcreteClient_ReservesInitialization()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+
+        var first = sqlite.BeginTransactionAsync(":memory:");
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(async () => await sqlite.BeginTransactionAsync(":memory:"));
+
+        await first;
+        Assert.True(sqlite.IsInTransaction);
+
+        await sqlite.RollbackAsync();
+        Assert.False(sqlite.IsInTransaction);
+    }
+
+    [Fact]
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var sqlite = new TestSQLite();

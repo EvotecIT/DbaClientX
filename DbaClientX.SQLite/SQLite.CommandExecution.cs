@@ -27,7 +27,7 @@ public partial class SQLite
         {
             connection = ResolveConnection(connectionString, useTransaction, out dispose);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -61,7 +61,7 @@ public partial class SQLite
         {
             connection = ResolveConnection(connectionString, useTransaction, out dispose);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -95,7 +95,7 @@ public partial class SQLite
         {
             connection = ResolveConnection(connectionString, useTransaction, out dispose);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {

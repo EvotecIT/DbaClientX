@@ -39,35 +39,60 @@ public partial class SQLite
     /// </summary>
     public virtual async Task BeginTransactionAsync(string database, CancellationToken cancellationToken = default)
     {
-        lock (_syncRoot)
+        SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
+        try
         {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction != null || _transactionInitializing)
+                {
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionInitializing = true;
             }
-        }
 
-        var connectionString = BuildConnectionString(database);
+            var connectionString = BuildConnectionString(database);
 
-        var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else
-        var transaction = connection.BeginTransaction();
+            transaction = connection.BeginTransaction();
 #endif
 
-        lock (_syncRoot)
-        {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                transaction.Dispose();
-                connection.Dispose();
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction != null)
+                {
+                    transaction.Dispose();
+                    connection.Dispose();
+                    _transactionInitializing = false;
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionConnection = connection;
+                _transaction = transaction;
+                _transactionInitializing = false;
+                connection = null;
+                transaction = null;
+            }
+        }
+        catch
+        {
+            lock (_syncRoot)
+            {
+                if (_transaction == null)
+                {
+                    _transactionInitializing = false;
+                }
             }
 
-            _transactionConnection = connection;
-            _transaction = transaction;
+            transaction?.Dispose();
+            connection?.Dispose();
+            throw;
         }
     }
 
@@ -195,6 +220,7 @@ public partial class SQLite
         _transaction = null;
         _transactionConnection?.Dispose();
         _transactionConnection = null;
+        _transactionInitializing = false;
     }
 
     /// <inheritdoc />

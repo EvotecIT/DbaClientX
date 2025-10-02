@@ -42,16 +42,21 @@ public partial class SQLite
         }
 
         var dbTypes = ConvertParameterTypes(parameterTypes);
+        if (connection == null)
+        {
+            throw new DbaQueryExecutionException("Failed to resolve connection for streaming.", query, new InvalidOperationException("The SQLite connection could not be resolved."));
+        }
+
         try
         {
-            await foreach (var row in ExecuteQueryStreamAsync(connection!, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+            await foreach (var row in base.ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
             {
                 yield return row;
             }
         }
         finally
         {
-            if (dispose && connection != null)
+            if (dispose)
             {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
                 await connection.DisposeAsync().ConfigureAwait(false);
