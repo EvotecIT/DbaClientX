@@ -36,23 +36,23 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
-    public string Server { get; set; }
+    public string Server { get; set; } = string.Empty;
 
     /// <summary>Defines the database name.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string Database { get; set; }
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>The SQL statement to execute.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [ValidateNotNullOrEmpty]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 
     /// <summary>Name of the stored procedure to run.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string StoredProcedure { get; set; }
+    public string StoredProcedure { get; set; } = string.Empty;
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
@@ -73,34 +73,31 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// <summary>Provides additional parameters for the query or procedure.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
-    public Hashtable Parameters { get; set; }
+    public Hashtable? Parameters { get; set; }
 
     /// <summary>Optional user name for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>Optional password for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     private ActionPreference ErrorAction;
 
     /// <summary>
     /// Begin processing method for PowerShell cmdlet
     /// </summary>
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override Task BeginProcessingAsync() {
         // Get the error action preference as user requested
         // It first sets the error action to the default error action preference
         // If the user has specified the error action, it will set the error action to the user specified error action
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
 
         return Task.CompletedTask;
     }
@@ -108,21 +105,18 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// <summary>
     /// Process method for PowerShell cmdlet
     /// </summary>
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override async Task ProcessRecordAsync() {
+        await Task.Yield();
         using var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
-            IDictionary<string, object?>? parameters = null;
-            IEnumerable<DbParameter>? dbParameters = null;
-            if (Parameters != null)
-            {
-                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
-                    de => de.Key.ToString(),
-                    de => de.Value);
-                dbParameters = parameters.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
+            IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
 
             // Streaming branch using asynchronous enumeration when supported
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER

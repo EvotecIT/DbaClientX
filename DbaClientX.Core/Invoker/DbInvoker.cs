@@ -15,6 +15,20 @@ namespace DBAClientX.Invoker;
 public static class DbInvoker
 {
     /// <summary>
+    /// Execution tuning options for batched and parallel invocations.
+    /// </summary>
+    public sealed class DbExecutionOptions
+    {
+        /// <summary>
+        /// Optional batch size for processing items. When null or less than or equal to 0, processes all items in a single batch.
+        /// </summary>
+        public int? BatchSize { get; init; }
+        /// <summary>
+        /// Optional maximum degree of parallelism per batch. When null or less than or equal to 1, executes sequentially.
+        /// </summary>
+        public int? ParallelDegree { get; init; }
+    }
+    /// <summary>
     /// Executes a parameterized SQL statement once per item, mapping properties to parameters using <paramref name="map"/>.
     /// </summary>
     /// <param name="providerAlias">Provider alias: sqlite, sqlserver|mssql, postgresql|pgsql|postgres, mysql, oracle.</param>
@@ -23,6 +37,7 @@ public static class DbInvoker
     /// <param name="items">Items to map and execute against (one execution per item).</param>
     /// <param name="map">Logical-to-provider parameter map (e.g., Map["User.Name"] = "@UserName").</param>
     /// <param name="options">Mapping options (enum handling, time conversions, custom converters).</param>
+    /// <param name="execOptions">Execution options controlling batch size and parallelism.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <param name="providerAssembly">Optional provider assembly hint (when not already loaded).</param>
     /// <param name="ambient">Ambient values available to mapping keys (e.g., RunId, TsUtc).</param>
@@ -35,6 +50,7 @@ public static class DbInvoker
         IEnumerable<object> items,
         IReadOnlyDictionary<string, string> map,
         DbParameterMapperOptions? options = null,
+        DbExecutionOptions? execOptions = null,
         CancellationToken ct = default,
         Assembly? providerAssembly = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
@@ -50,12 +66,53 @@ public static class DbInvoker
             throw new InvalidOperationException($"GenericExecutors for provider '{providerAlias}' not found.");
         }
         options ??= new DbParameterMapperOptions();
+        execOptions ??= new DbExecutionOptions();
+        var list = items as IList<object> ?? items.ToList();
         var affected = 0;
-        foreach (var item in items)
+
+        IEnumerable<IList<object>> Batches()
         {
-            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-            var task = InvokeExecutor(exec, connectionString, sql, parameters, ct);
-            affected += await task.ConfigureAwait(false);
+            int size = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
+            for (int i = 0; i < list.Count; i += size)
+            {
+                yield return list.Skip(i).Take(Math.Min(size, list.Count - i)).ToList();
+            }
+        }
+
+        foreach (var batch in Batches())
+        {
+            int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
+            if (degree <= 1)
+            {
+                foreach (var item in batch)
+                {
+                    var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                    var task = InvokeExecutor(exec, connectionString, sql, parameters, ct);
+                    affected += await task.ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                using var sem = new SemaphoreSlim(degree, degree);
+                var tasks = new List<Task>();
+                var local = 0;
+                foreach (var item in batch)
+                {
+                    await sem.WaitAsync(ct).ConfigureAwait(false);
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                            var t = await InvokeExecutor(exec, connectionString, sql, parameters, ct).ConfigureAwait(false);
+                            Interlocked.Add(ref local, t);
+                        }
+                        finally { sem.Release(); }
+                    }, ct));
+                }
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+                affected += local;
+            }
         }
         return affected;
     }
@@ -69,6 +126,7 @@ public static class DbInvoker
     /// <param name="items">Items to map and execute against (one execution per item).</param>
     /// <param name="map">Logical-to-provider parameter map.</param>
     /// <param name="options">Mapping options.</param>
+    /// <param name="execOptions">Execution options controlling batch size and parallelism.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <param name="providerAssembly">Optional provider assembly hint.</param>
     /// <param name="ambient">Ambient values available to mappings.</param>
@@ -81,6 +139,7 @@ public static class DbInvoker
         IEnumerable<object> items,
         IReadOnlyDictionary<string, string> map,
         DbParameterMapperOptions? options = null,
+        DbExecutionOptions? execOptions = null,
         CancellationToken ct = default,
         Assembly? providerAssembly = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
@@ -96,12 +155,51 @@ public static class DbInvoker
             throw new InvalidOperationException($"GenericExecutors.ExecuteProcedureAsync for provider '{providerAlias}' not found.");
         }
         options ??= new DbParameterMapperOptions();
+        execOptions ??= new DbExecutionOptions();
+        var list = items as IList<object> ?? items.ToList();
         var affected = 0;
-        foreach (var item in items)
+        IEnumerable<IList<object>> Batches()
         {
-            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-            var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
-            affected += await task.ConfigureAwait(false);
+            int size = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
+            for (int i = 0; i < list.Count; i += size)
+            {
+                yield return list.Skip(i).Take(Math.Min(size, list.Count - i)).ToList();
+            }
+        }
+        foreach (var batch in Batches())
+        {
+            int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
+            if (degree <= 1)
+            {
+                foreach (var item in batch)
+                {
+                    var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                    var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
+                    affected += await task.ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                using var sem = new SemaphoreSlim(degree, degree);
+                var tasks = new List<Task>();
+                var local = 0;
+                foreach (var item in batch)
+                {
+                    await sem.WaitAsync(ct).ConfigureAwait(false);
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                            var t = await InvokeExecutor(exec, connectionString, procedure, parameters, ct).ConfigureAwait(false);
+                            Interlocked.Add(ref local, t);
+                        }
+                        finally { sem.Release(); }
+                    }, ct));
+                }
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+                affected += local;
+            }
         }
         return affected;
     }

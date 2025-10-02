@@ -196,8 +196,8 @@ public class MySqlTests
 
         await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters);
 
-        Assert.Contains(mySql.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(mySql.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]
@@ -296,8 +296,8 @@ public class MySqlTests
         };
         mySql.ExecuteStoredProcedure("h", "d", "u", "p", "sp_test", parameters);
         Assert.Equal(CommandType.StoredProcedure, mySql.CapturedCommandType);
-        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
-        Assert.Contains(mySql.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && p.Value is int v && v == 1);
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@name" && p.Value is string s && s == "n");
     }
 
     [Fact]

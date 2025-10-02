@@ -26,17 +26,17 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
     [Parameter(Mandatory = true)]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
-    public string Server { get; set; }
+    public string Server { get; set; } = string.Empty;
 
     /// <summary>Defines the target database.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Database { get; set; }
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>The SQL command to execute.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter]
@@ -44,40 +44,35 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
 
     /// <summary>Provides parameters for the SQL command.</summary>
     [Parameter]
-    public Hashtable Parameters { get; set; }
+    public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
     [Parameter(Mandatory = true)]
     [ValidateNotNullOrEmpty]
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     private ActionPreference ErrorAction;
 
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override void BeginProcessing() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
     }
 
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override void ProcessRecord() {
         using var mySql = MySqlFactory();
         mySql.CommandTimeout = QueryTimeout;
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
-                    de => de.Key.ToString(),
-                    de => de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = mySql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {

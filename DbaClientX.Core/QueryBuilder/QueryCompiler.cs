@@ -106,7 +106,7 @@ public class QueryCompiler
         sb.Append(_dialect).Append('|');
         sb.Append(string.Join(",", query.SelectColumns)).Append('|');
         sb.Append(query.IsDistinct).Append('|');
-        sb.Append(query.Table).Append('|');
+        sb.Append(query.Table ?? string.Empty).Append('|');
         if (query.FromSubquery.HasValue)
         {
             var (sub, alias) = query.FromSubquery.Value;
@@ -160,7 +160,7 @@ public class QueryCompiler
         }
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
         {
-            sb.Append("I:").Append(query.InsertTable).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':').Append(query.InsertValues.Count).Append('|');
+            sb.Append("I:").Append(query.InsertTable!).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':').Append(query.InsertValues.Count).Append('|');
             if (query.IsUpsert)
             {
                 sb.Append("U:").Append(string.Join(",", query.ConflictColumns)).Append('|');
@@ -172,11 +172,11 @@ public class QueryCompiler
         }
         if (!string.IsNullOrWhiteSpace(query.UpdateTable))
         {
-            sb.Append("UP:").Append(query.UpdateTable).Append('(').Append(string.Join(",", query.SetValues.Select(s => s.Column))).Append(')').Append('|');
+            sb.Append("UP:").Append(query.UpdateTable!).Append('(').Append(string.Join(",", query.SetValues.Select(s => s.Column))).Append(')').Append('|');
         }
         if (!string.IsNullOrWhiteSpace(query.DeleteTable))
         {
-            sb.Append("D:").Append(query.DeleteTable).Append('|');
+            sb.Append("D:").Append(query.DeleteTable!).Append('|');
         }
         if (query.OrderByColumns.Count > 0)
         {
@@ -229,7 +229,7 @@ public class QueryCompiler
             {
                 return CompileUpsert(query, parameters);
             }
-            sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
+            sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable!));
 
             if (query.InsertColumns.Count > 0)
             {
@@ -265,7 +265,7 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.UpdateTable))
         {
-            sb.Append("UPDATE ").Append(QuoteIdentifier(query.UpdateTable));
+            sb.Append("UPDATE ").Append(QuoteIdentifier(query.UpdateTable!));
             if (query.SetValues.Count > 0)
             {
                 sb.Append(" SET ");
@@ -293,7 +293,7 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.DeleteTable))
         {
-            sb.Append("DELETE FROM ").Append(QuoteIdentifier(query.DeleteTable));
+            sb.Append("DELETE FROM ").Append(QuoteIdentifier(query.DeleteTable!));
 
             if (query.WhereTokens.Count > 0)
             {
@@ -325,7 +325,7 @@ public class QueryCompiler
 
         if (!string.IsNullOrWhiteSpace(query.Table))
         {
-            sb.Append(" FROM ").Append(QuoteIdentifier(query.Table));
+            sb.Append(" FROM ").Append(QuoteIdentifier(query.Table!));
         }
         else if (query.FromSubquery.HasValue)
         {
@@ -418,7 +418,7 @@ public class QueryCompiler
         {
             case SqlDialect.PostgreSql:
             case SqlDialect.SQLite:
-                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
+                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable!));
                 sb.Append(" (").Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier))).Append(") VALUES (");
                 for (int i = 0; i < row.Count; i++)
                 {
@@ -451,7 +451,7 @@ public class QueryCompiler
                 }
                 return sb.ToString();
             case SqlDialect.MySql:
-                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable));
+                sb.Append("INSERT INTO ").Append(QuoteIdentifier(query.InsertTable!));
                 sb.Append(" (").Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier))).Append(") VALUES (");
                 for (int i = 0; i < row.Count; i++)
                 {
@@ -482,7 +482,7 @@ public class QueryCompiler
                 }
                 return sb.ToString();
             case SqlDialect.SqlServer:
-                sb.Append("MERGE INTO ").Append(QuoteIdentifier(query.InsertTable)).Append(" AS target USING (VALUES (");
+                sb.Append("MERGE INTO ").Append(QuoteIdentifier(query.InsertTable!)).Append(" AS target USING (VALUES (");
                 for (int i = 0; i < row.Count; i++)
                 {
                     if (i > 0)
@@ -690,7 +690,7 @@ public class QueryCompiler
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),
-            _ => value.ToString()
+            _ => value.ToString() ?? string.Empty
         };
     }
 }

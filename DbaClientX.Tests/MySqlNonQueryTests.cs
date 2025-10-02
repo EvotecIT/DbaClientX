@@ -92,8 +92,8 @@ public class MySqlNonQueryTests
 
         await mySql.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET c=1 WHERE id=@id", parameters);
 
-        Assert.Contains(mySql.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(mySql.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]

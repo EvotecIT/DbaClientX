@@ -186,8 +186,8 @@ public class OracleTests
 
         await oracle.QueryAsync("h", "svc", "u", "p", "SELECT 1 FROM dual", parameters);
 
-        Assert.Contains(oracle.Captured, p => p.Name == ":id" && (int)p.Value == 5);
-        Assert.Contains(oracle.Captured, p => p.Name == ":name" && (string)p.Value == "test");
+        Assert.Contains(oracle.Captured, p => p.Name == ":id" && p.Value is int v && v == 5);
+        Assert.Contains(oracle.Captured, p => p.Name == ":name" && p.Value is string s && s == "test");
     }
 
     [Fact]
@@ -289,8 +289,8 @@ public class OracleTests
         };
         oracle.ExecuteStoredProcedure("h", "svc", "u", "p", "sp_test", parameters);
         Assert.Equal(CommandType.StoredProcedure, oracle.CapturedCommandType);
-        Assert.Contains(oracle.Captured, p => p.ParameterName == ":id" && (int)p.Value == 1);
-        Assert.Contains(oracle.Captured, p => p.ParameterName == ":name" && (string)p.Value == "n");
+        Assert.Contains(oracle.Captured, p => p.ParameterName == ":id" && p.Value is int v && v == 1);
+        Assert.Contains(oracle.Captured, p => p.ParameterName == ":name" && p.Value is string s && s == "n");
     }
 
     [Fact]

@@ -11,19 +11,19 @@ public class Query
 {
     private readonly List<string> _select = new();
     private bool _distinct;
-    private string _from;
+    private string? _from;
     private (Query Query, string Alias)? _fromSubquery;
     private readonly List<(string Type, string Table, string? Condition)> _joins = new();
     private readonly List<IWhereToken> _where = new();
-    private string _insertTable;
+    private string? _insertTable;
     private readonly List<string> _insertColumns = new();
     private readonly List<IReadOnlyList<object>> _values = new();
     private bool _isUpsert;
     private readonly List<string> _conflictColumns = new();
     private readonly List<string> _upsertUpdateOnly = new();
-    private string _updateTable;
+    private string? _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
-    private string _deleteTable;
+    private string? _deleteTable;
     private readonly List<string> _orderBy = new();
     private readonly List<string> _groupBy = new();
     private readonly List<(string Column, string Operator, object Value)> _having = new();
@@ -830,7 +830,7 @@ public class Query
     /// <summary>
     /// Gets the table used in the <c>FROM</c> clause, when not using a subquery.
     /// </summary>
-    public string Table => _from;
+    public string? Table => _from;
 
     /// <summary>
     /// Gets the subquery used in the <c>FROM</c> clause, if any.
@@ -845,7 +845,7 @@ public class Query
     /// <summary>
     /// Gets the table targeted by an <c>INSERT</c> statement.
     /// </summary>
-    public string InsertTable => _insertTable;
+    public string? InsertTable => _insertTable;
 
     /// <summary>
     /// Gets the column list used for <c>INSERT</c> statements.
@@ -875,7 +875,7 @@ public class Query
     /// <summary>
     /// Gets the table targeted by an <c>UPDATE</c> statement.
     /// </summary>
-    public string UpdateTable => _updateTable;
+    public string? UpdateTable => _updateTable;
 
     /// <summary>
     /// Gets the column/value pairs configured for an <c>UPDATE</c> statement.
@@ -885,7 +885,7 @@ public class Query
     /// <summary>
     /// Gets the table targeted by a <c>DELETE</c> statement.
     /// </summary>
-    public string DeleteTable => _deleteTable;
+    public string? DeleteTable => _deleteTable;
 
     /// <summary>
     /// Gets the column expressions used for ordering.

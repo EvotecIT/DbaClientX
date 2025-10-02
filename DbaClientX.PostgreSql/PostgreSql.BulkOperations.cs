@@ -156,6 +156,14 @@ public partial class PostgreSql
         }
     }
 
+    /// <summary>
+    /// Writes all rows from <paramref name="table"/> into <paramref name="destinationTable"/> using PostgreSQL binary COPY.
+    /// </summary>
+    /// <param name="connection">An open PostgreSQL connection.</param>
+    /// <param name="table">Source table whose rows will be copied.</param>
+    /// <param name="destinationTable">Fully qualified destination table name.</param>
+    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation.</param>
+    /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
     protected virtual void WriteTable(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
     {
         var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
@@ -186,6 +194,15 @@ public partial class PostgreSql
         importer.Complete();
     }
 
+    /// <summary>
+    /// Asynchronously writes all rows from <paramref name="table"/> into <paramref name="destinationTable"/> using PostgreSQL binary COPY.
+    /// </summary>
+    /// <param name="connection">An open PostgreSQL connection.</param>
+    /// <param name="table">Source table whose rows will be copied.</param>
+    /// <param name="destinationTable">Fully qualified destination table name.</param>
+    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation.</param>
+    /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
     protected virtual async Task WriteTableAsync(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
     {
         var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
@@ -216,9 +233,23 @@ public partial class PostgreSql
         await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Creates a new <see cref="NpgsqlConnection"/> for the given connection string.
+    /// </summary>
+    /// <param name="connectionString">PostgreSQL connection string.</param>
+    /// <returns>A new, unopened <see cref="NpgsqlConnection"/>.</returns>
     protected virtual NpgsqlConnection CreateConnection(string connectionString) => new(connectionString);
 
+    /// <summary>
+    /// Opens the specified <paramref name="connection"/>.
+    /// </summary>
+    /// <param name="connection">The connection to open.</param>
     protected virtual void OpenConnection(NpgsqlConnection connection) => connection.Open();
 
+    /// <summary>
+    /// Asynchronously opens the specified <paramref name="connection"/>.
+    /// </summary>
+    /// <param name="connection">The connection to open.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
     protected virtual Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
 }

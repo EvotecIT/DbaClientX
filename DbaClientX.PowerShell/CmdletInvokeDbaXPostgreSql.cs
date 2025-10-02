@@ -36,23 +36,23 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
-    public string Server { get; set; }
+    public string Server { get; set; } = string.Empty;
 
     /// <summary>Defines the database name on the server.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string Database { get; set; }
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>Provides the SQL query text to execute.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [ValidateNotNullOrEmpty]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 
     /// <summary>Names the stored procedure to invoke.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string StoredProcedure { get; set; }
+    public string StoredProcedure { get; set; } = string.Empty;
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter(ParameterSetName = "Query")]
@@ -72,46 +72,41 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     /// <summary>Supplies parameters for the query or stored procedure.</summary>
     [Parameter(ParameterSetName = "Query")]
     [Parameter(ParameterSetName = "StoredProcedure")]
-    public Hashtable Parameters { get; set; }
+    public Hashtable? Parameters { get; set; }
 
     /// <summary>The user name for authentication.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>The password for authentication.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     private ActionPreference ErrorAction;
 
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override Task BeginProcessingAsync() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override async Task ProcessRecordAsync() {
+        await Task.Yield();
         using var postgreSql = PostgreSqlFactory();
         postgreSql.ReturnType = ReturnType;
         postgreSql.CommandTimeout = QueryTimeout;
         try {
-            IDictionary<string, object?>? parameters = null;
-            IEnumerable<DbParameter>? dbParameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
-                    de => de.Key.ToString(),
-                    de => de.Value);
-                dbParameters = parameters.Select(kvp => (DbParameter)new NpgsqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
+            IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new NpgsqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
                 var enumerable = postgreSql.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);

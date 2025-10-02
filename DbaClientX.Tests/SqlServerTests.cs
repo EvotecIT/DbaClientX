@@ -197,8 +197,8 @@ public class SqlServerTests
 
         await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters);
 
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && (int)p.Value == 5);
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && (string)p.Value == "test");
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Value is int v && v == 5);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Value is string s && s == "test");
     }
 
     [Fact]
@@ -288,8 +288,8 @@ public class SqlServerTests
         };
         sqlServer.ExecuteStoredProcedure("s", "db", true, "sp_test", parameters);
         Assert.Equal(CommandType.StoredProcedure, sqlServer.CapturedCommandType);
-        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@id" && (int)p.Value == 1);
-        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@name" && (string)p.Value == "n");
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@id" && p.Value is int v && v == 1);
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@name" && p.Value is string s && s == "n");
     }
 
     [Fact]

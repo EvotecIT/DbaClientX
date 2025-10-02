@@ -21,7 +21,7 @@ public static class GenericExecutors
     {
         var b = new NpgsqlConnectionStringBuilder(connectionString);
         var cli = new DBAClientX.PostgreSql();
-        return cli.ExecuteNonQueryAsync(b.Host, b.Database, b.Username, b.Password, sql, parameters, cancellationToken: ct);
+        return cli.ExecuteNonQueryAsync(b.Host ?? string.Empty, b.Database ?? string.Empty, b.Username ?? string.Empty, b.Password ?? string.Empty, sql, parameters, cancellationToken: ct);
     }
 
     /// <summary>Executes a stored procedure.</summary>
@@ -34,7 +34,7 @@ public static class GenericExecutors
     {
         var b = new NpgsqlConnectionStringBuilder(connectionString);
         var cli = new DBAClientX.PostgreSql();
-        await cli.ExecuteStoredProcedureAsync(b.Host, b.Database, b.Username, b.Password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
+        await cli.ExecuteStoredProcedureAsync(b.Host ?? string.Empty, b.Database ?? string.Empty, b.Username ?? string.Empty, b.Password ?? string.Empty, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
     }
 }

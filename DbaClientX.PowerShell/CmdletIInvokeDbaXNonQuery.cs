@@ -31,17 +31,17 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
-    public string Server { get; set; }
+    public string Server { get; set; } = string.Empty;
 
     /// <summary>Defines the target database.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [ValidateNotNullOrEmpty]
-    public string Database { get; set; }
+    public string Database { get; set; } = string.Empty;
 
     /// <summary>The SQL command to execute.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [ValidateNotNullOrEmpty]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
@@ -49,39 +49,34 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
 
     /// <summary>Provides parameters for the SQL command.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
-    public Hashtable Parameters { get; set; }
+    public Hashtable? Parameters { get; set; }
 
     /// <summary>Optional user name for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>Optional password for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     private ActionPreference ErrorAction;
 
+    /// <summary>
+    /// Initializes cmdlet state before pipeline execution begins.
+    /// </summary>
     protected override void BeginProcessing() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            string errorActionString = this.MyInvocation.BoundParameters["ErrorAction"].ToString();
-            if (Enum.TryParse(errorActionString, true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
     }
 
+    /// <summary>
+    /// Processes input and performs the cmdlet's primary work.
+    /// </summary>
     protected override void ProcessRecord() {
         using var sqlServer = SqlServerFactory();
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>().ToDictionary(
-                    de => de.Key.ToString(),
-                    de => de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 
             var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             WriteObject(affected);
