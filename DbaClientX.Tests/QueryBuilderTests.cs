@@ -77,7 +77,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", sql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"name\" = EXCLUDED.\"name\"", sql);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
-        Assert.Equal("INSERT INTO `users` (`id`, `name`) VALUES (1, 'Bob') ON DUPLICATE KEY UPDATE `id` = VALUES(`id`), `name` = VALUES(`name`)", sql);
+        Assert.Equal("INSERT INTO `users` (`id`, `name`) VALUES (1, 'Bob') ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)", sql);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
-        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"name\" = EXCLUDED.\"name\"", sql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"name\") VALUES (1, 'Bob') ON CONFLICT (\"id\") DO UPDATE SET \"name\" = EXCLUDED.\"name\"", sql);
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'Bob')) AS source ([id], [name]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[id] = source.[id], target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name]) VALUES (source.[id], source.[name])", sql);
+        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'Bob')) AS source ([id], [name]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name]) VALUES (source.[id], source.[name])", sql);
     }
 
     [Fact]
@@ -117,7 +117,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
-        Assert.Equal("INSERT INTO `users` (`id`, `email`, `name`) VALUES (1, 'bob@example.com', 'Bob') ON DUPLICATE KEY UPDATE `id` = VALUES(`id`), `email` = VALUES(`email`), `name` = VALUES(`name`)", sql);
+        Assert.Equal("INSERT INTO `users` (`id`, `email`, `name`) VALUES (1, 'bob@example.com', 'Bob') ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)", sql);
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"email\" = EXCLUDED.\"email\", \"name\" = EXCLUDED.\"name\"", sql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"name\" = EXCLUDED.\"name\"", sql);
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SQLite);
-        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"id\" = EXCLUDED.\"id\", \"email\" = EXCLUDED.\"email\", \"name\" = EXCLUDED.\"name\"", sql);
+        Assert.Equal("INSERT INTO \"users\" (\"id\", \"email\", \"name\") VALUES (1, 'bob@example.com', 'Bob') ON CONFLICT (\"id\", \"email\") DO UPDATE SET \"name\" = EXCLUDED.\"name\"", sql);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'bob@example.com', 'Bob')) AS source ([id], [email], [name]) ON (target.[id] = source.[id] AND target.[email] = source.[email]) WHEN MATCHED THEN UPDATE SET target.[id] = source.[id], target.[email] = source.[email], target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [email], [name]) VALUES (source.[id], source.[email], source.[name])", sql);
+        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'bob@example.com', 'Bob')) AS source ([id], [email], [name]) ON (target.[id] = source.[id] AND target.[email] = source.[email]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [email], [name]) VALUES (source.[id], source.[email], source.[name])", sql);
     }
 
     [Fact]
