@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace DBAClientX.OracleGeneric;
 
 /// <summary>
-/// Generic, reflection-friendly façade for executing SQL or stored procedures via Oracle connection info.
+/// Generic, reflection-friendly façade for executing SQL or stored procedures via an Oracle connection string.
 /// Internally forwards to <see cref="DBAClientX.Oracle"/>.
 /// </summary>
 public static class GenericExecutors
@@ -39,7 +39,6 @@ public static class GenericExecutors
         return cli.ExecuteNonQueryAsync(host, service, b.UserID, b.Password, sql, parameters, cancellationToken: ct);
     }
 
-    // Procedure variant mirrors the provider signature
     /// <summary>Executes a stored procedure.</summary>
     /// <param name="host">Oracle host name or address.</param>
     /// <param name="serviceName">Oracle service or SID.</param>
