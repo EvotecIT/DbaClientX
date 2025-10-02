@@ -12,7 +12,8 @@ using System.Runtime.CompilerServices;
 namespace DBAClientX;
 
 /// <summary>
-/// Database client for Oracle
+/// Provides high-level convenience operations for interacting with an Oracle database using the shared
+/// <see cref="DatabaseClientBase"/> abstractions.
 /// </summary>
 public class Oracle : DatabaseClientBase
 {
@@ -20,8 +21,31 @@ public class Oracle : DatabaseClientBase
     private OracleConnection? _transactionConnection;
     private OracleTransaction? _transaction;
 
+    /// <summary>
+    /// Gets a value indicating whether the client currently has an active transaction scope.
+    /// </summary>
+    /// <remarks>
+    /// The flag is toggled when <see cref="BeginTransaction(string, string, string, string)"/> or
+    /// <see cref="BeginTransactionAsync(string, string, string, string, System.Threading.CancellationToken)"/> is invoked and
+    /// returns to <see langword="false"/> after <see cref="Commit"/>, <see cref="Rollback"/>, or the async counterparts dispose the
+    /// transaction.
+    /// </remarks>
     public bool IsInTransaction => _transaction != null;
 
+    /// <summary>
+    /// Builds a <see cref="OracleConnectionStringBuilder"/> connection string from individual connection components.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="port">Optional TCP port; when omitted the provider default is used.</param>
+    /// <returns>The generated connection string.</returns>
+    /// <remarks>
+    /// The builder enables connection pooling by default so repeated operations reuse the same socket where possible, lowering
+    /// latency and resource consumption for high-frequency workloads. Adjust pooling-related properties on the returned string when
+    /// connection storm scenarios require tighter control.
+    /// </remarks>
     public static string BuildConnectionString(string host, string serviceName, string username, string password, int? port = null)
     {
         var builder = new OracleConnectionStringBuilder
@@ -34,6 +58,19 @@ public class Oracle : DatabaseClientBase
         return builder.ConnectionString;
     }
 
+    /// <summary>
+    /// Performs a synchronous connectivity test against the specified Oracle instance.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <returns><see langword="true"/> when executing <c>SELECT 1 FROM dual</c> succeeds; otherwise <see langword="false"/>.</returns>
+    /// <remarks>
+    /// Exceptions are swallowed to keep the call lightweight; call
+    /// <see cref="ExecuteScalar(string, string, string, string, string, IDictionary{string, object?}?, bool, IDictionary{string, OracleDbType}?, IDictionary{string, ParameterDirection}?)"/>
+    /// for detailed error information.
+    /// </remarks>
     public virtual bool Ping(string host, string serviceName, string username, string password)
     {
         try
@@ -47,6 +84,20 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Performs an asynchronous connectivity test against the specified Oracle instance.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying network call.</param>
+    /// <returns><see langword="true"/> when executing <c>SELECT 1 FROM dual</c> succeeds; otherwise <see langword="false"/>.</returns>
+    /// <remarks>
+    /// Exceptions are swallowed to keep the call lightweight; call
+    /// <see cref="ExecuteScalarAsync(string, string, string, string, string, IDictionary{string, object?}?, bool, CancellationToken, IDictionary{string, OracleDbType}?, IDictionary{string, ParameterDirection}?)"/>
+    /// for detailed error information.
+    /// </remarks>
     public virtual async Task<bool> PingAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default)
     {
         try
@@ -63,6 +114,21 @@ public class Oracle : DatabaseClientBase
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, OracleDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new OracleParameter(), static (p, t) => p.OracleDbType = t);
 
+    /// <summary>
+    /// Executes a SQL query and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual object? Query(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -100,6 +166,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a SQL query and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying Oracle command.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A task producing the provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual async Task<object?> QueryAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -137,6 +219,21 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Executes a SQL query and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>The first column of the first row in the result set, or <see langword="null"/> when no rows are returned.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual object? ExecuteScalar(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -174,6 +271,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a SQL query and returns the first column of the first row in the result set.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying Oracle command.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A task producing the first column of the first row in the result set, or <see langword="null"/> when no rows are returned.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual async Task<object?> ExecuteScalarAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -212,6 +325,25 @@ public class Oracle : DatabaseClientBase
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    /// <summary>
+    /// Streams the results of a SQL query as an asynchronous sequence of <see cref="DataRow"/> instances.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel enumeration.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects representing the results.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <remarks>
+    /// Use this overload when result sets are too large to buffer in memory. The enumerable wraps <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>,
+    /// keeping the Oracle connection open until enumeration finishes. Dispose the enumerator or exhaust the stream to release resources promptly.
+    /// </remarks>
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return Stream();
@@ -255,6 +387,25 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Streams the results of an Oracle stored procedure execution as <see cref="DataRow"/> instances.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel enumeration.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects representing the procedure result sets.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <remarks>
+    /// Stream stored procedure output when large REF CURSOR payloads or long-running batches would otherwise exhaust memory. The enumerable delegates to <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>,
+    /// keeping the Oracle connection open until enumeration finishes. Dispose the enumerator or exhaust the stream to release resources promptly.
+    /// </remarks>
     public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return Stream();
@@ -298,6 +449,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Streams the results of an Oracle stored procedure using pre-built <see cref="DbParameter"/> instances.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional collection of preconfigured parameters to send to Oracle.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel enumeration.</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> objects representing the procedure result sets.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <remarks>
+    /// Use this overload when advanced Oracle data types or parameter binding scenarios require manually constructed parameters. The enumerable keeps the connection open until enumeration completes.
+    /// </remarks>
     public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string serviceName, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         return Stream();
@@ -341,6 +508,21 @@ public class Oracle : DatabaseClientBase
     }
 #endif
 
+    /// <summary>
+    /// Executes a SQL statement that does not return rows, such as INSERT, UPDATE, or DELETE.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>The number of rows affected.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual int ExecuteNonQuery(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -378,6 +560,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes a SQL statement that does not return rows, such as INSERT, UPDATE, or DELETE.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="query">SQL text to execute.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying Oracle command.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A task producing the number of rows affected.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual async Task<int> ExecuteNonQueryAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -415,6 +613,21 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Executes an Oracle stored procedure and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual object? ExecuteStoredProcedure(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -474,6 +687,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes an Oracle stored procedure and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional parameter bag matching Oracle parameter names to values.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying Oracle command.</param>
+    /// <param name="parameterTypes">Optional parameter type hints keyed by parameter name.</param>
+    /// <param name="parameterDirections">Optional direction overrides keyed by parameter name.</param>
+    /// <returns>A task producing the provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -533,6 +762,19 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Executes an Oracle stored procedure using pre-built <see cref="DbParameter"/> instances.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional collection of preconfigured parameters to send to Oracle.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <returns>A provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual object? ExecuteStoredProcedure(string host, string serviceName, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -589,6 +831,20 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously executes an Oracle stored procedure using pre-built <see cref="DbParameter"/> instances.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Optional collection of preconfigured parameters to send to Oracle.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="cancellationToken">Token used to cancel the underlying Oracle command.</param>
+    /// <returns>A task producing the provider-agnostic result object composed by <see cref="DatabaseClientBase.BuildResult(DataSet)"/>.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during execution.</exception>
     public virtual async Task<object?> ExecuteStoredProcedureAsync(string host, string serviceName, string username, string password, string procedure, IEnumerable<DbParameter>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default)
     {
         var connectionString = BuildConnectionString(host, serviceName, username, password);
@@ -645,6 +901,21 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Performs a bulk insert into an Oracle table using <see cref="OracleBulkCopy"/>.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="table">Source data to insert.</param>
+    /// <param name="destinationTable">Fully qualified destination table name.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="batchSize">Optional batch size used to split uploads into chunks.</param>
+    /// <param name="bulkCopyTimeout">Optional command timeout in seconds for the bulk copy operation.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="table"/> is <see langword="null"/>.</exception>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during bulk copy.</exception>
     public virtual void BulkInsert(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null)
     {
         if (table == null) throw new ArgumentNullException(nameof(table));
@@ -712,6 +983,22 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously performs a bulk insert into an Oracle table using <see cref="OracleBulkCopy"/>.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="table">Source data to insert.</param>
+    /// <param name="destinationTable">Fully qualified destination table name.</param>
+    /// <param name="useTransaction"><see langword="true"/> to reuse the ambient transaction started by <see cref="BeginTransaction(string, string, string, string)"/>.</param>
+    /// <param name="batchSize">Optional batch size used to split uploads into chunks.</param>
+    /// <param name="bulkCopyTimeout">Optional command timeout in seconds for the bulk copy operation.</param>
+    /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="table"/> is <see langword="null"/>.</exception>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
+    /// <exception cref="DbaQueryExecutionException">Wraps any Oracle exception encountered during bulk copy.</exception>
     public virtual async Task BulkInsertAsync(string host, string serviceName, string username, string password, DataTable table, string destinationTable, bool useTransaction = false, int? batchSize = null, int? bulkCopyTimeout = null, CancellationToken cancellationToken = default)
     {
         if (table == null) throw new ArgumentNullException(nameof(table));
@@ -779,25 +1066,81 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Creates the <see cref="OracleBulkCopy"/> instance used by the bulk insert helpers.
+    /// </summary>
+    /// <param name="connection">Open Oracle connection.</param>
+    /// <param name="transaction">Optional ambient transaction.</param>
+    /// <returns>The bulk copy instance to use for the operation.</returns>
+    /// <remarks>Override to configure provider-specific options such as array binding or internal buffering strategies.</remarks>
     protected virtual OracleBulkCopy CreateBulkCopy(OracleConnection connection, OracleTransaction? transaction) => new(connection);
 
+    /// <summary>
+    /// Performs the synchronous write for the supplied <see cref="OracleBulkCopy"/>.
+    /// </summary>
+    /// <param name="bulkCopy">Bulk copy instance.</param>
+    /// <param name="table">Source table data.</param>
+    /// <remarks>Override to customize batching or to hook telemetry.</remarks>
     protected virtual void WriteToServer(OracleBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
 
+    /// <summary>
+    /// Performs the asynchronous write for the supplied <see cref="OracleBulkCopy"/>.
+    /// </summary>
+    /// <param name="bulkCopy">Bulk copy instance.</param>
+    /// <param name="table">Source table data.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task representing the asynchronous copy.</returns>
+    /// <remarks>The default implementation delegates to the synchronous overload to preserve backwards compatibility.</remarks>
     protected virtual Task WriteToServerAsync(OracleBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
     {
         WriteToServer(bulkCopy, table);
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Creates an <see cref="OracleConnection"/> for the provided connection string.
+    /// </summary>
+    /// <param name="connectionString">Connection string generated by <see cref="BuildConnectionString(string, string, string, string, int?)"/> or provided externally.</param>
+    /// <returns>An unopened Oracle connection.</returns>
+    /// <remarks>Override to plug connection pooling or diagnostics scenarios.</remarks>
     protected virtual OracleConnection CreateConnection(string connectionString) => new(connectionString);
 
+    /// <summary>
+    /// Opens the supplied <see cref="OracleConnection"/> synchronously.
+    /// </summary>
+    /// <param name="connection">Connection to open.</param>
+    /// <remarks>Override to add logging or to handle provider-specific retries.</remarks>
     protected virtual void OpenConnection(OracleConnection connection) => connection.Open();
 
+    /// <summary>
+    /// Opens the supplied <see cref="OracleConnection"/> asynchronously.
+    /// </summary>
+    /// <param name="connection">Connection to open.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>A task representing the asynchronous open.</returns>
+    /// <remarks>Override to add logging or to handle provider-specific retries.</remarks>
     protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
 
+    /// <summary>
+    /// Begins a transaction using the Oracle connection derived from the provided credentials.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
     public virtual void BeginTransaction(string host, string serviceName, string username, string password) =>
         BeginTransaction(host, serviceName, username, password, IsolationLevel.ReadCommitted);
 
+    /// <summary>
+    /// Begins a transaction using the Oracle connection derived from the provided credentials and isolation level.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="isolationLevel">Transaction isolation level.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
     public virtual void BeginTransaction(string host, string serviceName, string username, string password, IsolationLevel isolationLevel)
     {
         lock (_syncRoot)
@@ -813,9 +1156,28 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously begins a transaction using the Oracle connection derived from the provided credentials.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
     public virtual Task BeginTransactionAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default) =>
         BeginTransactionAsync(host, serviceName, username, password, IsolationLevel.ReadCommitted, cancellationToken);
 
+    /// <summary>
+    /// Asynchronously begins a transaction using the Oracle connection derived from the provided credentials and isolation level.
+    /// </summary>
+    /// <param name="host">Host name or IP address of the Oracle listener.</param>
+    /// <param name="serviceName">Oracle service name or SID.</param>
+    /// <param name="username">User identifier.</param>
+    /// <param name="password">User password.</param>
+    /// <param name="isolationLevel">Transaction isolation level.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
     public virtual async Task BeginTransactionAsync(string host, string serviceName, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
     {
         lock (_syncRoot)
@@ -846,6 +1208,10 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Commits the active transaction.
+    /// </summary>
+    /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual void Commit()
     {
         lock (_syncRoot)
@@ -859,6 +1225,11 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously commits the active transaction.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the commit operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
     {
         OracleTransaction? tx;
@@ -889,6 +1260,10 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Rolls back the active transaction.
+    /// </summary>
+    /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual void Rollback()
     {
         lock (_syncRoot)
@@ -902,6 +1277,11 @@ public class Oracle : DatabaseClientBase
         }
     }
 
+    /// <summary>
+    /// Asynchronously rolls back the active transaction.
+    /// </summary>
+    /// <param name="cancellationToken">Token used to cancel the rollback operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
         OracleTransaction? tx;
@@ -948,9 +1328,18 @@ public class Oracle : DatabaseClientBase
         _transactionConnection = null;
     }
 
+    /// <summary>
+    /// Determines whether the specified exception represents a transient Oracle connectivity failure.
+    /// </summary>
+    /// <param name="ex">Exception to evaluate.</param>
+    /// <returns><see langword="true"/> when the exception number maps to a retryable Oracle error.</returns>
     protected override bool IsTransient(Exception ex) =>
         ex is OracleException oex && (oex.Number == 12541 || oex.Number == 12545 || oex.Number == 1089 || oex.Number == 3113 || oex.Number == 3114);
 
+    /// <summary>
+    /// Disposes the client and releases any held transaction resources.
+    /// </summary>
+    /// <param name="disposing">Indicates whether the method is invoked from <see cref="DatabaseClientBase.Dispose()"/>.</param>
     protected override void Dispose(bool disposing)
     {
         if (disposing)
