@@ -403,10 +403,16 @@ public class QueryCompiler
                 }
                 sb.Append(") ON CONFLICT (")
                   .Append(string.Join(", ", query.ConflictColumns.Select(QuoteIdentifier)))
-                  .Append(") DO UPDATE SET ");
+                  .Append(") ");
                 var updateColsPg = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
+                if (updateColsPg.Count == 0)
+                {
+                    sb.Append("DO NOTHING");
+                    return sb.ToString();
+                }
+                sb.Append("DO UPDATE SET ");
                 for (int i = 0; i < updateColsPg.Count; i++)
                 {
                     if (i > 0)
@@ -432,6 +438,12 @@ public class QueryCompiler
                 var updateColsMy = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
+                if (updateColsMy.Count == 0)
+                {
+                    var key = query.ConflictColumns.First();
+                    sb.Append(QuoteIdentifier(key)).Append(" = ").Append(QuoteIdentifier(key));
+                    return sb.ToString();
+                }
                 for (int i = 0; i < updateColsMy.Count; i++)
                 {
                     if (i > 0)
@@ -464,18 +476,22 @@ public class QueryCompiler
                     var col = query.ConflictColumns[i];
                     sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
                 }
-                sb.Append(") WHEN MATCHED THEN UPDATE SET ");
+                sb.Append(") ");
                 var updateColsMs = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
-                for (int i = 0; i < updateColsMs.Count; i++)
+                if (updateColsMs.Count > 0)
                 {
-                    if (i > 0)
+                    sb.Append("WHEN MATCHED THEN UPDATE SET ");
+                    for (int i = 0; i < updateColsMs.Count; i++)
                     {
-                        sb.Append(", ");
+                        if (i > 0)
+                        {
+                            sb.Append(", ");
+                        }
+                        var col = updateColsMs[i];
+                        sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
                     }
-                    var col = updateColsMs[i];
-                    sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
                 }
                 sb.Append(" WHEN NOT MATCHED THEN INSERT (")
                   .Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier)))
