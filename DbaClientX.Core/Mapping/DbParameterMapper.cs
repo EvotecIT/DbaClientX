@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace DBAClientX.Mapping;
 
+/// <summary>
+/// Provides configuration for mapping object properties to provider parameters.
+/// </summary>
 public sealed class DbParameterMapperOptions
 {
     /// <summary>
