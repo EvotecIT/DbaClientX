@@ -30,8 +30,16 @@ public static class GenericExecutors
 
     /// <summary>
     /// Executes a parameterized SQL statement using a full Oracle connection string.
-    /// Prefer this overload when available to avoid manual connection string parsing.
     /// </summary>
+    /// <param name="connectionString">Oracle provider connection string.</param>
+    /// <param name="sql">SQL text to execute.</param>
+    /// <param name="parameters">Parameter name/value map.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Number of affected rows.</returns>
+    /// <remarks>
+    /// Prefer this overload when callers already manage connection strings to avoid manual parsing. The helper attempts a best-effort split of the <c>Data Source</c>
+    /// component into host and service name for compatibility with <see cref="DBAClientX.Oracle.ExecuteNonQueryAsync(string, string, string, string, string, IDictionary{string, object?}?, bool, CancellationToken, IDictionary{string, global::Oracle.ManagedDataAccess.Client.OracleDbType}?, IDictionary{string, System.Data.ParameterDirection}?)"/>.
+    /// </remarks>
     public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
@@ -71,8 +79,16 @@ public static class GenericExecutors
 
     /// <summary>
     /// Executes a stored procedure using a full Oracle connection string.
-    /// Prefer this overload when available to avoid manual connection string parsing.
     /// </summary>
+    /// <param name="connectionString">Oracle provider connection string.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="parameters">Parameter name/value map.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
+    /// <remarks>
+    /// Prefer this overload when callers already manage connection strings to avoid manual parsing. The helper attempts a best-effort split of the <c>Data Source</c>
+    /// component into host and service name for compatibility with <see cref="DBAClientX.Oracle.ExecuteStoredProcedureAsync(string, string, string, string, string, IDictionary{string, object?}?, bool, CancellationToken, IDictionary{string, global::Oracle.ManagedDataAccess.Client.OracleDbType}?, IDictionary{string, System.Data.ParameterDirection}?)"/>.
+    /// </remarks>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
