@@ -7,6 +7,9 @@ using System.Text;
 
 namespace DBAClientX.QueryBuilder;
 
+/// <summary>
+/// Compiles <see cref="Query"/> objects into SQL text tailored to a specific <see cref="SqlDialect"/>.
+/// </summary>
 public class QueryCompiler
 {
     private readonly SqlDialect _dialect;
@@ -15,20 +18,39 @@ public class QueryCompiler
     private static readonly ConcurrentDictionary<string, string> _cache = new();
     private static readonly ConcurrentQueue<string> _cacheOrder = new();
 
+    /// <summary>
+    /// Gets the maximum number of compiled statements stored in the shared cache.
+    /// </summary>
     public static int CacheSizeLimit => MaxCacheSize;
+
+    /// <summary>
+    /// Gets the current number of cached statements.
+    /// </summary>
     public static int CacheCount => _cache.Count;
 
+    /// <summary>
+    /// Clears all cached compiled statements.
+    /// </summary>
     public static void ClearCache()
     {
         _cache.Clear();
         while (_cacheOrder.TryDequeue(out _)) { }
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="QueryCompiler"/> class for the specified dialect.
+    /// </summary>
+    /// <param name="dialect">The SQL dialect targeted by the compiler.</param>
     public QueryCompiler(SqlDialect dialect = SqlDialect.SqlServer)
     {
         _dialect = dialect;
     }
 
+    /// <summary>
+    /// Compiles the supplied query into SQL text.
+    /// </summary>
+    /// <param name="query">The query to compile.</param>
+    /// <returns>The SQL text.</returns>
     public string Compile(Query query)
     {
         var key = BuildCacheKey(query);
@@ -42,6 +64,11 @@ public class QueryCompiler
         return sql;
     }
 
+    /// <summary>
+    /// Compiles the supplied query into SQL text and collects ordered parameter values.
+    /// </summary>
+    /// <param name="query">The query to compile.</param>
+    /// <returns>A tuple containing the SQL text and parameter values.</returns>
     public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
     {
         var key = BuildCacheKey(query);

@@ -10,6 +10,10 @@ using System.Runtime.CompilerServices;
 
 namespace DBAClientX;
 
+/// <summary>
+/// Provides a common foundation for database client implementations, including
+/// retry logic, parameter handling, and result materialization helpers.
+/// </summary>
 public abstract class DatabaseClientBase : IDisposable
 {
     private readonly object _syncRoot = new();
@@ -22,18 +26,29 @@ public abstract class DatabaseClientBase : IDisposable
     private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
     private static readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 31 + Thread.CurrentThread.ManagedThreadId)));
 
+    /// <summary>
+    /// Gets or sets the desired return type for query executions.
+    /// </summary>
     public ReturnType ReturnType
     {
         get { lock (_syncRoot) { return _returnType; } }
         set { lock (_syncRoot) { _returnType = value; } }
     }
 
+    /// <summary>
+    /// Gets or sets the command timeout applied to database commands, in seconds.
+    /// Specify <c>0</c> to use the provider default.
+    /// </summary>
     public int CommandTimeout
     {
         get { lock (_syncRoot) { return _commandTimeout; } }
         set { lock (_syncRoot) { _commandTimeout = value; } }
     }
 
+    /// <summary>
+    /// Gets or sets the maximum number of retry attempts for transient failures.
+    /// A value lower than <c>1</c> is treated as a single attempt.
+    /// </summary>
     public int MaxRetryAttempts
     {
         get { lock (_syncRoot) { return _maxRetryAttempts; } }
@@ -47,14 +62,30 @@ public abstract class DatabaseClientBase : IDisposable
         }
     }
 
+    /// <summary>
+    /// Gets or sets the base delay between retry attempts. Exponential backoff
+    /// with jitter is derived from this value.
+    /// </summary>
     public TimeSpan RetryDelay
     {
         get { lock (_syncRoot) { return _retryDelay; } }
         set { lock (_syncRoot) { _retryDelay = value; } }
     }
 
+    /// <summary>
+    /// Determines whether an exception represents a transient failure that warrants a retry.
+    /// </summary>
+    /// <param name="ex">The exception encountered during execution.</param>
+    /// <returns><c>true</c> when the exception is transient; otherwise, <c>false</c>.</returns>
     protected virtual bool IsTransient(Exception ex) => false;
 
+    /// <summary>
+    /// Executes an operation with retry logic for transient failures.
+    /// </summary>
+    /// <typeparam name="T">The type of the result produced by the operation.</typeparam>
+    /// <param name="operation">The operation to execute.</param>
+    /// <returns>The result of the successful operation.</returns>
+    /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
     protected T ExecuteWithRetry<T>(Func<T> operation)
     {
         var attempts = 0;
@@ -84,6 +115,14 @@ public abstract class DatabaseClientBase : IDisposable
         throw lastException ?? new Exception("Operation failed.");
     }
 
+    /// <summary>
+    /// Asynchronously executes an operation with retry logic for transient failures.
+    /// </summary>
+    /// <typeparam name="T">The type of the result produced by the operation.</typeparam>
+    /// <param name="operation">The asynchronous operation to execute.</param>
+    /// <param name="cancellationToken">Token used to cancel the retries.</param>
+    /// <returns>The result of the successful operation.</returns>
+    /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
     protected async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
     {
         var attempts = 0;
@@ -128,6 +167,13 @@ public abstract class DatabaseClientBase : IDisposable
         return TimeSpan.FromMilliseconds(total);
     }
 
+    /// <summary>
+    /// Adds parameters created from dictionaries of values, types, and directions to the supplied command.
+    /// </summary>
+    /// <param name="command">The command receiving the parameters.</param>
+    /// <param name="parameters">Parameter values keyed by parameter name.</param>
+    /// <param name="parameterTypes">Explicit database types keyed by parameter name.</param>
+    /// <param name="parameterDirections">Explicit directions keyed by parameter name.</param>
     protected virtual void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         if (parameters == null)
@@ -157,6 +203,11 @@ public abstract class DatabaseClientBase : IDisposable
         }
     }
 
+    /// <summary>
+    /// Copies the values of output parameters back into the supplied dictionary.
+    /// </summary>
+    /// <param name="command">The command that was executed.</param>
+    /// <param name="parameters">The dictionary receiving updated parameter values.</param>
     protected virtual void UpdateOutputParameters(DbCommand command, IDictionary<string, object?>? parameters)
     {
         if (parameters == null)
@@ -172,6 +223,11 @@ public abstract class DatabaseClientBase : IDisposable
         }
     }
 
+    /// <summary>
+    /// Adds pre-created parameters to the supplied command.
+    /// </summary>
+    /// <param name="command">The command receiving the parameters.</param>
+    /// <param name="parameters">The parameters to add.</param>
     protected virtual void AddParameters(DbCommand command, IEnumerable<DbParameter>? parameters)
     {
         if (parameters == null)
@@ -213,6 +269,16 @@ public abstract class DatabaseClientBase : IDisposable
         };
     }
 
+    /// <summary>
+    /// Executes a query and materializes the result according to <see cref="ReturnType"/>.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The query result shaped according to <see cref="ReturnType"/>.</returns>
     protected virtual object? ExecuteQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry<object?>(() =>
@@ -270,6 +336,16 @@ public abstract class DatabaseClientBase : IDisposable
         });
     }
 
+    /// <summary>
+    /// Executes a non-query command (INSERT/UPDATE/DELETE) with retry support.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The command text to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The number of rows affected.</returns>
     protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry(() =>
@@ -290,6 +366,16 @@ public abstract class DatabaseClientBase : IDisposable
         });
     }
 
+    /// <summary>
+    /// Executes a scalar command and returns the first column of the first row.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The command text to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The scalar result.</returns>
     protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return ExecuteWithRetry<object?>(() =>
@@ -309,6 +395,17 @@ public abstract class DatabaseClientBase : IDisposable
         });
     }
 
+    /// <summary>
+    /// Asynchronously executes a query and materializes the result according to <see cref="ReturnType"/>.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The query result shaped according to <see cref="ReturnType"/>.</returns>
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return await ExecuteWithRetryAsync(async () =>
@@ -367,15 +464,15 @@ public abstract class DatabaseClientBase : IDisposable
     }
 
     /// <summary>
-    /// Asynchronously executes a non-query command against the database, applying retry logic for transient errors.
+    /// Asynchronously executes a non-query command (INSERT/UPDATE/DELETE) with retry support.
     /// </summary>
-    /// <param name="connection">The database connection.</param>
-    /// <param name="transaction">The transaction to use, or <c>null</c> if no transaction.</param>
-    /// <param name="query">The SQL command to execute.</param>
-    /// <param name="parameters">Optional parameters for the command.</param>
-    /// <param name="cancellationToken">A token that can be used to cancel the operation.</param>
-    /// <param name="parameterTypes">Explicit parameter types.</param>
-    /// <param name="parameterDirections">Explicit parameter directions.</param>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The command text to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
     /// <returns>The number of rows affected.</returns>
     protected virtual async Task<int> ExecuteNonQueryAsync(
         DbConnection connection,
@@ -404,6 +501,17 @@ public abstract class DatabaseClientBase : IDisposable
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Asynchronously executes a scalar command and returns the first column of the first row.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The command text to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The scalar result.</returns>
     protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         return await ExecuteWithRetryAsync(async () =>
@@ -425,6 +533,19 @@ public abstract class DatabaseClientBase : IDisposable
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    /// <summary>
+    /// Asynchronously executes a query and streams rows using <see cref="IAsyncEnumerable{T}"/>.
+    /// </summary>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the iteration.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <param name="dbParameters">Provider-specific parameters to attach directly to the command.</param>
+    /// <param name="commandType">Command type to use (Text or StoredProcedure).</param>
+    /// <returns>An asynchronous stream of <see cref="DataRow"/> instances.</returns>
     protected virtual async IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(
         DbConnection connection,
         DbTransaction? transaction,
@@ -493,6 +614,11 @@ public abstract class DatabaseClientBase : IDisposable
     }
 #endif
 
+    /// <summary>
+    /// Shapes a <see cref="DataSet"/> into the configured <see cref="ReturnType"/>.
+    /// </summary>
+    /// <param name="dataSet">The data set produced by a query.</param>
+    /// <returns>The result object appropriate for the configured return type.</returns>
     protected object? BuildResult(DataSet dataSet)
     {
         var returnType = ReturnType;
@@ -517,12 +643,19 @@ public abstract class DatabaseClientBase : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Disposes the instance and suppresses finalization.
+    /// </summary>
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Releases managed resources. Override to dispose additional state.
+    /// </summary>
+    /// <param name="disposing">Indicates whether the method is invoked from <see cref="Dispose()"/>.</param>
     protected virtual void Dispose(bool disposing)
     {
         if (_disposed)

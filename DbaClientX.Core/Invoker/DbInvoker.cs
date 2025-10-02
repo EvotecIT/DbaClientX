@@ -15,10 +15,6 @@ namespace DBAClientX.Invoker;
 public static class DbInvoker
 {
     /// <summary>
-    /// Executes the given SQL once per item, mapping properties to parameters using <paramref name="map"/>.
-    /// Returns the sum of affected rows.
-    /// </summary>
-    /// <summary>
     /// Executes a parameterized SQL statement once per item, mapping properties to parameters using <paramref name="map"/>.
     /// </summary>
     /// <param name="providerAlias">Provider alias: sqlite, sqlserver|mssql, postgresql|pgsql|postgres, mysql, oracle.</param>
@@ -64,9 +60,6 @@ public static class DbInvoker
         return affected;
     }
 
-    /// <summary>
-    /// Executes a stored procedure once per item, mapping properties to parameters.
-    /// </summary>
     /// <summary>
     /// Executes a stored procedure once per item, mapping properties to parameters using <paramref name="map"/>.
     /// </summary>
