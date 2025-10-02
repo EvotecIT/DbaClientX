@@ -58,13 +58,7 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override Task BeginProcessingAsync() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
-            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
         return Task.CompletedTask;
     }
 
@@ -75,14 +69,7 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
         using var mySql = MySqlFactory();
         mySql.CommandTimeout = QueryTimeout;
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>()
-                    .Where(de => de.Key != null)
-                    .ToDictionary(
-                        de => de.Key!.ToString()!,
-                        de => (object?)de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var result = await mySql.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
             switch (ReturnType) {
                 case ReturnType.DataTable:

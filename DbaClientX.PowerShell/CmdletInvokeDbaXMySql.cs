@@ -78,13 +78,7 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override Task BeginProcessingAsync() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
-            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
         return Task.CompletedTask;
     }
 
@@ -96,14 +90,7 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
         mySql.ReturnType = ReturnType;
         mySql.CommandTimeout = QueryTimeout;
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>()
-                    .Where(de => de.Key != null)
-                    .ToDictionary(
-                        de => de.Key!.ToString()!,
-                        de => (object?)de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
                 var enumerable = mySql.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);

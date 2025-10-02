@@ -65,13 +65,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override void BeginProcessing() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
-            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
     }
 
     /// <summary>
@@ -82,14 +76,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>()
-                    .Where(de => de.Key != null)
-                    .ToDictionary(
-                        de => de.Key!.ToString()!,
-                        de => (object?)de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 
             var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             WriteObject(affected);

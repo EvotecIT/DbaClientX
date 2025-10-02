@@ -97,13 +97,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         // Get the error action preference as user requested
         // It first sets the error action to the default error action preference
         // If the user has specified the error action, it will set the error action to the user specified error action
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
-            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
 
         return Task.CompletedTask;
     }
@@ -121,17 +115,8 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
-            IDictionary<string, object?>? parameters = null;
-            IEnumerable<DbParameter>? dbParameters = null;
-            if (Parameters != null)
-            {
-                parameters = Parameters.Cast<DictionaryEntry>()
-                    .Where(de => de.Key != null)
-                    .ToDictionary(
-                        de => de.Key!.ToString()!,
-                        de => (object?)de.Value);
-                dbParameters = parameters.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
+            IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
 
             // Streaming branch using asynchronous enumeration when supported
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER

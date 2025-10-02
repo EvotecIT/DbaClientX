@@ -60,13 +60,7 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override void BeginProcessing() {
-        ErrorAction = (ActionPreference)this.SessionState.PSVariable.GetValue("ErrorActionPreference");
-        if (this.MyInvocation.BoundParameters.ContainsKey("ErrorAction")) {
-            var errorActionObj = this.MyInvocation.BoundParameters["ErrorAction"];
-            if (errorActionObj != null && Enum.TryParse(errorActionObj.ToString(), true, out ActionPreference actionPreference)) {
-                ErrorAction = actionPreference;
-            }
-        }
+        ErrorAction = this.ResolveErrorAction();
     }
 
     /// <summary>
@@ -76,14 +70,7 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
         using var oracle = OracleFactory();
         oracle.CommandTimeout = QueryTimeout;
         try {
-            IDictionary<string, object?>? parameters = null;
-            if (Parameters != null) {
-                parameters = Parameters.Cast<DictionaryEntry>()
-                    .Where(de => de.Key != null)
-                    .ToDictionary(
-                        de => de.Key!.ToString()!,
-                        de => de.Value);
-            }
+            var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = oracle.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
