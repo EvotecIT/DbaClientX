@@ -6,20 +6,25 @@ using Microsoft.Data.Sqlite;
 namespace DBAClientX.SQLiteGeneric;
 
 /// <summary>
-/// Generic, reflection-friendly façade for executing raw SQL with parameters using SQLite.
-/// Accepts either a full SQLite connection string or a database file path.
-/// Internally forwards to <see cref="DBAClientX.SQLite"/>.
+/// Provides reflection-friendly helpers that forward to <see cref="DBAClientX.SQLite"/> using either a SQLite connection string
+/// or a file path. The methods are designed for scenarios where dependency injection or direct instantiation of the provider is
+/// impractical, such as in scripting environments.
 /// </summary>
 public static class GenericExecutors
 {
     /// <summary>
-    /// Executes a parameterized SQL statement.
+    /// Executes a parameterized SQL statement against the provided database.
     /// </summary>
-    /// <param name="connectionStringOrPath">Connection string or database file path.</param>
+    /// <param name="connectionStringOrPath">Either a full SQLite connection string or a database file path.</param>
     /// <param name="sql">SQL text to execute.</param>
-    /// <param name="parameters">Parameter name/value map.</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>Number of affected rows.</returns>
+    /// <param name="parameters">Optional map containing parameter names and values.</param>
+    /// <param name="ct">Token used to cancel the operation.</param>
+    /// <returns>A task producing the number of rows affected by the command.</returns>
+    /// <remarks>
+    /// The helper instantiates a new <see cref="DBAClientX.SQLite"/> instance for each invocation, making it suitable for
+    /// dynamic scenarios where maintaining state is impractical. It leverages <see cref="DBAClientX.SQLite.ExecuteNonQueryAsync"/>
+    /// internally, meaning that standard validation and exception behaviors are preserved.
+    /// </remarks>
     public static Task<int> ExecuteSqlAsync(string connectionStringOrPath, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var db = ResolveDatabasePath(connectionStringOrPath);
@@ -28,7 +33,7 @@ public static class GenericExecutors
     }
 
     /// <summary>
-    /// Not supported. SQLite does not support stored procedures.
+    /// Not supported because SQLite does not implement stored procedure semantics.
     /// </summary>
     /// <exception cref="NotSupportedException">Always thrown.</exception>
     public static Task<int> ExecuteProcedureAsync(string connectionStringOrPath, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
