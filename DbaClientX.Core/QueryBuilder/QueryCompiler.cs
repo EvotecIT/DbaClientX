@@ -400,13 +400,14 @@ public class QueryCompiler
                 sb.Append(") ON CONFLICT (")
                   .Append(string.Join(", ", query.ConflictColumns.Select(QuoteIdentifier)))
                   .Append(") DO UPDATE SET ");
-                for (int i = 0; i < query.InsertColumns.Count; i++)
+                var updateColsPg = query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns;
+                for (int i = 0; i < updateColsPg.Count; i++)
                 {
                     if (i > 0)
                     {
                         sb.Append(", ");
                     }
-                    var col = query.InsertColumns[i];
+                    var col = updateColsPg[i];
                     sb.Append(QuoteIdentifier(col)).Append(" = EXCLUDED.").Append(QuoteIdentifier(col));
                 }
                 return sb.ToString();
@@ -422,13 +423,14 @@ public class QueryCompiler
                     AppendValue(sb, row[i], parameters);
                 }
                 sb.Append(") ON DUPLICATE KEY UPDATE ");
-                for (int i = 0; i < query.InsertColumns.Count; i++)
+                var updateColsMy = query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns;
+                for (int i = 0; i < updateColsMy.Count; i++)
                 {
                     if (i > 0)
                     {
                         sb.Append(", ");
                     }
-                    var col = query.InsertColumns[i];
+                    var col = updateColsMy[i];
                     sb.Append(QuoteIdentifier(col)).Append(" = VALUES(").Append(QuoteIdentifier(col)).Append(')');
                 }
                 return sb.ToString();
@@ -455,13 +457,14 @@ public class QueryCompiler
                     sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
                 }
                 sb.Append(") WHEN MATCHED THEN UPDATE SET ");
-                for (int i = 0; i < query.InsertColumns.Count; i++)
+                var updateColsMs = query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns;
+                for (int i = 0; i < updateColsMs.Count; i++)
                 {
                     if (i > 0)
                     {
                         sb.Append(", ");
                     }
-                    var col = query.InsertColumns[i];
+                    var col = updateColsMs[i];
                     sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
                 }
                 sb.Append(" WHEN NOT MATCHED THEN INSERT (")
