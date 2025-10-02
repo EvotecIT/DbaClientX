@@ -22,7 +22,7 @@ public static class GenericExecutors
     /// <returns>A task producing the number of rows affected by the command.</returns>
     /// <remarks>
     /// The helper instantiates a new <see cref="DBAClientX.SQLite"/> instance for each invocation, making it suitable for
-    /// dynamic scenarios where holding onto state is difficult. It leverages <see cref="DBAClientX.SQLite.ExecuteNonQueryAsync"/>
+    /// dynamic scenarios where maintaining state is impractical. It leverages <see cref="DBAClientX.SQLite.ExecuteNonQueryAsync"/>
     /// internally, meaning that standard validation and exception behaviors are preserved.
     /// </remarks>
     public static Task<int> ExecuteSqlAsync(string connectionStringOrPath, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)

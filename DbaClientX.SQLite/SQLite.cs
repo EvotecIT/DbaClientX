@@ -61,7 +61,7 @@ public class SQLite : DatabaseClientBase
     /// <returns><see langword="true"/> when executing <c>SELECT 1</c> succeeds; otherwise <see langword="false"/>.</returns>
     /// <remarks>
     /// Exceptions are intentionally swallowed so the probe can be used in health-check scenarios. When detailed
-    /// error information is required, invoke <see cref="ExecuteScalar(string, string, IDictionary{string, object?}? , bool, IDictionary{string, SqliteType}?, IDictionary{string, ParameterDirection}?)"/>
+    /// error information is required, invoke <see cref="ExecuteScalar(string, string, IDictionary{string, object?}?, bool, IDictionary{string, SqliteType}?, IDictionary{string, ParameterDirection}?)"/>
     /// to receive the specific <see cref="Exception"/> that occurred.
     /// </remarks>
     public virtual bool Ping(string database)
