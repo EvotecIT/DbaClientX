@@ -341,8 +341,8 @@ public class Oracle : DatabaseClientBase
     /// <returns>An asynchronous stream of <see cref="DataRow"/> objects representing the results.</returns>
     /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
     /// <remarks>
-    /// The enumerable wraps <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>
-    /// and keeps the connection open until enumeration completes. Dispose the enumerator or exhaust the stream to release resources promptly.
+    /// Use this overload when result sets are too large to buffer in memory. The enumerable wraps <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>,
+    /// keeping the Oracle connection open until enumeration finishes. Dispose the enumerator or exhaust the stream to release resources promptly.
     /// </remarks>
     public virtual IAsyncEnumerable<DataRow> QueryStreamAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
@@ -403,8 +403,8 @@ public class Oracle : DatabaseClientBase
     /// <returns>An asynchronous stream of <see cref="DataRow"/> objects representing the procedure result sets.</returns>
     /// <exception cref="DbaTransactionException">Thrown when <paramref name="useTransaction"/> is <see langword="true"/> but no transaction is active.</exception>
     /// <remarks>
-    /// The enumerable wraps <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>
-    /// and keeps the connection open until enumeration completes. Dispose the enumerator or exhaust the stream to release resources promptly.
+    /// Stream stored procedure output when large REF CURSOR payloads or long-running batches would otherwise exhaust memory. The enumerable delegates to <see cref="DatabaseClientBase.ExecuteQueryStreamAsync(DbConnection, DbTransaction?, string, IDictionary{string, object?}?, CancellationToken, IDictionary{string, DbType}?, IDictionary{string, ParameterDirection}?, IEnumerable{DbParameter}?, CommandType)"/>,
+    /// keeping the Oracle connection open until enumeration finishes. Dispose the enumerator or exhaust the stream to release resources promptly.
     /// </remarks>
     public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, [EnumeratorCancellation] CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {

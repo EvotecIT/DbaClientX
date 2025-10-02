@@ -11,9 +11,7 @@ namespace DBAClientX.OracleGeneric;
 public static class GenericExecutors
 {
     // For Oracle, DatabaseClientBase API uses (host, serviceName, username, password)
-    /// <summary>
-    /// Executes a parameterized SQL statement.
-    /// </summary>
+    /// <summary>Executes a parameterized SQL statement.</summary>
     /// <param name="host">Oracle host name or address.</param>
     /// <param name="serviceName">Oracle service/SID.</param>
     /// <param name="username">User name.</param>
@@ -28,40 +26,23 @@ public static class GenericExecutors
         return cli.ExecuteNonQueryAsync(host, serviceName, username, password, sql, parameters, cancellationToken: ct);
     }
 
-    /// <summary>
-    /// Executes a parameterized SQL statement using a full Oracle connection string.
-    /// </summary>
+    /// <summary>Executes a parameterized SQL statement using a connection string.</summary>
     /// <param name="connectionString">Oracle provider connection string.</param>
     /// <param name="sql">SQL text to execute.</param>
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    /// <remarks>
-    /// Prefer this overload when callers already manage connection strings to avoid manual parsing. The helper attempts a best-effort split of the <c>Data Source</c>
-    /// component into host and service name for compatibility with <see cref="DBAClientX.Oracle.ExecuteNonQueryAsync(string, string, string, string, string, IDictionary{string, object?}?, bool, CancellationToken, IDictionary{string, global::Oracle.ManagedDataAccess.Client.OracleDbType}?, IDictionary{string, System.Data.ParameterDirection}?)"/>.
-    /// </remarks>
+    /// <remarks>Choose this overload when a full Oracle connection string is already available. The helper splits the <c>Data Source</c> component into host and service name so the provider can reuse its standard execution pipeline.</remarks>
     public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
-        // DataSource is typically host[:port]/service or TNS name; we pass as-is to builder inside provider class via host/service.
-        // Best effort split: host/serviceName if pattern contains '/'; otherwise treat both as DataSource for compatibility.
-        var dataSource = b.DataSource ?? string.Empty;
-        string host = dataSource;
-        string service = dataSource;
-        var slash = dataSource.LastIndexOf('/');
-        if (slash > 0)
-        {
-            host = dataSource.Substring(0, slash);
-            service = dataSource.Substring(slash + 1);
-        }
+        var (host, service) = SplitDataSource(b.DataSource);
         var cli = new DBAClientX.Oracle();
         return cli.ExecuteNonQueryAsync(host, service, b.UserID, b.Password, sql, parameters, cancellationToken: ct);
     }
 
     // Procedure variant mirrors the provider signature
-    /// <summary>
-    /// Executes a stored procedure.
-    /// </summary>
+    /// <summary>Executes a stored procedure.</summary>
     /// <param name="host">Oracle host name or address.</param>
     /// <param name="serviceName">Oracle service/SID.</param>
     /// <param name="username">User name.</param>
@@ -77,32 +58,36 @@ public static class GenericExecutors
         return 0;
     }
 
-    /// <summary>
-    /// Executes a stored procedure using a full Oracle connection string.
-    /// </summary>
+    /// <summary>Executes a stored procedure using a connection string.</summary>
     /// <param name="connectionString">Oracle provider connection string.</param>
     /// <param name="procedure">Stored procedure name.</param>
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
-    /// <remarks>
-    /// Prefer this overload when callers already manage connection strings to avoid manual parsing. The helper attempts a best-effort split of the <c>Data Source</c>
-    /// component into host and service name for compatibility with <see cref="DBAClientX.Oracle.ExecuteStoredProcedureAsync(string, string, string, string, string, IDictionary{string, object?}?, bool, CancellationToken, IDictionary{string, global::Oracle.ManagedDataAccess.Client.OracleDbType}?, IDictionary{string, System.Data.ParameterDirection}?)"/>.
-    /// </remarks>
+    /// <remarks>Prefer this overload when a full Oracle connection string is already managed by the caller. The helper extracts host and service name from the <c>Data Source</c> so the provider can delegate to its canonical stored-procedure execution path.</remarks>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
-        var dataSource = b.DataSource ?? string.Empty;
-        string host = dataSource;
-        string service = dataSource;
-        var slash = dataSource.LastIndexOf('/');
-        if (slash > 0)
-        {
-            host = dataSource.Substring(0, slash);
-            service = dataSource.Substring(slash + 1);
-        }
+        var (host, service) = SplitDataSource(b.DataSource);
         var cli = new DBAClientX.Oracle();
         await cli.ExecuteStoredProcedureAsync(host, service, b.UserID, b.Password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
+    }
+
+    private static (string Host, string ServiceName) SplitDataSource(string? dataSource)
+    {
+        var value = dataSource ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        var slash = value.LastIndexOf('/');
+        if (slash > 0 && slash < value.Length - 1)
+        {
+            return (value.Substring(0, slash), value.Substring(slash + 1));
+        }
+
+        return (value, value);
     }
 }
