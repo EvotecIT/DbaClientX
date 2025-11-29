@@ -124,7 +124,7 @@ public partial class PostgreSql
         }
     }
 
-    private async Task<(NpgsqlConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
+    protected virtual async Task<(NpgsqlConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
     {
         if (useTransaction)
         {
@@ -136,8 +136,9 @@ public partial class PostgreSql
             return (_transactionConnection, false);
         }
 
-        var connection = new NpgsqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await EnlistInDistributedTransactionAsync(connection, cancellationToken).ConfigureAwait(false);
         return (connection, true);
     }
 }

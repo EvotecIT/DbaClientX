@@ -139,7 +139,7 @@ public partial class SqlServer : DatabaseClientBase
         }
     }
 
-    private SqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    protected virtual SqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
     {
         if (useTransaction)
         {
@@ -152,13 +152,14 @@ public partial class SqlServer : DatabaseClientBase
             return _transactionConnection;
         }
 
-        var connection = new SqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         connection.Open();
+        EnlistInDistributedTransaction(connection);
         dispose = true;
         return connection;
     }
 
-    private async Task<(SqlConnection Connection, bool Dispose)> ResolveConnectionAsync(
+    protected virtual async Task<(SqlConnection Connection, bool Dispose)> ResolveConnectionAsync(
         string connectionString,
         bool useTransaction,
         CancellationToken cancellationToken)
@@ -173,11 +174,28 @@ public partial class SqlServer : DatabaseClientBase
             return (_transactionConnection, false);
         }
 
-        var connection = new SqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await EnlistInDistributedTransactionAsync(connection, cancellationToken).ConfigureAwait(false);
         return (connection, true);
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+
+    /// <summary>
+    /// Enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual bool EnlistInDistributedTransaction(SqlConnection connection) => TryEnlistInAmbientTransaction(connection);
+
+    /// <summary>
+    /// Asynchronously enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <param name="cancellationToken">Token used to cancel the enlistment attempt.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual Task<bool> EnlistInDistributedTransactionAsync(SqlConnection connection, CancellationToken cancellationToken) =>
+        TryEnlistInAmbientTransactionAsync(connection, cancellationToken);
 }

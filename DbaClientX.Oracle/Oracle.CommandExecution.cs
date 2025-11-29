@@ -119,7 +119,7 @@ public partial class Oracle
         }
     }
 
-    private OracleConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    protected virtual OracleConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
     {
         if (useTransaction)
         {
@@ -132,12 +132,29 @@ public partial class Oracle
             return _transactionConnection;
         }
 
-        var connection = new OracleConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         connection.Open();
+        EnlistInDistributedTransaction(connection);
         dispose = true;
         return connection;
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, OracleDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new OracleParameter(), static (p, t) => p.OracleDbType = t);
+
+    /// <summary>
+    /// Enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual bool EnlistInDistributedTransaction(OracleConnection connection) => TryEnlistInAmbientTransaction(connection);
+
+    /// <summary>
+    /// Asynchronously enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <param name="cancellationToken">Token used to cancel the enlistment attempt.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual Task<bool> EnlistInDistributedTransactionAsync(OracleConnection connection, CancellationToken cancellationToken) =>
+        TryEnlistInAmbientTransactionAsync(connection, cancellationToken);
 }

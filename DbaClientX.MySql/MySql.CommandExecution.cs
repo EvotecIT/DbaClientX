@@ -119,7 +119,7 @@ public partial class MySql
         }
     }
 
-    private MySqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    protected virtual MySqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
     {
         if (useTransaction)
         {
@@ -132,12 +132,29 @@ public partial class MySql
             return _transactionConnection;
         }
 
-        var connection = new MySqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         connection.Open();
+        EnlistInDistributedTransaction(connection);
         dispose = true;
         return connection;
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, MySqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+
+    /// <summary>
+    /// Enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual bool EnlistInDistributedTransaction(MySqlConnection connection) => TryEnlistInAmbientTransaction(connection);
+
+    /// <summary>
+    /// Asynchronously enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <param name="cancellationToken">Token used to cancel the enlistment attempt.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual Task<bool> EnlistInDistributedTransactionAsync(MySqlConnection connection, CancellationToken cancellationToken) =>
+        TryEnlistInAmbientTransactionAsync(connection, cancellationToken);
 }

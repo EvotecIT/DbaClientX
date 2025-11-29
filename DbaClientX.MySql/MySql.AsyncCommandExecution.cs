@@ -124,7 +124,7 @@ public partial class MySql
         }
     }
 
-    private async Task<(MySqlConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
+    protected virtual async Task<(MySqlConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
     {
         if (useTransaction)
         {
@@ -136,8 +136,9 @@ public partial class MySql
             return (_transactionConnection, false);
         }
 
-        var connection = new MySqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await EnlistInDistributedTransactionAsync(connection, cancellationToken).ConfigureAwait(false);
         return (connection, true);
     }
 }

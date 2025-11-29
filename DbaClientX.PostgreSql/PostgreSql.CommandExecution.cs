@@ -120,7 +120,7 @@ public partial class PostgreSql
         }
     }
 
-    private NpgsqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    protected virtual NpgsqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
     {
         if (useTransaction)
         {
@@ -133,12 +133,29 @@ public partial class PostgreSql
             return _transactionConnection;
         }
 
-        var connection = new NpgsqlConnection(connectionString);
+        var connection = CreateConnection(connectionString);
         connection.Open();
+        EnlistInDistributedTransaction(connection);
         dispose = true;
         return connection;
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, NpgsqlDbType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+
+    /// <summary>
+    /// Enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual bool EnlistInDistributedTransaction(NpgsqlConnection connection) => TryEnlistInAmbientTransaction(connection);
+
+    /// <summary>
+    /// Asynchronously enlists a connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <param name="cancellationToken">Token used to cancel the enlistment attempt.</param>
+    /// <returns><see langword="true"/> when enlistment succeeds.</returns>
+    protected virtual Task<bool> EnlistInDistributedTransactionAsync(NpgsqlConnection connection, CancellationToken cancellationToken) =>
+        TryEnlistInAmbientTransactionAsync(connection, cancellationToken);
 }

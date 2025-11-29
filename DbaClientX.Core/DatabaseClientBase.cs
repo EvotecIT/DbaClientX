@@ -4,6 +4,9 @@ using System.Data;
 using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
+#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+using System.Transactions;
+#endif
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
 using System.Runtime.CompilerServices;
 #endif
@@ -165,6 +168,61 @@ public abstract class DatabaseClientBase : IDisposable
         var jitter = _rand.Value!.NextDouble() * baseDelay.TotalMilliseconds; // 0..base
         var total = Math.Min(ms + jitter, MaxBackoffMilliseconds);
         return TimeSpan.FromMilliseconds(total);
+    }
+
+    /// <summary>
+    /// Attempts to enlist the provided connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <returns><see langword="true"/> when the enlistment succeeded; otherwise <see langword="false"/>.</returns>
+    protected virtual bool TryEnlistInAmbientTransaction(DbConnection connection)
+    {
+#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+        var ambient = Transaction.Current;
+        if (ambient == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            connection.EnlistTransaction(ambient);
+            return true;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (TransactionException)
+        {
+            return false;
+        }
+#else
+        _ = connection;
+        return false;
+#endif
+    }
+
+    /// <summary>
+    /// Asynchronously attempts to enlist the provided connection in an ambient distributed transaction when available.
+    /// </summary>
+    /// <param name="connection">Connection to enlist.</param>
+    /// <param name="cancellationToken">Token used to cancel the enlistment attempt.</param>
+    /// <returns><see langword="true"/> when the enlistment succeeded; otherwise <see langword="false"/>.</returns>
+    protected virtual Task<bool> TryEnlistInAmbientTransactionAsync(DbConnection connection, CancellationToken cancellationToken = default)
+    {
+#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+        _ = cancellationToken;
+        return Task.FromResult(TryEnlistInAmbientTransaction(connection));
+#else
+        _ = connection;
+        _ = cancellationToken;
+        return Task.FromResult(false);
+#endif
     }
 
     /// <summary>
