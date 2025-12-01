@@ -8,6 +8,7 @@ using DBAClientX;
 using Microsoft.Data.SqlClient;
 using MySqlConnector;
 using Npgsql;
+using Oracle.ManagedDataAccess.Client;
 using DataIsolationLevel = System.Data.IsolationLevel;
 
 namespace DbaClientX.Tests;
@@ -96,6 +97,18 @@ public class DistributedTransactionScopeTests
         _ = await mySql.GetConnectionAsync(false, CancellationToken.None);
 
         Assert.True(mySql.Enlisted);
+        ambient.Complete();
+    }
+
+    [Fact]
+    public async Task OracleConnection_EnlistsInAmbientTransactionAsync()
+    {
+        using var ambient = new TransactionScope(TransactionScopeOption.RequiresNew, TransactionScopeAsyncFlowOption.Enabled);
+        var oracle = new TestOracle();
+
+        _ = await oracle.GetConnectionAsync(false, CancellationToken.None);
+
+        Assert.True(oracle.Enlisted);
         ambient.Complete();
     }
 
@@ -206,6 +219,24 @@ public class DistributedTransactionScopeTests
         }
 
         protected override Task<bool> EnlistInDistributedTransactionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+        {
+            Enlisted = Transaction.Current != null;
+            return Task.FromResult(Enlisted);
+        }
+    }
+
+    private sealed class TestOracle : DBAClientX.Oracle
+    {
+        public bool Enlisted { get; private set; }
+
+        public Task<(OracleConnection Connection, bool Dispose)> GetConnectionAsync(bool useTransaction, CancellationToken cancellationToken)
+        {
+            var connection = new OracleConnection();
+            var enlisted = EnlistInDistributedTransactionAsync(connection, cancellationToken);
+            return enlisted.ContinueWith(_ => (connection, false), cancellationToken);
+        }
+
+        protected override Task<bool> EnlistInDistributedTransactionAsync(OracleConnection connection, CancellationToken cancellationToken)
         {
             Enlisted = Transaction.Current != null;
             return Task.FromResult(Enlisted);

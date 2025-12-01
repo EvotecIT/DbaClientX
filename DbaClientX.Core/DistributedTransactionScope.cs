@@ -192,21 +192,57 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
 
     private void RollbackLocalTransactions()
     {
+        List<Exception>? exceptions = null;
         foreach (var transaction in _localTransactions)
         {
-            transaction.Rollback();
+            try
+            {
+                transaction.Rollback();
+            }
+            catch (Exception ex)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
+        }
+
+        if (exceptions is { Count: > 0 })
+        {
+            throw new AggregateException("One or more rollbacks failed.", exceptions);
         }
     }
 
     private async Task RollbackLocalTransactionsAsync()
     {
+        List<Exception>? exceptions = null;
         foreach (var transaction in _localTransactions)
         {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await transaction.RollbackAsync().ConfigureAwait(false);
+            try
+            {
+                await transaction.RollbackAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
 #else
-            transaction.Rollback();
+            try
+            {
+                transaction.Rollback();
+            }
+            catch (Exception ex)
+            {
+                exceptions ??= new List<Exception>();
+                exceptions.Add(ex);
+            }
 #endif
+        }
+
+        if (exceptions is { Count: > 0 })
+        {
+            throw new AggregateException("One or more rollbacks failed.", exceptions);
         }
     }
 
