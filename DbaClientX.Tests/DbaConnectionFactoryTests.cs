@@ -1,3 +1,4 @@
+using System;
 using DBAClientX.Invoker;
 using Xunit;
 
@@ -51,10 +52,10 @@ public class DbaConnectionFactoryTests
     [Fact]
     public void Validate_UnsupportedOption()
     {
-        var result = DbaConnectionFactory.Validate("sqlserver", "Server=.;Database=app;UnsupportedOption=true");
+        var result = DbaConnectionFactory.Validate("mysql", "Server=.;Database=app;AllowLoadLocalInfile=true");
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
-        Assert.Equal("UnsupportedOption", result.Details, ignoreCase: true);
-        Assert.Contains("unsupported", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
+        Assert.Equal("AllowLoadLocalInfile", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("disabled", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
     }
 
     [Fact]
@@ -72,5 +73,14 @@ public class DbaConnectionFactoryTests
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
         Assert.True(result.IsValid);
         Assert.Contains("validated", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Validate_InvalidPort()
+    {
+        var result = DbaConnectionFactory.Validate("postgresql", "Server=.;Database=app;Port=70000");
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.InvalidParameterValue, result.Code);
+        Assert.Equal("Port", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("65535", result.Message);
     }
 }

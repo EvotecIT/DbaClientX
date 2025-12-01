@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Linq;
+using System.Threading;
 
 namespace DBAClientX.Invoker;
 
@@ -26,8 +28,10 @@ public static class DbaConnectionFactory
         UnsupportedProvider,
         /// <summary>A required connection string parameter was not found.</summary>
         MissingRequiredParameter,
-        /// <summary>An explicit unsupported option was detected in the connection string.</summary>
-        UnsupportedOption
+        /// <summary>An explicit unsupported or disallowed option was detected in the connection string.</summary>
+        UnsupportedOption,
+        /// <summary>A connection string parameter contained an invalid or unsafe value.</summary>
+        InvalidParameterValue
     }
 
     /// <summary>
@@ -42,6 +46,29 @@ public static class DbaConnectionFactory
         public bool IsValid => Code == ConnectionValidationErrorCode.None;
     }
 
+    private sealed record ProviderValidationProfile(
+        string NormalizedName,
+        IReadOnlyList<string[]> RequiredParameters,
+        Func<DbConnectionStringBuilder, ConnectionValidationResult?>? AdditionalValidation = null);
+
+    private static readonly IReadOnlyList<string[]> RequiredServerAndDatabase = new List<string[]>
+    {
+        new[] { "Server", "Data Source", "Host" },
+        new[] { "Database", "Initial Catalog", "DB" }
+    };
+
+    private static readonly Dictionary<string, ProviderValidationProfile> ProviderProfiles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase),
+        ["postgresql"] = new("postgresql", RequiredServerAndDatabase, ValidatePortRange),
+        ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
+        ["sqlite"] = new("sqlite", new List<string[]>
+        {
+            new[] { "Data Source", "DataSource", "Filename" }
+        }, ValidateSqlitePath),
+        ["oracle"] = new("oracle", RequiredServerAndDatabase)
+    };
+
     private static readonly Dictionary<string, string> ProviderAliases = new(StringComparer.OrdinalIgnoreCase)
     {
         ["sqlserver"] = "sqlserver",
@@ -52,6 +79,15 @@ public static class DbaConnectionFactory
         ["mysql"] = "mysql",
         ["sqlite"] = "sqlite",
         ["oracle"] = "oracle"
+    };
+
+    private static readonly ThreadLocal<DbConnectionStringBuilder> BuilderCache = new(() => new DbConnectionStringBuilder());
+
+    private static readonly Dictionary<string, string> DisallowedOptions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["AllowLoadLocalInfile"] = "Loading local files is disabled for security reasons.",
+        ["LoadLocalInfile"] = "Loading local files is disabled for security reasons.",
+        ["Use Procedure Bodies"] = "Using procedure bodies is disallowed due to injection risk."
     };
 
     /// <summary>
@@ -74,44 +110,46 @@ public static class DbaConnectionFactory
             return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedProvider, $"Provider '{providerAlias}' is not supported.");
         }
 
-        var builder = new DbConnectionStringBuilder();
+        var builder = BuilderCache.Value!;
+        builder.Clear();
         try
         {
             builder.ConnectionString = connectionString;
         }
         catch (ArgumentException ex)
         {
-            return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", ex.Message);
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
+        }
+        catch (Exception ex)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
         }
 
-        // Explicitly flag "UnsupportedOption" tokens so callers can surface a deterministic message
-        foreach (string key in builder.Keys)
+        var disallowedResult = ValidateDisallowedOptions(builder);
+        if (disallowedResult != null)
         {
-            if (string.Equals(key, "UnsupportedOption", StringComparison.OrdinalIgnoreCase))
+            return disallowedResult;
+        }
+
+        var profile = ProviderProfiles.GetValueOrDefault(normalized) ?? new ProviderValidationProfile(normalized, RequiredServerAndDatabase);
+
+        var requiredParameterResult = ValidateRequiredParameters(profile, builder);
+        if (requiredParameterResult != null)
+        {
+            return requiredParameterResult;
+        }
+
+        if (profile.AdditionalValidation != null)
+        {
+            var result = profile.AdditionalValidation(builder);
+            if (result != null)
             {
-                return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "An unsupported connection string option was provided.", key);
+                return result;
             }
-        }
-
-        // Provider-specific required parameters
-        switch (normalized)
-        {
-            case "sqlite":
-                if (!HasKey(builder, "Data Source") && !HasKey(builder, "DataSource") && !HasKey(builder, "Filename"))
-                {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "SQLite connection strings must include a data source (Data Source, DataSource, or Filename).", "Data Source");
-                }
-                break;
-            default:
-                if (!HasKey(builder, "Server") && !HasKey(builder, "Data Source") && !HasKey(builder, "Host"))
-                {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Connection string must include a server/host entry.", "Server");
-                }
-                if (!HasKey(builder, "Database") && !HasKey(builder, "Initial Catalog") && !HasKey(builder, "DB"))
-                {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Connection string must include a database/catalog entry.", "Database");
-                }
-                break;
         }
 
         return new ConnectionValidationResult(ConnectionValidationErrorCode.None, "Connection details validated.");
@@ -136,9 +174,81 @@ public static class DbaConnectionFactory
             ConnectionValidationErrorCode.UnsupportedOption => result.Details is null
                 ? result.Message
                 : $"{result.Message} Option: {result.Details}.",
+            ConnectionValidationErrorCode.InvalidParameterValue => result.Details is null
+                ? result.Message
+                : $"{result.Message} Parameter: {result.Details}.",
             _ => result.Message
         };
 
-    private static bool HasKey(DbConnectionStringBuilder builder, string key)
-        => builder.ContainsKey(key);
+    private static ConnectionValidationResult? ValidateRequiredParameters(ProviderValidationProfile profile, DbConnectionStringBuilder builder)
+    {
+        foreach (var alternatives in profile.RequiredParameters)
+        {
+            if (!alternatives.Any(builder.ContainsKey))
+            {
+                return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, $"{profile.NormalizedName} connection strings must include {alternatives[0]}.", alternatives[0]);
+            }
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidatePortRange(DbConnectionStringBuilder builder)
+    {
+        foreach (var key in new[] { "Port", "PortNumber", "Port No" })
+        {
+            if (builder.ContainsKey(key) && builder[key] is string value && !string.IsNullOrWhiteSpace(value))
+            {
+                if (!int.TryParse(value, out var port) || port is < 1 or > 65535)
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "Port must be between 1 and 65535.", key);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidateSqlitePath(DbConnectionStringBuilder builder)
+    {
+        foreach (var key in new[] { "Data Source", "DataSource", "Filename" })
+        {
+            if (builder.ContainsKey(key) && builder[key] is string path)
+            {
+                if (path.Contains("..", StringComparison.Ordinal))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "SQLite data source contains an unsafe relative path.", key);
+                }
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidateMySqlOptions(DbConnectionStringBuilder builder)
+    {
+        if (builder.TryGetValue("SslMode", out var sslMode) && sslMode is string sslValue && sslValue.Equals("None", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must use SSL (SslMode cannot be None).", "SslMode");
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidateDisallowedOptions(DbConnectionStringBuilder builder)
+    {
+        foreach (string key in builder.Keys)
+        {
+            if (DisallowedOptions.TryGetValue(key, out var message))
+            {
+                return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, message, key);
+            }
+        }
+
+        return null;
+    }
+
+    private static string SanitizeExceptionMessage(Exception ex)
+        => ex.GetType().Name;
 }
