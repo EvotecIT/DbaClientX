@@ -45,6 +45,26 @@ public class DistributedTransactionScopeTests
     }
 
     [Fact]
+    public void Complete_WhenCommitFails_RollsBackLocalTransactions()
+    {
+        var failingConnection = new StubDbConnection { FailCommit = true };
+        var secondaryConnection = new StubDbConnection();
+
+        using (var scope = new DistributedTransactionScope(preferAmbient: false))
+        {
+            scope.Enlist(failingConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+            scope.Enlist(secondaryConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+
+            Assert.Throws<InvalidOperationException>(() => scope.Complete());
+        }
+
+        Assert.True(failingConnection.LastTransaction?.RolledBack);
+        Assert.False(failingConnection.LastTransaction?.Committed);
+        Assert.True(secondaryConnection.LastTransaction?.RolledBack);
+        Assert.False(secondaryConnection.LastTransaction?.Committed);
+    }
+
+    [Fact]
     public void Enlist_UsesAmbientTransactionWhenPresent()
     {
         var connection = new StubDbConnection();
@@ -118,6 +138,8 @@ public class DistributedTransactionScopeTests
 
         public bool Enlisted { get; private set; }
 
+        public bool FailCommit { get; set; }
+
         public StubTransaction? LastTransaction { get; private set; }
 
         public override string ConnectionString { get; set; } = string.Empty;
@@ -140,7 +162,7 @@ public class DistributedTransactionScopeTests
 
         protected override DbTransaction BeginDbTransaction(DataIsolationLevel isolationLevel)
         {
-            LastTransaction = new StubTransaction(this, isolationLevel);
+            LastTransaction = new StubTransaction(this, isolationLevel, FailCommit);
             return LastTransaction;
         }
 
@@ -151,10 +173,13 @@ public class DistributedTransactionScopeTests
 
     private sealed class StubTransaction : DbTransaction
     {
-        public StubTransaction(DbConnection connection, DataIsolationLevel isolationLevel)
+        private readonly bool _failCommit;
+
+        public StubTransaction(DbConnection connection, DataIsolationLevel isolationLevel, bool failCommit)
         {
             DbConnection = connection;
             IsolationLevel = isolationLevel;
+            _failCommit = failCommit;
         }
 
         public bool Committed { get; private set; }
@@ -165,7 +190,15 @@ public class DistributedTransactionScopeTests
 
         protected override DbConnection DbConnection { get; }
 
-        public override void Commit() => Committed = true;
+        public override void Commit()
+        {
+            if (_failCommit)
+            {
+                throw new InvalidOperationException("Commit failed.");
+            }
+
+            Committed = true;
+        }
 
         public override void Rollback() => RolledBack = true;
     }

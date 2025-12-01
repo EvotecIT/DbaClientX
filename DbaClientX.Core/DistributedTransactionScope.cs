@@ -100,7 +100,6 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
     /// </summary>
     public void Complete()
     {
-        _completed = true;
 #if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
         _transactionScope?.Complete();
 #endif
@@ -108,6 +107,8 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
         {
             transaction.Commit();
         }
+
+        _completed = true;
     }
 
     /// <summary>
@@ -116,7 +117,6 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Token used to cancel the commit operations.</param>
     public async Task CompleteAsync(CancellationToken cancellationToken = default)
     {
-        _completed = true;
 #if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
         _transactionScope?.Complete();
 #endif
@@ -128,6 +128,8 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
             transaction.Commit();
 #endif
         }
+
+        _completed = true;
     }
 
     /// <inheritdoc />
