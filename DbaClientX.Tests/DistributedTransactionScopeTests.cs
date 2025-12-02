@@ -65,6 +65,26 @@ public class DistributedTransactionScopeTests
     }
 
     [Fact]
+    public void Complete_WhenLaterCommitFails_DoesNotRollbackPriorCommits()
+    {
+        var firstConnection = new StubDbConnection();
+        var failingConnection = new StubDbConnection { FailCommit = true };
+
+        using (var scope = new DistributedTransactionScope(preferAmbient: false))
+        {
+            scope.Enlist(firstConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+            scope.Enlist(failingConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+
+            Assert.Throws<InvalidOperationException>(() => scope.Complete());
+        }
+
+        Assert.True(firstConnection.LastTransaction?.Committed);
+        Assert.False(firstConnection.LastTransaction?.RolledBack);
+        Assert.True(failingConnection.LastTransaction?.RolledBack);
+        Assert.False(failingConnection.LastTransaction?.Committed);
+    }
+
+    [Fact]
     public void Complete_WhenCommitFails_RollsBackImmediately()
     {
         var connection = new StubDbConnection { FailCommit = true };
@@ -89,6 +109,26 @@ public class DistributedTransactionScopeTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => scope.CompleteAsync());
 
         Assert.True(connection.LastTransaction?.RolledBack);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenLaterCommitFails_DoesNotRollbackPriorCommits()
+    {
+        var firstConnection = new StubDbConnection();
+        var failingConnection = new StubDbConnection { FailCommit = true };
+
+        await using (var scope = new DistributedTransactionScope(preferAmbient: false))
+        {
+            scope.Enlist(firstConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+            scope.Enlist(failingConnection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => scope.CompleteAsync());
+        }
+
+        Assert.True(firstConnection.LastTransaction?.Committed);
+        Assert.False(firstConnection.LastTransaction?.RolledBack);
+        Assert.True(failingConnection.LastTransaction?.RolledBack);
+        Assert.False(failingConnection.LastTransaction?.Committed);
     }
 
     [Fact]

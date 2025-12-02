@@ -20,7 +20,7 @@ namespace DBAClientX;
 /// </remarks>
 public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
 {
-    private readonly List<DbTransaction> _localTransactions = new();
+    private readonly List<DbTransaction> _localTransactions = new(capacity: 4);
     private readonly DataIsolationLevel _isolationLevel;
     private readonly bool _preferAmbient;
     private bool _completed;
@@ -108,6 +108,10 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
 #endif
             _completed = true;
         }
+        catch (CommitFailureException ex)
+        {
+            HandleCommitFailure(ex.InnerException ?? ex, ex.CommittedCount);
+        }
         catch (Exception ex)
         {
             HandleCommitFailure(ex);
@@ -127,6 +131,10 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
             _transactionScope?.Complete();
 #endif
             _completed = true;
+        }
+        catch (CommitFailureException ex)
+        {
+            await HandleCommitFailureAsync(ex.InnerException ?? ex, ex.CommittedCount).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -178,31 +186,63 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
 
     private void CommitLocalTransactions()
     {
-        foreach (var transaction in _localTransactions)
+        for (var committedCount = 0; committedCount < _localTransactions.Count; committedCount++)
         {
-            transaction.Commit();
+            try
+            {
+                _localTransactions[committedCount].Commit();
+            }
+            catch (Exception ex)
+            {
+                throw new CommitFailureException(ex, committedCount);
+            }
         }
     }
 
     private async Task CommitLocalTransactionsAsync(CancellationToken cancellationToken)
     {
-        foreach (var transaction in _localTransactions)
+        for (var committedCount = 0; committedCount < _localTransactions.Count; committedCount++)
         {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _localTransactions[committedCount].CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new CommitFailureException(ex, committedCount);
+            }
 #else
             _ = cancellationToken; // suppress unused warning on frameworks without async commit
-            transaction.Commit();
+            try
+            {
+                _localTransactions[committedCount].Commit();
+            }
+            catch (Exception ex)
+            {
+                throw new CommitFailureException(ex, committedCount);
+            }
 #endif
         }
     }
 
-    private void HandleCommitFailure(Exception primary)
+    private sealed class CommitFailureException : Exception
+    {
+        public CommitFailureException(Exception innerException, int committedCount)
+            : base("Commit failed.", innerException)
+        {
+            CommittedCount = committedCount;
+        }
+
+        public int CommittedCount { get; }
+    }
+
+    private void HandleCommitFailure(Exception primary, int committedCount = 0)
     {
         List<Exception>? exceptions = null;
         try
         {
-            RollbackLocalTransactions();
+            RollbackLocalTransactions(committedCount);
         }
         catch (Exception rollbackEx)
         {
@@ -217,12 +257,12 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
         throw primary;
     }
 
-    private async Task HandleCommitFailureAsync(Exception primary)
+    private async Task HandleCommitFailureAsync(Exception primary, int committedCount = 0)
     {
         List<Exception>? exceptions = null;
         try
         {
-            await RollbackLocalTransactionsAsync().ConfigureAwait(false);
+            await RollbackLocalTransactionsAsync(committedCount).ConfigureAwait(false);
         }
         catch (Exception rollbackEx)
         {
@@ -269,14 +309,14 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
         return false;
     }
 
-    private void RollbackLocalTransactions()
+    private void RollbackLocalTransactions(int startIndex = 0)
     {
         List<Exception>? exceptions = null;
-        foreach (var transaction in _localTransactions)
+        for (var i = startIndex; i < _localTransactions.Count; i++)
         {
             try
             {
-                transaction.Rollback();
+                _localTransactions[i].Rollback();
             }
             catch (Exception ex)
             {
@@ -291,15 +331,15 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task RollbackLocalTransactionsAsync()
+    private async Task RollbackLocalTransactionsAsync(int startIndex = 0)
     {
         List<Exception>? exceptions = null;
-        foreach (var transaction in _localTransactions)
+        for (var i = startIndex; i < _localTransactions.Count; i++)
         {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
             try
             {
-                await transaction.RollbackAsync().ConfigureAwait(false);
+                await _localTransactions[i].RollbackAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -309,7 +349,7 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
 #else
             try
             {
-                transaction.Rollback();
+                _localTransactions[i].Rollback();
             }
             catch (Exception ex)
             {
