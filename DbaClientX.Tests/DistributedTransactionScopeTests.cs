@@ -65,6 +65,33 @@ public class DistributedTransactionScopeTests
     }
 
     [Fact]
+    public void Complete_WhenCommitFails_RollsBackImmediately()
+    {
+        var connection = new StubDbConnection { FailCommit = true };
+
+        var scope = new DistributedTransactionScope(preferAmbient: false);
+        scope.Enlist(connection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+
+        Assert.Throws<InvalidOperationException>(() => scope.Complete());
+
+        Assert.True(connection.LastTransaction?.RolledBack);
+        scope.Dispose();
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenCommitFails_RollsBackImmediately()
+    {
+        var connection = new StubDbConnection { FailCommit = true };
+
+        await using var scope = new DistributedTransactionScope(preferAmbient: false);
+        scope.Enlist(connection, (c, level) => ((StubDbConnection)c).BeginTransaction(level));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.CompleteAsync());
+
+        Assert.True(connection.LastTransaction?.RolledBack);
+    }
+
+    [Fact]
     public void Enlist_UsesAmbientTransactionWhenPresent()
     {
         var connection = new StubDbConnection();

@@ -100,15 +100,18 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
     /// </summary>
     public void Complete()
     {
-#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-        _transactionScope?.Complete();
-#endif
-        foreach (var transaction in _localTransactions)
+        try
         {
-            transaction.Commit();
+            CommitLocalTransactions();
+#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            _transactionScope?.Complete();
+#endif
+            _completed = true;
         }
-
-        _completed = true;
+        catch (Exception ex)
+        {
+            HandleCommitFailure(ex);
+        }
     }
 
     /// <summary>
@@ -117,19 +120,18 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Token used to cancel the commit operations.</param>
     public async Task CompleteAsync(CancellationToken cancellationToken = default)
     {
-#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-        _transactionScope?.Complete();
-#endif
-        foreach (var transaction in _localTransactions)
+        try
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-#else
-            transaction.Commit();
+            await CommitLocalTransactionsAsync(cancellationToken).ConfigureAwait(false);
+#if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            _transactionScope?.Complete();
 #endif
+            _completed = true;
         }
-
-        _completed = true;
+        catch (Exception ex)
+        {
+            await HandleCommitFailureAsync(ex).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
@@ -155,9 +157,84 @@ public sealed class DistributedTransactionScope : IDisposable, IAsyncDisposable
         }
         await DisposeLocalTransactionsAsync().ConfigureAwait(false);
 #if NET472 || NET8_0_OR_GREATER || NET5_0_OR_GREATER || NET6_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-        _transactionScope?.Dispose();
+        if (_transactionScope != null)
+        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            var disposeAsync = _transactionScope.GetType().GetMethod("DisposeAsync", Type.EmptyTypes);
+            if (disposeAsync != null)
+            {
+                var task = (ValueTask)disposeAsync.Invoke(_transactionScope, null)!;
+                await task.ConfigureAwait(false);
+            }
+            else
+#endif
+            {
+                _transactionScope.Dispose();
+            }
+        }
 #endif
         GC.SuppressFinalize(this);
+    }
+
+    private void CommitLocalTransactions()
+    {
+        foreach (var transaction in _localTransactions)
+        {
+            transaction.Commit();
+        }
+    }
+
+    private async Task CommitLocalTransactionsAsync(CancellationToken cancellationToken)
+    {
+        foreach (var transaction in _localTransactions)
+        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+            _ = cancellationToken; // suppress unused warning on frameworks without async commit
+            transaction.Commit();
+#endif
+        }
+    }
+
+    private void HandleCommitFailure(Exception primary)
+    {
+        List<Exception>? exceptions = null;
+        try
+        {
+            RollbackLocalTransactions();
+        }
+        catch (Exception rollbackEx)
+        {
+            exceptions = new List<Exception> { primary, rollbackEx };
+        }
+
+        if (exceptions != null)
+        {
+            throw new AggregateException("Commit failed and rollback encountered errors.", exceptions);
+        }
+
+        throw primary;
+    }
+
+    private async Task HandleCommitFailureAsync(Exception primary)
+    {
+        List<Exception>? exceptions = null;
+        try
+        {
+            await RollbackLocalTransactionsAsync().ConfigureAwait(false);
+        }
+        catch (Exception rollbackEx)
+        {
+            exceptions = new List<Exception> { primary, rollbackEx };
+        }
+
+        if (exceptions != null)
+        {
+            throw new AggregateException("Commit failed and rollback encountered errors.", exceptions);
+        }
+
+        throw primary;
     }
 
     private bool TryEnlistAmbient(DbConnection connection)
