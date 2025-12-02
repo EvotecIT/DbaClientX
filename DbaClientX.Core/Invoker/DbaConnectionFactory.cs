@@ -11,6 +11,12 @@ namespace DBAClientX.Invoker;
 /// </summary>
 public static class DbaConnectionFactory
 {
+    static DbaConnectionFactory()
+    {
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => BuilderCache.Dispose();
+        AppDomain.CurrentDomain.DomainUnload += (_, _) => BuilderCache.Dispose();
+    }
+
     /// <summary>
     /// Represents the type of validation failure encountered while preparing a connection.
     /// </summary>
@@ -124,7 +130,7 @@ public static class DbaConnectionFactory
         {
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is FormatException or NotSupportedException)
         {
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
         }
@@ -135,7 +141,8 @@ public static class DbaConnectionFactory
             return disallowedResult;
         }
 
-        var profile = ProviderProfiles.GetValueOrDefault(normalized) ?? new ProviderValidationProfile(normalized, RequiredServerAndDatabase);
+        ProviderProfiles.TryGetValue(normalized, out var profile);
+        profile ??= new ProviderValidationProfile(normalized, RequiredServerAndDatabase);
 
         var requiredParameterResult = ValidateRequiredParameters(profile, builder);
         if (requiredParameterResult != null)
@@ -203,6 +210,11 @@ public static class DbaConnectionFactory
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "Port must be between 1 and 65535.", key);
                 }
+
+                if (port < 1024)
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "Port is within the reserved system range (1-1023).", key);
+                }
             }
         }
 
@@ -215,7 +227,7 @@ public static class DbaConnectionFactory
         {
             if (builder.ContainsKey(key) && builder[key] is string path)
             {
-                if (path.Contains("..", StringComparison.Ordinal))
+                if (path.IndexOf("..", StringComparison.Ordinal) >= 0)
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "SQLite data source contains an unsafe relative path.", key);
                 }

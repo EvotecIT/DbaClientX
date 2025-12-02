@@ -83,4 +83,13 @@ public class DbaConnectionFactoryTests
         Assert.Equal("Port", result.Details, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("65535", result.Message);
     }
+
+    [Fact]
+    public void Validate_ReservedPort()
+    {
+        var result = DbaConnectionFactory.Validate("postgresql", "Server=.;Database=app;Port=22");
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.InvalidParameterValue, result.Code);
+        Assert.Equal("Port", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("reserved system range", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

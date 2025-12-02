@@ -25,8 +25,17 @@ internal static class PowerShellHelpers
                 .Where(de => de.Key != null)
                 .ToDictionary(de => de.Key!.ToString()!, de => (object?)de.Value);
 
-    internal static bool TryValidateConnection(PSCmdlet cmdlet, string providerAlias, string connectionString, ActionPreference errorAction)
+    internal static bool TryValidateConnection(
+        PSCmdlet cmdlet,
+        string providerAlias,
+        string connectionString,
+        ActionPreference errorAction,
+        Action<string>? writeWarning = null,
+        Action<ErrorRecord>? throwTerminatingError = null)
     {
+        writeWarning ??= cmdlet.WriteWarning;
+        throwTerminatingError ??= cmdlet.ThrowTerminatingError;
+
         var result = DbaConnectionFactory.Validate(providerAlias, connectionString);
         if (result.IsValid)
         {
@@ -36,11 +45,11 @@ internal static class PowerShellHelpers
         var message = DbaConnectionFactory.ToUserMessage(result);
         if (errorAction == ActionPreference.Stop)
         {
-            cmdlet.ThrowTerminatingError(new ErrorRecord(new PSArgumentException(message), result.Code.ToString(), ErrorCategory.InvalidArgument, connectionString));
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), result.Code.ToString(), ErrorCategory.InvalidArgument, connectionString));
         }
         else
         {
-            cmdlet.WriteWarning(message);
+            writeWarning(message);
         }
 
         return false;
