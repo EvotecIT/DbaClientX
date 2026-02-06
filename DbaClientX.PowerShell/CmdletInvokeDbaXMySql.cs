@@ -89,6 +89,11 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
         using var mySql = MySqlFactory();
         mySql.ReturnType = ReturnType;
         mySql.CommandTimeout = QueryTimeout;
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER

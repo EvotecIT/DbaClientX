@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
+using DBAClientX.Invoker;
 
 namespace DBAClientX.PowerShell;
 
@@ -23,6 +24,36 @@ internal static class PowerShellHelpers
                 .Cast<DictionaryEntry>()
                 .Where(de => de.Key != null)
                 .ToDictionary(de => de.Key!.ToString()!, de => (object?)de.Value);
+
+    internal static bool TryValidateConnection(
+        PSCmdlet cmdlet,
+        string providerAlias,
+        string connectionString,
+        ActionPreference errorAction,
+        Action<string>? writeWarning = null,
+        Action<ErrorRecord>? throwTerminatingError = null)
+    {
+        writeWarning ??= cmdlet.WriteWarning;
+        throwTerminatingError ??= cmdlet.ThrowTerminatingError;
+
+        var result = DbaConnectionFactory.Validate(providerAlias, connectionString);
+        if (result.IsValid)
+        {
+            return true;
+        }
+
+        var message = DbaConnectionFactory.ToUserMessage(result);
+        if (errorAction == ActionPreference.Stop)
+        {
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), result.Code.ToString(), ErrorCategory.InvalidArgument, connectionString));
+        }
+        else
+        {
+            writeWarning(message);
+        }
+
+        return false;
+    }
 }
 
 internal static class CmdletExtensions
