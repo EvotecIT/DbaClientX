@@ -38,13 +38,44 @@ public partial class SQLite : DatabaseClientBase
     /// attributes on the returned connection string if a particular workload requires more granular control.
     /// </remarks>
     public static string BuildConnectionString(string database)
+        => BuildConnectionString(database, readOnly: false, busyTimeoutMs: null);
+
+    /// <summary>
+    /// Builds a connection string suitable for <see cref="SqliteConnection"/> instances using a database file path.
+    /// </summary>
+    /// <param name="database">Absolute or relative path of the SQLite database file.</param>
+    /// <param name="readOnly">When true, opens the connection in read-only mode.</param>
+    /// <param name="busyTimeoutMs">Optional busy timeout applied via the connection string (milliseconds).</param>
+    /// <returns>A pooled connection string that targets <paramref name="database"/>.</returns>
+    public static string BuildConnectionString(string database, bool readOnly, int? busyTimeoutMs)
     {
-        return new SqliteConnectionStringBuilder
+        var builder = new SqliteConnectionStringBuilder
         {
             DataSource = database,
             Pooling = true
-        }.ConnectionString;
+        };
+
+        if (readOnly)
+        {
+            builder.Mode = SqliteOpenMode.ReadOnly;
+        }
+
+        if (busyTimeoutMs.HasValue && busyTimeoutMs.Value > 0)
+        {
+            builder.DefaultTimeout = Math.Max(1, (int)Math.Ceiling(busyTimeoutMs.Value / 1000d));
+        }
+
+        return builder.ConnectionString;
     }
+
+    /// <summary>
+    /// Builds a read-only connection string for the supplied SQLite database.
+    /// </summary>
+    /// <param name="database">Absolute or relative path of the SQLite database file.</param>
+    /// <param name="busyTimeoutMs">Optional busy timeout applied via the connection string (milliseconds).</param>
+    /// <returns>A pooled read-only connection string.</returns>
+    public static string BuildReadOnlyConnectionString(string database, int? busyTimeoutMs = null)
+        => BuildConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
 
     /// <summary>
     /// Performs a lightweight connectivity test against the supplied SQLite database file.
