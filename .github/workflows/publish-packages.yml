@@ -1,0 +1,88 @@
+name: Publish Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_nuget:
+        description: Publish NuGet packages
+        required: true
+        default: true
+        type: boolean
+      publish_github:
+        description: Publish GitHub release assets
+        required: true
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+      - 'dba-v*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  DOTNET_VERSION: |
+    8.x
+    9.0.x
+  BUILD_CONFIGURATION: 'Release'
+
+jobs:
+  publish:
+    name: Build and publish packages
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install PSPublishModule
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSPublishModule -Repository PSGallery -Force -Scope CurrentUser -AllowClobber
+
+      - name: Build package artifacts
+        shell: pwsh
+        run: |
+          ./Build/Core/BuildPackage.ps1 -UpdateVersions:$false
+
+      - name: Publish to NuGet
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_nuget == true)
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_API_KEY)) {
+            throw 'NUGET_API_KEY is required to publish NuGet packages.'
+          }
+
+          ./Build/Core/PublishPackageNuget.ps1 -Build:$false
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_github == true)
+        shell: pwsh
+        env:
+          GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GITHUB_ACCESS_TOKEN) -and
+              [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+            throw 'GITHUB_ACCESS_TOKEN or GITHUB_TOKEN is required to publish GitHub release assets.'
+          }
+
+          ./Build/Core/PublishPackageGitHub.ps1 -Build:$false
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: project-build-artifacts
+          path: Build/Artefacts/ProjectBuild/**
