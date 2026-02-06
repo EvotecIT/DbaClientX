@@ -52,6 +52,48 @@ public partial class SQLite
     }
 
     /// <summary>
+    /// Asynchronously executes a SQL query against a read-only connection and materializes the result using the shared pipeline from <see cref="DatabaseClientBase"/>.
+    /// </summary>
+    public virtual async Task<object?> QueryReadOnlyAsync(
+        string database,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        int? busyTimeoutMs = null,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        var connectionString = BuildReadOnlyConnectionString(database, busyTimeoutMs);
+
+        SqliteConnection? connection = null;
+        var dispose = false;
+        try
+        {
+            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken).ConfigureAwait(false);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await base.ExecuteQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                if (connection != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                    connection.Dispose();
+#endif
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Asynchronously executes a SQL statement that does not return rows.
     /// </summary>
     public virtual async Task<int> ExecuteNonQueryAsync(
