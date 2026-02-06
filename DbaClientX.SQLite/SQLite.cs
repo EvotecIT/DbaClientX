@@ -12,10 +12,21 @@ namespace DBAClientX;
 /// </summary>
 public partial class SQLite : DatabaseClientBase
 {
+    /// <summary>
+    /// Default busy timeout used for operational commands when a per-instance value is not overridden.
+    /// </summary>
+    public const int DefaultBusyTimeoutMs = 5000;
+
+    /// <summary>
+    /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.
+    /// </summary>
+    public const int DefaultMaxParallelQueries = 8;
+
     private readonly object _syncRoot = new();
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
     private bool _transactionInitializing;
+    private int _busyTimeoutMs = DefaultBusyTimeoutMs;
 
     /// <summary>
     /// Gets a value indicating whether an explicit transaction scope is currently active.
@@ -26,6 +37,35 @@ public partial class SQLite : DatabaseClientBase
     /// and resets after invoking <see cref="Commit"/>, <see cref="Rollback"/> or their asynchronous counterparts.
     /// </remarks>
     public bool IsInTransaction => _transaction != null;
+
+    /// <summary>
+    /// Gets or sets the busy timeout (in milliseconds) applied to operational SQLite connections.
+    /// </summary>
+    /// <remarks>
+    /// Set to <c>0</c> to use provider defaults and disable explicit timeout injection.
+    /// </remarks>
+    public int BusyTimeoutMs
+    {
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _busyTimeoutMs;
+            }
+        }
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "BusyTimeoutMs cannot be negative.");
+            }
+
+            lock (_syncRoot)
+            {
+                _busyTimeoutMs = value;
+            }
+        }
+    }
 
     /// <summary>
     /// Builds a connection string suitable for <see cref="SqliteConnection"/> instances using a database file path.
@@ -76,6 +116,18 @@ public partial class SQLite : DatabaseClientBase
     /// <returns>A pooled read-only connection string.</returns>
     public static string BuildReadOnlyConnectionString(string database, int? busyTimeoutMs = null)
         => BuildConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
+
+    private string BuildOperationalConnectionString(string database, bool readOnly = false, int? busyTimeoutMs = null)
+    {
+        int? effectiveTimeout = busyTimeoutMs;
+        if (!effectiveTimeout.HasValue)
+        {
+            var configuredTimeout = BusyTimeoutMs;
+            effectiveTimeout = configuredTimeout > 0 ? configuredTimeout : null;
+        }
+
+        return BuildConnectionString(database, readOnly, effectiveTimeout);
+    }
 
     /// <summary>
     /// Performs a lightweight connectivity test against the supplied SQLite database file.

@@ -22,18 +22,16 @@ public partial class SQLite
             throw new ArgumentNullException(nameof(queries));
         }
 
-        SemaphoreSlim? throttler = null;
-        if (maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0)
+        var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism ?? DefaultMaxParallelQueries;
+        if (effectiveMaxDegreeOfParallelism < 1)
         {
-            throttler = new SemaphoreSlim(maxDegreeOfParallelism.Value);
+            throw new ArgumentOutOfRangeException(nameof(maxDegreeOfParallelism), "maxDegreeOfParallelism must be greater than 0 when specified.");
         }
+        using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
         var tasks = queries.Select(async q =>
         {
-            if (throttler != null)
-            {
-                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
+            await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
 
             try
             {
@@ -41,12 +39,11 @@ public partial class SQLite
             }
             finally
             {
-                throttler?.Release();
+                throttler.Release();
             }
         });
 
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-        throttler?.Dispose();
         return results;
     }
 }

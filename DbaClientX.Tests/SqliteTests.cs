@@ -5,6 +5,7 @@ using System.Data;
 using System.Data.Common;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -315,6 +316,41 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", DBAClientX.SQLite.DefaultMaxParallelQueries * 4).ToArray();
+        using var sqlite = new DelaySqlite(TimeSpan.FromMilliseconds(100));
+
+        await sqlite.RunQueriesInParallel(queries, ":memory:");
+
+        Assert.InRange(sqlite.MaxConcurrency, 1, DBAClientX.SQLite.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
+    public void BeginTransaction_UsesDefaultBusyTimeoutInConnectionString()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        sqlite.BeginTransaction(":memory:");
+        var builder = new SqliteConnectionStringBuilder(GetTransactionConnectionString(sqlite));
+        Assert.Equal(DBAClientX.SQLite.DefaultBusyTimeoutMs / 1000, builder.DefaultTimeout);
+        sqlite.Rollback();
+    }
+
+    [Fact]
+    public void BeginTransaction_UsesConfiguredBusyTimeoutInConnectionString()
+    {
+        using var sqlite = new DBAClientX.SQLite
+        {
+            BusyTimeoutMs = 12000
+        };
+
+        sqlite.BeginTransaction(":memory:");
+        var builder = new SqliteConnectionStringBuilder(GetTransactionConnectionString(sqlite));
+        Assert.Equal(12, builder.DefaultTimeout);
+        sqlite.Rollback();
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var sqlite = new DelaySqlite(TimeSpan.FromSeconds(5));
@@ -332,5 +368,14 @@ public class SqliteTests
         {
             File.Delete(path);
         }
+    }
+
+    private static string GetTransactionConnectionString(DBAClientX.SQLite sqlite)
+    {
+        var field = typeof(DBAClientX.SQLite).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var connection = field.GetValue(sqlite) as SqliteConnection;
+        Assert.NotNull(connection);
+        return connection.ConnectionString;
     }
 }

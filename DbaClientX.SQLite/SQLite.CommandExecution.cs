@@ -19,7 +19,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -53,7 +53,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -87,7 +87,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;

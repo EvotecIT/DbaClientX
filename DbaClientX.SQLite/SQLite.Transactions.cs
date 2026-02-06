@@ -20,7 +20,7 @@ public partial class SQLite
                 throw new DbaTransactionException("Transaction already started.");
             }
 
-            var connectionString = BuildConnectionString(database);
+            var connectionString = BuildOperationalConnectionString(database);
 
             _transactionConnection = new SqliteConnection(connectionString);
             _transactionConnection.Open();
@@ -53,7 +53,7 @@ public partial class SQLite
                 _transactionInitializing = true;
             }
 
-            var connectionString = BuildConnectionString(database);
+            var connectionString = BuildOperationalConnectionString(database);
 
             connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);

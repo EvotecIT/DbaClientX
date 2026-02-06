@@ -1,90 +1,74 @@
-using System;
-using System.Collections.Generic;
 using System.Data;
-using System.Data.Common;
-using System.Linq;
-using System.Threading;
+using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class SQLiteBulkInsertTests
 {
-    private class CaptureSQLite : DBAClientX.SQLite
+    [Fact]
+    public void BulkInsert_WithBatchSize_InsertsAllRows()
     {
-        public List<string> Queries { get; } = new();
-        public List<int> BatchRowCounts { get; } = new();
-
-        protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        var path = Path.GetTempFileName();
+        try
         {
-            Queries.Add(query);
-            if (query.IndexOf("VALUES", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                var valuesPart = query.Substring(query.IndexOf("VALUES", StringComparison.OrdinalIgnoreCase));
-                var rowCount = valuesPart.Count(c => c == '(');
-                BatchRowCounts.Add(rowCount);
-            }
-            else
-            {
-                BatchRowCounts.Add(0);
-            }
-            return 0;
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
+
+            var table = CreateTable(2);
+            sqlite.BulkInsert(path, table, "Dest", batchSize: 1);
+
+            var count = sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(2L, count);
         }
-
-        protected override Task<int> ExecuteNonQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+        finally
         {
-            var result = ExecuteNonQuery(connection, transaction, query, parameters, parameterTypes, parameterDirections);
-            return Task.FromResult(result);
+            Cleanup(path);
         }
     }
 
     [Fact]
-    public void BulkInsert_BatchesRows()
+    public async Task BulkInsertAsync_WithBatchSize_InsertsAllRows()
     {
-        using var sqlite = new CaptureSQLite();
-        var table = new DataTable();
-        table.Columns.Add("Id", typeof(int));
-        table.Columns.Add("Name", typeof(string));
-        table.Rows.Add(1, "a");
-        table.Rows.Add(2, "b");
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
 
-        sqlite.BulkInsert(":memory:", table, "Dest", batchSize: 1);
+            var table = CreateTable(2);
+            await sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1);
 
-        Assert.All(sqlite.Queries, q => Assert.Contains("INSERT INTO Dest", q));
-        Assert.Equal(new[] { 1, 1 }, sqlite.BatchRowCounts);
-    }
-
-    [Fact]
-    public async Task BulkInsertAsync_BatchesRows()
-    {
-        using var sqlite = new CaptureSQLite();
-        var table = new DataTable();
-        table.Columns.Add("Id", typeof(int));
-        table.Columns.Add("Name", typeof(string));
-        table.Rows.Add(1, "a");
-        table.Rows.Add(2, "b");
-
-        await sqlite.BulkInsertAsync(":memory:", table, "Dest", batchSize: 1);
-
-        Assert.All(sqlite.Queries, q => Assert.Contains("INSERT INTO Dest", q));
-        Assert.Equal(new[] { 1, 1 }, sqlite.BatchRowCounts);
+            var count = await sqlite.ExecuteScalarAsync(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(2L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
     }
 
     [Fact]
     public void BulkInsert_DefaultBatch_InsertsAllRows()
     {
-        using var sqlite = new CaptureSQLite();
-        var table = new DataTable();
-        table.Columns.Add("Id", typeof(int));
-        table.Columns.Add("Name", typeof(string));
-        table.Rows.Add(1, "a");
-        table.Rows.Add(2, "b");
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
 
-        sqlite.BulkInsert(":memory:", table, "Dest");
+            var table = CreateTable(1200);
+            sqlite.BulkInsert(path, table, "Dest");
 
-        Assert.Single(sqlite.BatchRowCounts);
-        Assert.Equal(2, sqlite.BatchRowCounts[0]);
+            var count = sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(1200L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
     }
 
     [Fact]
@@ -95,5 +79,26 @@ public class SQLiteBulkInsertTests
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.BulkInsert(":memory:", table, "Dest", useTransaction: true));
     }
-}
 
+    private static DataTable CreateTable(int rows)
+    {
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("Name", typeof(string));
+        for (var i = 0; i < rows; i++)
+        {
+            table.Rows.Add(i + 1, $"name-{i + 1}");
+        }
+
+        return table;
+    }
+
+    private static void Cleanup(string path)
+    {
+        SqliteConnection.ClearAllPools();
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+}
