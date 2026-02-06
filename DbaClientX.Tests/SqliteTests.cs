@@ -327,17 +327,19 @@ public class SqliteTests
     }
 
     [Fact]
-    public void BeginTransaction_UsesDefaultBusyTimeoutInConnectionString()
+    public void BeginTransaction_UsesDefaultBusyTimeoutPragma()
     {
         using var sqlite = new DBAClientX.SQLite();
         sqlite.BeginTransaction(":memory:");
-        var builder = new SqliteConnectionStringBuilder(GetTransactionConnectionString(sqlite));
-        Assert.Equal(DBAClientX.SQLite.DefaultBusyTimeoutMs / 1000, builder.DefaultTimeout);
+        using var command = GetTransactionConnection(sqlite).CreateCommand();
+        command.CommandText = "PRAGMA busy_timeout;";
+        var result = command.ExecuteScalar();
+        Assert.Equal(DBAClientX.SQLite.DefaultBusyTimeoutMs, Assert.IsType<long>(result));
         sqlite.Rollback();
     }
 
     [Fact]
-    public void BeginTransaction_UsesConfiguredBusyTimeoutInConnectionString()
+    public void BeginTransaction_UsesConfiguredBusyTimeoutPragma()
     {
         using var sqlite = new DBAClientX.SQLite
         {
@@ -345,8 +347,10 @@ public class SqliteTests
         };
 
         sqlite.BeginTransaction(":memory:");
-        var builder = new SqliteConnectionStringBuilder(GetTransactionConnectionString(sqlite));
-        Assert.Equal(12, builder.DefaultTimeout);
+        using var command = GetTransactionConnection(sqlite).CreateCommand();
+        command.CommandText = "PRAGMA busy_timeout;";
+        var result = command.ExecuteScalar();
+        Assert.Equal(12000L, result);
         sqlite.Rollback();
     }
 
@@ -370,12 +374,12 @@ public class SqliteTests
         }
     }
 
-    private static string GetTransactionConnectionString(DBAClientX.SQLite sqlite)
+    private static SqliteConnection GetTransactionConnection(DBAClientX.SQLite sqlite)
     {
         var field = typeof(DBAClientX.SQLite).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(field);
         var connection = field.GetValue(sqlite) as SqliteConnection;
         Assert.NotNull(connection);
-        return connection.ConnectionString;
+        return connection;
     }
 }

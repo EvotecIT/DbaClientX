@@ -63,13 +63,13 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildOperationalConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
+        var connectionString = BuildOperationalConnectionString(database, readOnly: true);
 
         SqliteConnection? connection = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken).ConfigureAwait(false);
+            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -177,7 +177,7 @@ public partial class SQLite
         }
     }
 
-    private async Task<(SqliteConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
+    private async Task<(SqliteConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken, int? busyTimeoutMs = null)
     {
         if (useTransaction)
         {
@@ -191,6 +191,7 @@ public partial class SQLite
 
         var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
         return (connection, true);
     }
 }

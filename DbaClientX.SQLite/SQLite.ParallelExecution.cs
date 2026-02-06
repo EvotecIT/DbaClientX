@@ -22,11 +22,9 @@ public partial class SQLite
             throw new ArgumentNullException(nameof(queries));
         }
 
-        var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism ?? DefaultMaxParallelQueries;
-        if (effectiveMaxDegreeOfParallelism < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxDegreeOfParallelism), "maxDegreeOfParallelism must be greater than 0 when specified.");
-        }
+        var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0
+            ? maxDegreeOfParallelism.Value
+            : DefaultMaxParallelQueries;
         using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
         var tasks = queries.Select(async q =>

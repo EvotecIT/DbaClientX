@@ -24,6 +24,7 @@ public partial class SQLite
 
             _transactionConnection = new SqliteConnection(connectionString);
             _transactionConnection.Open();
+            ApplyBusyTimeout(_transactionConnection);
             _transaction = _transactionConnection.BeginTransaction();
         }
     }
@@ -57,6 +58,7 @@ public partial class SQLite
 
             connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, cancellationToken).ConfigureAwait(false);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
             transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 #else

@@ -49,16 +49,27 @@ public partial class SQLite
             var columns = GetColumns(table);
             var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
 
-            using var command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, CommandTimeout);
-
-            for (var offset = 0; offset < totalRows; offset += rowsPerBatch)
+            SqliteCommand? command = null;
+            var preparedRowsPerBatch = 0;
+            try
             {
-                var max = Math.Min(offset + rowsPerBatch, totalRows);
-                for (var rowIndex = offset; rowIndex < max; rowIndex++)
+                for (var offset = 0; offset < totalRows; offset += rowsPerBatch)
                 {
-                    ApplyRowValues(command, columns, table.Rows[rowIndex]);
+                    var currentRows = Math.Min(rowsPerBatch, totalRows - offset);
+                    if (command == null || preparedRowsPerBatch != currentRows)
+                    {
+                        command?.Dispose();
+                        command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        preparedRowsPerBatch = currentRows;
+                    }
+
+                    ApplyBatchValues(command, columns, table, offset, currentRows);
                     ExecuteWithRetry(() => command.ExecuteNonQuery());
                 }
+            }
+            finally
+            {
+                command?.Dispose();
             }
 
             if (!useTransaction)
@@ -136,19 +147,44 @@ public partial class SQLite
             var columns = GetColumns(table);
             var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
 
-            using var command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, CommandTimeout);
-
-            for (var offset = 0; offset < totalRows; offset += rowsPerBatch)
+            SqliteCommand? command = null;
+            var preparedRowsPerBatch = 0;
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var max = Math.Min(offset + rowsPerBatch, totalRows);
-                for (var rowIndex = offset; rowIndex < max; rowIndex++)
+                for (var offset = 0; offset < totalRows; offset += rowsPerBatch)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    ApplyRowValues(command, columns, table.Rows[rowIndex]);
+                    var currentRows = Math.Min(rowsPerBatch, totalRows - offset);
+                    if (command == null || preparedRowsPerBatch != currentRows)
+                    {
+                        if (command != null)
+                        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                            await command.DisposeAsync().ConfigureAwait(false);
+#else
+                            command.Dispose();
+#endif
+                        }
+
+                        command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        preparedRowsPerBatch = currentRows;
+                    }
+
+                    ApplyBatchValues(command, columns, table, offset, currentRows);
                     await ExecuteWithRetryAsync(
                         async () => await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false),
                         cancellationToken).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                if (command != null)
+                {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                    await command.DisposeAsync().ConfigureAwait(false);
+#else
+                    command.Dispose();
+#endif
                 }
             }
 
@@ -238,44 +274,64 @@ public partial class SQLite
         return Math.Min(totalRows, DefaultBulkInsertBatchSize);
     }
 
-    private static string BuildBulkInsertStatement(string destinationTable, DataColumn[] columns)
+    private static string BuildBulkInsertStatement(string destinationTable, DataColumn[] columns, int rowsPerBatch)
     {
         var columnNames = new string[columns.Length];
-        var parameterNames = new string[columns.Length];
         for (var i = 0; i < columns.Length; i++)
         {
             columnNames[i] = $"\"{columns[i].ColumnName}\"";
-            parameterNames[i] = $"@p{i}";
         }
 
-        return $"INSERT INTO {destinationTable} ({string.Join(", ", columnNames)}) VALUES ({string.Join(", ", parameterNames)});";
+        var values = new string[rowsPerBatch];
+        for (var rowIndex = 0; rowIndex < rowsPerBatch; rowIndex++)
+        {
+            var parameterNames = new string[columns.Length];
+            for (var colIndex = 0; colIndex < columns.Length; colIndex++)
+            {
+                parameterNames[colIndex] = GetParameterName(rowIndex, colIndex);
+            }
+
+            values[rowIndex] = $"({string.Join(", ", parameterNames)})";
+        }
+
+        return $"INSERT INTO {destinationTable} ({string.Join(", ", columnNames)}) VALUES {string.Join(", ", values)};";
     }
 
-    private static SqliteCommand CreatePreparedBulkInsertCommand(SqliteConnection connection, SqliteTransaction? transaction, string destinationTable, DataColumn[] columns, int commandTimeout)
+    private static SqliteCommand CreatePreparedBulkInsertCommand(SqliteConnection connection, SqliteTransaction? transaction, string destinationTable, DataColumn[] columns, int rowsPerBatch, int commandTimeout)
     {
         var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = BuildBulkInsertStatement(destinationTable, columns);
+        command.CommandText = BuildBulkInsertStatement(destinationTable, columns, rowsPerBatch);
         if (commandTimeout > 0)
         {
             command.CommandTimeout = commandTimeout;
         }
 
-        for (var i = 0; i < columns.Length; i++)
+        for (var rowIndex = 0; rowIndex < rowsPerBatch; rowIndex++)
         {
-            command.Parameters.AddWithValue($"@p{i}", DBNull.Value);
+            for (var colIndex = 0; colIndex < columns.Length; colIndex++)
+            {
+                command.Parameters.AddWithValue(GetParameterName(rowIndex, colIndex), DBNull.Value);
+            }
         }
 
         command.Prepare();
         return command;
     }
 
-    private static void ApplyRowValues(SqliteCommand command, DataColumn[] columns, DataRow row)
+    private static string GetParameterName(int rowIndex, int colIndex) => $"@p{rowIndex}_{colIndex}";
+
+    private static void ApplyBatchValues(SqliteCommand command, DataColumn[] columns, DataTable table, int offset, int rowsPerBatch)
     {
-        for (var i = 0; i < columns.Length; i++)
+        var parameterIndex = 0;
+        for (var rowIndex = 0; rowIndex < rowsPerBatch; rowIndex++)
         {
-            var value = row[columns[i]];
-            command.Parameters[i].Value = value == DBNull.Value ? DBNull.Value : value;
+            var row = table.Rows[offset + rowIndex];
+            for (var colIndex = 0; colIndex < columns.Length; colIndex++)
+            {
+                command.Parameters[parameterIndex].Value = row[columns[colIndex]];
+                parameterIndex++;
+            }
         }
     }
 }

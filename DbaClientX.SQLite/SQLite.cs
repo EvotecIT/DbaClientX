@@ -26,7 +26,7 @@ public partial class SQLite : DatabaseClientBase
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
     private bool _transactionInitializing;
-    private int _busyTimeoutMs = DefaultBusyTimeoutMs;
+    private volatile int _busyTimeoutMs = DefaultBusyTimeoutMs;
 
     /// <summary>
     /// Gets a value indicating whether an explicit transaction scope is currently active.
@@ -46,13 +46,7 @@ public partial class SQLite : DatabaseClientBase
     /// </remarks>
     public int BusyTimeoutMs
     {
-        get
-        {
-            lock (_syncRoot)
-            {
-                return _busyTimeoutMs;
-            }
-        }
+        get => _busyTimeoutMs;
         set
         {
             if (value < 0)
@@ -60,10 +54,7 @@ public partial class SQLite : DatabaseClientBase
                 throw new ArgumentOutOfRangeException(nameof(value), "BusyTimeoutMs cannot be negative.");
             }
 
-            lock (_syncRoot)
-            {
-                _busyTimeoutMs = value;
-            }
+            _busyTimeoutMs = value;
         }
     }
 
@@ -117,16 +108,49 @@ public partial class SQLite : DatabaseClientBase
     public static string BuildReadOnlyConnectionString(string database, int? busyTimeoutMs = null)
         => BuildConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
 
-    private string BuildOperationalConnectionString(string database, bool readOnly = false, int? busyTimeoutMs = null)
+    private static string BuildOperationalConnectionString(string database, bool readOnly = false) =>
+        BuildConnectionString(database, readOnly, busyTimeoutMs: null);
+
+    private int ResolveBusyTimeoutMs(int? busyTimeoutMs)
     {
-        int? effectiveTimeout = busyTimeoutMs;
-        if (!effectiveTimeout.HasValue)
+        var effectiveTimeout = busyTimeoutMs ?? BusyTimeoutMs;
+        if (effectiveTimeout < 0)
         {
-            var configuredTimeout = BusyTimeoutMs;
-            effectiveTimeout = configuredTimeout > 0 ? configuredTimeout : null;
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
         }
 
-        return BuildConnectionString(database, readOnly, effectiveTimeout);
+        return effectiveTimeout;
+    }
+
+    private void ApplyBusyTimeout(SqliteConnection connection, int? busyTimeoutMs = null)
+    {
+        var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);
+        if (effectiveTimeout <= 0)
+        {
+            return;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+        command.ExecuteNonQuery();
+    }
+
+    private async Task ApplyBusyTimeoutAsync(SqliteConnection connection, int? busyTimeoutMs, CancellationToken cancellationToken)
+    {
+        var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);
+        if (effectiveTimeout <= 0)
+        {
+            return;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        command.ExecuteNonQuery();
+#endif
     }
 
     /// <summary>
