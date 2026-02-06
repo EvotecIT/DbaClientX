@@ -11,7 +11,7 @@
     "DbaClientX.Oracle": "0.1.X"
   },
   "ExpectedVersionMapAsInclude": true,
-  "ExpectedVersionMapUseWildcards": false,
+  "ExpectedVersionMapUseWildcards": true,
   "ExcludeProjects": [
     "DbaClientX.PowerShell",
     "DbaClientX.Tests",
