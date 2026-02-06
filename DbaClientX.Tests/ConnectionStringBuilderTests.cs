@@ -58,6 +58,23 @@ public class ConnectionStringBuilderTests
     }
 
     [Fact]
+    public void SQLite_BuildConnectionString_WithBusyTimeout_RoundsToSeconds()
+    {
+        var cs = DBAClientX.SQLite.BuildConnectionString("data.db", readOnly: false, busyTimeoutMs: 1500);
+        var builder = new SqliteConnectionStringBuilder(cs);
+        Assert.Equal(2, builder.DefaultTimeout);
+    }
+
+    [Fact]
+    public void SQLite_BuildReadOnlyConnectionString_SetsReadOnlyModeAndTimeout()
+    {
+        var cs = DBAClientX.SQLite.BuildReadOnlyConnectionString("data.db", busyTimeoutMs: 5000);
+        var builder = new SqliteConnectionStringBuilder(cs);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.Equal(5, builder.DefaultTimeout);
+    }
+
+    [Fact]
     public void SqlServer_BuildConnectionString_IntegratedSecurity()
     {
         var cs = DBAClientX.SqlServer.BuildConnectionString("srv", "db", true);

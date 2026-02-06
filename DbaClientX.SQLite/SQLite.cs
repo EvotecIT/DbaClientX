@@ -12,10 +12,21 @@ namespace DBAClientX;
 /// </summary>
 public partial class SQLite : DatabaseClientBase
 {
+    /// <summary>
+    /// Default busy timeout used for operational commands when a per-instance value is not overridden.
+    /// </summary>
+    public const int DefaultBusyTimeoutMs = 5000;
+
+    /// <summary>
+    /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.
+    /// </summary>
+    public const int DefaultMaxParallelQueries = 8;
+
     private readonly object _syncRoot = new();
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
     private bool _transactionInitializing;
+    private volatile int _busyTimeoutMs = DefaultBusyTimeoutMs;
 
     /// <summary>
     /// Gets a value indicating whether an explicit transaction scope is currently active.
@@ -26,6 +37,26 @@ public partial class SQLite : DatabaseClientBase
     /// and resets after invoking <see cref="Commit"/>, <see cref="Rollback"/> or their asynchronous counterparts.
     /// </remarks>
     public bool IsInTransaction => _transaction != null;
+
+    /// <summary>
+    /// Gets or sets the busy timeout (in milliseconds) applied to operational SQLite connections.
+    /// </summary>
+    /// <remarks>
+    /// Set to <c>0</c> to use provider defaults and disable explicit timeout injection.
+    /// </remarks>
+    public int BusyTimeoutMs
+    {
+        get => _busyTimeoutMs;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "BusyTimeoutMs cannot be negative.");
+            }
+
+            _busyTimeoutMs = value;
+        }
+    }
 
     /// <summary>
     /// Builds a connection string suitable for <see cref="SqliteConnection"/> instances using a database file path.
@@ -76,6 +107,51 @@ public partial class SQLite : DatabaseClientBase
     /// <returns>A pooled read-only connection string.</returns>
     public static string BuildReadOnlyConnectionString(string database, int? busyTimeoutMs = null)
         => BuildConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
+
+    private static string BuildOperationalConnectionString(string database, bool readOnly = false) =>
+        BuildConnectionString(database, readOnly, busyTimeoutMs: null);
+
+    private int ResolveBusyTimeoutMs(int? busyTimeoutMs)
+    {
+        var effectiveTimeout = busyTimeoutMs ?? BusyTimeoutMs;
+        if (effectiveTimeout < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
+        }
+
+        return effectiveTimeout;
+    }
+
+    private void ApplyBusyTimeout(SqliteConnection connection, int? busyTimeoutMs = null)
+    {
+        var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);
+        if (effectiveTimeout <= 0)
+        {
+            return;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+        command.ExecuteNonQuery();
+    }
+
+    private async Task ApplyBusyTimeoutAsync(SqliteConnection connection, int? busyTimeoutMs, CancellationToken cancellationToken)
+    {
+        var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);
+        if (effectiveTimeout <= 0)
+        {
+            return;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        command.ExecuteNonQuery();
+#endif
+    }
 
     /// <summary>
     /// Performs a lightweight connectivity test against the supplied SQLite database file.

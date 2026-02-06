@@ -5,6 +5,7 @@ using System.Data;
 using System.Data.Common;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -315,6 +316,45 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", DBAClientX.SQLite.DefaultMaxParallelQueries * 4).ToArray();
+        using var sqlite = new DelaySqlite(TimeSpan.FromMilliseconds(100));
+
+        await sqlite.RunQueriesInParallel(queries, ":memory:");
+
+        Assert.InRange(sqlite.MaxConcurrency, 1, DBAClientX.SQLite.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
+    public void BeginTransaction_UsesDefaultBusyTimeoutPragma()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        sqlite.BeginTransaction(":memory:");
+        using var command = GetTransactionConnection(sqlite).CreateCommand();
+        command.CommandText = "PRAGMA busy_timeout;";
+        var result = command.ExecuteScalar();
+        Assert.Equal(DBAClientX.SQLite.DefaultBusyTimeoutMs, Assert.IsType<long>(result));
+        sqlite.Rollback();
+    }
+
+    [Fact]
+    public void BeginTransaction_UsesConfiguredBusyTimeoutPragma()
+    {
+        using var sqlite = new DBAClientX.SQLite
+        {
+            BusyTimeoutMs = 12000
+        };
+
+        sqlite.BeginTransaction(":memory:");
+        using var command = GetTransactionConnection(sqlite).CreateCommand();
+        command.CommandText = "PRAGMA busy_timeout;";
+        var result = command.ExecuteScalar();
+        Assert.Equal(12000L, result);
+        sqlite.Rollback();
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var sqlite = new DelaySqlite(TimeSpan.FromSeconds(5));
@@ -332,5 +372,14 @@ public class SqliteTests
         {
             File.Delete(path);
         }
+    }
+
+    private static SqliteConnection GetTransactionConnection(DBAClientX.SQLite sqlite)
+    {
+        var field = typeof(DBAClientX.SQLite).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var connection = field.GetValue(sqlite) as SqliteConnection;
+        Assert.NotNull(connection);
+        return connection;
     }
 }

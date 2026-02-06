@@ -19,7 +19,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -53,7 +53,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -87,7 +87,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        var connectionString = BuildConnectionString(database);
+        var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -110,7 +110,7 @@ public partial class SQLite
         }
     }
 
-    private SqliteConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    private SqliteConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose, int? busyTimeoutMs = null)
     {
         if (useTransaction)
         {
@@ -125,6 +125,7 @@ public partial class SQLite
 
         var connection = new SqliteConnection(connectionString);
         connection.Open();
+        ApplyBusyTimeout(connection, busyTimeoutMs);
         dispose = true;
         return connection;
     }
