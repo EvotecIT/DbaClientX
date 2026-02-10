@@ -43,7 +43,7 @@
   "GitHubIsPreRelease": false,
   "GitHubIncludeProjectNameInTag": true,
   "GitHubGenerateReleaseNotes": true,
-  "GitHubReleaseMode": "Multiple",
+  "GitHubReleaseMode": "Single",
   "GitHubPrimaryProject": "DbaClientX.Core",
   "GitHubTagTemplate": "{Project}-v{Version}"
 }
