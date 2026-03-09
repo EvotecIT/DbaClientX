@@ -1,6 +1,10 @@
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 describe 'Invoke-DbaXOracle cmdlet' {
+    BeforeAll {
+        . "$PSScriptRoot/TestAssemblyHelpers.ps1"
+    }
+
     it 'is exported' {
         Get-Command Invoke-DbaXOracle | Should -Not -BeNullOrEmpty
     }
@@ -18,9 +22,121 @@ describe 'Invoke-DbaXOracle cmdlet' {
         (Get-Command Invoke-DbaXOracle).Parameters.Keys | Should -Contain 'ReturnType'
     }
 
-    it 'passes credentials to provider when supplied' -Skip {}
+    it 'passes credentials to provider when supplied' {
+        $code = @"
+#nullable enable
+using System.Collections.Generic;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
 
-    it 'passes QueryTimeout and Parameters to provider' -Skip {}
+public class TestOracleQueryCredentials : DBAClientX.Oracle
+{
+    public static TestOracleQueryCredentials Last;
+    public string? User;
+    public string? Pass;
+
+    public TestOracleQueryCredentials()
+    {
+        Last = this;
+    }
+
+    public override Task<object?> QueryAsync(
+        string host, string serviceName, string username, string password, string query,
+        IDictionary<string, object?>? parameters = null, bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, Oracle.ManagedDataAccess.Client.OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        User = username;
+        Pass = password;
+
+        var table = new DataTable();
+        table.Columns.Add("Value", typeof(int));
+        var row = table.NewRow();
+        row["Value"] = 1;
+        table.Rows.Add(row);
+        return Task.FromResult<object?>(table);
+    }
+}
+"@
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.Oracle]) -AdditionalAssemblyPaths ([Oracle.ManagedDataAccess.Client.OracleDbType].Assembly.Location)
+        try {
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
+        } catch {
+            Set-ItResult -Skipped -Because $_.Exception.Message
+            return
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracle].GetProperty('OracleFactory',$binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [System.Func[DBAClientX.Oracle]]{ [TestOracleQueryCredentials]::new() })
+        try {
+            Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Username u -Password p | Out-Null
+            [TestOracleQueryCredentials]::Last.User | Should -Be 'u'
+            [TestOracleQueryCredentials]::Last.Pass | Should -Be 'p'
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
+    it 'passes QueryTimeout and Parameters to provider' {
+        $code = @"
+#nullable enable
+using System.Collections.Generic;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+
+public class TestOracleQueryOptions : DBAClientX.Oracle
+{
+    public static TestOracleQueryOptions Last;
+    public int Timeout;
+    public IDictionary<string, object?>? Params;
+
+    public TestOracleQueryOptions()
+    {
+        Last = this;
+    }
+
+    public override Task<object?> QueryAsync(
+        string host, string serviceName, string username, string password, string query,
+        IDictionary<string, object?>? parameters = null, bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, Oracle.ManagedDataAccess.Client.OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        Timeout = CommandTimeout;
+        Params = parameters;
+
+        var table = new DataTable();
+        table.Columns.Add("Value", typeof(int));
+        var row = table.NewRow();
+        row["Value"] = 1;
+        table.Rows.Add(row);
+        return Task.FromResult<object?>(table);
+    }
+}
+"@
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.Oracle]) -AdditionalAssemblyPaths ([Oracle.ManagedDataAccess.Client.OracleDbType].Assembly.Location)
+        try {
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
+        } catch {
+            Set-ItResult -Skipped -Because $_.Exception.Message
+            return
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracle].GetProperty('OracleFactory',$binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [System.Func[DBAClientX.Oracle]]{ [TestOracleQueryOptions]::new() })
+        try {
+            Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Username u -Password p -QueryTimeout 9 -Parameters @{ A = 1 } | Out-Null
+            [TestOracleQueryOptions]::Last.Timeout | Should -Be 9
+            [TestOracleQueryOptions]::Last.Params['A'] | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
 
     it 'fails when Server is empty' {
         { Invoke-DbaXOracle -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
@@ -44,6 +160,7 @@ describe 'Invoke-DbaXOracle cmdlet' {
 
     it 'streams rows asynchronously' {
         $code = @"
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -76,14 +193,9 @@ public class TestOracleStream : DBAClientX.Oracle
     }
 }
 "@
-        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.Oracle.dll'
-        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.Oracle.dll',
-                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
-                  [System.Data.DataTable].Assembly.Location,
-                  [object].Assembly.Location,
-                  [System.Runtime.GCSettings].Assembly.Location)
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.Oracle]) -AdditionalAssemblyPaths ([Oracle.ManagedDataAccess.Client.OracleDbType].Assembly.Location)
         try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
         } catch {
             Set-ItResult -Skipped -Because $_.Exception.Message
             return
@@ -104,6 +216,7 @@ public class TestOracleStream : DBAClientX.Oracle
 
     it 'can be cancelled while streaming' {
         $code = @"
+#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -125,14 +238,9 @@ public class CancelOracleStream : DBAClientX.Oracle
     }
 }
 "@
-        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.Oracle.dll'
-        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.Oracle.dll',
-                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
-                  [System.Data.DataTable].Assembly.Location,
-                  [object].Assembly.Location,
-                  [System.Runtime.GCSettings].Assembly.Location)
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.Oracle]) -AdditionalAssemblyPaths ([Oracle.ManagedDataAccess.Client.OracleDbType].Assembly.Location)
         try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
         } catch {
             Set-ItResult -Skipped -Because $_.Exception.Message
             return
