@@ -7,7 +7,7 @@ describe 'Invoke-DbaXSQLite cmdlet' {
 
     it 'warns for unsafe sqlite paths' {
         $warnings = $null
-        Invoke-DbaXSQLite -Database '../unsafe.db' -Query 'SELECT 1' -WarningVariable warnings | Out-Null
+        Invoke-DbaXSQLite -Database '../unsafe.db' -Query 'SELECT 1' -ErrorAction Continue -WarningVariable warnings | Out-Null
 
         @($warnings).Count | Should -BeGreaterThan 0
         ($warnings -join "`n") | Should -Match 'unsafe relative path'

@@ -88,9 +88,6 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     private ActionPreference ErrorAction;
 
     /// <summary>
-    /// Begin processing method for PowerShell cmdlet
-    /// </summary>
-    /// <summary>
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override Task BeginProcessingAsync() {
@@ -102,9 +99,6 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Process method for PowerShell cmdlet
-    /// </summary>
     /// <summary>
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
