@@ -88,6 +88,14 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
         using var oracle = OracleFactory();
         oracle.ReturnType = ReturnType;
         oracle.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle query")) {
+            return;
+        }
+        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "oracle", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER

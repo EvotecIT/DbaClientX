@@ -33,7 +33,9 @@ internal static class PowerShellHelpers
         Action<string>? writeWarning = null,
         Action<ErrorRecord>? throwTerminatingError = null)
     {
-        writeWarning ??= cmdlet.WriteWarning;
+        writeWarning ??= cmdlet is AsyncPSCmdlet asyncCmdlet
+            ? asyncCmdlet.WriteWarning
+            : cmdlet.WriteWarning;
         throwTerminatingError ??= cmdlet.ThrowTerminatingError;
 
         var result = DbaConnectionFactory.Validate(providerAlias, connectionString);

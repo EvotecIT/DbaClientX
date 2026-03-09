@@ -71,10 +71,15 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
     protected override void ProcessRecord() {
         using var mySql = MySqlFactory();
         mySql.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL non-query")) {
+            return;
+        }
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
-            if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL non-query")) {
-                return;
-            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = mySql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);
@@ -86,4 +91,3 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
         }
     }
 }
-

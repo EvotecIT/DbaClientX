@@ -71,10 +71,15 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
     protected override void ProcessRecord() {
         using var postgreSql = PostgreSqlFactory();
         postgreSql.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute PostgreSQL non-query")) {
+            return;
+        }
+        var connectionString = DBAClientX.PostgreSql.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "postgresql", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
-            if (!ShouldProcess($"{Server}/{Database}", "Execute PostgreSQL non-query")) {
-                return;
-            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = postgreSql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);
@@ -86,4 +91,3 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
         }
     }
 }
-

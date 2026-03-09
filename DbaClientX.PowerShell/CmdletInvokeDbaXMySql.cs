@@ -89,6 +89,9 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
         using var mySql = MySqlFactory();
         mySql.ReturnType = ReturnType;
         mySql.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL query")) {
+            return;
+        }
         var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
         if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
         {

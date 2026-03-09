@@ -78,7 +78,6 @@ public class TestSqlServer : DBAClientX.SqlServer {
             $prop.SetValue($null, $orig)
         }
     }
-
     it 'streams rows asynchronously' {
         $code = @"
 using System.Collections.Generic;

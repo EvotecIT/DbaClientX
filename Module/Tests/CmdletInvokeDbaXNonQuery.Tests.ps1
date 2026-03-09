@@ -29,7 +29,12 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         $orig = $prop.GetValue($null)
         $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServer]::new() })
         try {
-            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
+            try {
+                Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
+            } catch [System.PlatformNotSupportedException] {
+                Set-ItResult -Skipped -Because $_.Exception.Message
+                return
+            }
             [TestSqlServer]::Last.Integrated | Should -BeFalse
             [TestSqlServer]::Last.User | Should -Be 'u'
             [TestSqlServer]::Last.Pass | Should -Be 'p'

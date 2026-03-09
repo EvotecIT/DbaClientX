@@ -68,6 +68,14 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
     protected override async Task ProcessRecordAsync() {
         using var oracle = OracleFactory();
         oracle.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle scalar query")) {
+            return;
+        }
+        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "oracle", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var result = await oracle.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);

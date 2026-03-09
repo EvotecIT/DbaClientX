@@ -88,9 +88,6 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     private ActionPreference ErrorAction;
 
     /// <summary>
-    /// Begin processing method for PowerShell cmdlet
-    /// </summary>
-    /// <summary>
     /// Initializes cmdlet state before pipeline execution begins.
     /// </summary>
     protected override Task BeginProcessingAsync() {
@@ -103,9 +100,6 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     }
 
     /// <summary>
-    /// Process method for PowerShell cmdlet
-    /// </summary>
-    /// <summary>
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override async Task ProcessRecordAsync() {
@@ -113,6 +107,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         using var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
+        var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
+        if (!ShouldProcess($"{Server}/{Database}", action)) {
+            return;
+        }
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
         if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))

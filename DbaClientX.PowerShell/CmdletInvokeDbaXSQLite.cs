@@ -74,6 +74,14 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         using var sqlite = SQLiteFactory();
         sqlite.ReturnType = ReturnType;
         sqlite.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess(Database, "Execute SQLite query")) {
+            return;
+        }
+        var connectionString = DBAClientX.SQLite.BuildConnectionString(Database);
+        if (!PowerShellHelpers.TryValidateConnection(this, "sqlite", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
