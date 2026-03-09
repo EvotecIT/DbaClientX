@@ -27,6 +27,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
+    internal static ScriptBlock? NonQueryOverride { get; set; }
     /// <summary>Specifies the SQL Server instance.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "DefaultCredentials")]
     [Alias("DBServer", "SqlInstance", "Instance")]
@@ -72,20 +73,32 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override void ProcessRecord() {
-        using var sqlServer = SqlServerFactory();
-        sqlServer.CommandTimeout = QueryTimeout;
         if (!ShouldProcess($"{Server}/{Database}", "Execute SQL Server non-query")) {
-            return;
-        }
-        var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
-        var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
-        if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
-        {
             return;
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
+            if (NonQueryOverride is not null)
+            {
+                var result = PowerShellHelpers.InvokeOverrideAsync<object?>(NonQueryOverride, this, parameters)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
+                if (result != null)
+                {
+                    WriteObject(result);
+                }
+                return;
+            }
 
+            var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
+            if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
+            {
+                return;
+            }
+
+            using var sqlServer = CreateSqlServer();
             var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             WriteObject(affected);
         } catch (Exception ex) {
@@ -94,5 +107,12 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
                 throw;
             }
         }
+    }
+
+    private DBAClientX.SqlServer CreateSqlServer()
+    {
+        var sqlServer = SqlServerFactory();
+        sqlServer.CommandTimeout = QueryTimeout;
+        return sqlServer;
     }
 }

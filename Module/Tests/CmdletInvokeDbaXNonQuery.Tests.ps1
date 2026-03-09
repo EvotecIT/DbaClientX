@@ -11,56 +11,71 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
     }
 
     It 'passes credentials to provider when supplied' {
-        class TestSqlServer : DBAClientX.SqlServer {
-            static [TestSqlServer] $Last
-            [bool] $Integrated
-            [string] $User
-            [string] $Pass
-            TestSqlServer () { [TestSqlServer]::Last = $this }
-            [int] ExecuteNonQuery([string]$serverOrInstance, [string]$database, [bool]$integratedSecurity, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[System.Data.SqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null, [string]$username = $null, [string]$password = $null) {
-                $this.Integrated = $integratedSecurity
-                $this.User = $username
-                $this.Pass = $password
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('SqlServerFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServer]::new() })
-        try {
-            try {
-                Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
-            } catch [System.PlatformNotSupportedException] {
-                Set-ItResult -Skipped -Because $_.Exception.Message
-                return
+        $script:lastNonQueryCall = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastNonQueryCall = [pscustomobject]@{
+                Integrated = [string]::IsNullOrEmpty($cmdlet.Username) -and [string]::IsNullOrEmpty($cmdlet.Password)
+                User = $cmdlet.Username
+                Pass = $cmdlet.Password
             }
-            [TestSqlServer]::Last.Integrated | Should -BeFalse
-            [TestSqlServer]::Last.User | Should -Be 'u'
-            [TestSqlServer]::Last.Pass | Should -Be 'p'
+            return 0
+        })
+        try {
+            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
+            $script:lastNonQueryCall | Should -Not -BeNullOrEmpty
+            $script:lastNonQueryCall.Integrated | Should -BeFalse
+            $script:lastNonQueryCall.User | Should -Be 'u'
+            $script:lastNonQueryCall.Pass | Should -Be 'p'
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastNonQueryCall = $null
+        }
+    }
+
+    It 'passes QueryTimeout and Parameters to provider' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastNonQueryOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastNonQueryOptions = [pscustomobject]@{
+                Timeout = $cmdlet.QueryTimeout
+                ParameterValue = $parameters['A']
+            }
+            return 1
+        })
+        try {
+            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -QueryTimeout 7 -Parameters @{ A = 1 } | Out-Null
+            $script:lastNonQueryOptions | Should -Not -BeNullOrEmpty
+            $script:lastNonQueryOptions.Timeout | Should -Be 7
+            $script:lastNonQueryOptions.ParameterValue | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastNonQueryOptions = $null
         }
     }
 
     It 'honors WhatIf and skips provider execution' {
-        class TestSqlServerWhatIf : DBAClientX.SqlServer {
-            static [int] $Calls
-            [int] ExecuteNonQuery([string]$serverOrInstance, [string]$database, [bool]$integratedSecurity, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[System.Data.SqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null, [string]$username = $null, [string]$password = $null) {
-                [TestSqlServerWhatIf]::Calls++
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('SqlServerFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        [TestSqlServerWhatIf]::Calls = 0
-        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServerWhatIf]::new() })
+        $script:nonQueryCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:nonQueryCalls++
+            return 0
+        })
         try {
             Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -WhatIf | Out-Null
-            [TestSqlServerWhatIf]::Calls | Should -Be 0
+            $script:nonQueryCalls | Should -Be 0
         } finally {
             $prop.SetValue($null, $orig)
+            $script:nonQueryCalls = 0
         }
     }
 
