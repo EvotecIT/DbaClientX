@@ -45,6 +45,22 @@ public class OracleBulkInsertTests
         }
     }
 
+    private class CancellableBulkCopyOracle : DBAClientX.Oracle
+    {
+        public bool WriteCalled { get; private set; }
+
+        protected override OracleConnection CreateConnection(string connectionString) => new();
+
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        protected override OracleBulkCopy CreateBulkCopy(OracleConnection connection, OracleTransaction? transaction) => new("User Id=a;Password=b;Data Source=localhost/XE");
+
+        protected override void WriteToServer(OracleBulkCopy bulkCopy, DataTable table)
+        {
+            WriteCalled = true;
+        }
+    }
+
     [Fact]
     public void BulkInsert_SetsOptionsAndMappings()
     {
@@ -81,6 +97,24 @@ public class OracleBulkInsertTests
         Assert.Contains(oracle.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(oracle.Mappings, m => m.Source == "Name" && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, oracle.BatchRowCounts);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_HonorsPreCancelledToken()
+    {
+        using var oracle = new CancellableBulkCopyOracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+            oracle.BulkInsertAsync("h", "svc", "u", "p", table, "Dest", cancellationToken: cts.Token));
+
+        Assert.IsType<OperationCanceledException>(ex.InnerException);
+        Assert.False(oracle.WriteCalled);
     }
 
     [Fact]

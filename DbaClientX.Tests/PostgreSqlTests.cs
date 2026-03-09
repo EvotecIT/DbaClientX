@@ -3,7 +3,6 @@ using DBAClientX;
 using Npgsql;
 using NpgsqlTypes;
 using System.Data.Common;
-using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -104,18 +103,9 @@ public class PostgreSqlTests
         var queries = Enumerable.Repeat("SELECT 1", 3).ToArray();
         using var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(200));
 
-        var sequential = Stopwatch.StartNew();
-        foreach (var query in queries)
-        {
-            await pg.QueryAsync("h", "d", "u", "p", query);
-        }
-        sequential.Stop();
-
-        var parallel = Stopwatch.StartNew();
         await pg.RunQueriesInParallel(queries, "h", "d", "u", "p");
-        parallel.Stop();
 
-        Assert.True(parallel.Elapsed < sequential.Elapsed);
+        Assert.True(pg.MaxConcurrency > 1);
     }
 
     [Fact]

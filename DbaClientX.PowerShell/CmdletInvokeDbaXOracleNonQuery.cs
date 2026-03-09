@@ -70,6 +70,9 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
         using var oracle = OracleFactory();
         oracle.CommandTimeout = QueryTimeout;
         try {
+            if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle non-query")) {
+                return;
+            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = oracle.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);

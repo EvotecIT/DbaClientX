@@ -92,4 +92,14 @@ public class DbaConnectionFactoryTests
         Assert.Equal("Port", result.Details, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("reserved system range", result.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Validate_OracleBuildConnectionString_Succeeds()
+    {
+        var connectionString = DBAClientX.Oracle.BuildConnectionString("dbhost", "svc", "user", "password");
+        var result = DbaConnectionFactory.Validate("oracle", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
 }

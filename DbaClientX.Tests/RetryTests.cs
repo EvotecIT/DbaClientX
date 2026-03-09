@@ -153,7 +153,7 @@ public class RetryTests
     [Fact]
     public void ExecuteNonQuery_RetriesTransientErrors()
     {
-        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, RetryNonQueryOperations = true };
         var connection = new TransientConnection(2);
         var result = client.Run(connection);
         Assert.Equal(1, result);
@@ -163,11 +163,31 @@ public class RetryTests
     [Fact]
     public async Task ExecuteNonQueryAsync_RetriesTransientErrors()
     {
-        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, RetryNonQueryOperations = true };
         var connection = new TransientConnection(1);
         var result = await client.RunAsync(connection);
         Assert.Equal(1, result);
         Assert.Equal(2, connection.Attempts);
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_DoesNotRetryByDefault()
+    {
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(2);
+
+        Assert.Throws<TransientTestException>(() => client.Run(connection));
+        Assert.Equal(1, connection.Attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_DoesNotRetryByDefault()
+    {
+        using var client = new RetryNonQueryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(2);
+
+        await Assert.ThrowsAsync<TransientTestException>(() => client.RunAsync(connection));
+        Assert.Equal(1, connection.Attempts);
     }
 
     [Fact]

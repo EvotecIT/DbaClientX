@@ -21,6 +21,7 @@ public abstract class DatabaseClientBase : IDisposable
     private int _commandTimeout;
     private int _maxRetryAttempts = 3;
     private TimeSpan _retryDelay = TimeSpan.FromMilliseconds(200);
+    private bool _retryNonQueryOperations;
     private bool _disposed;
 
     private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
@@ -70,6 +71,16 @@ public abstract class DatabaseClientBase : IDisposable
     {
         get { lock (_syncRoot) { return _retryDelay; } }
         set { lock (_syncRoot) { _retryDelay = value; } }
+    }
+
+    /// <summary>
+    /// Gets or sets whether mutating commands such as INSERT/UPDATE/DELETE should use automatic retries.
+    /// Defaults to <see langword="false"/> to avoid replaying non-idempotent writes after partial success.
+    /// </summary>
+    public bool RetryNonQueryOperations
+    {
+        get { lock (_syncRoot) { return _retryNonQueryOperations; } }
+        set { lock (_syncRoot) { _retryNonQueryOperations = value; } }
     }
 
     /// <summary>
@@ -293,44 +304,53 @@ public abstract class DatabaseClientBase : IDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            using var reader = command.ExecuteReader();
-            var returnType = ReturnType;
-            if (returnType == ReturnType.DataRow)
+            object? result;
+            using (var reader = command.ExecuteReader())
             {
-                if (reader.Read())
+                var returnType = ReturnType;
+                if (returnType == ReturnType.DataRow)
+                {
+                    if (reader.Read())
+                    {
+                        var table = new DataTable("Table0");
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                        }
+                        var row = table.NewRow();
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                        }
+                        result = row;
+                    }
+                    else
+                    {
+                        result = null;
+                    }
+                }
+                else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
                     var table = new DataTable("Table0");
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
-                    }
-                    var row = table.NewRow();
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
-                    }
-                    return row;
+                    table.Load(reader);
+                    result = table;
                 }
-                return null;
-            }
-            if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
-            {
-                var table = new DataTable("Table0");
-                table.Load(reader);
-                return table;
+                else
+                {
+                    var dataSet = new DataSet();
+                    var tableIndex = 0;
+                    do
+                    {
+                        var table = new DataTable($"Table{tableIndex}");
+                        table.Load(reader);
+                        dataSet.Tables.Add(table);
+                        tableIndex++;
+                    } while (!reader.IsClosed && reader.NextResult());
+
+                    result = BuildResult(dataSet);
+                }
             }
 
-            var dataSet = new DataSet();
-            var tableIndex = 0;
-            do
-            {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            } while (!reader.IsClosed && reader.NextResult());
-
-            var result = BuildResult(dataSet);
             UpdateOutputParameters(command, parameters);
             return result;
         });
@@ -348,7 +368,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The number of rows affected.</returns>
     protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        return ExecuteWithRetry(() =>
+        int ExecuteOperation()
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -363,7 +383,11 @@ public abstract class DatabaseClientBase : IDisposable
             var affected = command.ExecuteNonQuery();
             UpdateOutputParameters(command, parameters);
             return affected;
-        });
+        }
+
+        return RetryNonQueryOperations
+            ? ExecuteWithRetry(ExecuteOperation)
+            : ExecuteOperation();
     }
 
     /// <summary>
@@ -420,44 +444,53 @@ public abstract class DatabaseClientBase : IDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            var returnType = ReturnType;
-            if (returnType == ReturnType.DataRow)
+            object? result;
+            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                var returnType = ReturnType;
+                if (returnType == ReturnType.DataRow)
+                {
+                    if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        var table = new DataTable("Table0");
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                        }
+                        var row = table.NewRow();
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                        }
+                        result = row;
+                    }
+                    else
+                    {
+                        result = null;
+                    }
+                }
+                else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
                     var table = new DataTable("Table0");
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
-                    }
-                    var row = table.NewRow();
-                    for (int i = 0; i < reader.FieldCount; i++)
-                    {
-                        row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
-                    }
-                    return row;
+                    table.Load(reader);
+                    result = table;
                 }
-                return null;
-            }
-            if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
-            {
-                var table = new DataTable("Table0");
-                table.Load(reader);
-                return table;
+                else
+                {
+                    var dataSet = new DataSet();
+                    var tableIndex = 0;
+                    do
+                    {
+                        var table = new DataTable($"Table{tableIndex}");
+                        table.Load(reader);
+                        dataSet.Tables.Add(table);
+                        tableIndex++;
+                    } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+                    result = BuildResult(dataSet);
+                }
             }
 
-            var dataSet = new DataSet();
-            var tableIndex = 0;
-            do
-            {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
-
-            var result = BuildResult(dataSet);
             UpdateOutputParameters(command, parameters);
             return result;
         }, cancellationToken).ConfigureAwait(false);
@@ -483,7 +516,7 @@ public abstract class DatabaseClientBase : IDisposable
         IDictionary<string, DbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        return await ExecuteWithRetryAsync(async () =>
+        async Task<int> ExecuteOperationAsync()
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -498,7 +531,14 @@ public abstract class DatabaseClientBase : IDisposable
             var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return affected;
-        }, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (RetryNonQueryOperations)
+        {
+            return await ExecuteWithRetryAsync(ExecuteOperationAsync, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await ExecuteOperationAsync().ConfigureAwait(false);
     }
 
     /// <summary>

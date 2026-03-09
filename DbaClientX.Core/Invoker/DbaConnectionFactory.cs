@@ -72,7 +72,12 @@ public static class DbaConnectionFactory
         {
             new[] { "Data Source", "DataSource", "Filename" }
         }, ValidateSqlitePath),
-        ["oracle"] = new("oracle", RequiredServerAndDatabase)
+        ["oracle"] = new("oracle", new List<string[]>
+        {
+            new[] { "Data Source", "DataSource" },
+            new[] { "User Id", "UserID", "User ID", "UID" },
+            new[] { "Password", "Pwd" }
+        })
     };
 
     private static readonly Dictionary<string, string> ProviderAliases = new(StringComparer.OrdinalIgnoreCase)

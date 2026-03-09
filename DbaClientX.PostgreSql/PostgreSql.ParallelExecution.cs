@@ -33,26 +33,24 @@ public partial class PostgreSql
         var taskList = new List<Task<object?>>();
         foreach (var query in queries)
         {
-            if (throttler != null)
+            async Task<object?> ExecuteQueryAsync(string sql)
             {
-                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
+                if (throttler != null)
+                {
+                    await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                try
+                {
+                    return await QueryAsync(host, database, username, password, sql, null, false, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    throttler?.Release();
+                }
             }
 
-            var task = QueryAsync(host, database, username, password, query, null, false, cancellationToken);
-            if (throttler != null)
-            {
-                task = task.ContinueWith(
-                    t =>
-                    {
-                        throttler.Release();
-                        return t.Result;
-                    },
-                    cancellationToken,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-            }
-
-            taskList.Add(task);
+            taskList.Add(ExecuteQueryAsync(query));
         }
 
         try

@@ -52,17 +52,7 @@ public class QueryCompiler
     /// <param name="query">The query to compile.</param>
     /// <returns>The SQL text.</returns>
     public string Compile(Query query)
-    {
-        var key = BuildCacheKey(query);
-        if (_cache.TryGetValue(key, out var cached))
-        {
-            return cached;
-        }
-
-        var sql = CompileInternal(query, null);
-        AddToCache(key, sql);
-        return sql;
-    }
+        => CompileInternal(query, null);
 
     /// <summary>
     /// Compiles the supplied query into SQL text and collects ordered parameter values.
@@ -71,7 +61,7 @@ public class QueryCompiler
     /// <returns>A tuple containing the SQL text and parameter values.</returns>
     public (string Sql, IReadOnlyList<object> Parameters) CompileWithParameters(Query query)
     {
-        var key = BuildCacheKey(query);
+        var key = "PARAMS|" + BuildCacheKey(query);
         var parameters = new List<object>();
         string sql;
         if (_cache.TryGetValue(key, out var cached))
@@ -116,7 +106,7 @@ public class QueryCompiler
         {
             foreach (var j in query.Joins)
             {
-                sb.Append('J').Append(j.Type).Append(':').Append(j.Table).Append(':').Append(j.Condition != null).Append('|');
+                sb.Append('J').Append(j.Type).Append(':').Append(j.Table).Append(':').Append(j.Condition ?? string.Empty).Append('|');
             }
         }
         if (query.WhereTokens.Count > 0)
@@ -377,7 +367,22 @@ public class QueryCompiler
             sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns.Select(QuoteIdentifier)));
         }
 
-        if (_dialect == SqlDialect.SqlServer || _dialect == SqlDialect.Oracle)
+        if (_dialect == SqlDialect.SqlServer)
+        {
+            if (query.OffsetValue.HasValue)
+            {
+                if (query.OrderByColumns.Count == 0)
+                {
+                    throw new InvalidOperationException("SQL Server OFFSET/FETCH requires ORDER BY.");
+                }
+                sb.Append(" OFFSET ").Append(query.OffsetValue.Value).Append(" ROWS");
+                if (query.LimitValue.HasValue && !query.UseTop)
+                {
+                    sb.Append(" FETCH NEXT ").Append(query.LimitValue.Value).Append(" ROWS ONLY");
+                }
+            }
+        }
+        else if (_dialect == SqlDialect.Oracle)
         {
             if (query.OffsetValue.HasValue)
             {
@@ -386,6 +391,10 @@ public class QueryCompiler
                 {
                     sb.Append(" FETCH NEXT ").Append(query.LimitValue.Value).Append(" ROWS ONLY");
                 }
+            }
+            else if (query.LimitValue.HasValue)
+            {
+                sb.Append(" FETCH FIRST ").Append(query.LimitValue.Value).Append(" ROWS ONLY");
             }
         }
         else

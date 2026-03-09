@@ -13,11 +13,12 @@ namespace DBAClientX.Mapping;
 /// </summary>
 public static class DbPropertyAccessor
 {
+    private static readonly object MissingValue = new();
     private static readonly ConcurrentDictionary<(Type, string), Func<object, object?>> _getterCache = new();
 
     /// <summary>
     /// Tries to resolve a value from an item using a dotted path. Case-insensitive.
-    /// Handles POCOs (public properties) and dictionaries (IDictionary and IDictionary&lt;string,object&gt;).
+    /// Handles POCOs (public properties), dictionaries, and list/array indexes in dotted paths.
     /// </summary>
     /// <param name="item">The source object (POCO or dictionary) to read from.</param>
     /// <param name="path">Dotted, case-insensitive path (e.g., "User.Name" or "Metadata.Tags.0").</param>
@@ -33,6 +34,11 @@ public static class DbPropertyAccessor
         var getter = _getterCache.GetOrAdd(key, k => BuildGetter(k.Item1, k.Item2));
         if (getter is null) return false;
         value = getter(item);
+        if (ReferenceEquals(value, MissingValue))
+        {
+            value = null;
+            return false;
+        }
         return true;
     }
 
@@ -121,6 +127,11 @@ public static class DbPropertyAccessor
                 var p = props[i];
                 if (p is null)
                 {
+                    if (TryGetFromListIndex(cur, segments[i], out var indexedValue))
+                    {
+                        cur = indexedValue;
+                        continue;
+                    }
                     // dictionary path
                     if (cur is IDictionary dict)
                     {
@@ -130,7 +141,7 @@ public static class DbPropertyAccessor
                             cur = candidate;
                             continue;
                         }
-                        return null;
+                        return MissingValue;
                     }
                     if (TryGetFromGenericDictionary(cur, segments[i], out var genVal))
                     {
@@ -139,13 +150,40 @@ public static class DbPropertyAccessor
                     }
                     // Not a dictionary; try reflective property fallback
                     var pr = FindPropertyIgnoreCase(cur.GetType(), segments[i]);
-                    cur = pr?.GetValue(cur);
+                    if (pr == null)
+                    {
+                        return MissingValue;
+                    }
+                    cur = pr.GetValue(cur);
                     continue;
                 }
                 cur = p.GetValue(cur);
             }
             return cur;
         };
+    }
+
+    private static bool TryGetFromListIndex(object value, string segment, out object? result)
+    {
+        result = null;
+        if (!int.TryParse(segment, out var index) || index < 0)
+        {
+            return false;
+        }
+
+        if (value is IList list)
+        {
+            if (index >= list.Count)
+            {
+                result = MissingValue;
+                return true;
+            }
+
+            result = list[index];
+            return true;
+        }
+
+        return false;
     }
 
     private static bool TryGetFromDictionary(IDictionary dict, string key, out object? value)

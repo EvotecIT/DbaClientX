@@ -38,6 +38,27 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         }
     }
 
+    It 'honors WhatIf and skips provider execution' {
+        class TestSqlServerWhatIf : DBAClientX.SqlServer {
+            static [int] $Calls
+            [int] ExecuteNonQuery([string]$serverOrInstance, [string]$database, [bool]$integratedSecurity, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[System.Data.SqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null, [string]$username = $null, [string]$password = $null) {
+                [TestSqlServerWhatIf]::Calls++
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('SqlServerFactory',$binding)
+        $orig = $prop.GetValue($null)
+        [TestSqlServerWhatIf]::Calls = 0
+        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServerWhatIf]::new() })
+        try {
+            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -WhatIf | Out-Null
+            [TestSqlServerWhatIf]::Calls | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     It 'fails when Server is empty' {
         { Invoke-DbaXNonQuery -Server '' -Database db -Query 'Q' } | Should -Throw
     }

@@ -69,23 +69,17 @@ public static class DbInvoker
         execOptions ??= new DbExecutionOptions();
         var list = items as IList<object> ?? items.ToList();
         var affected = 0;
+        var batchSize = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
 
-        IEnumerable<IList<object>> Batches()
+        for (int batchStart = 0; batchStart < list.Count; batchStart += batchSize)
         {
-            int size = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
-            for (int i = 0; i < list.Count; i += size)
-            {
-                yield return list.Skip(i).Take(Math.Min(size, list.Count - i)).ToList();
-            }
-        }
-
-        foreach (var batch in Batches())
-        {
+            var batchEnd = Math.Min(batchStart + batchSize, list.Count);
             int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
             if (degree <= 1)
             {
-                foreach (var item in batch)
+                for (int i = batchStart; i < batchEnd; i++)
                 {
+                    var item = list[i];
                     var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                     var task = InvokeExecutor(exec, connectionString, sql, parameters, ct);
                     affected += await task.ConfigureAwait(false);
@@ -96,20 +90,27 @@ public static class DbInvoker
                 using var sem = new SemaphoreSlim(degree, degree);
                 var tasks = new List<Task>();
                 var local = 0;
-                foreach (var item in batch)
+
+                async Task ExecuteItemAsync(object item)
                 {
                     await sem.WaitAsync(ct).ConfigureAwait(false);
-                    tasks.Add(Task.Run(async () =>
+                    try
                     {
-                        try
-                        {
-                            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                            var t = await InvokeExecutor(exec, connectionString, sql, parameters, ct).ConfigureAwait(false);
-                            Interlocked.Add(ref local, t);
-                        }
-                        finally { sem.Release(); }
-                    }, ct));
+                        var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                        var rows = await InvokeExecutor(exec, connectionString, sql, parameters, ct).ConfigureAwait(false);
+                        Interlocked.Add(ref local, rows);
+                    }
+                    finally
+                    {
+                        sem.Release();
+                    }
                 }
+
+                for (int i = batchStart; i < batchEnd; i++)
+                {
+                    tasks.Add(ExecuteItemAsync(list[i]));
+                }
+
                 await Task.WhenAll(tasks).ConfigureAwait(false);
                 affected += local;
             }
@@ -158,21 +159,16 @@ public static class DbInvoker
         execOptions ??= new DbExecutionOptions();
         var list = items as IList<object> ?? items.ToList();
         var affected = 0;
-        IEnumerable<IList<object>> Batches()
+        var batchSize = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
+        for (int batchStart = 0; batchStart < list.Count; batchStart += batchSize)
         {
-            int size = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
-            for (int i = 0; i < list.Count; i += size)
-            {
-                yield return list.Skip(i).Take(Math.Min(size, list.Count - i)).ToList();
-            }
-        }
-        foreach (var batch in Batches())
-        {
+            var batchEnd = Math.Min(batchStart + batchSize, list.Count);
             int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
             if (degree <= 1)
             {
-                foreach (var item in batch)
+                for (int i = batchStart; i < batchEnd; i++)
                 {
+                    var item = list[i];
                     var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                     var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
                     affected += await task.ConfigureAwait(false);
@@ -183,20 +179,27 @@ public static class DbInvoker
                 using var sem = new SemaphoreSlim(degree, degree);
                 var tasks = new List<Task>();
                 var local = 0;
-                foreach (var item in batch)
+
+                async Task ExecuteItemAsync(object item)
                 {
                     await sem.WaitAsync(ct).ConfigureAwait(false);
-                    tasks.Add(Task.Run(async () =>
+                    try
                     {
-                        try
-                        {
-                            var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                            var t = await InvokeExecutor(exec, connectionString, procedure, parameters, ct).ConfigureAwait(false);
-                            Interlocked.Add(ref local, t);
-                        }
-                        finally { sem.Release(); }
-                    }, ct));
+                        var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
+                        var rows = await InvokeExecutor(exec, connectionString, procedure, parameters, ct).ConfigureAwait(false);
+                        Interlocked.Add(ref local, rows);
+                    }
+                    finally
+                    {
+                        sem.Release();
+                    }
                 }
+
+                for (int i = batchStart; i < batchEnd; i++)
+                {
+                    tasks.Add(ExecuteItemAsync(list[i]));
+                }
+
                 await Task.WhenAll(tasks).ConfigureAwait(false);
                 affected += local;
             }
@@ -243,13 +246,16 @@ public static class DbInvoker
                 var m = FindPreferredOverload(t, methodName);
                 if (m != null) return m;
             }
-            // Fallback: scan for any type named GenericExecutors
-            foreach (var t in asm.GetExportedTypes())
+            // Fallback only when the provider alias is unknown and there is no expected type name.
+            if (string.IsNullOrEmpty(typeName))
             {
-                if (string.Equals(t.Name, "GenericExecutors", StringComparison.Ordinal))
+                foreach (var t in asm.GetExportedTypes())
                 {
-                    var m = FindPreferredOverload(t, methodName);
-                    if (m != null) return m;
+                    if (string.Equals(t.Name, "GenericExecutors", StringComparison.Ordinal))
+                    {
+                        var m = FindPreferredOverload(t, methodName);
+                        if (m != null) return m;
+                    }
                 }
             }
         }
@@ -297,9 +303,11 @@ public static class DbInvoker
         {
             // Oracle style: (host, serviceName, username, password, sql, dict, ct)
             var dict = ParseConnectionString(connectionString);
-            string host = Try(dict, "host") ?? Try(dict, "server") ?? string.Empty;
-            string service = Try(dict, "service") ?? Try(dict, "servicename") ?? Try(dict, "sid") ?? string.Empty;
-            string user = Try(dict, "user") ?? Try(dict, "username") ?? string.Empty;
+            var dataSource = Try(dict, "datasource");
+            var (parsedHost, parsedService) = SplitDataSource(dataSource);
+            string host = Try(dict, "host") ?? Try(dict, "server") ?? parsedHost;
+            string service = Try(dict, "service") ?? Try(dict, "servicename") ?? Try(dict, "sid") ?? parsedService;
+            string user = Try(dict, "user") ?? Try(dict, "userid") ?? Try(dict, "username") ?? string.Empty;
             string pass = Try(dict, "password") ?? string.Empty;
             resultTask = exec.Invoke(null, new object?[] { host, service, user, pass, sql, parameters, ct });
         }
@@ -333,6 +341,7 @@ public static class DbInvoker
                 if (b.TryGetValue(key, out var val) && val is not null)
                 {
                     dict[key] = val.ToString() ?? string.Empty;
+                    dict[NormalizeConnectionStringKey(key)] = dict[key];
                 }
             }
         }
@@ -345,5 +354,29 @@ public static class DbInvoker
     }
 
     private static string? Try(Dictionary<string, string> dict, string key)
-        => dict.TryGetValue(key, out var v) ? v : null;
+        => dict.TryGetValue(NormalizeConnectionStringKey(key), out var v) ? v : null;
+
+    private static string NormalizeConnectionStringKey(string key)
+        => key.Replace(" ", string.Empty)
+            .Replace("_", string.Empty)
+            .Replace("-", string.Empty)
+            .Trim()
+            .ToLowerInvariant();
+
+    private static (string Host, string ServiceName) SplitDataSource(string? dataSource)
+    {
+        var value = dataSource ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        var slash = value.LastIndexOf('/');
+        if (slash > 0 && slash < value.Length - 1)
+        {
+            return (value.Substring(0, slash), value.Substring(slash + 1));
+        }
+
+        return (value, value);
+    }
 }

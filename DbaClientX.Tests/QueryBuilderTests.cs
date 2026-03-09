@@ -255,6 +255,29 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SelectLimit_OracleUsesFetchFirst()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Limit(5);
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.Oracle);
+        Assert.Equal("SELECT * FROM \"users\" FETCH FIRST 5 ROWS ONLY", sql);
+    }
+
+    [Fact]
+    public void SelectOffsetWithoutOrderBy_SqlServer_Throws()
+    {
+        var query = new Query()
+            .Select("*")
+            .From("users")
+            .Offset(10);
+
+        Assert.Throws<InvalidOperationException>(() => QueryBuilder.Compile(query, SqlDialect.SqlServer));
+    }
+
+    [Fact]
     public void SelectOrderByTop()
     {
         var query = new Query()
