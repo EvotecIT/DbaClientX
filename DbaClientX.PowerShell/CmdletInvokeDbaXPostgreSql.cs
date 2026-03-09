@@ -104,6 +104,15 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
         using var postgreSql = PostgreSqlFactory();
         postgreSql.ReturnType = ReturnType;
         postgreSql.CommandTimeout = QueryTimeout;
+        var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute PostgreSQL stored procedure" : "Execute PostgreSQL query";
+        if (!ShouldProcess($"{Server}/{Database}", action)) {
+            return;
+        }
+        var connectionString = DBAClientX.PostgreSql.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "postgresql", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new NpgsqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();

@@ -74,11 +74,16 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     protected override void ProcessRecord() {
         using var sqlServer = SqlServerFactory();
         sqlServer.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute SQL Server non-query")) {
+            return;
+        }
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
+        var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
-            if (!ShouldProcess($"{Server}/{Database}", "Execute SQL Server non-query")) {
-                return;
-            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 
             var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);

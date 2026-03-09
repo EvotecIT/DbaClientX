@@ -68,6 +68,14 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     protected override async Task ProcessRecordAsync() {
         using var mySql = MySqlFactory();
         mySql.CommandTimeout = QueryTimeout;
+        if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL scalar query")) {
+            return;
+        }
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
+        {
+            return;
+        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var result = await mySql.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);

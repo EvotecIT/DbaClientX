@@ -113,6 +113,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         using var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
+        var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
+        if (!ShouldProcess($"{Server}/{Database}", action)) {
+            return;
+        }
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
         if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))

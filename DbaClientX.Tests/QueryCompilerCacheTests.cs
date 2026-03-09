@@ -2,6 +2,10 @@ using DBAClientX.QueryBuilder;
 
 namespace DbaClientX.Tests;
 
+[CollectionDefinition(nameof(QueryCompilerCacheCollection), DisableParallelization = true)]
+public sealed class QueryCompilerCacheCollection;
+
+[Collection(nameof(QueryCompilerCacheCollection))]
 public class QueryCompilerCacheTests
 {
     [Fact]
