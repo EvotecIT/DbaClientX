@@ -1,10 +1,6 @@
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 describe 'Invoke-DbaXQuery cmdlet' {
-    BeforeAll {
-        . "$PSScriptRoot/TestAssemblyHelpers.ps1"
-    }
-
     it 'is exported' {
         Get-Command Invoke-DbaXQuery | Should -Not -BeNullOrEmpty
     }
@@ -38,92 +34,69 @@ describe 'Invoke-DbaXQuery cmdlet' {
         { Invoke-DbaXQuery -Server s -Database db -StoredProcedure '' -ErrorAction Stop } | Should -Throw
     }
 
-    it 'passes credentials to provider when supplied' {
-        $code = @"
-#nullable enable
-using System.Collections.Generic;
-using System.Data;
-
-public class TestSqlServer : DBAClientX.SqlServer {
-    public static TestSqlServer Last;
-    public bool Integrated;
-    public string User;
-    public string Pass;
-    public TestSqlServer() { Last = this; }
-    public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null) {
-        this.Integrated = integratedSecurity;
-        this.User = username;
-        this.Pass = password;
-        return null;
-    }
-}
-"@
-        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
-        try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
-        } catch {
-            Set-ItResult -Skipped -Because $_.Exception.Message
-            return
-        }
+    it 'passes credentials to query execution when supplied' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('SqlServerFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServer]::new() })
+        $script:lastQueryCall = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:lastQueryCall = [pscustomobject]@{
+                Integrated = [string]::IsNullOrEmpty($cmdlet.Username) -and [string]::IsNullOrEmpty($cmdlet.Password)
+                User = $cmdlet.Username
+                Pass = $cmdlet.Password
+            }
+            return $null
+        })
         try {
             Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -Username u -Password p | Out-Null
-            [TestSqlServer]::Last.Integrated | Should -BeFalse
-            [TestSqlServer]::Last.User | Should -Be 'u'
-            [TestSqlServer]::Last.Pass | Should -Be 'p'
+            $script:lastQueryCall.Integrated | Should -BeFalse
+            $script:lastQueryCall.User | Should -Be 'u'
+            $script:lastQueryCall.Pass | Should -Be 'p'
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastQueryCall = $null
         }
     }
-    it 'streams rows asynchronously' {
-        $code = @"
-#nullable enable
-using System.Collections.Generic;
-using System.Data;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
 
-public class TestSqlServerStream : DBAClientX.SqlServer
-{
-    public override async IAsyncEnumerable<DataRow> QueryStreamAsync(
-        string serverOrInstance, string database, bool integratedSecurity, string query,
-        IDictionary<string, object?>? parameters = null, bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        IDictionary<string, System.Data.SqlDbType>? parameterTypes = null,
-        IDictionary<string, ParameterDirection>? parameterDirections = null,
-        string? username = null, string? password = null)
-    {
-        var table = new DataTable();
-        table.Columns.Add("id", typeof(int));
-        for (int i = 1; i <= 2; i++)
-        {
-            var row = table.NewRow();
-            row["id"] = i;
-            table.Rows.Add(row);
-        }
-        for (int i = 0; i < table.Rows.Count; i++)
-        {
-            await Task.Yield();
-            yield return table.Rows[i];
+    it 'passes QueryTimeout and Parameters to query execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastQueryOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:lastQueryOptions = [pscustomobject]@{
+                Timeout = $cmdlet.QueryTimeout
+                ParameterValue = $parameters['A']
+            }
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -QueryTimeout 11 -Parameters @{ A = 1 } | Out-Null
+            $script:lastQueryOptions.Timeout | Should -Be 11
+            $script:lastQueryOptions.ParameterValue | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastQueryOptions = $null
         }
     }
-}
-"@
-        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
-        try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
-        } catch {
-            Set-ItResult -Skipped -Because $_.Exception.Message
-            return
-        }
+
+    it 'streams rows asynchronously' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('SqlServerFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryStreamOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServerStream]::new() })
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('id', [int])
+            foreach ($value in 1, 2) {
+                $row = $table.NewRow()
+                $row['id'] = $value
+                $table.Rows.Add($row)
+            }
+            return $table.Rows
+        })
         try {
             $rows = @(Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -Stream)
             $rows.Count | Should -Be 2
@@ -134,51 +107,47 @@ public class TestSqlServerStream : DBAClientX.SqlServer
         }
     }
 
-    it 'streams stored procedure rows asynchronously' {
-        $code = @"
-#nullable enable
-using System.Collections.Generic;
-using System.Data;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Data.Common;
-
-public class TestSqlServerStoredProcStream : DBAClientX.SqlServer
-{
-    public override async IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(
-        string serverOrInstance, string database, bool integratedSecurity, string procedure,
-        IEnumerable<DbParameter> parameters = null, bool useTransaction = false,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        string username = null, string password = null)
-    {
-        var table = new DataTable();
-        table.Columns.Add("id", typeof(int));
-        for (int i = 1; i <= 2; i++)
-        {
-            var row = table.NewRow();
-            row["id"] = i;
-            table.Rows.Add(row);
-        }
-        for (int i = 0; i < table.Rows.Count; i++)
-        {
-            await Task.Yield();
-            yield return table.Rows[i];
+    it 'passes stored procedure parameters as DbParameter instances' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('StoredProcedureOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastProcedureCall = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $dbParameter = @($dbParameters)[0]
+            $script:lastProcedureCall = [pscustomobject]@{
+                Name = $dbParameter.ParameterName
+                Value = $dbParameter.Value
+                User = $cmdlet.Username
+            }
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -StoredProcedure sp -Username u -Password p -Parameters @{ A = 1 } | Out-Null
+            $script:lastProcedureCall.Name | Should -Be 'A'
+            $script:lastProcedureCall.Value | Should -Be 1
+            $script:lastProcedureCall.User | Should -Be 'u'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastProcedureCall = $null
         }
     }
-}
-"@
-        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
-        try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
-        } catch {
-            Set-ItResult -Skipped -Because $_.Exception.Message
-            return
-        }
+
+    it 'streams stored procedure rows asynchronously' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('SqlServerFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('StoredProcedureStreamOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.SqlServer]]{ [TestSqlServerStoredProcStream]::new() })
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('id', [int])
+            foreach ($value in 1, 2) {
+                $row = $table.NewRow()
+                $row['id'] = $value
+                $table.Rows.Add($row)
+            }
+            return $table.Rows
+        })
         try {
             $rows = @(Invoke-DbaXQuery -Server s -Database db -StoredProcedure sp -Stream)
             $rows.Count | Should -Be 2
@@ -186,6 +155,25 @@ public class TestSqlServerStoredProcStream : DBAClientX.SqlServer
             $rows[1].id | Should -Be 2
         } finally {
             $prop.SetValue($null, $orig)
+        }
+    }
+
+    it 'honors WhatIf and skips query execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:queryCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:queryCalls++
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -WhatIf | Out-Null
+            $script:queryCalls | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:queryCalls = 0
         }
     }
 }

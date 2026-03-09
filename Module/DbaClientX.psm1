@@ -1,8 +1,21 @@
 ﻿# to speed up development adding direct path to binaries, instead of the the Lib folder
 $Development = $true
-$DevelopmentPath = "$PSScriptRoot\..\DbaClientX.PowerShell\bin\Debug"
-$DevelopmentFolderCore = "net8.0"
-$DevelopmentFolderDefault = "net472"
+$DefaultDevelopmentPath = "$PSScriptRoot\..\DbaClientX.PowerShell\bin\Debug"
+$DevelopmentPath = if ($env:DBACLIENTX_DEVELOPMENT_PATH) {
+    $env:DBACLIENTX_DEVELOPMENT_PATH
+} else {
+    $DefaultDevelopmentPath
+}
+$DevelopmentFolderCore = if ($env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE) {
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE
+} else {
+    "net8.0"
+}
+$DevelopmentFolderDefault = if ($env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT) {
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT
+} else {
+    "net472"
+}
 $BinaryModules = @(
     "DBAClientX.PowerShell.dll"
 )
