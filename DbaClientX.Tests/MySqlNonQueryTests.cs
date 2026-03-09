@@ -12,22 +12,22 @@ public class MySqlNonQueryTests
 {
     private class CaptureParametersMySql : DBAClientX.MySql
     {
-        public List<(string Name, object? Value, DbType Type)> Captured { get; } = new();
+        public List<(string Name, object? Value, MySqlDbType Type)> Captured { get; } = new();
 
         protected override Task<int> ExecuteNonQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new MySqlCommand(query);
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            foreach (DbParameter p in command.Parameters)
+            foreach (MySqlParameter p in command.Parameters)
             {
-                Captured.Add((p.ParameterName, p.Value, p.DbType));
+                Captured.Add((p.ParameterName, p.Value, p.MySqlDbType));
             }
             return Task.FromResult(1);
         }
 
         public override Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
         }
     }
@@ -45,7 +45,7 @@ public class MySqlNonQueryTests
 
         public override Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
         }
     }
@@ -63,7 +63,7 @@ public class MySqlNonQueryTests
 
         public override int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
         }
     }
@@ -113,8 +113,29 @@ public class MySqlNonQueryTests
 
         await mySql.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET name=@name WHERE id=@id", parameters, parameterTypes: types);
 
-        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == DbType.Int32);
-        Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == DbType.String);
+        Assert.Contains(mySql.Captured, p => p.Name == "@id" && p.Type == MySqlDbType.Int32);
+        Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var mySql = new CaptureParametersMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@json"] = "{\"a\":1}",
+            ["@text"] = "body"
+        };
+        var types = new Dictionary<string, MySqlDbType>
+        {
+            ["@json"] = MySqlDbType.JSON,
+            ["@text"] = MySqlDbType.MediumText
+        };
+
+        await mySql.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET doc=@json, body=@text", parameters, parameterTypes: types);
+
+        Assert.Contains(mySql.Captured, p => p.Name == "@json" && p.Type == MySqlDbType.JSON);
+        Assert.Contains(mySql.Captured, p => p.Name == "@text" && p.Type == MySqlDbType.MediumText);
     }
 
     [Fact]

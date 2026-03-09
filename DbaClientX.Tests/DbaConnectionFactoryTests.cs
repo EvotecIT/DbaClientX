@@ -59,6 +59,16 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
+    public void Validate_MySqlBuildConnectionString_WithSslDisabled_IsRejected()
+    {
+        var connectionString = DBAClientX.MySql.BuildConnectionString("dbhost", "app", "user", "password", ssl: false);
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
+        Assert.Equal("SSL Mode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Validate_SqliteMissingFile()
     {
         var result = DbaConnectionFactory.Validate("sqlite", "Mode=ReadOnly");

@@ -245,9 +245,12 @@ public static class DbaConnectionFactory
 
     private static ConnectionValidationResult? ValidateMySqlOptions(DbConnectionStringBuilder builder)
     {
-        if (builder.TryGetValue("SslMode", out var sslMode) && sslMode is string sslValue && sslValue.Equals("None", StringComparison.OrdinalIgnoreCase))
+        foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
-            return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must use SSL (SslMode cannot be None).", "SslMode");
+            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue && sslValue.Equals("None", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must use SSL (SslMode cannot be None).", key);
+            }
         }
 
         return null;

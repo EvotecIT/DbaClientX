@@ -28,15 +28,16 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -65,7 +66,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -88,15 +89,16 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -125,7 +127,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -145,15 +147,16 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
@@ -179,7 +182,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -200,15 +203,16 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
@@ -234,7 +238,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }

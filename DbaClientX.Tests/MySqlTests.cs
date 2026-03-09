@@ -7,12 +7,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class MySqlTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.MySql).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.MySql).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionStringField = typeof(DBAClientX.MySql).GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
@@ -128,6 +134,17 @@ public class MySqlTests
     }
 
     [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", DBAClientX.MySql.DefaultMaxParallelQueries * 4).ToArray();
+        using var mySql = new DelayMySql(TimeSpan.FromMilliseconds(100));
+
+        await mySql.RunQueriesInParallel(queries, "h", "d", "u", "p");
+
+        Assert.InRange(mySql.MaxConcurrency, 1, DBAClientX.MySql.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
@@ -150,6 +167,63 @@ public class MySqlTests
         });
     }
 
+    private class OpenFailureMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(MySqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WhenOpenFails_DisposesConnection()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteNonQuery("h", "d", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, mySql.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, mySql.DisposeCalls);
+    }
+
+    private class SeededTransactionMySql : DBAClientX.MySql
+    {
+        public void SeedActiveTransaction(string connectionString)
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlConnection)));
+            TransactionConnectionStringField.SetValue(this, connectionString);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WithMismatchedTransactionConnection_Throws()
+    {
+        using var mySql = new SeededTransactionMySql();
+        mySql.SeedActiveTransaction(DBAClientX.MySql.BuildConnectionString("h1", "d1", "u1", "p1"));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteNonQuery("h2", "d2", "u2", "p2", "UPDATE t SET c = 1", useTransaction: true));
+
+        Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
+    }
+
     private class CaptureParametersMySql : DBAClientX.MySql
     {
         public List<(string Name, object? Value, MySqlDbType Type)> Captured { get; } = new();
@@ -169,16 +243,7 @@ public class MySqlTests
         public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new MySqlCommand(query);
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new MySqlParameter { MySqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
@@ -221,12 +286,33 @@ public class MySqlTests
         Assert.Contains(mySql.Captured, p => p.Name == "@name" && p.Type == MySqlDbType.VarChar);
     }
 
+    [Fact]
+    public async Task QueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var mySql = new CaptureParametersMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@json"] = "{\"a\":1}",
+            ["@text"] = "body"
+        };
+        var types = new Dictionary<string, MySqlDbType>
+        {
+            ["@json"] = MySqlDbType.JSON,
+            ["@text"] = MySqlDbType.MediumText
+        };
+
+        await mySql.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+
+        Assert.Contains(mySql.Captured, p => p.Name == "@json" && p.Type == MySqlDbType.JSON);
+        Assert.Contains(mySql.Captured, p => p.Name == "@text" && p.Type == MySqlDbType.MediumText);
+    }
+
     private class OutputDictionaryMySql : DBAClientX.MySql
     {
         public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, MySqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new MySqlCommand();
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new MySqlParameter(), static (p, t) => p.MySqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (MySqlParameter p in command.Parameters)
             {
@@ -259,16 +345,7 @@ public class MySqlTests
         {
             using var command = new MySqlCommand(procedure);
             command.CommandType = CommandType.StoredProcedure;
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new MySqlParameter { MySqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             CapturedCommandType = command.CommandType;
             foreach (MySqlParameter p in command.Parameters)
@@ -325,6 +402,24 @@ public class MySqlTests
         await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types);
 
         Assert.Contains(mySql.Captured, p => p.ParameterName == "@id" && p.MySqlDbType == MySqlDbType.Int32);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var mySql = new CaptureStoredProcMySql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@json"] = "{\"a\":1}"
+        };
+        var types = new Dictionary<string, MySqlDbType>
+        {
+            ["@json"] = MySqlDbType.JSON
+        };
+
+        await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(mySql.Captured, p => p.ParameterName == "@json" && p.MySqlDbType == MySqlDbType.JSON);
     }
 
     private class OutputStoredProcMySql : DBAClientX.MySql

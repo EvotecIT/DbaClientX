@@ -31,26 +31,13 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            OpenConnection(connection);
-            dispose = true;
-        }
 
         try
         {
-            using var bulkCopy = CreateBulkCopy(connection!, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
+            using var bulkCopy = CreateBulkCopy(connection!, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (batchSize.HasValue)
             {
@@ -68,6 +55,10 @@ public partial class SqlServer
 
             WriteToServer(bulkCopy, table);
         }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
@@ -76,7 +67,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -105,26 +96,13 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            dispose = true;
-        }
 
         try
         {
-            using var bulkCopy = CreateBulkCopy(connection!, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var bulkCopy = CreateBulkCopy(connection!, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (batchSize.HasValue)
             {
@@ -142,6 +120,10 @@ public partial class SqlServer
 
             await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
         }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
@@ -150,7 +132,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -199,4 +181,9 @@ public partial class SqlServer
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A task that completes when the connection is open.</returns>
     protected virtual Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+    /// <summary>
+    /// Disposes a SQL Server connection created for the current operation.
+    /// </summary>
+    protected virtual void DisposeConnection(SqlConnection connection) => connection.Dispose();
 }

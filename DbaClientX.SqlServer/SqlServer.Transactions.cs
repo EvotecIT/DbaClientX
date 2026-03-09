@@ -45,7 +45,7 @@ public partial class SqlServer
     {
         lock (_syncRoot)
         {
-            if (_transaction != null)
+            if (_transaction != null || _transactionInitializing)
             {
                 throw new DbaTransactionException("Transaction already started.");
             }
@@ -55,18 +55,18 @@ public partial class SqlServer
             SqlTransaction? transaction = null;
             try
             {
-                connection = new SqlConnection(connectionString);
-                connection.Open();
-                transaction = connection.BeginTransaction(isolationLevel);
+                connection = CreateConnection(connectionString);
+                OpenConnection(connection);
+                transaction = BeginDbTransaction(connection, isolationLevel);
                 _transactionConnection = connection;
                 _transaction = transaction;
+                _transactionConnectionString = NormalizeConnectionString(connectionString);
                 connection = null;
                 transaction = null;
             }
             finally
             {
-                transaction?.Dispose();
-                connection?.Dispose();
+                DisposeTransactionResources(transaction, connection);
             }
         }
     }
@@ -110,35 +110,54 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
-        lock (_syncRoot)
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        try
         {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction != null || _transactionInitializing)
+                {
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionInitializing = true;
+            }
+
+            var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            transaction = await BeginDbTransactionAsync(connection, isolationLevel, cancellationToken).ConfigureAwait(false);
+
+            lock (_syncRoot)
+            {
+                if (_transaction != null)
+                {
+                    _transactionInitializing = false;
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionConnection = connection;
+                _transaction = transaction;
+                _transactionConnectionString = NormalizeConnectionString(connectionString);
+                _transactionInitializing = false;
+                connection = null;
+                transaction = null;
             }
         }
-
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
-
-        var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        var transaction = (SqlTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
-#else
-        var transaction = connection.BeginTransaction(isolationLevel);
-#endif
-
-        lock (_syncRoot)
+        catch
         {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                transaction.Dispose();
-                connection.Dispose();
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction == null)
+                {
+                    _transactionInitializing = false;
+                }
             }
 
-            _transactionConnection = connection;
-            _transaction = transaction;
+            DisposeTransactionResources(transaction, connection);
+            throw;
         }
     }
 
@@ -148,14 +167,28 @@ public partial class SqlServer
     /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual void Commit()
     {
+        SqlTransaction? tx;
+        SqlConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
             {
                 throw new DbaTransactionException("No active transaction.");
             }
-            _transaction.Commit();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+        try
+        {
+            CommitDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -178,20 +211,16 @@ public partial class SqlServer
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
         try
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
-#else
-            await Task.Yield();
-            tx!.Commit();
-#endif
+            await CommitDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -201,14 +230,28 @@ public partial class SqlServer
     /// <exception cref="DbaTransactionException">Thrown when no transaction is active.</exception>
     public virtual void Rollback()
     {
+        SqlTransaction? tx;
+        SqlConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
             {
                 throw new DbaTransactionException("No active transaction.");
             }
-            _transaction.Rollback();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+        try
+        {
+            RollbackDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -231,20 +274,16 @@ public partial class SqlServer
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
         try
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
-#else
-            await Task.Yield();
-            tx!.Rollback();
-#endif
+            await RollbackDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -258,10 +297,93 @@ public partial class SqlServer
 
     private void DisposeTransactionLocked()
     {
-        _transaction?.Dispose();
+        if (_transaction != null)
+        {
+            DisposeDbTransaction(_transaction);
+        }
         _transaction = null;
-        _transactionConnection?.Dispose();
+        if (_transactionConnection != null)
+        {
+            DisposeConnection(_transactionConnection);
+        }
         _transactionConnection = null;
+        _transactionConnectionString = null;
+        _transactionInitializing = false;
+    }
+
+    /// <summary>
+    /// Begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual SqlTransaction BeginDbTransaction(SqlConnection connection, IsolationLevel isolationLevel) => connection.BeginTransaction(isolationLevel);
+
+    /// <summary>
+    /// Asynchronously begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual async Task<SqlTransaction> BeginDbTransactionAsync(SqlConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return (SqlTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        return connection.BeginTransaction(isolationLevel);
+#endif
+    }
+
+    /// <summary>
+    /// Commits the supplied provider transaction.
+    /// </summary>
+    protected virtual void CommitDbTransaction(SqlTransaction transaction) => transaction.Commit();
+
+    /// <summary>
+    /// Asynchronously commits the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task CommitDbTransactionAsync(SqlTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Commit();
+#endif
+    }
+
+    /// <summary>
+    /// Rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual void RollbackDbTransaction(SqlTransaction transaction) => transaction.Rollback();
+
+    /// <summary>
+    /// Asynchronously rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task RollbackDbTransactionAsync(SqlTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Rollback();
+#endif
+    }
+
+    /// <summary>
+    /// Disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual void DisposeDbTransaction(SqlTransaction transaction) => transaction.Dispose();
+
+    /// <summary>
+    /// Disposes transaction resources created for the current operation.
+    /// </summary>
+    protected virtual void DisposeTransactionResources(SqlTransaction? transaction, SqlConnection? connection)
+    {
+        if (transaction != null)
+        {
+            DisposeDbTransaction(transaction);
+        }
+
+        if (connection != null)
+        {
+            DisposeConnection(connection);
+        }
     }
 
     /// <inheritdoc />

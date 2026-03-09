@@ -28,12 +28,13 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -64,14 +65,26 @@ public partial class MySql
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
+        return await ExecuteNonQueryAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
 
+    internal virtual async Task<int> ExecuteNonQueryAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -81,7 +94,7 @@ public partial class MySql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -104,12 +117,13 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -124,20 +138,37 @@ public partial class MySql
         }
     }
 
-    private async Task<(MySqlConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
+    private async Task<(MySqlConnection Connection, MySqlTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken)
     {
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
 
-            return (_transactionConnection, false);
+                var normalizedConnectionString = NormalizeConnectionString(connectionString);
+                if (_transactionConnectionString != null && !string.Equals(_transactionConnectionString, normalizedConnectionString, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DbaTransactionException("The requested connection details do not match the active transaction.");
+                }
+
+                return (_transactionConnection, _transaction, false);
+            }
         }
 
-        var connection = new MySqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return (connection, true);
+        var connection = CreateConnection(connectionString);
+        try
+        {
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            return (connection, null, true);
+        }
+        catch
+        {
+            DisposeConnection(connection);
+            throw;
+        }
     }
 }

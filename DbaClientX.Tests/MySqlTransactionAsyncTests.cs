@@ -191,4 +191,27 @@ public class MySqlTransactionAsyncTests
         Assert.NotNull(mySql.Connection);
         Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
     }
+
+    private class OpenFailureTransactionMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenOpenFails_DisposesConnectionAndResetsState()
+    {
+        using var mySql = new OpenFailureTransactionMySql();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(2, mySql.DisposeCalls);
+    }
 }

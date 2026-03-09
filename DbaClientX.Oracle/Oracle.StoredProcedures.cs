@@ -27,15 +27,16 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -64,7 +65,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -87,15 +88,16 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -124,7 +126,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -144,15 +146,16 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
@@ -178,7 +181,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -199,15 +202,16 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
@@ -233,7 +237,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }

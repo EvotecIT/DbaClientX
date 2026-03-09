@@ -27,26 +27,13 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            OpenConnection(connection);
-            dispose = true;
-        }
 
         try
         {
-            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
+            using var bulkCopy = CreateBulkCopy(connection, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (bulkCopyTimeout.HasValue)
             {
@@ -61,9 +48,10 @@ public partial class Oracle
             if (batchSize.HasValue && batchSize.Value > 0)
             {
                 var totalRows = table.Rows.Count;
+                var batchTable = table.Clone();
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
+                    batchTable.Clear();
                     for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
                     {
                         batchTable.ImportRow(table.Rows[i]);
@@ -77,6 +65,10 @@ public partial class Oracle
                 WriteToServer(bulkCopy, table);
             }
         }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
@@ -85,7 +77,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -110,26 +102,13 @@ public partial class Oracle
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            dispose = true;
-        }
 
         try
         {
-            using var bulkCopy = CreateBulkCopy(connection, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var bulkCopy = CreateBulkCopy(connection, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (bulkCopyTimeout.HasValue)
             {
@@ -144,9 +123,10 @@ public partial class Oracle
             if (batchSize.HasValue && batchSize.Value > 0)
             {
                 var totalRows = table.Rows.Count;
+                var batchTable = table.Clone();
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
+                    batchTable.Clear();
                     for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
                     {
                         batchTable.ImportRow(table.Rows[i]);
@@ -161,6 +141,10 @@ public partial class Oracle
                 await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
             }
         }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
@@ -169,7 +153,7 @@ public partial class Oracle
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -208,4 +192,9 @@ public partial class Oracle
     /// Opens the supplied <see cref="OracleConnection"/> asynchronously.
     /// </summary>
     protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+    /// <summary>
+    /// Disposes an Oracle connection created for the current operation.
+    /// </summary>
+    protected virtual void DisposeConnection(OracleConnection connection) => connection.Dispose();
 }

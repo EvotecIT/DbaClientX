@@ -10,7 +10,7 @@ public class SqlServerNonQueryTests
 {
     private class CaptureParametersSqlServer : DBAClientX.SqlServer
     {
-        public List<(string Name, object? Value, DbType Type)> Captured { get; } = new();
+        public List<(string Name, object? Value, SqlDbType Type)> Captured { get; } = new();
 
         protected override int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
@@ -18,23 +18,17 @@ public class SqlServerNonQueryTests
             AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
-                Captured.Add((p.ParameterName, p.Value, p.DbType));
+                if (p is SqlParameter sqlParameter)
+                {
+                    Captured.Add((sqlParameter.ParameterName, sqlParameter.Value, sqlParameter.SqlDbType));
+                }
             }
             return 1;
         }
 
         public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new SqlParameter { SqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
         }
     }
@@ -72,8 +66,32 @@ public class SqlServerNonQueryTests
 
         sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET name=@name WHERE id=@id", parameters, parameterTypes: types);
 
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == DbType.Int32);
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == DbType.String);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == SqlDbType.Int);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_PreservesProviderSpecificParameterTypes()
+    {
+        using var sqlServer = new CaptureParametersSqlServer();
+        var tvp = new DataTable();
+        tvp.Columns.Add("Id", typeof(int));
+        tvp.Rows.Add(1);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@items"] = tvp,
+            ["@xml"] = "<root />"
+        };
+        var types = new Dictionary<string, SqlDbType>
+        {
+            ["@items"] = SqlDbType.Structured,
+            ["@xml"] = SqlDbType.Xml
+        };
+
+        sqlServer.ExecuteNonQuery("s", "db", true, "EXEC dbo.Test @items, @xml", parameters, parameterTypes: types);
+
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@items" && p.Type == SqlDbType.Structured);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@xml" && p.Type == SqlDbType.Xml);
     }
 
     private class OutputParameterSqlServer : DBAClientX.SqlServer
@@ -89,20 +107,8 @@ public class SqlServerNonQueryTests
 
         public override int ExecuteNonQuery(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            var dbTypes = ConvertTypes(parameterTypes);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
-        }
-
-        private static IDictionary<string, DbType>? ConvertTypes(IDictionary<string, SqlDbType>? types)
-        {
-            if (types == null) return null;
-            var dbTypes = new Dictionary<string, DbType>(types.Count);
-            foreach (var kv in types)
-            {
-                var p = new SqlParameter { SqlDbType = kv.Value };
-                dbTypes[kv.Key] = p.DbType;
-            }
-            return dbTypes;
         }
     }
 
@@ -164,7 +170,7 @@ public class SqlServerNonQueryTests
 
     private class CaptureParametersSqlServerAsync : DBAClientX.SqlServer
     {
-        public List<(string Name, object? Value, DbType Type)> Captured { get; } = new();
+        public List<(string Name, object? Value, SqlDbType Type)> Captured { get; } = new();
 
         protected override Task<int> ExecuteNonQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
@@ -172,23 +178,17 @@ public class SqlServerNonQueryTests
             AddParameters(command, parameters, parameterTypes, parameterDirections);
             foreach (DbParameter p in command.Parameters)
             {
-                Captured.Add((p.ParameterName, p.Value, p.DbType));
+                if (p is SqlParameter sqlParameter)
+                {
+                    Captured.Add((sqlParameter.ParameterName, sqlParameter.Value, sqlParameter.SqlDbType));
+                }
             }
             return Task.FromResult(1);
         }
 
         public override Task<int> ExecuteNonQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new SqlParameter { SqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
         }
     }
@@ -206,16 +206,7 @@ public class SqlServerNonQueryTests
 
         public override Task<int> ExecuteNonQueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new SqlParameter { SqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
         }
     }
@@ -253,8 +244,32 @@ public class SqlServerNonQueryTests
 
         await sqlServer.ExecuteNonQueryAsync("s", "db", true, "UPDATE t SET name=@name WHERE id=@id", parameters, parameterTypes: types);
 
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == DbType.Int32);
-        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == DbType.String);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@id" && p.Type == SqlDbType.Int);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var sqlServer = new CaptureParametersSqlServerAsync();
+        var tvp = new DataTable();
+        tvp.Columns.Add("Id", typeof(int));
+        tvp.Rows.Add(1);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@items"] = tvp,
+            ["@xml"] = "<root />"
+        };
+        var types = new Dictionary<string, SqlDbType>
+        {
+            ["@items"] = SqlDbType.Structured,
+            ["@xml"] = SqlDbType.Xml
+        };
+
+        await sqlServer.ExecuteNonQueryAsync("s", "db", true, "EXEC dbo.Test @items, @xml", parameters, parameterTypes: types);
+
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@items" && p.Type == SqlDbType.Structured);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@xml" && p.Type == SqlDbType.Xml);
     }
 
     [Fact]

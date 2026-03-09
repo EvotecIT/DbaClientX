@@ -24,21 +24,17 @@ public partial class PostgreSql
             throw new ArgumentNullException(nameof(queries));
         }
 
-        SemaphoreSlim? throttler = null;
-        if (maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0)
-        {
-            throttler = new SemaphoreSlim(maxDegreeOfParallelism.Value);
-        }
+        var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0
+            ? maxDegreeOfParallelism.Value
+            : DefaultMaxParallelQueries;
+        using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
         var taskList = new List<Task<object?>>();
         foreach (var query in queries)
         {
             async Task<object?> ExecuteQueryAsync(string sql)
             {
-                if (throttler != null)
-                {
-                    await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
+                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
 
                 try
                 {
@@ -46,21 +42,14 @@ public partial class PostgreSql
                 }
                 finally
                 {
-                    throttler?.Release();
+                    throttler.Release();
                 }
             }
 
             taskList.Add(ExecuteQueryAsync(query));
         }
 
-        try
-        {
-            var results = await Task.WhenAll(taskList).ConfigureAwait(false);
-            return results;
-        }
-        finally
-        {
-            throttler?.Dispose();
-        }
+        var results = await Task.WhenAll(taskList).ConfigureAwait(false);
+        return results;
     }
 }

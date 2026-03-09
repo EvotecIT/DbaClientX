@@ -21,7 +21,7 @@ public partial class Oracle
     {
         lock (_syncRoot)
         {
-            if (_transaction != null)
+            if (_transaction != null || _transactionInitializing)
             {
                 throw new DbaTransactionException("Transaction already started.");
             }
@@ -31,18 +31,18 @@ public partial class Oracle
             OracleTransaction? transaction = null;
             try
             {
-                connection = new OracleConnection(connectionString);
-                connection.Open();
-                transaction = connection.BeginTransaction(isolationLevel);
+                connection = CreateConnection(connectionString);
+                OpenConnection(connection);
+                transaction = BeginDbTransaction(connection, isolationLevel);
                 _transactionConnection = connection;
                 _transaction = transaction;
+                _transactionConnectionString = NormalizeConnectionString(connectionString);
                 connection = null;
                 transaction = null;
             }
             finally
             {
-                transaction?.Dispose();
-                connection?.Dispose();
+                DisposeTransactionResources(transaction, connection);
             }
         }
     }
@@ -58,33 +58,52 @@ public partial class Oracle
     /// </summary>
     public virtual async Task BeginTransactionAsync(string host, string serviceName, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
     {
-        lock (_syncRoot)
+        OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
+        try
         {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction != null || _transactionInitializing)
+                {
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionInitializing = true;
+            }
+
+            var connectionString = BuildConnectionString(host, serviceName, username, password);
+            connection = CreateConnection(connectionString);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            transaction = await BeginDbTransactionAsync(connection, isolationLevel, cancellationToken).ConfigureAwait(false);
+            lock (_syncRoot)
+            {
+                if (_transaction != null)
+                {
+                    _transactionInitializing = false;
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionConnection = connection;
+                _transaction = transaction;
+                _transactionConnectionString = NormalizeConnectionString(connectionString);
+                _transactionInitializing = false;
+                connection = null;
+                transaction = null;
             }
         }
-
-        var connectionString = BuildConnectionString(host, serviceName, username, password);
-        var connection = new OracleConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        var transaction = (OracleTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
-#else
-        var transaction = connection.BeginTransaction(isolationLevel);
-#endif
-        lock (_syncRoot)
+        catch
         {
-            if (_transaction != null)
+            lock (_syncRoot)
             {
-                transaction.Dispose();
-                connection.Dispose();
-                throw new DbaTransactionException("Transaction already started.");
+                if (_transaction == null)
+                {
+                    _transactionInitializing = false;
+                }
             }
 
-            _transactionConnection = connection;
-            _transaction = transaction;
+            DisposeTransactionResources(transaction, connection);
+            throw;
         }
     }
 
@@ -93,6 +112,8 @@ public partial class Oracle
     /// </summary>
     public virtual void Commit()
     {
+        OracleTransaction? tx;
+        OracleConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -100,8 +121,21 @@ public partial class Oracle
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Commit();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            CommitDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -123,21 +157,17 @@ public partial class Oracle
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
-#else
-            await Task.Yield();
-            tx!.Commit();
-#endif
+            await CommitDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -146,6 +176,8 @@ public partial class Oracle
     /// </summary>
     public virtual void Rollback()
     {
+        OracleTransaction? tx;
+        OracleConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -153,8 +185,21 @@ public partial class Oracle
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Rollback();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            RollbackDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -176,21 +221,17 @@ public partial class Oracle
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
-#else
-            await Task.Yield();
-            tx!.Rollback();
-#endif
+            await RollbackDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -204,10 +245,93 @@ public partial class Oracle
 
     private void DisposeTransactionLocked()
     {
-        _transaction?.Dispose();
+        if (_transaction != null)
+        {
+            DisposeDbTransaction(_transaction);
+        }
         _transaction = null;
-        _transactionConnection?.Dispose();
+        if (_transactionConnection != null)
+        {
+            DisposeConnection(_transactionConnection);
+        }
         _transactionConnection = null;
+        _transactionConnectionString = null;
+        _transactionInitializing = false;
+    }
+
+    /// <summary>
+    /// Begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual OracleTransaction BeginDbTransaction(OracleConnection connection, IsolationLevel isolationLevel) => connection.BeginTransaction(isolationLevel);
+
+    /// <summary>
+    /// Asynchronously begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual async Task<OracleTransaction> BeginDbTransactionAsync(OracleConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return (OracleTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        return connection.BeginTransaction(isolationLevel);
+#endif
+    }
+
+    /// <summary>
+    /// Commits the supplied provider transaction.
+    /// </summary>
+    protected virtual void CommitDbTransaction(OracleTransaction transaction) => transaction.Commit();
+
+    /// <summary>
+    /// Asynchronously commits the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task CommitDbTransactionAsync(OracleTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Commit();
+#endif
+    }
+
+    /// <summary>
+    /// Rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual void RollbackDbTransaction(OracleTransaction transaction) => transaction.Rollback();
+
+    /// <summary>
+    /// Asynchronously rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task RollbackDbTransactionAsync(OracleTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Rollback();
+#endif
+    }
+
+    /// <summary>
+    /// Disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual void DisposeDbTransaction(OracleTransaction transaction) => transaction.Dispose();
+
+    /// <summary>
+    /// Disposes transaction resources created for the current operation.
+    /// </summary>
+    protected virtual void DisposeTransactionResources(OracleTransaction? transaction, OracleConnection? connection)
+    {
+        if (transaction != null)
+        {
+            DisposeDbTransaction(transaction);
+        }
+
+        if (connection != null)
+        {
+            DisposeConnection(connection);
+        }
     }
 
     /// <inheritdoc />

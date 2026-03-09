@@ -39,30 +39,25 @@ public partial class SqlServer
             throw new ArgumentNullException(nameof(queries));
         }
 
-        SemaphoreSlim? throttler = null;
-        if (maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0)
-        {
-            throttler = new SemaphoreSlim(maxDegreeOfParallelism.Value);
-        }
+        var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0
+            ? maxDegreeOfParallelism.Value
+            : DefaultMaxParallelQueries;
+        using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
         var tasks = queries.Select(async q =>
         {
-            if (throttler != null)
-            {
-                await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
+            await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 return await QueryAsync(serverOrInstance, database, integratedSecurity, q, null, false, cancellationToken, username: username, password: password).ConfigureAwait(false);
             }
             finally
             {
-                throttler?.Release();
+                throttler.Release();
             }
         });
 
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-        throttler?.Dispose();
         return results;
     }
 }

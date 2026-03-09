@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using MySqlConnector;
 using Xunit;
 
@@ -7,6 +9,9 @@ namespace DbaClientX.Tests;
 
 public class MySqlTransactionTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.MySql).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.MySql).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeMySqlConnection
     {
         public bool BeginCalled { get; private set; }
@@ -120,5 +125,65 @@ public class MySqlTransactionTests
         mySql.BeginTransaction("h", "d", "u", "p", IsolationLevel.Serializable);
         Assert.NotNull(mySql.Connection);
         Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
+    }
+
+    private class ThrowingCommitMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlConnection)));
+        }
+
+        protected override void CommitDbTransaction(MySqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(MySqlTransaction? transaction, MySqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    private class ThrowingRollbackMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlConnection)));
+        }
+
+        protected override void RollbackDbTransaction(MySqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(MySqlTransaction? transaction, MySqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void Commit_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var mySql = new ThrowingCommitMySql();
+        mySql.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => mySql.Commit());
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var mySql = new ThrowingRollbackMySql();
+        mySql.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => mySql.Rollback());
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Rollback());
     }
 }

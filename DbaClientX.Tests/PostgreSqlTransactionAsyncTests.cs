@@ -191,4 +191,27 @@ public class PostgreSqlTransactionAsyncTests
         Assert.NotNull(pg.Connection);
         Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
     }
+
+    private class OpenFailureTransactionPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(Npgsql.NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(Npgsql.NpgsqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenOpenFails_DisposesConnectionAndResetsState()
+    {
+        using var pg = new OpenFailureTransactionPostgreSql();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pg.BeginTransactionAsync("h", "d", "u", "p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pg.BeginTransactionAsync("h", "d", "u", "p"));
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(2, pg.DisposeCalls);
+    }
 }

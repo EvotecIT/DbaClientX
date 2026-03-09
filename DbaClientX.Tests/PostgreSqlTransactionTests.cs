@@ -1,10 +1,15 @@
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class PostgreSqlTransactionTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.PostgreSql).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.PostgreSql).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeNpgsqlConnection
     {
         public bool BeginCalled { get; private set; }
@@ -122,6 +127,66 @@ public class PostgreSqlTransactionTests
         pg.BeginTransaction("h", "d", "u", "p", IsolationLevel.Serializable);
         Assert.NotNull(pg.Connection);
         Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
+    }
+
+    private class ThrowingCommitPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlConnection)));
+        }
+
+        protected override void CommitDbTransaction(Npgsql.NpgsqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(Npgsql.NpgsqlTransaction? transaction, Npgsql.NpgsqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    private class ThrowingRollbackPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlConnection)));
+        }
+
+        protected override void RollbackDbTransaction(Npgsql.NpgsqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(Npgsql.NpgsqlTransaction? transaction, Npgsql.NpgsqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void Commit_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var pg = new ThrowingCommitPostgreSql();
+        pg.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => pg.Commit());
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(1, pg.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var pg = new ThrowingRollbackPostgreSql();
+        pg.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => pg.Rollback());
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(1, pg.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Rollback());
     }
 }
 

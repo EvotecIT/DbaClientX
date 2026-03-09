@@ -27,15 +27,16 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -85,17 +86,29 @@ public partial class MySql
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         var connectionString = BuildConnectionString(host, database, username, password);
+        return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
 
+    internal virtual async Task<object?> ExecuteStoredProcedureAsync(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
@@ -124,7 +137,7 @@ public partial class MySql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -144,15 +157,16 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
@@ -199,15 +213,16 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 

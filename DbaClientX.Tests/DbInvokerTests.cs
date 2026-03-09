@@ -44,6 +44,61 @@ namespace DbaClientX.Tests
         }
 
         [Fact]
+        public async Task ExecuteSqlAsync_WithBatching_StreamsItemsInsteadOfMaterializingWholeSequence()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+
+            IEnumerable<object> Items()
+            {
+                yield return new { Id = 1, Name = "Alice" };
+                throw new InvalidOperationException("boom");
+            }
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Name = @Name WHERE Id = @Id",
+                    Items(),
+                    new Dictionary<string, string>
+                    {
+                        ["Id"] = "@Id",
+                        ["Name"] = "@Name"
+                    },
+                    execOptions: new DbInvoker.DbExecutionOptions { BatchSize = 1 },
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly));
+
+            var call = Assert.Single(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
+            Assert.Equal(1, call.Parameters["@Id"]);
+            Assert.Equal("Alice", call.Parameters["@Name"]);
+        }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_WithPreCancelledToken_DoesNotInvokeExecutor()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Name = @Name WHERE Id = @Id",
+                    new object[] { new { Id = 1, Name = "Alice" } },
+                    new Dictionary<string, string>
+                    {
+                        ["Id"] = "@Id",
+                        ["Name"] = "@Name"
+                    },
+                    execOptions: new DbInvoker.DbExecutionOptions { BatchSize = 1 },
+                    ct: cts.Token,
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly));
+
+            Assert.Empty(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
+        }
+
+        [Fact]
         public async Task ExecuteProcedureAsync_ParsesOracleConnectionString_ForSevenArgumentExecutors()
         {
             DBAClientX.OracleGeneric.GenericExecutors.Reset();
@@ -76,6 +131,26 @@ namespace DbaClientX.Tests
             var moduleBuilder = assemblyBuilder.DefineDynamicModule("main");
             var typeBuilder = moduleBuilder.DefineType("Fallback.Namespace.GenericExecutors", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
             var methodBuilder = typeBuilder.DefineMethod("ExecuteSqlAsync", MethodAttributes.Public | MethodAttributes.Static, typeof(Task<int>), new[] { typeof(string), typeof(string), typeof(IDictionary<string, object?>), typeof(CancellationToken) });
+            var il = methodBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Call, typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(typeof(int)));
+            il.Emit(OpCodes.Ret);
+            var dynamicType = typeBuilder.CreateType();
+
+            var method = typeof(DbInvoker).GetMethod("TryGetExec", BindingFlags.NonPublic | BindingFlags.Static)!;
+            var result = method.Invoke(null, new object?[] { dynamicType!.Assembly, "DBAClientX.SqlServerGeneric.GenericExecutors", "ExecuteSqlAsync" });
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ResolveExecutor_IgnoresFourArgumentOverloadWithWrongSignature()
+        {
+            var asmName = new AssemblyName("DynamicDbInvokerWrongSignatureTests");
+            var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+            var moduleBuilder = assemblyBuilder.DefineDynamicModule("main");
+            var typeBuilder = moduleBuilder.DefineType("DBAClientX.SqlServerGeneric.GenericExecutors", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            var methodBuilder = typeBuilder.DefineMethod("ExecuteSqlAsync", MethodAttributes.Public | MethodAttributes.Static, typeof(Task<int>), new[] { typeof(string), typeof(int), typeof(IDictionary<string, object?>), typeof(CancellationToken) });
             var il = methodBuilder.GetILGenerator();
             il.Emit(OpCodes.Ldc_I4_0);
             il.Emit(OpCodes.Call, typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(typeof(int)));

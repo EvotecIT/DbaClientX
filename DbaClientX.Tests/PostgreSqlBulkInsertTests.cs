@@ -2,6 +2,7 @@ using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
 using Npgsql;
 using Xunit;
 
@@ -15,6 +16,7 @@ public class PostgreSqlBulkInsertTests
         public string? Destination { get; private set; }
         public List<(int Ordinal, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
+        public bool UsedRowEnumeration { get; private set; }
 
         protected override NpgsqlConnection CreateConnection(string connectionString) => new();
 
@@ -41,6 +43,38 @@ public class PostgreSqlBulkInsertTests
             WriteTable(connection, table, destinationTable, bulkCopyTimeout, transaction);
             return Task.CompletedTask;
         }
+
+        protected override void WriteRows(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
+        {
+            UsedRowEnumeration = true;
+            Timeout = bulkCopyTimeout;
+            Destination = destinationTable;
+            foreach (DataColumn column in columns)
+            {
+                Mappings.Add((column.Ordinal, column.ColumnName));
+            }
+            BatchRowCounts.Add(rows.Count());
+        }
+
+        protected override Task WriteRowsAsync(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+        {
+            WriteRows(connection, rows, columns, destinationTable, bulkCopyTimeout, transaction);
+            return Task.CompletedTask;
+        }
+    }
+
+    private class OpenFailureBulkPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(NpgsqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(NpgsqlConnection connection)
+            => DisposeCalls++;
     }
 
     [Fact]
@@ -60,6 +94,7 @@ public class PostgreSqlBulkInsertTests
         Assert.Contains(pg.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(pg.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, pg.BatchRowCounts);
+        Assert.True(pg.UsedRowEnumeration);
     }
 
     [Fact]
@@ -79,6 +114,26 @@ public class PostgreSqlBulkInsertTests
         Assert.Contains(pg.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(pg.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, pg.BatchRowCounts);
+        Assert.True(pg.UsedRowEnumeration);
+    }
+
+    [Fact]
+    public void BulkInsert_DefaultOptions_AddsAllMappings()
+    {
+        using var pg = new CapturePostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("Name", typeof(string));
+        table.Rows.Add(1, "a");
+        table.Rows.Add(2, "b");
+
+        pg.BulkInsert("h", "db", "u", "p", table, "Dest");
+
+        Assert.Null(pg.Timeout);
+        Assert.Equal("Dest", pg.Destination);
+        Assert.Equal(table.Columns.Count, pg.Mappings.Count);
+        Assert.Equal(new[] { 2 }, pg.BatchRowCounts);
+        Assert.False(pg.UsedRowEnumeration);
     }
 
     [Fact]
@@ -88,5 +143,31 @@ public class PostgreSqlBulkInsertTests
         var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.BulkInsert("h", "db", "u", "p", table, "Dest", useTransaction: true));
+    }
+
+    [Fact]
+    public void BulkInsert_WhenOpenFails_DisposesConnection()
+    {
+        using var pg = new OpenFailureBulkPostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => pg.BulkInsert("h", "db", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, pg.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var pg = new OpenFailureBulkPostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => pg.BulkInsertAsync("h", "db", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, pg.DisposeCalls);
     }
 }

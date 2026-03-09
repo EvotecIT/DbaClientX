@@ -67,19 +67,20 @@ public static class DbInvoker
         }
         options ??= new DbParameterMapperOptions();
         execOptions ??= new DbExecutionOptions();
-        var list = items as IList<object> ?? items.ToList();
         var affected = 0;
-        var batchSize = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
+        var batchSize = execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0
+            ? execOptions.BatchSize.Value
+            : (int?)null;
 
-        for (int batchStart = 0; batchStart < list.Count; batchStart += batchSize)
+        foreach (var batch in EnumerateBatches(items, batchSize))
         {
-            var batchEnd = Math.Min(batchStart + batchSize, list.Count);
-            int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
+            ct.ThrowIfCancellationRequested();
+            int degree = execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1 ? execOptions.ParallelDegree.Value : 1;
             if (degree <= 1)
             {
-                for (int i = batchStart; i < batchEnd; i++)
+                foreach (var item in batch)
                 {
-                    var item = list[i];
+                    ct.ThrowIfCancellationRequested();
                     var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                     var task = InvokeExecutor(exec, connectionString, sql, parameters, ct);
                     affected += await task.ConfigureAwait(false);
@@ -96,6 +97,7 @@ public static class DbInvoker
                     await sem.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
+                        ct.ThrowIfCancellationRequested();
                         var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                         var rows = await InvokeExecutor(exec, connectionString, sql, parameters, ct).ConfigureAwait(false);
                         Interlocked.Add(ref local, rows);
@@ -106,9 +108,9 @@ public static class DbInvoker
                     }
                 }
 
-                for (int i = batchStart; i < batchEnd; i++)
+                foreach (var item in batch)
                 {
-                    tasks.Add(ExecuteItemAsync(list[i]));
+                    tasks.Add(ExecuteItemAsync(item));
                 }
 
                 await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -157,18 +159,20 @@ public static class DbInvoker
         }
         options ??= new DbParameterMapperOptions();
         execOptions ??= new DbExecutionOptions();
-        var list = items as IList<object> ?? items.ToList();
         var affected = 0;
-        var batchSize = (execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0) ? execOptions.BatchSize.Value : list.Count;
-        for (int batchStart = 0; batchStart < list.Count; batchStart += batchSize)
+        var batchSize = execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0
+            ? execOptions.BatchSize.Value
+            : (int?)null;
+
+        foreach (var batch in EnumerateBatches(items, batchSize))
         {
-            var batchEnd = Math.Min(batchStart + batchSize, list.Count);
-            int degree = (execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1) ? execOptions.ParallelDegree.Value : 1;
+            ct.ThrowIfCancellationRequested();
+            int degree = execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1 ? execOptions.ParallelDegree.Value : 1;
             if (degree <= 1)
             {
-                for (int i = batchStart; i < batchEnd; i++)
+                foreach (var item in batch)
                 {
-                    var item = list[i];
+                    ct.ThrowIfCancellationRequested();
                     var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                     var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
                     affected += await task.ConfigureAwait(false);
@@ -185,6 +189,7 @@ public static class DbInvoker
                     await sem.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
+                        ct.ThrowIfCancellationRequested();
                         var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
                         var rows = await InvokeExecutor(exec, connectionString, procedure, parameters, ct).ConfigureAwait(false);
                         Interlocked.Add(ref local, rows);
@@ -195,9 +200,9 @@ public static class DbInvoker
                     }
                 }
 
-                for (int i = batchStart; i < batchEnd; i++)
+                foreach (var item in batch)
                 {
-                    tasks.Add(ExecuteItemAsync(list[i]));
+                    tasks.Add(ExecuteItemAsync(item));
                 }
 
                 await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -277,10 +282,8 @@ public static class DbInvoker
             {
                 if (!string.Equals(m.Name, methodName, StringComparison.Ordinal)) continue;
                 var p = m.GetParameters();
-                // Prefer (string, string, IDictionary<string,object?>?, CancellationToken)
-                if (p.Length == 4 && p[0].ParameterType == typeof(string)) return m;
-                // Accept Oracle-style 7-arg overload as fallback
-                if (p.Length == 7 && best == null) best = m;
+                if (HasFourArgumentSignature(p)) return m;
+                if (HasSevenArgumentSignature(p) && best == null) best = m;
             }
             return best;
         }
@@ -289,6 +292,23 @@ public static class DbInvoker
             return null;
         }
     }
+
+    private static bool HasFourArgumentSignature(ParameterInfo[] parameters)
+        => parameters.Length == 4
+            && parameters[0].ParameterType == typeof(string)
+            && parameters[1].ParameterType == typeof(string)
+            && typeof(IDictionary<string, object?>).IsAssignableFrom(parameters[2].ParameterType)
+            && parameters[3].ParameterType == typeof(CancellationToken);
+
+    private static bool HasSevenArgumentSignature(ParameterInfo[] parameters)
+        => parameters.Length == 7
+            && parameters[0].ParameterType == typeof(string)
+            && parameters[1].ParameterType == typeof(string)
+            && parameters[2].ParameterType == typeof(string)
+            && parameters[3].ParameterType == typeof(string)
+            && parameters[4].ParameterType == typeof(string)
+            && typeof(IDictionary<string, object?>).IsAssignableFrom(parameters[5].ParameterType)
+            && parameters[6].ParameterType == typeof(CancellationToken);
 
     private static Task<int> InvokeExecutor(MethodInfo exec, string connectionString, string sql, IDictionary<string, object?> parameters, CancellationToken ct)
     {
@@ -378,5 +398,36 @@ public static class DbInvoker
         }
 
         return (value, value);
+    }
+
+    private static IEnumerable<IReadOnlyList<object>> EnumerateBatches(IEnumerable<object> items, int? batchSize)
+    {
+        if (!batchSize.HasValue || batchSize.Value <= 0)
+        {
+            var allItems = items as IReadOnlyList<object> ?? items.ToList();
+            if (allItems.Count > 0)
+            {
+                yield return allItems;
+            }
+
+            yield break;
+        }
+
+        var size = batchSize.Value;
+        var batch = new List<object>(size);
+        foreach (var item in items)
+        {
+            batch.Add(item);
+            if (batch.Count == size)
+            {
+                yield return batch;
+                batch = new List<object>(size);
+            }
+        }
+
+        if (batch.Count > 0)
+        {
+            yield return batch;
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Data.SqlClient;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -188,5 +189,28 @@ public class SqlServerTransactionAsyncTests
         await server.BeginTransactionAsync("s", "db", true, IsolationLevel.Serializable);
         Assert.NotNull(server.Connection);
         Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
+    }
+
+    private class OpenFailureTransactionSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenOpenFails_DisposesConnectionAndResetsState()
+    {
+        using var server = new OpenFailureTransactionSqlServer();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => server.BeginTransactionAsync("s", "db", true));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => server.BeginTransactionAsync("s", "db", true));
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(2, server.DisposeCalls);
     }
 }
