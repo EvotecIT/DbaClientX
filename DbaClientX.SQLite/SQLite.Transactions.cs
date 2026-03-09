@@ -21,11 +21,24 @@ public partial class SQLite
             }
 
             var connectionString = BuildOperationalConnectionString(database);
-
-            _transactionConnection = new SqliteConnection(connectionString);
-            _transactionConnection.Open();
-            ApplyBusyTimeout(_transactionConnection);
-            _transaction = _transactionConnection.BeginTransaction();
+            SqliteConnection? connection = null;
+            SqliteTransaction? transaction = null;
+            try
+            {
+                connection = new SqliteConnection(connectionString);
+                connection.Open();
+                ApplyBusyTimeout(connection);
+                transaction = connection.BeginTransaction();
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 

@@ -60,6 +60,27 @@ describe 'Invoke-DbaXPostgreSqlNonQuery cmdlet' {
         }
     }
 
+    it 'honors WhatIf and skips provider execution' {
+        class TestPostgreSqlWhatIf : DBAClientX.PostgreSql {
+            static [int] $Calls
+            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[NpgsqlTypes.NpgsqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
+                [TestPostgreSqlWhatIf]::Calls++
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('PostgreSqlFactory',$binding)
+        $orig = $prop.GetValue($null)
+        [TestPostgreSqlWhatIf]::Calls = 0
+        $prop.SetValue($null, [System.Func[DBAClientX.PostgreSql]]{ [TestPostgreSqlWhatIf]::new() })
+        try {
+            Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -WhatIf | Out-Null
+            [TestPostgreSqlWhatIf]::Calls | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXPostgreSqlNonQuery -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
     }

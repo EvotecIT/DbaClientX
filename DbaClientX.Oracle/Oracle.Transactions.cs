@@ -27,9 +27,23 @@ public partial class Oracle
             }
 
             var connectionString = BuildConnectionString(host, serviceName, username, password);
-            _transactionConnection = new OracleConnection(connectionString);
-            _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+            OracleConnection? connection = null;
+            OracleTransaction? transaction = null;
+            try
+            {
+                connection = new OracleConnection(connectionString);
+                connection.Open();
+                transaction = connection.BeginTransaction(isolationLevel);
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 

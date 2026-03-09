@@ -6,9 +6,8 @@ Describe 'New-DbaXQuery builder' {
         $query | Should -Be 'SELECT * FROM [users]'
     }
 
-    It 'Uses new pagination when requested' {
-        $query = New-DbaXQuery -TableName users -Compile -Limit 5 -Offset 2
-        $query | Should -Be 'SELECT * FROM [users] OFFSET 2 ROWS FETCH NEXT 5 ROWS ONLY'
+    It 'Rejects SQL Server pagination without ORDER BY' {
+        { New-DbaXQuery -TableName users -Compile -Limit 5 -Offset 2 } | Should -Throw
     }
 
     It 'Ignores negative pagination values with default ErrorAction' {

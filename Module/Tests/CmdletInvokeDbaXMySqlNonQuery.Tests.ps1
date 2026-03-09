@@ -60,6 +60,27 @@ describe 'Invoke-DbaXMySqlNonQuery cmdlet' {
         }
     }
 
+    it 'honors WhatIf and skips provider execution' {
+        class TestMySqlWhatIf : DBAClientX.MySql {
+            static [int] $Calls
+            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[MySqlConnector.MySqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
+                [TestMySqlWhatIf]::Calls++
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('MySqlFactory',$binding)
+        $orig = $prop.GetValue($null)
+        [TestMySqlWhatIf]::Calls = 0
+        $prop.SetValue($null, [System.Func[DBAClientX.MySql]]{ [TestMySqlWhatIf]::new() })
+        try {
+            Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -WhatIf | Out-Null
+            [TestMySqlWhatIf]::Calls | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXMySqlNonQuery -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
     }

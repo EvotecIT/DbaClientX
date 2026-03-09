@@ -72,6 +72,9 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
         using var mySql = MySqlFactory();
         mySql.CommandTimeout = QueryTimeout;
         try {
+            if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL non-query")) {
+                return;
+            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = mySql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);

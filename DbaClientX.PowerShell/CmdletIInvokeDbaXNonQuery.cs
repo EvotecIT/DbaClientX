@@ -76,6 +76,9 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
         sqlServer.CommandTimeout = QueryTimeout;
         var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
         try {
+            if (!ShouldProcess($"{Server}/{Database}", "Execute SQL Server non-query")) {
+                return;
+            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 
             var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);

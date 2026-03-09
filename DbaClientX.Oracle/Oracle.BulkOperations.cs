@@ -157,6 +157,7 @@ public partial class Oracle
             }
             else
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -187,10 +188,11 @@ public partial class Oracle
     /// Performs the asynchronous write for the supplied <see cref="OracleBulkCopy"/>.
     /// </summary>
     protected virtual Task WriteToServerAsync(OracleBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
-    {
-        WriteToServer(bulkCopy, table);
-        return Task.CompletedTask;
-    }
+        => Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            WriteToServer(bulkCopy, table);
+        }, cancellationToken);
 
     /// <summary>
     /// Creates an <see cref="OracleConnection"/> for the provided connection string.

@@ -21,10 +21,23 @@ public partial class PostgreSql
             }
 
             var connectionString = BuildConnectionString(host, database, username, password);
-
-            _transactionConnection = new NpgsqlConnection(connectionString);
-            _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction();
+            NpgsqlConnection? connection = null;
+            NpgsqlTransaction? transaction = null;
+            try
+            {
+                connection = new NpgsqlConnection(connectionString);
+                connection.Open();
+                transaction = connection.BeginTransaction();
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 
@@ -41,10 +54,23 @@ public partial class PostgreSql
             }
 
             var connectionString = BuildConnectionString(host, database, username, password);
-
-            _transactionConnection = new NpgsqlConnection(connectionString);
-            _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+            NpgsqlConnection? connection = null;
+            NpgsqlTransaction? transaction = null;
+            try
+            {
+                connection = new NpgsqlConnection(connectionString);
+                connection.Open();
+                transaction = connection.BeginTransaction(isolationLevel);
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 

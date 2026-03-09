@@ -72,6 +72,9 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
         using var postgreSql = PostgreSqlFactory();
         postgreSql.CommandTimeout = QueryTimeout;
         try {
+            if (!ShouldProcess($"{Server}/{Database}", "Execute PostgreSQL non-query")) {
+                return;
+            }
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             var affected = postgreSql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
             WriteObject(affected);

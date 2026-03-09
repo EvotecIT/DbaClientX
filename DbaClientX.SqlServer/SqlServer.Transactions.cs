@@ -51,10 +51,23 @@ public partial class SqlServer
             }
 
             var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
-
-            _transactionConnection = new SqlConnection(connectionString);
-            _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+            SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
+            try
+            {
+                connection = new SqlConnection(connectionString);
+                connection.Open();
+                transaction = connection.BeginTransaction(isolationLevel);
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 

@@ -60,6 +60,27 @@ describe 'Invoke-DbaXOracleNonQuery cmdlet' {
         }
     }
 
+    it 'honors WhatIf and skips provider execution' {
+        class TestOracleWhatIf : DBAClientX.Oracle {
+            static [int] $Calls
+            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[Oracle.ManagedDataAccess.Client.OracleDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
+                [TestOracleWhatIf]::Calls++
+                return 0
+            }
+        }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracleNonQuery].GetProperty('OracleFactory',$binding)
+        $orig = $prop.GetValue($null)
+        [TestOracleWhatIf]::Calls = 0
+        $prop.SetValue($null, [System.Func[DBAClientX.Oracle]]{ [TestOracleWhatIf]::new() })
+        try {
+            Invoke-DbaXOracleNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -WhatIf | Out-Null
+            [TestOracleWhatIf]::Calls | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXOracleNonQuery -Server '' -Database db -Query 'Q' -Username u -Password p } | Should -Throw
     }

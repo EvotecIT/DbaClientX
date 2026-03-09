@@ -27,10 +27,23 @@ public partial class MySql
             }
 
             var connectionString = BuildConnectionString(host, database, username, password);
-
-            _transactionConnection = new MySqlConnection(connectionString);
-            _transactionConnection.Open();
-            _transaction = _transactionConnection.BeginTransaction(isolationLevel);
+            MySqlConnection? connection = null;
+            MySqlTransaction? transaction = null;
+            try
+            {
+                connection = new MySqlConnection(connectionString);
+                connection.Open();
+                transaction = connection.BeginTransaction(isolationLevel);
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
         }
     }
 
@@ -99,13 +112,30 @@ public partial class MySql
     /// </summary>
     public virtual async Task CommitAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        MySqlTransaction? tx;
+        MySqlConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
 
-        await _transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        DisposeTransaction();
+        try
+        {
+            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     /// <summary>
@@ -130,13 +160,30 @@ public partial class MySql
     /// </summary>
     public virtual async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
-        if (_transaction == null)
+        MySqlTransaction? tx;
+        MySqlConnection? conn;
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("No active transaction.");
+            if (_transaction == null)
+            {
+                throw new DbaTransactionException("No active transaction.");
+            }
+
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
         }
 
-        await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-        DisposeTransaction();
+        try
+        {
+            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
+        }
     }
 
     private void DisposeTransaction()
