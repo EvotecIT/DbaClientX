@@ -82,6 +82,28 @@ describe 'Invoke-DbaXQuery cmdlet' {
         }
     }
 
+    it 'preserves results from typed task query overrides' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('Value', [int])
+            $row = $table.NewRow()
+            $row['Value'] = 1
+            $table.Rows.Add($row)
+            return [System.Threading.Tasks.Task[System.Data.DataTable]]::FromResult($table)
+        })
+        try {
+            $rows = @(Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1')
+            $rows.Count | Should -Be 1
+            $rows[0].Value | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'streams rows asynchronously' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryStreamOverride', $binding)

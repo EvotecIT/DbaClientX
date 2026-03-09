@@ -82,7 +82,8 @@ internal static class PowerShellHelpers
                 return await typedTask.ConfigureAwait(false);
             case Task task:
                 await task.ConfigureAwait(false);
-                return default;
+                var taskResult = TryGetTaskResult(task);
+                return taskResult is T typedTaskResult ? typedTaskResult : (T?)taskResult;
             default:
                 return result is T typed ? typed : (T?)result;
         }
@@ -103,6 +104,17 @@ internal static class PowerShellHelpers
 
     private static object? Unwrap(object? value)
         => value is PSObject psObject ? psObject.BaseObject : value;
+
+    private static object? TryGetTaskResult(Task task)
+    {
+        var taskType = task.GetType();
+        if (!taskType.IsGenericType || taskType.GetGenericTypeDefinition() != typeof(Task<>))
+        {
+            return null;
+        }
+
+        return taskType.GetProperty(nameof(Task<object>.Result))?.GetValue(task);
+    }
 }
 
 internal sealed class InMemoryDbParameter : DbParameter
