@@ -52,14 +52,15 @@ $originalDevelopmentFolderCore = $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE
 $originalDevelopmentFolderDefault = $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT
 $moduleBuildRoot = Join-Path $PSScriptRoot '..\Artefacts\PowerShellModuleTests'
 $moduleOutputRoot = Join-Path $moduleBuildRoot 'bin'
-$moduleOutputCore = Join-Path $moduleOutputRoot 'net8.0'
+$targetFramework = if ($PSVersionTable.PSEdition -eq 'Core') { 'net8.0' } else { 'net472' }
+$moduleOutputTarget = Join-Path $moduleOutputRoot $targetFramework
 
 if (Test-Path $moduleBuildRoot) {
     Remove-Item -Path $moduleBuildRoot -Recurse -Force
 }
 
 try {
-    $null = New-Item -Path $moduleOutputCore -ItemType Directory -Force
+    $null = New-Item -Path $moduleOutputTarget -ItemType Directory -Force
     $env:DBACLIENTX_DEVELOPMENT_PATH = $moduleOutputRoot
     $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE = 'net8.0'
     $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT = 'net472'
@@ -70,9 +71,9 @@ try {
         '--configuration'
         'Debug'
         '--framework'
-        'net8.0'
+        $targetFramework
         '--no-restore'
-        "-p:OutputPath=$moduleOutputCore\"
+        "-p:OutputPath=$moduleOutputTarget\"
     )
 
     & dotnet @buildArgs

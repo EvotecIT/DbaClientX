@@ -95,6 +95,10 @@ describe 'Invoke-DbaXOracle cmdlet' {
     }
 
     it 'streams rows asynchronously' {
+        if ($PSVersionTable.PSEdition -ne 'Core') {
+            Set-ItResult -Skipped -Because 'Streaming cmdlet execution is only available on Core targets.'
+            return
+        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracle].GetProperty('QueryStreamOverride', $binding)
         $orig = $prop.GetValue($null)

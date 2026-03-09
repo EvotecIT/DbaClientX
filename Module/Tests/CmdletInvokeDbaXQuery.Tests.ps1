@@ -105,6 +105,10 @@ describe 'Invoke-DbaXQuery cmdlet' {
     }
 
     it 'streams rows asynchronously' {
+        if ($PSVersionTable.PSEdition -ne 'Core') {
+            Set-ItResult -Skipped -Because 'Streaming cmdlet execution is only available on Core targets.'
+            return
+        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryStreamOverride', $binding)
         $orig = $prop.GetValue($null)
@@ -156,6 +160,10 @@ describe 'Invoke-DbaXQuery cmdlet' {
     }
 
     it 'streams stored procedure rows asynchronously' {
+        if ($PSVersionTable.PSEdition -ne 'Core') {
+            Set-ItResult -Skipped -Because 'Streaming cmdlet execution is only available on Core targets.'
+            return
+        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('StoredProcedureStreamOverride', $binding)
         $orig = $prop.GetValue($null)

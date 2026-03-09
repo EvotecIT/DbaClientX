@@ -85,14 +85,20 @@ $BinaryDev = @(
 )
 
 if ($Development) {
-    $Assembly = Get-ChildItem -Path "$($DevelopmentAssemblyFolder.Path)\*.dll" -ErrorAction SilentlyContinue -File
+    $Assembly = Get-ChildItem -Path "$($DevelopmentAssemblyFolder.Path)\*.dll" -ErrorAction SilentlyContinue -File | Where-Object {
+        $_.Name -notmatch '\.SNI\.'
+    }
 } else {
     $Assembly = @(
         if ($Framework -and $PSEdition -eq 'Core') {
-            Get-ChildItem -Path $PSScriptRoot\Lib\$Framework\*.dll -ErrorAction SilentlyContinue -Recurse
+            Get-ChildItem -Path $PSScriptRoot\Lib\$Framework\*.dll -ErrorAction SilentlyContinue -Recurse | Where-Object {
+                $_.Name -notmatch '\.SNI\.'
+            }
         }
         if ($FrameworkNet -and $PSEdition -ne 'Core') {
-            Get-ChildItem -Path $PSScriptRoot\Lib\$FrameworkNet\*.dll -ErrorAction SilentlyContinue -Recurse
+            Get-ChildItem -Path $PSScriptRoot\Lib\$FrameworkNet\*.dll -ErrorAction SilentlyContinue -Recurse | Where-Object {
+                $_.Name -notmatch '\.SNI\.'
+            }
         }
     )
 }
