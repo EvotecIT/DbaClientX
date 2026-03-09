@@ -303,9 +303,11 @@ public static class DbInvoker
         {
             // Oracle style: (host, serviceName, username, password, sql, dict, ct)
             var dict = ParseConnectionString(connectionString);
-            string host = Try(dict, "host") ?? Try(dict, "server") ?? string.Empty;
-            string service = Try(dict, "service") ?? Try(dict, "servicename") ?? Try(dict, "sid") ?? string.Empty;
-            string user = Try(dict, "user") ?? Try(dict, "username") ?? string.Empty;
+            var dataSource = Try(dict, "datasource");
+            var (parsedHost, parsedService) = SplitDataSource(dataSource);
+            string host = Try(dict, "host") ?? Try(dict, "server") ?? parsedHost;
+            string service = Try(dict, "service") ?? Try(dict, "servicename") ?? Try(dict, "sid") ?? parsedService;
+            string user = Try(dict, "user") ?? Try(dict, "userid") ?? Try(dict, "username") ?? string.Empty;
             string pass = Try(dict, "password") ?? string.Empty;
             resultTask = exec.Invoke(null, new object?[] { host, service, user, pass, sql, parameters, ct });
         }
@@ -339,6 +341,7 @@ public static class DbInvoker
                 if (b.TryGetValue(key, out var val) && val is not null)
                 {
                     dict[key] = val.ToString() ?? string.Empty;
+                    dict[NormalizeConnectionStringKey(key)] = dict[key];
                 }
             }
         }
@@ -351,5 +354,29 @@ public static class DbInvoker
     }
 
     private static string? Try(Dictionary<string, string> dict, string key)
-        => dict.TryGetValue(key, out var v) ? v : null;
+        => dict.TryGetValue(NormalizeConnectionStringKey(key), out var v) ? v : null;
+
+    private static string NormalizeConnectionStringKey(string key)
+        => key.Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Trim()
+            .ToLowerInvariant();
+
+    private static (string Host, string ServiceName) SplitDataSource(string? dataSource)
+    {
+        var value = dataSource ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return (string.Empty, string.Empty);
+        }
+
+        var slash = value.LastIndexOf('/');
+        if (slash > 0 && slash < value.Length - 1)
+        {
+            return (value[..slash], value[(slash + 1)..]);
+        }
+
+        return (value, value);
+    }
 }
