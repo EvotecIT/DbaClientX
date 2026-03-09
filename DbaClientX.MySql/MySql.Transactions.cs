@@ -159,6 +159,8 @@ public partial class MySql
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
@@ -221,6 +223,8 @@ public partial class MySql
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
