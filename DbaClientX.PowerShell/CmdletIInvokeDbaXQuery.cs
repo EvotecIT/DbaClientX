@@ -30,6 +30,10 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     internal static Func<DBAClientX.SqlServer> SqlServerFactory { get; set; } = () => new DBAClientX.SqlServer();
+    internal static ScriptBlock? QueryOverride { get; set; }
+    internal static ScriptBlock? QueryStreamOverride { get; set; }
+    internal static ScriptBlock? StoredProcedureOverride { get; set; }
+    internal static ScriptBlock? StoredProcedureStreamOverride { get; set; }
 
     /// <summary>Specifies the SQL Server instance.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
@@ -104,78 +108,32 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// </summary>
     protected override async Task ProcessRecordAsync() {
         await Task.Yield();
-        using var sqlServer = SqlServerFactory();
-        sqlServer.ReturnType = ReturnType;
-        sqlServer.CommandTimeout = QueryTimeout;
         var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;
         }
-        var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
-        var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
-        if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
-        {
-            return;
-        }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
-            IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new SqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
 
             // Streaming branch using asynchronous enumeration when supported
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
-                IAsyncEnumerable<DataRow> enumerable;
                 if (!string.IsNullOrEmpty(StoredProcedure))
                 {
-                    enumerable = sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: Username, password: Password);
+                    if (StoredProcedureStreamOverride is not null)
+                    {
+                        var overrideParameters = PowerShellHelpers.ToInMemoryDbParameters(parameters);
+                        WriteRows(PowerShellHelpers.InvokeDataRowOverride(StoredProcedureStreamOverride, this, parameters, overrideParameters));
+                        return;
+                    }
                 }
-                else
+
+                if (QueryStreamOverride is not null)
                 {
-                    enumerable = sqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password);
+                    WriteRows(PowerShellHelpers.InvokeDataRowOverride(QueryStreamOverride, this, parameters, null));
+                    return;
                 }
-                switch (ReturnType)
-                {
-                    case ReturnType.DataRow:
-                        await foreach (var row in enumerable.ConfigureAwait(false))
-                        {
-                            WriteObject(row);
-                        }
-                        break;
-                    case ReturnType.DataTable:
-                        DataTable? table = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false))
-                        {
-                            table ??= row.Table.Clone();
-                            table.ImportRow(row);
-                        }
-                        if (table != null)
-                        {
-                            WriteObject(table);
-                        }
-                        break;
-                    case ReturnType.DataSet:
-                        DataTable? dataTable = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false))
-                        {
-                            dataTable ??= row.Table.Clone();
-                            dataTable.ImportRow(row);
-                        }
-                        DataSet set = new DataSet();
-                        if (dataTable != null)
-                        {
-                            set.Tables.Add(dataTable);
-                        }
-                        WriteObject(set);
-                        break;
-                    default:
-                        await foreach (var row in enumerable.ConfigureAwait(false))
-                        {
-                            WriteObject(PSObjectConverter.DataRowToPSObject(row));
-                        }
-                        break;
-                }
-                return;
             }
 #else
             if (Stream.IsPresent)
@@ -186,8 +144,70 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {
+                if (StoredProcedureOverride is not null)
+                {
+                    var overrideParameters = PowerShellHelpers.ToInMemoryDbParameters(parameters);
+                    result = await PowerShellHelpers.InvokeOverrideAsync<object?>(StoredProcedureOverride, this, parameters, overrideParameters).ConfigureAwait(false);
+                    if (result != null) {
+                        if (ReturnType == ReturnType.PSObject) {
+                            //var resultConverted = result as DataTable;
+                            foreach (DataRow row in ((DataTable)result).Rows) {
+                                WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                            }
+                        } else {
+                            WriteObject(result, true);
+                        }
+                    }
+                    return;
+                }
+            } else {
+                if (QueryOverride is not null)
+                {
+                    result = await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters, null).ConfigureAwait(false);
+                    if (result != null) {
+                        if (ReturnType == ReturnType.PSObject) {
+                            //var resultConverted = result as DataTable;
+                            foreach (DataRow row in ((DataTable)result).Rows) {
+                                WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                            }
+                        } else {
+                            WriteObject(result, true);
+                        }
+                    }
+                    return;
+                }
+            }
+
+            var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
+            if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
+            {
+                return;
+            }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            if (Stream.IsPresent)
+            {
+                if (!string.IsNullOrEmpty(StoredProcedure))
+                {
+                    var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
+                    using var sqlServer = CreateSqlServer();
+                    await WriteRowsAsync(sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: Username, password: Password)).ConfigureAwait(false);
+                    return;
+                }
+
+                using var streamSqlServer = CreateSqlServer();
+                await WriteRowsAsync(streamSqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password)).ConfigureAwait(false);
+                return;
+            }
+#endif
+
+            if (!string.IsNullOrEmpty(StoredProcedure)) {
+                var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
+                using var sqlServer = CreateSqlServer();
                 result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, dbParameters, username: Username, password: Password);
             } else {
+                using var sqlServer = CreateSqlServer();
                 result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
             }
             if (result != null) {
@@ -208,4 +228,103 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         }
     }
 
+    private DBAClientX.SqlServer CreateSqlServer()
+    {
+        var sqlServer = SqlServerFactory();
+        sqlServer.ReturnType = ReturnType;
+        sqlServer.CommandTimeout = QueryTimeout;
+        return sqlServer;
+    }
+
+    private void WriteRows(IEnumerable<DataRow> rows)
+    {
+        switch (ReturnType)
+        {
+            case ReturnType.DataRow:
+                foreach (var row in rows)
+                {
+                    WriteObject(row);
+                }
+                break;
+            case ReturnType.DataTable:
+                DataTable? table = null;
+                foreach (var row in rows)
+                {
+                    table ??= row.Table.Clone();
+                    table.ImportRow(row);
+                }
+                if (table != null)
+                {
+                    WriteObject(table);
+                }
+                break;
+            case ReturnType.DataSet:
+                DataTable? dataTable = null;
+                foreach (var row in rows)
+                {
+                    dataTable ??= row.Table.Clone();
+                    dataTable.ImportRow(row);
+                }
+                DataSet set = new DataSet();
+                if (dataTable != null)
+                {
+                    set.Tables.Add(dataTable);
+                }
+                WriteObject(set);
+                break;
+            default:
+                foreach (var row in rows)
+                {
+                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                }
+                break;
+        }
+    }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    private async Task WriteRowsAsync(IAsyncEnumerable<DataRow> rows)
+    {
+        switch (ReturnType)
+        {
+            case ReturnType.DataRow:
+                await foreach (var row in rows.ConfigureAwait(false))
+                {
+                    WriteObject(row);
+                }
+                break;
+            case ReturnType.DataTable:
+                DataTable? table = null;
+                await foreach (var row in rows.ConfigureAwait(false))
+                {
+                    table ??= row.Table.Clone();
+                    table.ImportRow(row);
+                }
+                if (table != null)
+                {
+                    WriteObject(table);
+                }
+                break;
+            case ReturnType.DataSet:
+                DataTable? dataTable = null;
+                await foreach (var row in rows.ConfigureAwait(false))
+                {
+                    dataTable ??= row.Table.Clone();
+                    dataTable.ImportRow(row);
+                }
+                DataSet set = new DataSet();
+                if (dataTable != null)
+                {
+                    set.Tables.Add(dataTable);
+                }
+                WriteObject(set);
+                break;
+            default:
+                await foreach (var row in rows.ConfigureAwait(false))
+                {
+                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                }
+                break;
+        }
+    }
+#endif
 }

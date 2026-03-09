@@ -47,21 +47,57 @@ foreach ($Module in $PSDInformation.RequiredModules) {
 }
 Write-Color
 
-try {
-    Import-Module $PSScriptRoot\*.psd1 -Force -ErrorAction Stop
-    Import-Module Pester -Force -ErrorAction Stop
-} catch {
-    throw "Failed to import module $ModuleName"
+$originalDevelopmentPath = $env:DBACLIENTX_DEVELOPMENT_PATH
+$originalDevelopmentFolderCore = $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE
+$originalDevelopmentFolderDefault = $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT
+$moduleBuildRoot = Join-Path $PSScriptRoot '..\Artefacts\PowerShellModuleTests'
+$moduleOutputRoot = Join-Path $moduleBuildRoot 'bin'
+$targetFramework = if ($PSVersionTable.PSEdition -eq 'Core') { 'net8.0' } else { 'net472' }
+$moduleOutputTarget = Join-Path $moduleOutputRoot $targetFramework
+
+if (Test-Path $moduleBuildRoot) {
+    Remove-Item -Path $moduleBuildRoot -Recurse -Force
 }
 
-$Configuration = [PesterConfiguration]::Default
-$Configuration.Run.Path = "$PSScriptRoot\Tests"
-$Configuration.Run.Exit = $true
-$Configuration.Should.ErrorAction = 'Continue'
-$Configuration.CodeCoverage.Enabled = $false
-$Configuration.Output.Verbosity = 'Detailed'
-$Result = Invoke-Pester -Configuration $Configuration
-#$result = Invoke-Pester -Script $PSScriptRoot\Tests -Verbose -Output Detailed #-EnableExit
+try {
+    $null = New-Item -Path $moduleOutputTarget -ItemType Directory -Force
+    $env:DBACLIENTX_DEVELOPMENT_PATH = $moduleOutputRoot
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE = 'net8.0'
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT = 'net472'
+
+    $buildArgs = @(
+        'build'
+        (Join-Path $PSScriptRoot '..\DbaClientX.PowerShell\DbaClientX.PowerShell.csproj')
+        '--configuration'
+        'Debug'
+        '--framework'
+        $targetFramework
+        '--no-restore'
+        "-p:OutputPath=$moduleOutputTarget\"
+    )
+
+    & dotnet @buildArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to build PowerShell module test binaries.'
+    }
+
+    Import-Module $PSScriptRoot\*.psd1 -Force -ErrorAction Stop
+    Import-Module Pester -Force -ErrorAction Stop
+    $Configuration = [PesterConfiguration]::Default
+    $Configuration.Run.Path = "$PSScriptRoot\Tests"
+    $Configuration.Run.Exit = $true
+    $Configuration.Should.ErrorAction = 'Continue'
+    $Configuration.CodeCoverage.Enabled = $false
+    $Configuration.Output.Verbosity = 'Detailed'
+    $Result = Invoke-Pester -Configuration $Configuration
+    #$result = Invoke-Pester -Script $PSScriptRoot\Tests -Verbose -Output Detailed #-EnableExit
+} catch {
+    throw
+} finally {
+    $env:DBACLIENTX_DEVELOPMENT_PATH = $originalDevelopmentPath
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE = $originalDevelopmentFolderCore
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT = $originalDevelopmentFolderDefault
+}
 
 if ($Result.FailedCount -gt 0) {
     throw "$($Result.FailedCount) tests failed."

@@ -12,6 +12,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
     internal static Func<DBAClientX.Oracle> OracleFactory { get; set; } = () => new DBAClientX.Oracle();
+    internal static ScriptBlock? ScalarOverride { get; set; }
 
     /// <summary>Specifies the Oracle server.</summary>
     [Parameter(Mandatory = true)]
@@ -66,8 +67,6 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override async Task ProcessRecordAsync() {
-        using var oracle = OracleFactory();
-        oracle.CommandTimeout = QueryTimeout;
         if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle scalar query")) {
             return;
         }
@@ -78,7 +77,13 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
-            var result = await oracle.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            object? result;
+            if (ScalarOverride is not null) {
+                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(ScalarOverride, this, parameters).ConfigureAwait(false);
+            } else {
+                using var oracle = CreateOracle();
+                result = await oracle.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            }
             switch (ReturnType) {
                 case ReturnType.DataTable:
                     DataTable table = new DataTable();
@@ -118,5 +123,11 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
                 throw;
             }
         }
+    }
+
+    private DBAClientX.Oracle CreateOracle() {
+        var oracle = OracleFactory();
+        oracle.CommandTimeout = QueryTimeout;
+        return oracle;
     }
 }

@@ -27,6 +27,8 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     internal static Func<DBAClientX.Oracle> OracleFactory { get; set; } = () => new DBAClientX.Oracle();
+    internal static ScriptBlock? QueryOverride { get; set; }
+    internal static ScriptBlock? QueryStreamOverride { get; set; }
 
     /// <summary>Specifies the Oracle server to connect to.</summary>
     [Parameter(Mandatory = true)]
@@ -85,9 +87,6 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override async Task ProcessRecordAsync() {
-        using var oracle = OracleFactory();
-        oracle.ReturnType = ReturnType;
-        oracle.CommandTimeout = QueryTimeout;
         if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle query")) {
             return;
         }
@@ -100,41 +99,13 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
-                var enumerable = oracle.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);
-                switch (ReturnType) {
-                    case ReturnType.DataRow:
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            WriteObject(row);
-                        }
-                        break;
-                    case ReturnType.DataTable:
-                        DataTable? table = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            table ??= row.Table.Clone();
-                            table.ImportRow(row);
-                        }
-                        if (table != null) {
-                            WriteObject(table);
-                        }
-                        break;
-                    case ReturnType.DataSet:
-                        DataTable? dataTable = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            dataTable ??= row.Table.Clone();
-                            dataTable.ImportRow(row);
-                        }
-                        DataSet set = new DataSet();
-                        if (dataTable != null) {
-                            set.Tables.Add(dataTable);
-                        }
-                        WriteObject(set);
-                        break;
-                    default:
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            WriteObject(PSObjectConverter.DataRowToPSObject(row));
-                        }
-                        break;
+                if (QueryStreamOverride is not null) {
+                    WriteRows(PowerShellHelpers.InvokeDataRowOverride(QueryStreamOverride, this, parameters));
+                    return;
                 }
+
+                using var oracle = CreateOracle();
+                await WriteRowsAsync(oracle.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken)).ConfigureAwait(false);
                 return;
             }
 #else
@@ -142,7 +113,13 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                 throw new NotSupportedException("Streaming is not supported on this platform.");
             }
 #endif
-            var result = await oracle.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            object? result;
+            if (QueryOverride is not null) {
+                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters).ConfigureAwait(false);
+            } else {
+                using var oracle = CreateOracle();
+                result = await oracle.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
                     foreach (DataRow row in ((DataTable)result).Rows) {
@@ -159,4 +136,87 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
             }
         }
     }
+
+    private DBAClientX.Oracle CreateOracle() {
+        var oracle = OracleFactory();
+        oracle.ReturnType = ReturnType;
+        oracle.CommandTimeout = QueryTimeout;
+        return oracle;
+    }
+
+    private void WriteRows(IEnumerable<DataRow> rows) {
+        switch (ReturnType) {
+            case ReturnType.DataRow:
+                foreach (var row in rows) {
+                    WriteObject(row);
+                }
+                break;
+            case ReturnType.DataTable:
+                DataTable? table = null;
+                foreach (var row in rows) {
+                    table ??= row.Table.Clone();
+                    table.ImportRow(row);
+                }
+                if (table != null) {
+                    WriteObject(table);
+                }
+                break;
+            case ReturnType.DataSet:
+                DataTable? dataTable = null;
+                foreach (var row in rows) {
+                    dataTable ??= row.Table.Clone();
+                    dataTable.ImportRow(row);
+                }
+                DataSet set = new DataSet();
+                if (dataTable != null) {
+                    set.Tables.Add(dataTable);
+                }
+                WriteObject(set);
+                break;
+            default:
+                foreach (var row in rows) {
+                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                }
+                break;
+        }
+    }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    private async Task WriteRowsAsync(IAsyncEnumerable<DataRow> rows) {
+        switch (ReturnType) {
+            case ReturnType.DataRow:
+                await foreach (var row in rows.ConfigureAwait(false)) {
+                    WriteObject(row);
+                }
+                break;
+            case ReturnType.DataTable:
+                DataTable? table = null;
+                await foreach (var row in rows.ConfigureAwait(false)) {
+                    table ??= row.Table.Clone();
+                    table.ImportRow(row);
+                }
+                if (table != null) {
+                    WriteObject(table);
+                }
+                break;
+            case ReturnType.DataSet:
+                DataTable? dataTable = null;
+                await foreach (var row in rows.ConfigureAwait(false)) {
+                    dataTable ??= row.Table.Clone();
+                    dataTable.ImportRow(row);
+                }
+                DataSet set = new DataSet();
+                if (dataTable != null) {
+                    set.Tables.Add(dataTable);
+                }
+                WriteObject(set);
+                break;
+            default:
+                await foreach (var row in rows.ConfigureAwait(false)) {
+                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
+                }
+                break;
+        }
+    }
+#endif
 }

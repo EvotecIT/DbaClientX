@@ -1,8 +1,21 @@
 ﻿# to speed up development adding direct path to binaries, instead of the the Lib folder
 $Development = $true
-$DevelopmentPath = "$PSScriptRoot\..\DbaClientX.PowerShell\bin\Debug"
-$DevelopmentFolderCore = "net8.0"
-$DevelopmentFolderDefault = "net472"
+$DefaultDevelopmentPath = "$PSScriptRoot\..\DbaClientX.PowerShell\bin\Debug"
+$DevelopmentPath = if ($env:DBACLIENTX_DEVELOPMENT_PATH) {
+    $env:DBACLIENTX_DEVELOPMENT_PATH
+} else {
+    $DefaultDevelopmentPath
+}
+$DevelopmentFolderCore = if ($env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE) {
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE
+} else {
+    "net8.0"
+}
+$DevelopmentFolderDefault = if ($env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT) {
+    $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT
+} else {
+    "net472"
+}
 $BinaryModules = @(
     "DBAClientX.PowerShell.dll"
 )
@@ -72,14 +85,20 @@ $BinaryDev = @(
 )
 
 if ($Development) {
-    $Assembly = Get-ChildItem -Path "$($DevelopmentAssemblyFolder.Path)\*.dll" -ErrorAction SilentlyContinue -File
+    $Assembly = Get-ChildItem -Path "$($DevelopmentAssemblyFolder.Path)\*.dll" -ErrorAction SilentlyContinue -File | Where-Object {
+        $_.Name -notmatch '\.SNI\.'
+    }
 } else {
     $Assembly = @(
         if ($Framework -and $PSEdition -eq 'Core') {
-            Get-ChildItem -Path $PSScriptRoot\Lib\$Framework\*.dll -ErrorAction SilentlyContinue -Recurse
+            Get-ChildItem -Path $PSScriptRoot\Lib\$Framework\*.dll -ErrorAction SilentlyContinue -Recurse | Where-Object {
+                $_.Name -notmatch '\.SNI\.'
+            }
         }
         if ($FrameworkNet -and $PSEdition -ne 'Core') {
-            Get-ChildItem -Path $PSScriptRoot\Lib\$FrameworkNet\*.dll -ErrorAction SilentlyContinue -Recurse
+            Get-ChildItem -Path $PSScriptRoot\Lib\$FrameworkNet\*.dll -ErrorAction SilentlyContinue -Recurse | Where-Object {
+                $_.Name -notmatch '\.SNI\.'
+            }
         }
     )
 }
