@@ -8,12 +8,18 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class PostgreSqlTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.PostgreSql).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.PostgreSql).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionStringField = typeof(DBAClientX.PostgreSql).GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
@@ -120,6 +126,17 @@ public class PostgreSqlTests
     }
 
     [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", DBAClientX.PostgreSql.DefaultMaxParallelQueries * 4).ToArray();
+        using var pg = new DelayPostgreSql(TimeSpan.FromMilliseconds(100));
+
+        await pg.RunQueriesInParallel(queries, "h", "d", "u", "p");
+
+        Assert.InRange(pg.MaxConcurrency, 1, DBAClientX.PostgreSql.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
@@ -142,6 +159,63 @@ public class PostgreSqlTests
         });
     }
 
+    private class OpenFailurePostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(NpgsqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(NpgsqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WhenOpenFails_DisposesConnection()
+    {
+        using var pg = new OpenFailurePostgreSql();
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => pg.ExecuteNonQuery("h", "d", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, pg.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var pg = new OpenFailurePostgreSql();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => pg.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, pg.DisposeCalls);
+    }
+
+    private class SeededTransactionPostgreSql : DBAClientX.PostgreSql
+    {
+        public void SeedActiveTransaction(string connectionString)
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(NpgsqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(NpgsqlConnection)));
+            TransactionConnectionStringField.SetValue(this, connectionString);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WithMismatchedTransactionConnection_Throws()
+    {
+        using var pg = new SeededTransactionPostgreSql();
+        pg.SeedActiveTransaction(DBAClientX.PostgreSql.BuildConnectionString("h1", "d1", "u1", "p1"));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => pg.ExecuteNonQuery("h2", "d2", "u2", "p2", "UPDATE t SET c = 1", useTransaction: true));
+
+        Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
+    }
+
     private class CaptureParametersPostgreSql : DBAClientX.PostgreSql
     {
         public List<(string Name, object? Value, NpgsqlDbType Type)> Captured { get; } = new();
@@ -161,16 +235,7 @@ public class PostgreSqlTests
         public override Task<object?> QueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             var command = new NpgsqlCommand(query);
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new NpgsqlParameter { NpgsqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
@@ -213,12 +278,33 @@ public class PostgreSqlTests
         Assert.Contains(pg.Captured, p => p.Name == "@name" && p.Type == NpgsqlDbType.Text);
     }
 
+    [Fact]
+    public async Task QueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var pg = new CaptureParametersPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@json"] = "{\"a\":1}",
+            ["@ip"] = "127.0.0.1"
+        };
+        var types = new Dictionary<string, NpgsqlDbType>
+        {
+            ["@json"] = NpgsqlDbType.Jsonb,
+            ["@ip"] = NpgsqlDbType.Inet
+        };
+
+        await pg.QueryAsync("h", "d", "u", "p", "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+
+        Assert.Contains(pg.Captured, p => p.Name == "@json" && p.Type == NpgsqlDbType.Jsonb);
+        Assert.Contains(pg.Captured, p => p.Name == "@ip" && p.Type == NpgsqlDbType.Inet);
+    }
+
     private class OutputDictionaryPostgreSql : DBAClientX.PostgreSql
     {
         public override object? Query(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new NpgsqlCommand();
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (NpgsqlParameter p in command.Parameters)
             {
@@ -251,7 +337,7 @@ public class PostgreSqlTests
         {
             using var command = new NpgsqlCommand(procedure);
             command.CommandType = CommandType.StoredProcedure;
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             CapturedCommandType = command.CommandType;
             foreach (NpgsqlParameter p in command.Parameters)
@@ -310,12 +396,30 @@ public class PostgreSqlTests
         Assert.Contains(pg.Captured, p => p.ParameterName == "@id" && p.NpgsqlDbType == NpgsqlDbType.Integer);
     }
 
+    [Fact]
+    public async Task ExecuteStoredProcedureDictionaryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var pg = new CaptureStoredProcPostgreSql();
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@json"] = "{\"a\":1}"
+        };
+        var types = new Dictionary<string, NpgsqlDbType>
+        {
+            ["@json"] = NpgsqlDbType.Jsonb
+        };
+
+        await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(pg.Captured, p => p.ParameterName == "@json" && p.NpgsqlDbType == NpgsqlDbType.Jsonb);
+    }
+
     private class OutputDictionaryStoredProcPostgreSql : DBAClientX.PostgreSql
     {
         public override object? ExecuteStoredProcedure(string host, string database, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new NpgsqlCommand();
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (NpgsqlParameter p in command.Parameters)
             {

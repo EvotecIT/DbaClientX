@@ -26,14 +26,15 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
@@ -63,7 +64,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -85,14 +86,15 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             using var command = connection.CreateCommand();
             command.CommandText = procedure;
             command.CommandType = CommandType.StoredProcedure;
-            command.Transaction = useTransaction ? _transaction : null;
+            command.Transaction = transaction;
             AddParameters(command, parameters);
             var commandTimeout = CommandTimeout;
             if (commandTimeout > 0)
@@ -122,7 +124,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }

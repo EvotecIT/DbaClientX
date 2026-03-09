@@ -43,6 +43,20 @@ public class SqlServerBulkInsertTests
         }
     }
 
+    private class OpenFailureBulkCopySqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(SqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => DisposeCalls++;
+    }
+
     [Fact]
     public void BulkInsert_SetsOptionsAndMappings()
     {
@@ -103,5 +117,31 @@ public class SqlServerBulkInsertTests
         var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", useTransaction: true));
+    }
+
+    [Fact]
+    public void BulkInsert_WhenOpenFails_DisposesConnection()
+    {
+        using var sqlServer = new OpenFailureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, sqlServer.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var sqlServer = new OpenFailureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, sqlServer.DisposeCalls);
     }
 }

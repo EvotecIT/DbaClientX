@@ -24,7 +24,7 @@ public class PostgreSqlNonQueryTests
 
         public override int ExecuteNonQuery(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQuery(null!, null, query, parameters, dbTypes, parameterDirections);
         }
     }
@@ -42,7 +42,7 @@ public class PostgreSqlNonQueryTests
 
         public override Task<int> ExecuteNonQueryAsync(string host, string database, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, NpgsqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new NpgsqlParameter(), static (p, t) => p.NpgsqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             return ExecuteNonQueryAsync(null!, null, query, parameters, cancellationToken, dbTypes, parameterDirections);
         }
     }

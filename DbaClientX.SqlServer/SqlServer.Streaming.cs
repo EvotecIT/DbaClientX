@@ -34,12 +34,13 @@ public partial class SqlServer
             var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
             var dispose = false;
             try
             {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+                (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
                 var dbTypes = ConvertParameterTypes(parameterTypes);
-                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -48,7 +49,7 @@ public partial class SqlServer
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection!);
                 }
             }
         }
@@ -77,12 +78,13 @@ public partial class SqlServer
             var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
             var dispose = false;
             try
             {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+                (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
                 var dbTypes = ConvertParameterTypes(parameterTypes);
-                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -91,7 +93,7 @@ public partial class SqlServer
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection!);
                 }
             }
         }
@@ -118,11 +120,12 @@ public partial class SqlServer
             var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
             SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
             var dispose = false;
             try
             {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-                await foreach (var row in ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -131,7 +134,7 @@ public partial class SqlServer
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection!);
                 }
             }
         }

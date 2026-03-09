@@ -1,10 +1,16 @@
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using Microsoft.Data.SqlClient;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class SqlServerTransactionTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.SqlServer).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.SqlServer).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeSqlConnection
     {
         public bool BeginCalled { get; private set; }
@@ -122,5 +128,65 @@ public class SqlServerTransactionTests
         server.BeginTransaction("s", "db", true, IsolationLevel.Serializable);
         Assert.NotNull(server.Connection);
         Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
+    }
+
+    private class ThrowingCommitSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlConnection)));
+        }
+
+        protected override void CommitDbTransaction(SqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(SqlTransaction? transaction, SqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    private class ThrowingRollbackSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlConnection)));
+        }
+
+        protected override void RollbackDbTransaction(SqlTransaction transaction)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeTransactionResources(SqlTransaction? transaction, SqlConnection? connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void Commit_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var server = new ThrowingCommitSqlServer();
+        server.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => server.Commit());
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(1, server.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => server.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WhenProviderThrows_ClearsTransactionState()
+    {
+        using var server = new ThrowingRollbackSqlServer();
+        server.SeedActiveTransaction();
+
+        Assert.Throws<InvalidOperationException>(() => server.Rollback());
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(1, server.DisposeCalls);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => server.Rollback());
     }
 }

@@ -11,9 +11,16 @@ namespace DBAClientX;
 /// </summary>
 public partial class PostgreSql : DatabaseClientBase
 {
+    /// <summary>
+    /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.
+    /// </summary>
+    public const int DefaultMaxParallelQueries = 8;
+
     private readonly object _syncRoot = new();
     private NpgsqlConnection? _transactionConnection;
     private NpgsqlTransaction? _transaction;
+    private string? _transactionConnectionString;
+    private bool _transactionInitializing;
 
     /// <summary>
     /// Gets a value indicating whether the client currently has an active transaction scope.
@@ -95,4 +102,7 @@ public partial class PostgreSql : DatabaseClientBase
             return false;
         }
     }
+
+    private static string NormalizeConnectionString(string connectionString)
+        => new NpgsqlConnectionStringBuilder(connectionString).ConnectionString;
 }

@@ -8,12 +8,17 @@ using System.Threading.Tasks;
 using System.Threading;
 using System.Data;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace DbaClientX.Tests;
 
 public class SqlServerTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.SqlServer).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.SqlServer).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionStringField = typeof(DBAClientX.SqlServer).GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {
@@ -129,6 +134,17 @@ public class SqlServerTests
     }
 
     [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1", DBAClientX.SqlServer.DefaultMaxParallelQueries * 4).ToArray();
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromMilliseconds(100));
+
+        await sqlServer.RunQueriesInParallel(queries, "s", "db", true);
+
+        Assert.InRange(sqlServer.MaxConcurrency, 1, DBAClientX.SqlServer.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
@@ -170,16 +186,7 @@ public class SqlServerTests
         public override Task<object?> QueryAsync(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             var command = new SqlCommand(query);
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new SqlParameter { SqlDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
@@ -222,12 +229,36 @@ public class SqlServerTests
         Assert.Contains(sqlServer.Captured, p => p.Name == "@name" && p.Type == SqlDbType.NVarChar);
     }
 
+    [Fact]
+    public async Task QueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var sqlServer = new CaptureParametersSqlServer();
+        var tvp = new DataTable();
+        tvp.Columns.Add("Id", typeof(int));
+        tvp.Rows.Add(1);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@items"] = tvp,
+            ["@xml"] = "<root />"
+        };
+        var types = new Dictionary<string, SqlDbType>
+        {
+            ["@items"] = SqlDbType.Structured,
+            ["@xml"] = SqlDbType.Xml
+        };
+
+        await sqlServer.QueryAsync("ignored", "ignored", true, "SELECT 1", parameters, cancellationToken: CancellationToken.None, parameterTypes: types);
+
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@items" && p.Type == SqlDbType.Structured);
+        Assert.Contains(sqlServer.Captured, p => p.Name == "@xml" && p.Type == SqlDbType.Xml);
+    }
+
     private class OutputDictionarySqlServer : DBAClientX.SqlServer
     {
         public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             using var command = new SqlCommand();
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (SqlParameter p in command.Parameters)
             {
@@ -260,7 +291,7 @@ public class SqlServerTests
         {
             using var command = new SqlCommand(procedure);
             command.CommandType = CommandType.StoredProcedure;
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             CapturedCommandType = command.CommandType;
             foreach (SqlParameter p in command.Parameters)
@@ -319,12 +350,33 @@ public class SqlServerTests
         Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@id" && p.SqlDbType == SqlDbType.Int);
     }
 
+    [Fact]
+    public async Task ExecuteStoredProcedureDictionaryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var sqlServer = new CaptureStoredProcSqlServer();
+        var tvp = new DataTable();
+        tvp.Columns.Add("Id", typeof(int));
+        tvp.Rows.Add(1);
+        var parameters = new Dictionary<string, object?>
+        {
+            ["@items"] = tvp
+        };
+        var types = new Dictionary<string, SqlDbType>
+        {
+            ["@items"] = SqlDbType.Structured
+        };
+
+        await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(sqlServer.Captured, p => p.ParameterName == "@items" && p.SqlDbType == SqlDbType.Structured);
+    }
+
     private class OutputDictionaryStoredProcSqlServer : DBAClientX.SqlServer
     {
         public override object? ExecuteStoredProcedure(string serverOrInstance, string database, bool integratedSecurity, string procedure, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null)
         {
             using var command = new SqlCommand();
-            var dbTypes = DbTypeConverter.ConvertParameterTypes(parameterTypes, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (SqlParameter p in command.Parameters)
             {
@@ -468,6 +520,71 @@ public class SqlServerTests
         sqlServer.BeginTransaction("s", "db", true);
         var ex = Record.Exception(() => sqlServer.Query("s", "db", true, "q", null, true));
         Assert.Null(ex);
+    }
+
+    private class OpenFailureSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(SqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WhenOpenFails_DisposesConnection()
+    {
+        using var sqlServer = new OpenFailureSqlServer();
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, sqlServer.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var sqlServer = new OpenFailureSqlServer();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteNonQueryAsync("s", "db", true, "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, sqlServer.DisposeCalls);
+    }
+
+    private class SeededTransactionSqlServer : DBAClientX.SqlServer
+    {
+        public void SeedActiveTransaction(string connectionString)
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlConnection)));
+            TransactionConnectionStringField.SetValue(this, connectionString);
+        }
+
+        protected override void DisposeConnection(SqlConnection connection)
+        {
+        }
+
+        protected override void DisposeDbTransaction(SqlTransaction transaction)
+        {
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WithMismatchedTransactionConnection_Throws()
+    {
+        using var sqlServer = new SeededTransactionSqlServer();
+        sqlServer.SeedActiveTransaction(DBAClientX.SqlServer.BuildConnectionString("s1", "db1", true));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteNonQuery("s2", "db2", true, "UPDATE t SET c = 1", useTransaction: true));
+
+        Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
     }
 
     private class TestClient : DBAClientX.DatabaseClientBase

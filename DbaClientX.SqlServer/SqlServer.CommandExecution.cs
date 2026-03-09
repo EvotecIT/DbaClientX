@@ -25,12 +25,13 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return ExecuteQuery(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -40,7 +41,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -63,12 +64,13 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return ExecuteScalar(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -78,7 +80,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -101,12 +103,13 @@ public partial class SqlServer
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return ExecuteNonQuery(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -116,7 +119,7 @@ public partial class SqlServer
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }

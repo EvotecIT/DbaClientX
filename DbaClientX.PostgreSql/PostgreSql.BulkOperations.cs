@@ -31,43 +31,28 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            OpenConnection(connection);
-            dispose = true;
-        }
 
         try
         {
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             if (batchSize.HasValue && batchSize.Value > 0)
             {
                 var totalRows = table.Rows.Count;
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
-                    for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
-                    {
-                        batchTable.ImportRow(table.Rows[i]);
-                    }
-
-                    WriteTable(connection, batchTable, destinationTable, bulkCopyTimeout, useTransaction ? _transaction : null);
+                    WriteRows(connection, EnumerateRows(table.Rows, offset, batchSize.Value), table.Columns, destinationTable, bulkCopyTimeout, transaction);
                 }
             }
             else
             {
-                WriteTable(connection, table, destinationTable, bulkCopyTimeout, useTransaction ? _transaction : null);
+                WriteTable(connection, table, destinationTable, bulkCopyTimeout, transaction);
             }
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -77,7 +62,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -105,43 +90,28 @@ public partial class PostgreSql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
+        NpgsqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            dispose = true;
-        }
 
         try
         {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             if (batchSize.HasValue && batchSize.Value > 0)
             {
                 var totalRows = table.Rows.Count;
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
-                    for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
-                    {
-                        batchTable.ImportRow(table.Rows[i]);
-                    }
-
-                    await WriteTableAsync(connection, batchTable, destinationTable, bulkCopyTimeout, useTransaction ? _transaction : null, cancellationToken).ConfigureAwait(false);
+                    await WriteRowsAsync(connection, EnumerateRows(table.Rows, offset, batchSize.Value), table.Columns, destinationTable, bulkCopyTimeout, transaction, cancellationToken).ConfigureAwait(false);
                 }
             }
             else
             {
-                await WriteTableAsync(connection, table, destinationTable, bulkCopyTimeout, useTransaction ? _transaction : null, cancellationToken).ConfigureAwait(false);
+                await WriteTableAsync(connection, table, destinationTable, bulkCopyTimeout, transaction, cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -151,7 +121,7 @@ public partial class PostgreSql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -165,19 +135,25 @@ public partial class PostgreSql
     /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation.</param>
     /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
     protected virtual void WriteTable(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
+        => WriteRows(connection, table.Rows.Cast<DataRow>(), table.Columns, destinationTable, bulkCopyTimeout, transaction);
+
+    /// <summary>
+    /// Writes the provided row sequence into <paramref name="destinationTable"/> using PostgreSQL binary COPY.
+    /// </summary>
+    protected virtual void WriteRows(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
     {
-        var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
-        var copyCommand = $"COPY {destinationTable} ({columns}) FROM STDIN (FORMAT BINARY)";
+        var columnList = string.Join(", ", columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
+        var copyCommand = $"COPY {destinationTable} ({columnList}) FROM STDIN (FORMAT BINARY)";
         using var importer = connection.BeginBinaryImport(copyCommand);
         if (bulkCopyTimeout.HasValue)
         {
             importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout.Value);
         }
 
-        foreach (DataRow row in table.Rows)
+        foreach (var row in rows)
         {
             importer.StartRow();
-            foreach (DataColumn column in table.Columns)
+            foreach (DataColumn column in columns)
             {
                 var value = row[column];
                 if (value == null || value == DBNull.Value)
@@ -204,19 +180,25 @@ public partial class PostgreSql
     /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     protected virtual async Task WriteTableAsync(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
+        => await WriteRowsAsync(connection, table.Rows.Cast<DataRow>(), table.Columns, destinationTable, bulkCopyTimeout, transaction, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Asynchronously writes the provided row sequence into <paramref name="destinationTable"/> using PostgreSQL binary COPY.
+    /// </summary>
+    protected virtual async Task WriteRowsAsync(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
     {
-        var columns = string.Join(", ", table.Columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
-        var copyCommand = $"COPY {destinationTable} ({columns}) FROM STDIN (FORMAT BINARY)";
+        var columnList = string.Join(", ", columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
+        var copyCommand = $"COPY {destinationTable} ({columnList}) FROM STDIN (FORMAT BINARY)";
         await using var importer = await connection.BeginBinaryImportAsync(copyCommand, cancellationToken).ConfigureAwait(false);
         if (bulkCopyTimeout.HasValue)
         {
             importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout.Value);
         }
 
-        foreach (DataRow row in table.Rows)
+        foreach (var row in rows)
         {
             await importer.StartRowAsync(cancellationToken).ConfigureAwait(false);
-            foreach (DataColumn column in table.Columns)
+            foreach (DataColumn column in columns)
             {
                 var value = row[column];
                 if (value == null || value == DBNull.Value)
@@ -252,4 +234,18 @@ public partial class PostgreSql
     /// <param name="connection">The connection to open.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     protected virtual Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+    /// <summary>
+    /// Disposes a PostgreSQL connection created for the current operation.
+    /// </summary>
+    protected virtual void DisposeConnection(NpgsqlConnection connection) => connection.Dispose();
+
+    private static IEnumerable<DataRow> EnumerateRows(DataRowCollection rows, int start, int count)
+    {
+        var end = Math.Min(start + count, rows.Count);
+        for (var i = start; i < end; i++)
+        {
+            yield return rows[i];
+        }
+    }
 }

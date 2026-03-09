@@ -6,6 +6,8 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -14,6 +16,10 @@ namespace DbaClientX.Tests;
 
 public class OracleTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.Oracle).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.Oracle).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionStringField = typeof(DBAClientX.Oracle).GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class PingOracle : DBAClientX.Oracle
     {
         public bool ShouldFail { get; set; }
@@ -159,16 +165,7 @@ public class OracleTests
         public override Task<object?> QueryAsync(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, CancellationToken cancellationToken = default, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new OracleCommand(query);
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new OracleParameter { OracleDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             return Task.FromResult<object?>(null);
         }
@@ -202,21 +199,33 @@ public class OracleTests
         Assert.Contains(oracle.Captured, p => p.Name == ":id" && p.Type == OracleDbType.Int32);
     }
 
+    [Fact]
+    public async Task QueryAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var oracle = new CaptureParametersOracle();
+        var parameters = new Dictionary<string, object?>
+        {
+            [":name"] = "test",
+            [":bytes"] = new byte[] { 1, 2, 3 }
+        };
+        var types = new Dictionary<string, OracleDbType>
+        {
+            [":name"] = OracleDbType.NVarchar2,
+            [":bytes"] = OracleDbType.Raw
+        };
+
+        await oracle.QueryAsync("h", "svc", "u", "p", "SELECT 1 FROM dual", parameters, parameterTypes: types);
+
+        Assert.Contains(oracle.Captured, p => p.Name == ":name" && p.Type == OracleDbType.NVarchar2);
+        Assert.Contains(oracle.Captured, p => p.Name == ":bytes" && p.Type == OracleDbType.Raw);
+    }
+
     private class FakeOutputOracle : DBAClientX.Oracle
     {
         public override object? Query(string host, string serviceName, string username, string password, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, OracleDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             using var command = new OracleCommand(query);
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new OracleParameter { OracleDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             foreach (OracleParameter p in command.Parameters)
             {
@@ -252,16 +261,7 @@ public class OracleTests
         {
             using var command = new OracleCommand(procedure);
             command.CommandType = CommandType.StoredProcedure;
-            IDictionary<string, DbType>? dbTypes = null;
-            if (parameterTypes != null)
-            {
-                dbTypes = new Dictionary<string, DbType>(parameterTypes.Count);
-                foreach (var kv in parameterTypes)
-                {
-                    var p = new OracleParameter { OracleDbType = kv.Value };
-                    dbTypes[kv.Key] = p.DbType;
-                }
-            }
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
             CapturedCommandType = command.CommandType;
             foreach (OracleParameter p in command.Parameters)
@@ -312,6 +312,18 @@ public class OracleTests
         await oracle.ExecuteStoredProcedureAsync("h", "svc", "u", "p", "sp_test", parameters, parameterTypes: types);
 
         Assert.Contains(oracle.Captured, p => p.ParameterName == ":id" && p.OracleDbType == OracleDbType.Int32);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_PreservesProviderSpecificParameterTypes()
+    {
+        using var oracle = new CaptureStoredProcOracle();
+        var parameters = new Dictionary<string, object?> { [":name"] = "test" };
+        var types = new Dictionary<string, OracleDbType> { [":name"] = OracleDbType.NVarchar2 };
+
+        await oracle.ExecuteStoredProcedureAsync("h", "svc", "u", "p", "sp_test", parameters, parameterTypes: types);
+
+        Assert.Contains(oracle.Captured, p => p.ParameterName == ":name" && p.OracleDbType == OracleDbType.NVarchar2);
     }
 
     private class OutputStoredProcOracle : DBAClientX.Oracle
@@ -393,10 +405,101 @@ public class OracleTests
         sequential.Stop();
 
         var parallel = Stopwatch.StartNew();
-        await Task.WhenAll(queries.Select(q => oracle.QueryAsync("h", "svc", "u", "p", q)));
+        await oracle.RunQueriesInParallel(queries, "h", "svc", "u", "p");
         parallel.Stop();
 
         Assert.True(parallel.Elapsed < sequential.Elapsed);
         Assert.True(oracle.MaxConcurrency > 1);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_RespectsMaxDegreeOfParallelism()
+    {
+        var queries = Enumerable.Repeat("SELECT 1 FROM dual", 3).ToArray();
+        using var oracle = new DelayOracle(TimeSpan.FromMilliseconds(200));
+
+        await oracle.RunQueriesInParallel(queries, "h", "svc", "u", "p", maxDegreeOfParallelism: 1);
+
+        Assert.Equal(1, oracle.MaxConcurrency);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_UsesDefaultThrottling()
+    {
+        var queries = Enumerable.Repeat("SELECT 1 FROM dual", DBAClientX.Oracle.DefaultMaxParallelQueries * 4).ToArray();
+        using var oracle = new DelayOracle(TimeSpan.FromMilliseconds(100));
+
+        await oracle.RunQueriesInParallel(queries, "h", "svc", "u", "p");
+
+        Assert.InRange(oracle.MaxConcurrency, 1, DBAClientX.Oracle.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_ForwardsCancellation()
+    {
+        using var oracle = new DelayOracle(TimeSpan.FromSeconds(5));
+        var queries = new[] { "q1", "q2" };
+        using var cts = new CancellationTokenSource(100);
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+        {
+            await oracle.RunQueriesInParallel(queries, "h", "svc", "u", "p", cts.Token);
+        });
+    }
+
+    private class OpenFailureOracle : DBAClientX.Oracle
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(OracleConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WhenOpenFails_DisposesConnection()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteNonQuery("h", "svc", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, oracle.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteNonQueryAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteNonQueryAsync("h", "svc", "u", "p", "UPDATE t SET c = 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, oracle.DisposeCalls);
+    }
+
+    private class SeededTransactionOracle : DBAClientX.Oracle
+    {
+        public void SeedActiveTransaction(string connectionString)
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleConnection)));
+            TransactionConnectionStringField.SetValue(this, connectionString);
+        }
+    }
+
+    [Fact]
+    public void ExecuteNonQuery_WithMismatchedTransactionConnection_Throws()
+    {
+        using var oracle = new SeededTransactionOracle();
+        oracle.SeedActiveTransaction(DBAClientX.Oracle.BuildConnectionString("h1", "svc1", "u1", "p1"));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteNonQuery("h2", "svc2", "u2", "p2", "UPDATE t SET c = 1", useTransaction: true));
+
+        Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
     }
 }

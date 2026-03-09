@@ -32,26 +32,11 @@ public partial class Oracle
         {
             var connectionString = BuildConnectionString(host, serviceName, username, password);
 
-            OracleConnection? connection = null;
-            var dispose = false;
-            if (useTransaction)
-            {
-                if (_transaction == null || _transactionConnection == null)
-                {
-                    throw new DbaTransactionException("Transaction has not been started.");
-                }
-
-                connection = _transactionConnection;
-            }
-            else
-            {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            }
-
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             try
             {
-                await foreach (var row in ExecuteQueryStreamAsync(connection!, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -60,7 +45,7 @@ public partial class Oracle
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection);
                 }
             }
         }
@@ -87,26 +72,11 @@ public partial class Oracle
         {
             var connectionString = BuildConnectionString(host, serviceName, username, password);
 
-            OracleConnection? connection = null;
-            var dispose = false;
-            if (useTransaction)
-            {
-                if (_transaction == null || _transactionConnection == null)
-                {
-                    throw new DbaTransactionException("Transaction has not been started.");
-                }
-
-                connection = _transactionConnection;
-            }
-            else
-            {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            }
-
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             try
             {
-                await foreach (var row in ExecuteQueryStreamAsync(connection!, useTransaction ? _transaction : null, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -115,7 +85,7 @@ public partial class Oracle
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection);
                 }
             }
         }
@@ -140,25 +110,10 @@ public partial class Oracle
         {
             var connectionString = BuildConnectionString(host, serviceName, username, password);
 
-            OracleConnection? connection = null;
-            var dispose = false;
-            if (useTransaction)
-            {
-                if (_transaction == null || _transactionConnection == null)
-                {
-                    throw new DbaTransactionException("Transaction has not been started.");
-                }
-
-                connection = _transactionConnection;
-            }
-            else
-            {
-                (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            }
-
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             try
             {
-                await foreach (var row in ExecuteQueryStreamAsync(connection!, useTransaction ? _transaction : null, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
                 {
                     yield return row;
                 }
@@ -167,7 +122,7 @@ public partial class Oracle
             {
                 if (dispose)
                 {
-                    connection?.Dispose();
+                    DisposeConnection(connection);
                 }
             }
         }

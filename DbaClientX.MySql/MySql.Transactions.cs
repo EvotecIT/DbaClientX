@@ -21,7 +21,7 @@ public partial class MySql
     {
         lock (_syncRoot)
         {
-            if (_transaction != null)
+            if (_transaction != null || _transactionInitializing)
             {
                 throw new DbaTransactionException("Transaction already started.");
             }
@@ -31,18 +31,18 @@ public partial class MySql
             MySqlTransaction? transaction = null;
             try
             {
-                connection = new MySqlConnection(connectionString);
-                connection.Open();
-                transaction = connection.BeginTransaction(isolationLevel);
+                connection = CreateConnection(connectionString);
+                OpenConnection(connection);
+                transaction = BeginDbTransaction(connection, isolationLevel);
                 _transactionConnection = connection;
                 _transaction = transaction;
+                _transactionConnectionString = NormalizeConnectionString(connectionString);
                 connection = null;
                 transaction = null;
             }
             finally
             {
-                transaction?.Dispose();
-                connection?.Dispose();
+                DisposeTransactionResources(transaction, connection);
             }
         }
     }
@@ -58,35 +58,54 @@ public partial class MySql
     /// </summary>
     public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
     {
+        MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
+        try
+        {
         lock (_syncRoot)
         {
-            if (_transaction != null)
+            if (_transaction != null || _transactionInitializing)
             {
                 throw new DbaTransactionException("Transaction already started.");
             }
+
+            _transactionInitializing = true;
         }
 
         var connectionString = BuildConnectionString(host, database, username, password);
 
-        var connection = new MySqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        var transaction = await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
-#else
-        var transaction = connection.BeginTransaction(isolationLevel);
-#endif
+        connection = CreateConnection(connectionString);
+        await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+        transaction = await BeginDbTransactionAsync(connection, isolationLevel, cancellationToken).ConfigureAwait(false);
 
         lock (_syncRoot)
         {
             if (_transaction != null)
             {
-                transaction.Dispose();
-                connection.Dispose();
+                _transactionInitializing = false;
                 throw new DbaTransactionException("Transaction already started.");
             }
 
             _transactionConnection = connection;
             _transaction = transaction;
+            _transactionConnectionString = NormalizeConnectionString(connectionString);
+            _transactionInitializing = false;
+            connection = null;
+            transaction = null;
+        }
+        }
+        catch
+        {
+            lock (_syncRoot)
+            {
+                if (_transaction == null)
+                {
+                    _transactionInitializing = false;
+                }
+            }
+
+            DisposeTransactionResources(transaction, connection);
+            throw;
         }
     }
 
@@ -95,6 +114,8 @@ public partial class MySql
     /// </summary>
     public virtual void Commit()
     {
+        MySqlTransaction? tx;
+        MySqlConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -102,8 +123,21 @@ public partial class MySql
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Commit();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            CommitDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -125,16 +159,17 @@ public partial class MySql
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
         {
-            await tx!.CommitAsync(cancellationToken).ConfigureAwait(false);
+            await CommitDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -143,6 +178,8 @@ public partial class MySql
     /// </summary>
     public virtual void Rollback()
     {
+        MySqlTransaction? tx;
+        MySqlConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -150,8 +187,21 @@ public partial class MySql
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Rollback();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            RollbackDbTransaction(tx!);
+        }
+        finally
+        {
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -173,16 +223,17 @@ public partial class MySql
             conn = _transactionConnection;
             _transaction = null;
             _transactionConnection = null;
+            _transactionConnectionString = null;
+            _transactionInitializing = false;
         }
 
         try
         {
-            await tx!.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            await RollbackDbTransactionAsync(tx!, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -196,10 +247,93 @@ public partial class MySql
 
     private void DisposeTransactionLocked()
     {
-        _transaction?.Dispose();
+        if (_transaction != null)
+        {
+            DisposeDbTransaction(_transaction);
+        }
         _transaction = null;
-        _transactionConnection?.Dispose();
+        if (_transactionConnection != null)
+        {
+            DisposeConnection(_transactionConnection);
+        }
         _transactionConnection = null;
+        _transactionConnectionString = null;
+        _transactionInitializing = false;
+    }
+
+    /// <summary>
+    /// Begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual MySqlTransaction BeginDbTransaction(MySqlConnection connection, IsolationLevel isolationLevel) => connection.BeginTransaction(isolationLevel);
+
+    /// <summary>
+    /// Asynchronously begins a provider transaction on the supplied open connection.
+    /// </summary>
+    protected virtual async Task<MySqlTransaction> BeginDbTransactionAsync(MySqlConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return (MySqlTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        return connection.BeginTransaction(isolationLevel);
+#endif
+    }
+
+    /// <summary>
+    /// Commits the supplied provider transaction.
+    /// </summary>
+    protected virtual void CommitDbTransaction(MySqlTransaction transaction) => transaction.Commit();
+
+    /// <summary>
+    /// Asynchronously commits the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task CommitDbTransactionAsync(MySqlTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Commit();
+#endif
+    }
+
+    /// <summary>
+    /// Rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual void RollbackDbTransaction(MySqlTransaction transaction) => transaction.Rollback();
+
+    /// <summary>
+    /// Asynchronously rolls back the supplied provider transaction.
+    /// </summary>
+    protected virtual async Task RollbackDbTransactionAsync(MySqlTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+#else
+        await Task.Yield();
+        transaction.Rollback();
+#endif
+    }
+
+    /// <summary>
+    /// Disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual void DisposeDbTransaction(MySqlTransaction transaction) => transaction.Dispose();
+
+    /// <summary>
+    /// Disposes transaction resources created for the current operation.
+    /// </summary>
+    protected virtual void DisposeTransactionResources(MySqlTransaction? transaction, MySqlConnection? connection)
+    {
+        if (transaction != null)
+        {
+            DisposeDbTransaction(transaction);
+        }
+
+        if (connection != null)
+        {
+            DisposeConnection(connection);
+        }
     }
 
     /// <inheritdoc />

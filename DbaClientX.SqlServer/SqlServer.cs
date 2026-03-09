@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -18,9 +19,16 @@ namespace DBAClientX;
 /// </remarks>
 public partial class SqlServer : DatabaseClientBase
 {
+    /// <summary>
+    /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.
+    /// </summary>
+    public const int DefaultMaxParallelQueries = 8;
+
     private readonly object _syncRoot = new();
     private SqlConnection? _transactionConnection;
     private SqlTransaction? _transaction;
+    private string? _transactionConnectionString;
+    private bool _transactionInitializing;
 
     /// <summary>
     /// Gets a value indicating whether a transaction scope is currently active for the client.
@@ -139,45 +147,170 @@ public partial class SqlServer : DatabaseClientBase
         }
     }
 
-    private SqlConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose)
+    private sealed class SqlServerParameterTypeMap : Dictionary<string, DbType>
+    {
+        public SqlServerParameterTypeMap(IDictionary<string, SqlDbType> providerTypes)
+            : base(providerTypes.Count, StringComparer.Ordinal)
+        {
+            ProviderTypes = new Dictionary<string, SqlDbType>(providerTypes, StringComparer.Ordinal);
+            foreach (var pair in providerTypes)
+            {
+                var parameter = new SqlParameter { SqlDbType = pair.Value };
+                this[pair.Key] = parameter.DbType;
+            }
+        }
+
+        public IReadOnlyDictionary<string, SqlDbType> ProviderTypes { get; }
+    }
+
+    private (SqlConnection Connection, SqlTransaction? Transaction, bool Dispose) ResolveConnection(string connectionString, bool useTransaction)
     {
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
 
-            dispose = false;
-            return _transactionConnection;
+                var normalizedConnectionString = NormalizeConnectionString(connectionString);
+                if (_transactionConnectionString != null && !string.Equals(_transactionConnectionString, normalizedConnectionString, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DbaTransactionException("The requested connection details do not match the active transaction.");
+                }
+
+                return (_transactionConnection, _transaction, false);
+            }
         }
 
-        var connection = new SqlConnection(connectionString);
-        connection.Open();
-        dispose = true;
-        return connection;
+        var connection = CreateConnection(connectionString);
+        try
+        {
+            OpenConnection(connection);
+            return (connection, null, true);
+        }
+        catch
+        {
+            DisposeConnection(connection);
+            throw;
+        }
     }
 
-    private async Task<(SqlConnection Connection, bool Dispose)> ResolveConnectionAsync(
+    private async Task<(SqlConnection Connection, SqlTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(
         string connectionString,
         bool useTransaction,
         CancellationToken cancellationToken)
     {
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
 
-            return (_transactionConnection, false);
+                var normalizedConnectionString = NormalizeConnectionString(connectionString);
+                if (_transactionConnectionString != null && !string.Equals(_transactionConnectionString, normalizedConnectionString, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DbaTransactionException("The requested connection details do not match the active transaction.");
+                }
+
+                return (_transactionConnection, _transaction, false);
+            }
         }
 
-        var connection = new SqlConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return (connection, true);
+        var connection = CreateConnection(connectionString);
+        try
+        {
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            return (connection, null, true);
+        }
+        catch
+        {
+            DisposeConnection(connection);
+            throw;
+        }
     }
 
-    private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types) =>
-        DbTypeConverter.ConvertParameterTypes(types, static () => new SqlParameter(), static (p, t) => p.SqlDbType = t);
+    /// <inheritdoc />
+    protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        if (command is not SqlCommand sqlCommand || parameterTypes is not SqlServerParameterTypeMap sqlTypes)
+        {
+            base.AddParameters(command, parameters, parameterTypes, parameterDirections);
+            return;
+        }
+
+        if (parameters == null)
+        {
+            return;
+        }
+
+        foreach (var pair in parameters)
+        {
+            var value = pair.Value ?? DBNull.Value;
+            var parameter = new SqlParameter
+            {
+                ParameterName = pair.Key,
+                Value = value
+            };
+
+            if (sqlTypes.ProviderTypes.TryGetValue(pair.Key, out var providerType))
+            {
+                parameter.SqlDbType = providerType;
+            }
+            else if (parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            {
+                parameter.DbType = explicitType;
+            }
+            else
+            {
+                parameter.DbType = InferParameterDbType(value);
+            }
+
+            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            {
+                parameter.Direction = direction;
+            }
+
+            sqlCommand.Parameters.Add(parameter);
+        }
+    }
+
+    internal static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqlDbType>? types)
+        => types == null ? null : new SqlServerParameterTypeMap(types);
+
+    private static DbType InferParameterDbType(object? value)
+    {
+        if (value == null || value == DBNull.Value) return DbType.Object;
+        if (value is Guid) return DbType.Guid;
+        if (value is byte[]) return DbType.Binary;
+        if (value is TimeSpan) return DbType.Time;
+        if (value is DateTimeOffset) return DbType.DateTimeOffset;
+
+        return Type.GetTypeCode(value.GetType()) switch
+        {
+            TypeCode.Byte => DbType.Byte,
+            TypeCode.SByte => DbType.SByte,
+            TypeCode.Int16 => DbType.Int16,
+            TypeCode.Int32 => DbType.Int32,
+            TypeCode.Int64 => DbType.Int64,
+            TypeCode.UInt16 => DbType.UInt16,
+            TypeCode.UInt32 => DbType.UInt32,
+            TypeCode.UInt64 => DbType.UInt64,
+            TypeCode.Decimal => DbType.Decimal,
+            TypeCode.Double => DbType.Double,
+            TypeCode.Single => DbType.Single,
+            TypeCode.Boolean => DbType.Boolean,
+            TypeCode.String => DbType.String,
+            TypeCode.Char => DbType.StringFixedLength,
+            TypeCode.DateTime => DbType.DateTime,
+            _ => DbType.Object
+        };
+    }
+
+    private static string NormalizeConnectionString(string connectionString)
+        => new SqlConnectionStringBuilder(connectionString).ConnectionString;
 }

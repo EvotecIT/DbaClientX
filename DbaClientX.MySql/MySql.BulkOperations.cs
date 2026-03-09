@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,26 +31,13 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            OpenConnection(connection);
-            dispose = true;
-        }
 
         try
         {
-            var bulkCopy = CreateBulkCopy(connection!, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
+            var bulkCopy = CreateBulkCopy(connection!, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (bulkCopyTimeout.HasValue)
             {
@@ -66,19 +54,17 @@ public partial class MySql
                 var totalRows = table.Rows.Count;
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
-                    for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
-                    {
-                        batchTable.ImportRow(table.Rows[i]);
-                    }
-
-                    WriteToServer(bulkCopy, batchTable);
+                    WriteToServer(bulkCopy, EnumerateRows(table.Rows, offset, batchSize.Value), table.Columns.Count);
                 }
             }
             else
             {
                 WriteToServer(bulkCopy, table);
             }
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -88,7 +74,7 @@ public partial class MySql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -116,26 +102,13 @@ public partial class MySql
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
         var dispose = false;
-        if (useTransaction)
-        {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
-        }
-        else
-        {
-            connection = CreateConnection(connectionString);
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            dispose = true;
-        }
 
         try
         {
-            var bulkCopy = CreateBulkCopy(connection!, useTransaction ? _transaction : null);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            var bulkCopy = CreateBulkCopy(connection!, transaction);
             bulkCopy.DestinationTableName = destinationTable;
             if (bulkCopyTimeout.HasValue)
             {
@@ -152,19 +125,17 @@ public partial class MySql
                 var totalRows = table.Rows.Count;
                 for (var offset = 0; offset < totalRows; offset += batchSize.Value)
                 {
-                    var batchTable = table.Clone();
-                    for (var i = offset; i < Math.Min(offset + batchSize.Value, totalRows); i++)
-                    {
-                        batchTable.ImportRow(table.Rows[i]);
-                    }
-
-                    await WriteToServerAsync(bulkCopy, batchTable, cancellationToken).ConfigureAwait(false);
+                    await WriteToServerAsync(bulkCopy, EnumerateRows(table.Rows, offset, batchSize.Value), table.Columns.Count, cancellationToken).ConfigureAwait(false);
                 }
             }
             else
             {
                 await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -174,7 +145,7 @@ public partial class MySql
         {
             if (dispose)
             {
-                connection?.Dispose();
+                DisposeConnection(connection!);
             }
         }
     }
@@ -195,6 +166,16 @@ public partial class MySql
     protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken).AsTask();
 
     /// <summary>
+    /// Writes a row sequence to the server using the provided bulk copy instance.
+    /// </summary>
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount) => bulkCopy.WriteToServer(rows, columnCount);
+
+    /// <summary>
+    /// Asynchronously writes a row sequence to the server using the provided bulk copy instance.
+    /// </summary>
+    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).AsTask();
+
+    /// <summary>
     /// Creates a new <see cref="MySqlConnection"/> for the supplied connection string.
     /// </summary>
     protected virtual MySqlConnection CreateConnection(string connectionString) => new(connectionString);
@@ -208,4 +189,18 @@ public partial class MySql
     /// Opens a MySQL connection asynchronously.
     /// </summary>
     protected virtual Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+
+    /// <summary>
+    /// Disposes a MySQL connection created for the current operation.
+    /// </summary>
+    protected virtual void DisposeConnection(MySqlConnection connection) => connection.Dispose();
+
+    private static IEnumerable<DataRow> EnumerateRows(DataRowCollection rows, int start, int count)
+    {
+        var end = Math.Min(start + count, rows.Count);
+        for (var i = start; i < end; i++)
+        {
+            yield return rows[i];
+        }
+    }
 }

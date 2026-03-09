@@ -11,17 +11,18 @@ namespace DBAClientX.MySqlGeneric;
 /// </summary>
 public static class GenericExecutors
 {
+    internal static Func<DBAClientX.MySql> ClientFactory { get; set; } = static () => new DBAClientX.MySql();
+
     /// <summary>Executes a parameterized SQL statement.</summary>
     /// <param name="connectionString">MySqlConnector connection string.</param>
     /// <param name="sql">SQL text to execute.</param>
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
-        var b = new MySqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.MySql();
-        return cli.ExecuteNonQueryAsync(b.Server, b.Database, b.UserID, b.Password, sql, parameters, cancellationToken: ct);
+        using var cli = ClientFactory();
+        return await cli.ExecuteNonQueryAsync(connectionString, sql, parameters, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>Executes a stored procedure.</summary>
@@ -32,9 +33,8 @@ public static class GenericExecutors
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
-        var b = new MySqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.MySql();
-        await cli.ExecuteStoredProcedureAsync(b.Server, b.Database, b.UserID, b.Password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
+        using var cli = ClientFactory();
+        await cli.ExecuteStoredProcedureAsync(connectionString, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
     }
 }

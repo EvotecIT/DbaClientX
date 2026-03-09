@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MySqlConnector;
@@ -15,6 +16,7 @@ public class MySqlBulkInsertTests
         public string? Destination { get; private set; }
         public List<(int Ordinal, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
+        public bool UsedRowEnumeration { get; private set; }
 
         protected override MySqlConnection CreateConnection(string connectionString) => new();
 
@@ -41,6 +43,38 @@ public class MySqlBulkInsertTests
             WriteToServer(bulkCopy, table);
             return Task.CompletedTask;
         }
+
+        protected override void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount)
+        {
+            UsedRowEnumeration = true;
+            Timeout = bulkCopy.BulkCopyTimeout;
+            Destination = bulkCopy.DestinationTableName;
+            foreach (MySqlBulkCopyColumnMapping mapping in bulkCopy.ColumnMappings)
+            {
+                Mappings.Add((mapping.SourceOrdinal, mapping.DestinationColumn));
+            }
+            BatchRowCounts.Add(rows.Count());
+        }
+
+        protected override Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken)
+        {
+            WriteToServer(bulkCopy, rows, columnCount);
+            return Task.CompletedTask;
+        }
+    }
+
+    private class OpenFailureBulkMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(MySqlConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => DisposeCalls++;
     }
 
     [Fact]
@@ -60,6 +94,7 @@ public class MySqlBulkInsertTests
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);
+        Assert.True(mySql.UsedRowEnumeration);
     }
 
     [Fact]
@@ -79,6 +114,7 @@ public class MySqlBulkInsertTests
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);
+        Assert.True(mySql.UsedRowEnumeration);
     }
 
     [Fact]
@@ -97,6 +133,7 @@ public class MySqlBulkInsertTests
         Assert.Equal("Dest", mySql.Destination);
         Assert.Equal(table.Columns.Count, mySql.Mappings.Count);
         Assert.Equal(new[] { 2 }, mySql.BatchRowCounts);
+        Assert.False(mySql.UsedRowEnumeration);
     }
 
     [Fact]
@@ -106,5 +143,31 @@ public class MySqlBulkInsertTests
         var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.BulkInsert("h", "db", "u", "p", table, "Dest", useTransaction: true));
+    }
+
+    [Fact]
+    public void BulkInsert_WhenOpenFails_DisposesConnection()
+    {
+        using var mySql = new OpenFailureBulkMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => mySql.BulkInsert("h", "db", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, mySql.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var mySql = new OpenFailureBulkMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.BulkInsertAsync("h", "db", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, mySql.DisposeCalls);
     }
 }

@@ -61,6 +61,20 @@ public class OracleBulkInsertTests
         }
     }
 
+    private class OpenFailureBulkOracle : DBAClientX.Oracle
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(OracleConnection connection)
+            => throw new InvalidOperationException("boom");
+
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => DisposeCalls++;
+    }
+
     [Fact]
     public void BulkInsert_SetsOptionsAndMappings()
     {
@@ -142,5 +156,31 @@ public class OracleBulkInsertTests
         var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => oracle.BulkInsert("h", "svc", "u", "p", table, "Dest", useTransaction: true));
+    }
+
+    [Fact]
+    public void BulkInsert_WhenOpenFails_DisposesConnection()
+    {
+        using var oracle = new OpenFailureBulkOracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => oracle.BulkInsert("h", "svc", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, oracle.DisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenOpenFails_DisposesConnection()
+    {
+        using var oracle = new OpenFailureBulkOracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.BulkInsertAsync("h", "svc", "u", "p", table, "Dest"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(1, oracle.DisposeCalls);
     }
 }
