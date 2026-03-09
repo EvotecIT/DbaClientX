@@ -80,7 +80,10 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
             if (NonQueryOverride is not null)
             {
-                var result = PowerShellHelpers.InvokeOverrideAsync<object?>(NonQueryOverride, this, parameters).GetAwaiter().GetResult();
+                var result = PowerShellHelpers.InvokeOverrideAsync<object?>(NonQueryOverride, this, parameters)
+                    .ConfigureAwait(false)
+                    .GetAwaiter()
+                    .GetResult();
                 if (result != null)
                 {
                     WriteObject(result);

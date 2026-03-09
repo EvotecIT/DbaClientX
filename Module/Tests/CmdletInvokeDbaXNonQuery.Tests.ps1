@@ -26,6 +26,7 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         })
         try {
             Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
+            $script:lastNonQueryCall | Should -Not -BeNullOrEmpty
             $script:lastNonQueryCall.Integrated | Should -BeFalse
             $script:lastNonQueryCall.User | Should -Be 'u'
             $script:lastNonQueryCall.Pass | Should -Be 'p'
@@ -50,6 +51,7 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         })
         try {
             Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -QueryTimeout 7 -Parameters @{ A = 1 } | Out-Null
+            $script:lastNonQueryOptions | Should -Not -BeNullOrEmpty
             $script:lastNonQueryOptions.Timeout | Should -Be 7
             $script:lastNonQueryOptions.ParameterValue | Should -Be 1
         } finally {
