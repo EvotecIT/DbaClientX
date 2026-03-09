@@ -111,6 +111,8 @@ public static class DbaConnectionFactory
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingProvider, "Provider alias is required.");
         }
 
+        providerAlias = providerAlias.Trim();
+
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingConnectionString, "Connection string is required.");

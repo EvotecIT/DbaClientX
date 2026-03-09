@@ -112,4 +112,13 @@ public class DbaConnectionFactoryTests
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
         Assert.True(result.IsValid);
     }
+
+    [Fact]
+    public void Validate_ProviderAlias_IsTrimmed()
+    {
+        var result = DbaConnectionFactory.Validate("  sqlserver  ", "Server=.;Database=app;");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
 }

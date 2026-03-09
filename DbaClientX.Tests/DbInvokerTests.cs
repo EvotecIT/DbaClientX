@@ -99,6 +99,28 @@ namespace DbaClientX.Tests
         }
 
         [Fact]
+        public async Task ExecuteSqlAsync_WithInvalidConnectionDetails_DoesNotInvokeExecutor()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;",
+                    "UPDATE t SET Name = @Name WHERE Id = @Id",
+                    new object[] { new { Id = 1, Name = "Alice" } },
+                    new Dictionary<string, string>
+                    {
+                        ["Id"] = "@Id",
+                        ["Name"] = "@Name"
+                    },
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly));
+
+            Assert.Contains("Missing: Database", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Empty(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
+        }
+
+        [Fact]
         public async Task ExecuteProcedureAsync_ParsesOracleConnectionString_ForSevenArgumentExecutors()
         {
             DBAClientX.OracleGeneric.GenericExecutors.Reset();
@@ -161,6 +183,35 @@ namespace DbaClientX.Tests
             var result = method.Invoke(null, new object?[] { dynamicType!.Assembly, "DBAClientX.SqlServerGeneric.GenericExecutors", "ExecuteSqlAsync" });
 
             Assert.Null(result);
+        }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_WhenExecutorReturnsNullTask_Throws()
+        {
+            var asmName = new AssemblyName("DynamicDbInvokerNullTaskTests");
+            var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+            var moduleBuilder = assemblyBuilder.DefineDynamicModule("main");
+            var typeBuilder = moduleBuilder.DefineType("DBAClientX.SqlServerGeneric.GenericExecutors", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            var methodBuilder = typeBuilder.DefineMethod("ExecuteSqlAsync", MethodAttributes.Public | MethodAttributes.Static, typeof(Task<int>), new[] { typeof(string), typeof(string), typeof(IDictionary<string, object?>), typeof(CancellationToken) });
+            var il = methodBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+            var dynamicType = typeBuilder.CreateType();
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Name = @Name WHERE Id = @Id",
+                    new object[] { new { Id = 1, Name = "Alice" } },
+                    new Dictionary<string, string>
+                    {
+                        ["Id"] = "@Id",
+                        ["Name"] = "@Name"
+                    },
+                    providerAssembly: dynamicType!.Assembly));
+
+            Assert.Contains("returned null", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

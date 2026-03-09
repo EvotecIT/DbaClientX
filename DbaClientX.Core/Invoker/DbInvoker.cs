@@ -60,6 +60,7 @@ public static class DbInvoker
         if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("sql is required", nameof(sql));
         if (items is null) throw new ArgumentNullException(nameof(items));
         if (map is null) throw new ArgumentNullException(nameof(map));
+        ValidateConnection(providerAlias, connectionString);
         var exec = ResolveExecutor(providerAlias, providerAssembly, methodName: "ExecuteSqlAsync");
         if (exec is null)
         {
@@ -152,6 +153,7 @@ public static class DbInvoker
         if (string.IsNullOrWhiteSpace(procedure)) throw new ArgumentException("procedure is required", nameof(procedure));
         if (items is null) throw new ArgumentNullException(nameof(items));
         if (map is null) throw new ArgumentNullException(nameof(map));
+        ValidateConnection(providerAlias, connectionString);
         var exec = ResolveExecutor(providerAlias, providerAssembly, methodName: "ExecuteProcedureAsync");
         if (exec is null)
         {
@@ -336,18 +338,33 @@ public static class DbInvoker
             throw new InvalidOperationException($"ExecuteSqlAsync signature not recognized: {exec}");
         }
 
+        if (resultTask is null)
+        {
+            throw new InvalidOperationException($"Executor '{exec.DeclaringType?.FullName}.{exec.Name}' returned null instead of a task.");
+        }
+
         if (resultTask is Task<int> t) return t;
         if (resultTask is Task task)
         {
             return AwaitAndZero(task);
         }
-        return Task.FromResult(0);
+
+        throw new InvalidOperationException($"Executor '{exec.DeclaringType?.FullName}.{exec.Name}' returned '{resultTask.GetType().FullName}' instead of a task.");
     }
 
     private static async Task<int> AwaitAndZero(Task t)
     {
         await t.ConfigureAwait(false);
         return 0;
+    }
+
+    private static void ValidateConnection(string providerAlias, string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate(providerAlias, connectionString);
+        if (!validationResult.IsValid)
+        {
+            throw new InvalidOperationException(DbaConnectionFactory.ToUserMessage(validationResult));
+        }
     }
 
     private static Dictionary<string, string> ParseConnectionString(string cs)
