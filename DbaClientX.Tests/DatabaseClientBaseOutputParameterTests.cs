@@ -238,4 +238,19 @@ public class DatabaseClientBaseOutputParameterTests
         Assert.IsType<DataRow>(result);
         Assert.Equal(5, parameters["@out"]);
     }
+
+    [Fact]
+    public void ExecuteQuery_UpdatesExistingOutputParameterKey_CaseInsensitively()
+    {
+        using var client = new TestClient { ReturnType = ReturnType.DataTable };
+        using var connection = new FakeConnection();
+        var parameters = new Dictionary<string, object?> { ["@Out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@OUT"] = ParameterDirection.Output };
+
+        client.RunQuery(connection, parameters, directions);
+
+        Assert.Single(parameters);
+        Assert.True(parameters.ContainsKey("@Out"));
+        Assert.Equal(5, parameters["@Out"]);
+    }
 }

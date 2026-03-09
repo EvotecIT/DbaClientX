@@ -53,15 +53,22 @@ public static class DbParameterMapper
             var logical = kv.Key;       // e.g. "UserName" or "User.Name"
             var providerParam = kv.Value; // e.g. "@UserName"
 
-            if (ambient != null && ambient.TryGetValue(logical, out var ambientVal))
+            if (item != null && DbPropertyAccessor.TryGetValue(item, logical, out var value))
             {
-                result[providerParam] = ConvertValue(ambientVal, options);
+                var convertedValue = ConvertValue(value, options);
+                if (convertedValue is not null || !TryGetAmbientValue(ambient, logical, out var fallbackAmbientValue))
+                {
+                    result[providerParam] = convertedValue;
+                    continue;
+                }
+
+                result[providerParam] = ConvertValue(fallbackAmbientValue, options);
                 continue;
             }
 
-            if (item != null && DbPropertyAccessor.TryGetValue(item, logical, out var value))
+            if (TryGetAmbientValue(ambient, logical, out var ambientVal))
             {
-                result[providerParam] = ConvertValue(value, options);
+                result[providerParam] = ConvertValue(ambientVal, options);
                 continue;
             }
 
@@ -70,6 +77,31 @@ public static class DbParameterMapper
         }
 
         return result;
+    }
+
+    private static bool TryGetAmbientValue(IReadOnlyDictionary<string, object?>? ambient, string logical, out object? value)
+    {
+        value = null;
+        if (ambient is null)
+        {
+            return false;
+        }
+
+        if (ambient.TryGetValue(logical, out value))
+        {
+            return true;
+        }
+
+        foreach (var pair in ambient)
+        {
+            if (string.Equals(pair.Key, logical, StringComparison.OrdinalIgnoreCase))
+            {
+                value = pair.Value;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static object? ConvertValue(object? value, DbParameterMapperOptions options)

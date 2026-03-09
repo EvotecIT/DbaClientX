@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using DBAClientX.Mapping;
 
 namespace DbaClientX.Tests;
@@ -47,5 +48,35 @@ public class DbPropertyAccessorTests
 
         Assert.False(found);
         Assert.Null(value);
+    }
+
+    [Fact]
+    public void TryGetValue_IsCaseInsensitive_ForGenericStringDictionary()
+    {
+        var item = new Dictionary<string, object?>
+        {
+            ["user"] = new Dictionary<string, object?> { ["name"] = "Alice" }
+        };
+
+        var found = DbPropertyAccessor.TryGetValue(item, "User.Name", out var value);
+
+        Assert.True(found);
+        Assert.Equal("Alice", value);
+    }
+
+    [Fact]
+    public void TryGetValue_SupportsReadOnlyStringDictionary()
+    {
+        IReadOnlyDictionary<string, object?> item = new ReadOnlyDictionary<string, object?>(
+            new Dictionary<string, object?>
+            {
+                ["metadata"] = new ReadOnlyDictionary<string, object?>(
+                    new Dictionary<string, object?> { ["runid"] = 42 })
+            });
+
+        var found = DbPropertyAccessor.TryGetValue(item, "Metadata.RunId", out var value);
+
+        Assert.True(found);
+        Assert.Equal(42, value);
     }
 }

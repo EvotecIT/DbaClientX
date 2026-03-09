@@ -198,7 +198,7 @@ public abstract class DatabaseClientBase : IDisposable
             var parameter = command.CreateParameter();
             parameter.ParameterName = pair.Key;
             parameter.Value = value;
-            if (parameterTypes != null && parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
             }
@@ -206,7 +206,7 @@ public abstract class DatabaseClientBase : IDisposable
             {
                 parameter.DbType = InferDbType(value);
             }
-            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
             }
@@ -229,7 +229,8 @@ public abstract class DatabaseClientBase : IDisposable
         {
             if (p.Direction != ParameterDirection.Input)
             {
-                parameters[p.ParameterName] = p.Value == DBNull.Value ? null : p.Value;
+                var targetKey = FindExistingKey(parameters, p.ParameterName) ?? p.ParameterName;
+                parameters[targetKey] = p.Value == DBNull.Value ? null : p.Value;
             }
         }
     }
@@ -278,6 +279,50 @@ public abstract class DatabaseClientBase : IDisposable
             TypeCode.DateTime => DbType.DateTime,
             _ => DbType.Object
         };
+    }
+
+    private static bool TryGetDictionaryValue<TValue>(IDictionary<string, TValue>? dictionary, string key, out TValue value)
+    {
+        value = default!;
+        if (dictionary == null)
+        {
+            return false;
+        }
+
+        if (dictionary.TryGetValue(key, out var foundValue))
+        {
+            value = foundValue;
+            return true;
+        }
+
+        foreach (var pair in dictionary)
+        {
+            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                value = pair.Value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? FindExistingKey(IDictionary<string, object?> dictionary, string key)
+    {
+        if (dictionary.ContainsKey(key))
+        {
+            return key;
+        }
+
+        foreach (var pair in dictionary)
+        {
+            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Key;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -705,4 +750,3 @@ public abstract class DatabaseClientBase : IDisposable
         _disposed = true;
     }
 }
-
