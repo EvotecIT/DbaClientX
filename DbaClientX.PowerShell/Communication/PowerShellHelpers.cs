@@ -113,16 +113,16 @@ internal sealed class InMemoryDbParameter : DbParameter
     public override DbType DbType { get; set; } = DbType.Object;
     public override ParameterDirection Direction { get; set; } = ParameterDirection.Input;
     public override bool IsNullable { get; set; }
-    [System.Diagnostics.CodeAnalysis.AllowNull]
+#pragma warning disable CS8765
     public override string ParameterName {
         get => _parameterName;
         set => _parameterName = value ?? string.Empty;
     }
-    [System.Diagnostics.CodeAnalysis.AllowNull]
     public override string SourceColumn {
         get => _sourceColumn;
         set => _sourceColumn = value ?? string.Empty;
     }
+#pragma warning restore CS8765
     public override object? Value { get; set; }
     public override bool SourceColumnNullMapping { get; set; }
     public override int Size { get; set; }
