@@ -1,6 +1,10 @@
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 describe 'Invoke-DbaXQuery cmdlet' {
+    BeforeAll {
+        . "$PSScriptRoot/TestAssemblyHelpers.ps1"
+    }
+
     it 'is exported' {
         Get-Command Invoke-DbaXQuery | Should -Not -BeNullOrEmpty
     }
@@ -36,6 +40,7 @@ describe 'Invoke-DbaXQuery cmdlet' {
 
     it 'passes credentials to provider when supplied' {
         $code = @"
+#nullable enable
 using System.Collections.Generic;
 using System.Data;
 
@@ -45,7 +50,7 @@ public class TestSqlServer : DBAClientX.SqlServer {
     public string User;
     public string Pass;
     public TestSqlServer() { Last = this; }
-    public override object Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object> parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType> parameterTypes = null, string username = null, string password = null) {
+    public override object? Query(string serverOrInstance, string database, bool integratedSecurity, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqlDbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null, string? username = null, string? password = null) {
         this.Integrated = integratedSecurity;
         this.User = username;
         this.Pass = password;
@@ -53,14 +58,9 @@ public class TestSqlServer : DBAClientX.SqlServer {
     }
 }
 "@
-        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll'
-        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll',
-                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
-                  [System.Data.DataTable].Assembly.Location,
-                  [object].Assembly.Location,
-                  [System.Runtime.GCSettings].Assembly.Location)
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
         try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
         } catch {
             Set-ItResult -Skipped -Because $_.Exception.Message
             return
@@ -80,6 +80,7 @@ public class TestSqlServer : DBAClientX.SqlServer {
     }
     it 'streams rows asynchronously' {
         $code = @"
+#nullable enable
 using System.Collections.Generic;
 using System.Data;
 using System.Runtime.CompilerServices;
@@ -90,9 +91,11 @@ public class TestSqlServerStream : DBAClientX.SqlServer
 {
     public override async IAsyncEnumerable<DataRow> QueryStreamAsync(
         string serverOrInstance, string database, bool integratedSecurity, string query,
-        IDictionary<string, object> parameters = null, bool useTransaction = false,
+        IDictionary<string, object?>? parameters = null, bool useTransaction = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default,
-        IDictionary<string, System.Data.SqlDbType> parameterTypes = null, string username = null, string password = null)
+        IDictionary<string, System.Data.SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        string? username = null, string? password = null)
     {
         var table = new DataTable();
         table.Columns.Add("id", typeof(int));
@@ -110,14 +113,9 @@ public class TestSqlServerStream : DBAClientX.SqlServer
     }
 }
 "@
-        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll'
-        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll',
-                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
-                  [System.Data.DataTable].Assembly.Location,
-                  [object].Assembly.Location,
-                  [System.Runtime.GCSettings].Assembly.Location)
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
         try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
         } catch {
             Set-ItResult -Skipped -Because $_.Exception.Message
             return
@@ -138,6 +136,7 @@ public class TestSqlServerStream : DBAClientX.SqlServer
 
     it 'streams stored procedure rows asynchronously' {
         $code = @"
+#nullable enable
 using System.Collections.Generic;
 using System.Data;
 using System.Runtime.CompilerServices;
@@ -169,14 +168,9 @@ public class TestSqlServerStoredProcStream : DBAClientX.SqlServer
     }
 }
 "@
-        $assemblyDir = Split-Path '/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll'
-        $refs = @('/workspace/DbaClientX/DbaClientX.PowerShell/bin/Debug/net8.0/DbaClientX.SqlServer.dll',
-                  (Join-Path $assemblyDir 'DbaClientX.Core.dll'),
-                  [System.Data.DataTable].Assembly.Location,
-                  [object].Assembly.Location,
-                  [System.Runtime.GCSettings].Assembly.Location)
+        $refs = Get-TestAssemblyReferences -ProviderType ([DBAClientX.SqlServer])
         try {
-            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions '/langversion:latest'
+            Add-Type -TypeDefinition $code -ReferencedAssemblies $refs -CompilerOptions @('/langversion:latest', '/nullable:enable') -IgnoreWarnings
         } catch {
             Set-ItResult -Skipped -Because $_.Exception.Message
             return
