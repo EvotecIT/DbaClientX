@@ -59,7 +59,7 @@ public static class DbPropertyAccessor
                 current = null;
                 continue;
             }
-            if (ImplementsGenericDictionary(current))
+            if (HasStringDictionaryInterface(current))
             {
                 props[i] = null;
                 current = null;
@@ -205,52 +205,118 @@ public static class DbPropertyAccessor
     private static bool TryGetFromGenericDictionary(object obj, string key, out object? value)
     {
         value = null;
-        var t = obj.GetType();
-        foreach (var i in t.GetInterfaces())
+        var dictionaryType = FindStringDictionaryInterface(obj.GetType());
+        if (dictionaryType is null)
         {
-            if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))
-            {
-                var args = i.GetGenericArguments();
-                if (args[0] == typeof(string))
-                {
-                    var containsKey = i.GetMethod("ContainsKey");
-                    var tryGetValue = i.GetMethod("TryGetValue");
-                    if (containsKey != null)
-                    {
-                        var found = containsKey.Invoke(obj, new object?[] { key });
-                        if (found is bool b && b)
-                        {
-                            var indexer = i.GetProperty("Item");
-                            value = indexer?.GetValue(obj, new object?[] { key });
-                            return true;
-                        }
-                    }
-                    if (tryGetValue != null)
-                    {
-                        var parameters = new object?[] { key, null };
-                        var ok = (bool)tryGetValue.Invoke(obj, parameters)!;
-                        if (ok)
-                        {
-                            value = parameters[1];
-                            return true;
-                        }
-                    }
-                }
-            }
+            return false;
         }
-        return false;
+
+        if (TryGetFromTypedStringDictionary(obj, dictionaryType, key, out value))
+        {
+            return true;
+        }
+
+        return TryGetFromStringDictionaryEnumeration(obj, dictionaryType, key, out value);
     }
 
-    private static bool ImplementsGenericDictionary(Type? type)
+    private static bool HasStringDictionaryInterface(Type? type)
+        => FindStringDictionaryInterface(type) is not null;
+
+    private static Type? FindStringDictionaryInterface(Type? type)
     {
-        if (type is null) return false;
+        if (type is null) return null;
+
+        if (type.IsGenericType)
+        {
+            var genericDefinition = type.GetGenericTypeDefinition();
+            if ((genericDefinition == typeof(IDictionary<,>) || genericDefinition == typeof(IReadOnlyDictionary<,>))
+                && type.GetGenericArguments()[0] == typeof(string))
+            {
+                return type;
+            }
+        }
+
         foreach (var i in type.GetInterfaces())
         {
-            if (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))
+            if (!i.IsGenericType)
             {
+                continue;
+            }
+
+            var genericDefinition = i.GetGenericTypeDefinition();
+            if ((genericDefinition == typeof(IDictionary<,>) || genericDefinition == typeof(IReadOnlyDictionary<,>))
+                && i.GetGenericArguments()[0] == typeof(string))
+            {
+                return i;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryGetFromTypedStringDictionary(object obj, Type dictionaryType, string key, out object? value)
+    {
+        value = null;
+
+        var containsKey = dictionaryType.GetMethod("ContainsKey");
+        if (containsKey != null)
+        {
+            var found = containsKey.Invoke(obj, new object?[] { key });
+            if (found is bool b && b)
+            {
+                var indexer = dictionaryType.GetProperty("Item");
+                value = indexer?.GetValue(obj, new object?[] { key });
                 return true;
             }
         }
+
+        var tryGetValue = dictionaryType.GetMethod("TryGetValue");
+        if (tryGetValue != null)
+        {
+            var parameters = new object?[] { key, null };
+            var ok = (bool)tryGetValue.Invoke(obj, parameters)!;
+            if (ok)
+            {
+                value = parameters[1];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetFromStringDictionaryEnumeration(object obj, Type dictionaryType, string key, out object? value)
+    {
+        value = null;
+        if (obj is not IEnumerable enumerable)
+        {
+            return false;
+        }
+
+        var valueType = dictionaryType.GetGenericArguments()[1];
+        var expectedPairType = typeof(KeyValuePair<,>).MakeGenericType(typeof(string), valueType);
+        var keyProperty = expectedPairType.GetProperty(nameof(KeyValuePair<string, object>.Key));
+        var valueProperty = expectedPairType.GetProperty(nameof(KeyValuePair<string, object>.Value));
+        if (keyProperty is null || valueProperty is null)
+        {
+            return false;
+        }
+
+        foreach (var entry in enumerable)
+        {
+            if (entry is null || !expectedPairType.IsInstanceOfType(entry))
+            {
+                continue;
+            }
+
+            var entryKey = keyProperty.GetValue(entry) as string;
+            if (string.Equals(entryKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                value = valueProperty.GetValue(entry);
+                return true;
+            }
+        }
+
         return false;
     }
 

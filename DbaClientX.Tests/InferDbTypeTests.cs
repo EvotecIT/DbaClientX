@@ -13,6 +13,13 @@ public class InferDbTypeTests
     {
         public void InvokeAddParameters(DbCommand command, IDictionary<string, object?> parameters)
             => base.AddParameters(command, parameters, null);
+
+        public void InvokeAddParameters(
+            DbCommand command,
+            IDictionary<string, object?> parameters,
+            IDictionary<string, DbType>? parameterTypes,
+            IDictionary<string, ParameterDirection>? parameterDirections)
+            => base.AddParameters(command, parameters, parameterTypes, parameterDirections);
     }
 
     [Fact]
@@ -37,6 +44,22 @@ public class InferDbTypeTests
         var parameter = Assert.IsType<SqlParameter>(Assert.Single(command.Parameters));
         Assert.Equal(DbType.Binary, parameter.DbType);
         Assert.Equal(bytes, parameter.Value);
+    }
+
+    [Fact]
+    public void AddParameters_MatchesExplicitTypeAndDirection_CaseInsensitively()
+    {
+        using var client = new TestClient();
+        using var command = new SqlCommand();
+        var parameters = new Dictionary<string, object?> { ["@Id"] = 7 };
+        var types = new Dictionary<string, DbType> { ["@id"] = DbType.Int64 };
+        var directions = new Dictionary<string, ParameterDirection> { ["@ID"] = ParameterDirection.InputOutput };
+
+        client.InvokeAddParameters(command, parameters, types, directions);
+
+        var parameter = Assert.IsType<SqlParameter>(Assert.Single(command.Parameters));
+        Assert.Equal(DbType.Int64, parameter.DbType);
+        Assert.Equal(ParameterDirection.InputOutput, parameter.Direction);
     }
 
     public static IEnumerable<object[]> InferDbTypeData => new[]
