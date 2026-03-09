@@ -357,9 +357,9 @@ public static class DbInvoker
         => dict.TryGetValue(NormalizeConnectionStringKey(key), out var v) ? v : null;
 
     private static string NormalizeConnectionStringKey(string key)
-        => key.Replace(" ", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace("-", string.Empty, StringComparison.Ordinal)
+        => key.Replace(" ", string.Empty)
+            .Replace("_", string.Empty)
+            .Replace("-", string.Empty)
             .Trim()
             .ToLowerInvariant();
 
@@ -374,7 +374,7 @@ public static class DbInvoker
         var slash = value.LastIndexOf('/');
         if (slash > 0 && slash < value.Length - 1)
         {
-            return (value[..slash], value[(slash + 1)..]);
+            return (value.Substring(0, slash), value.Substring(slash + 1));
         }
 
         return (value, value);
