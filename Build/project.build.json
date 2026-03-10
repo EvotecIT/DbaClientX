@@ -3,12 +3,12 @@
   "RootPath": "..",
   "ExpectedVersion": null,
   "ExpectedVersionMap": {
-    "DbaClientX.Core": "0.2.X",
-    "DbaClientX.SqlServer": "0.1.X",
-    "DbaClientX.PostgreSql": "0.1.X",
-    "DbaClientX.MySql": "0.1.X",
-    "DbaClientX.SQLite": "0.1.X",
-    "DbaClientX.Oracle": "0.1.X"
+    "DbaClientX.Core": "0.X.0",
+    "DbaClientX.SqlServer": "0.X.0",
+    "DbaClientX.PostgreSql": "0.X.0",
+    "DbaClientX.MySql": "0.X.0",
+    "DbaClientX.SQLite": "0.X.0",
+    "DbaClientX.Oracle": "0.X.0"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,
