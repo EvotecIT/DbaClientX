@@ -34,4 +34,25 @@
     <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <ProjectReference Include="..\ReleaseOpsStudio.Domain\ReleaseOpsStudio.Domain.csproj" />
+    <ProjectReference Include="..\ReleaseOpsStudio.Orchestrator\ReleaseOpsStudio.Orchestrator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
+    <Compile Remove="ReleaseOpsStudioQueueRunnerTests.cs" />
+    <Compile Remove="ReleaseOpsStudioBuildCheckpointReaderTests.cs" />
+    <Compile Remove="ReleaseOpsStudioVerificationExecutionServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioSmokeHarnessTests.cs" />
+    <Compile Remove="ReleaseOpsStudioPSPublishModuleLocatorTests.cs" />
+    <Compile Remove="ReleaseOpsStudioRepositoryDetailServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioGitHubInboxServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioRepositoryReleaseDriftServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioStateDatabaseTests.cs" />
+    <Compile Remove="ReleaseOpsStudioRepositoryPortfolioFocusServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioRepositoryReleaseInboxServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioRepositoryWorkspaceFamilyServiceTests.cs" />
+    <Compile Remove="ReleaseOpsStudioQueuePlannerTests.cs" />
+  </ItemGroup>
+
 </Project>
