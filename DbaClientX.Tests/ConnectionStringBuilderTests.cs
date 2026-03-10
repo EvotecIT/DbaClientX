@@ -55,6 +55,7 @@ public class ConnectionStringBuilderTests
         var cs = DBAClientX.SQLite.BuildConnectionString("data.db");
         var builder = new SqliteConnectionStringBuilder(cs);
         Assert.Equal("data.db", builder.DataSource);
+        Assert.False(builder.Pooling);
     }
 
     [Fact]
@@ -72,6 +73,7 @@ public class ConnectionStringBuilderTests
         var builder = new SqliteConnectionStringBuilder(cs);
         Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
         Assert.Equal(5, builder.DefaultTimeout);
+        Assert.False(builder.Pooling);
     }
 
     [Fact]

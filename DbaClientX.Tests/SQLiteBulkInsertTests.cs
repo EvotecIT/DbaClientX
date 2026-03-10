@@ -1,7 +1,6 @@
 using System.Data;
 using System.IO;
 using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -72,6 +71,27 @@ public class SQLiteBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_QuotesDestinationTableName()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE \"Order Details\"(Id INTEGER, Name TEXT);");
+
+            var table = CreateTable(2);
+            sqlite.BulkInsert(path, table, "Order Details");
+
+            var count = sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM \"Order Details\";");
+            Assert.Equal(2L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void BulkInsert_WithTransactionNotStarted_Throws()
     {
         using var sqlite = new DBAClientX.SQLite();
@@ -95,7 +115,6 @@ public class SQLiteBulkInsertTests
 
     private static void Cleanup(string path)
     {
-        SqliteConnection.ClearAllPools();
         if (File.Exists(path))
         {
             File.Delete(path);

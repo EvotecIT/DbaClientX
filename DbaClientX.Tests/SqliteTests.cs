@@ -196,6 +196,31 @@ public class SqliteTests
         Assert.False(sqlite.IsInTransaction);
     }
 
+    [Fact]
+    public void DisposedClient_AllowsDeletingAndRecreatingDatabaseFile()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using (var sqlite = new DBAClientX.SQLite())
+            {
+                sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+            }
+
+            File.Delete(path);
+            Assert.False(File.Exists(path));
+
+            using var sqlite2 = new DBAClientX.SQLite();
+            sqlite2.ExecuteNonQuery(path, "CREATE TABLE recreated(id INTEGER);");
+            var count = sqlite2.ExecuteScalar(path, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'recreated';");
+            Assert.Equal(1L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     private class PingSqlite : DBAClientX.SQLite
     {
         public bool ShouldFail { get; set; }
@@ -355,6 +380,34 @@ public class SqliteTests
     }
 
     [Fact]
+    public void Commit_WhenUnderlyingProviderThrows_ClearsTransactionState()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        sqlite.BeginTransaction(":memory:");
+
+        var connection = GetTransactionConnection(sqlite);
+        connection.Dispose();
+
+        Assert.ThrowsAny<Exception>(() => sqlite.Commit());
+        Assert.False(sqlite.IsInTransaction);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.Commit());
+    }
+
+    [Fact]
+    public void Rollback_WhenUnderlyingProviderThrows_ClearsTransactionState()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        sqlite.BeginTransaction(":memory:");
+
+        var connection = GetTransactionConnection(sqlite);
+        connection.Dispose();
+
+        Assert.ThrowsAny<Exception>(() => sqlite.Rollback());
+        Assert.False(sqlite.IsInTransaction);
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.Rollback());
+    }
+
+    [Fact]
     public async Task QueryAsync_CanBeCancelled()
     {
         using var sqlite = new DelaySqlite(TimeSpan.FromSeconds(5));
@@ -367,7 +420,6 @@ public class SqliteTests
 
     private static void Cleanup(string path)
     {
-        SqliteConnection.ClearAllPools();
         if (File.Exists(path))
         {
             File.Delete(path);

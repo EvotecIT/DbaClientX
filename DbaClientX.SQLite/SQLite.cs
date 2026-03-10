@@ -62,11 +62,11 @@ public partial class SQLite : DatabaseClientBase
     /// Builds a connection string suitable for <see cref="SqliteConnection"/> instances using a database file path.
     /// </summary>
     /// <param name="database">Absolute or relative path of the SQLite database file.</param>
-    /// <returns>A pooled connection string that targets <paramref name="database"/>.</returns>
+    /// <returns>A connection string that targets <paramref name="database"/>.</returns>
     /// <remarks>
-    /// SQLite supports connection pooling for file-backed databases. Enabling pooling minimizes the overhead of
-    /// opening new connections when executing multiple commands in rapid succession. Adjust pooling-related
-    /// attributes on the returned connection string if a particular workload requires more granular control.
+    /// Pooling is disabled by default so short-lived file workflows and <c>:memory:</c> databases do not outlive
+    /// the logical connection boundary. Callers that need pooling can still append it explicitly to the returned
+    /// connection string.
     /// </remarks>
     public static string BuildConnectionString(string database)
         => BuildConnectionString(database, readOnly: false, busyTimeoutMs: null);
@@ -77,13 +77,13 @@ public partial class SQLite : DatabaseClientBase
     /// <param name="database">Absolute or relative path of the SQLite database file.</param>
     /// <param name="readOnly">When true, opens the connection in read-only mode.</param>
     /// <param name="busyTimeoutMs">Optional busy timeout applied via the connection string (milliseconds).</param>
-    /// <returns>A pooled connection string that targets <paramref name="database"/>.</returns>
+    /// <returns>A connection string that targets <paramref name="database"/>.</returns>
     public static string BuildConnectionString(string database, bool readOnly, int? busyTimeoutMs)
     {
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = database,
-            Pooling = true
+            Pooling = false
         };
 
         if (readOnly)
@@ -104,7 +104,7 @@ public partial class SQLite : DatabaseClientBase
     /// </summary>
     /// <param name="database">Absolute or relative path of the SQLite database file.</param>
     /// <param name="busyTimeoutMs">Optional busy timeout applied via the connection string (milliseconds).</param>
-    /// <returns>A pooled read-only connection string.</returns>
+    /// <returns>A read-only connection string.</returns>
     public static string BuildReadOnlyConnectionString(string database, int? busyTimeoutMs = null)
         => BuildConnectionString(database, readOnly: true, busyTimeoutMs: busyTimeoutMs);
 

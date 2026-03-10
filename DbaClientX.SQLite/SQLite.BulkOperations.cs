@@ -279,7 +279,7 @@ public partial class SQLite
         var columnNames = new string[columns.Length];
         for (var i = 0; i < columns.Length; i++)
         {
-            columnNames[i] = $"\"{columns[i].ColumnName}\"";
+            columnNames[i] = QuoteIdentifier(columns[i].ColumnName);
         }
 
         var values = new string[rowsPerBatch];
@@ -294,7 +294,7 @@ public partial class SQLite
             values[rowIndex] = $"({string.Join(", ", parameterNames)})";
         }
 
-        return $"INSERT INTO {destinationTable} ({string.Join(", ", columnNames)}) VALUES {string.Join(", ", values)};";
+        return $"INSERT INTO {QuoteIdentifierPath(destinationTable)} ({string.Join(", ", columnNames)}) VALUES {string.Join(", ", values)};";
     }
 
     private static SqliteCommand CreatePreparedBulkInsertCommand(SqliteConnection connection, SqliteTransaction? transaction, string destinationTable, DataColumn[] columns, int rowsPerBatch, int commandTimeout)
@@ -320,6 +320,37 @@ public partial class SQLite
     }
 
     private static string GetParameterName(int rowIndex, int colIndex) => $"@p{rowIndex}_{colIndex}";
+
+    private static string QuoteIdentifier(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifier));
+        }
+
+        return "\"" + identifier.Replace("\"", "\"\"") + "\"";
+    }
+
+    private static string QuoteIdentifierPath(string identifierPath)
+    {
+        if (string.IsNullOrWhiteSpace(identifierPath))
+        {
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
+        }
+
+        var parts = identifierPath.Split('.');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(parts[i]))
+            {
+                throw new ArgumentException("Identifier cannot contain empty segments.", nameof(identifierPath));
+            }
+
+            parts[i] = QuoteIdentifier(parts[i].Trim());
+        }
+
+        return string.Join(".", parts);
+    }
 
     private static void ApplyBatchValues(SqliteCommand command, DataColumn[] columns, DataTable table, int offset, int rowsPerBatch)
     {

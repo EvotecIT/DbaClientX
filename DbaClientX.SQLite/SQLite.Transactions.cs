@@ -122,6 +122,8 @@ public partial class SQLite
     /// </summary>
     public virtual void Commit()
     {
+        SqliteTransaction? tx;
+        SqliteConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -129,8 +131,21 @@ public partial class SQLite
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Commit();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            tx!.Commit();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
         }
     }
 
@@ -175,6 +190,8 @@ public partial class SQLite
     /// </summary>
     public virtual void Rollback()
     {
+        SqliteTransaction? tx;
+        SqliteConnection? conn;
         lock (_syncRoot)
         {
             if (_transaction == null)
@@ -182,8 +199,21 @@ public partial class SQLite
                 throw new DbaTransactionException("No active transaction.");
             }
 
-            _transaction.Rollback();
-            DisposeTransactionLocked();
+            tx = _transaction;
+            conn = _transactionConnection;
+            _transaction = null;
+            _transactionConnection = null;
+            _transactionInitializing = false;
+        }
+
+        try
+        {
+            tx!.Rollback();
+        }
+        finally
+        {
+            tx!.Dispose();
+            conn?.Dispose();
         }
     }
 
