@@ -40,11 +40,10 @@ pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Plan $true
 pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Build $true -PublishNuget $false -PublishGitHub $false
 ```
 
-3. Publish packages only when explicitly intended:
+3. Publish NuGet and GitHub together in one versioned run:
 
 ```powershell
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -PublishNuget $true
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -PublishGitHub $true
+pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -PublishNuget $true -PublishGitHub $true
 ```
 
 Build configuration lives in `Build/project.build.json` and artifacts are generated under `Artefacts/ProjectBuild`.
@@ -54,4 +53,5 @@ Build configuration lives in `Build/project.build.json` and artifacts are genera
 - The solution enables nullable reference types and .NET analyzers via `Directory.Build.props`.
 - SourceLink is enabled for all projects for better debugging into packages.
 - SQL Server provider uses `Microsoft.Data.SqlClient`.
+- The release wrapper now treats version updates as part of publishing. If you intentionally need a replay-only publish for already-versioned artifacts, pass `-UpdateVersions $false` explicitly.
 

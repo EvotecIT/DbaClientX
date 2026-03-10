@@ -10,8 +10,21 @@ param(
 
 Import-Module PSPublishModule -Force -ErrorAction Stop
 
+$publishingNuget = $PublishNuget -eq $true
+$publishingGitHub = $PublishGitHub -eq $true
+$publishingAny = $publishingNuget -or $publishingGitHub
+$publishingSingleDestination = $publishingNuget -xor $publishingGitHub
+$updateVersionsExplicitlyDisabled = $null -ne $UpdateVersions -and $UpdateVersions -eq $false
+
+if ($publishingSingleDestination -and -not $updateVersionsExplicitlyDisabled) {
+    throw "Publishing only one destination while version updates are enabled can split NuGet and GitHub across different versions. Run one command with both -PublishNuget `$true and -PublishGitHub `$true, or explicitly use -UpdateVersions `$false only when replaying an already-versioned build."
+}
+
 $invokeParams = @{
     ConfigPath = $ConfigPath
+}
+if ($publishingAny -and $null -eq $UpdateVersions) {
+    $invokeParams.UpdateVersions = $true
 }
 if ($null -ne $UpdateVersions) { $invokeParams.UpdateVersions = $UpdateVersions }
 if ($null -ne $Build) { $invokeParams.Build = $Build }
