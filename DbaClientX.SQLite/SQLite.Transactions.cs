@@ -46,7 +46,35 @@ public partial class SQLite
     /// Starts a new transaction using the provider default isolation semantics.
     /// </summary>
     public virtual void BeginTransaction(string database, IsolationLevel isolationLevel)
-        => BeginTransaction(database);
+    {
+        lock (_syncRoot)
+        {
+            if (_transaction != null)
+            {
+                throw new DbaTransactionException("Transaction already started.");
+            }
+
+            var connectionString = BuildOperationalConnectionString(database);
+            SqliteConnection? connection = null;
+            SqliteTransaction? transaction = null;
+            try
+            {
+                connection = new SqliteConnection(connectionString);
+                connection.Open();
+                ApplyBusyTimeout(connection);
+                transaction = connection.BeginTransaction(isolationLevel);
+                _transactionConnection = connection;
+                _transaction = transaction;
+                connection = null;
+                transaction = null;
+            }
+            finally
+            {
+                transaction?.Dispose();
+                connection?.Dispose();
+            }
+        }
+    }
 
     /// <summary>
     /// Asynchronously starts a new transaction using a dedicated <see cref="SqliteConnection"/> targeting the provided database.
@@ -115,7 +143,7 @@ public partial class SQLite
     /// Asynchronously starts a new transaction using the provider default isolation semantics.
     /// </summary>
     public virtual Task BeginTransactionAsync(string database, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
-        => BeginTransactionAsync(database, cancellationToken);
+        => BeginTransactionAsyncCore(database, isolationLevel, cancellationToken);
 
     /// <summary>
     /// Commits the currently active transaction.
@@ -284,5 +312,65 @@ public partial class SQLite
         }
 
         base.Dispose(disposing);
+    }
+
+    private async Task BeginTransactionAsyncCore(string database, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+    {
+        SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
+        try
+        {
+            lock (_syncRoot)
+            {
+                if (_transaction != null || _transactionInitializing)
+                {
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionInitializing = true;
+            }
+
+            var connectionString = BuildOperationalConnectionString(database);
+
+            connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            transaction = (SqliteTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
+#else
+            transaction = connection.BeginTransaction(isolationLevel);
+#endif
+
+            lock (_syncRoot)
+            {
+                if (_transaction != null)
+                {
+                    transaction.Dispose();
+                    connection.Dispose();
+                    _transactionInitializing = false;
+                    throw new DbaTransactionException("Transaction already started.");
+                }
+
+                _transactionConnection = connection;
+                _transaction = transaction;
+                _transactionInitializing = false;
+                connection = null;
+                transaction = null;
+            }
+        }
+        catch
+        {
+            lock (_syncRoot)
+            {
+                if (_transaction == null)
+                {
+                    _transactionInitializing = false;
+                }
+            }
+
+            transaction?.Dispose();
+            connection?.Dispose();
+            throw;
+        }
     }
 }

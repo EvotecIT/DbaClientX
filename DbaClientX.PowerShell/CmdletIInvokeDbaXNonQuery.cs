@@ -60,6 +60,11 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
     public string Password { get; set; } = string.Empty;
 
+    /// <summary>Optional SQL authentication credential.</summary>
+    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    [Credential]
+    public PSCredential? Credential { get; set; }
+
     private ActionPreference ErrorAction;
 
     /// <summary>
@@ -91,15 +96,15 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
                 return;
             }
 
-            var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
-            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
+            var (resolvedUsername, resolvedPassword, integratedSecurity) = PowerShellHelpers.ResolveSqlServerCredential(Username, Password, Credential);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, resolvedUsername, resolvedPassword);
             if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
             {
                 return;
             }
 
             using var sqlServer = CreateSqlServer();
-            var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
+            var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: resolvedUsername, password: resolvedPassword);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {ex.Message}");

@@ -49,13 +49,23 @@ public partial class PostgreSql : DatabaseClientBase
     /// </remarks>
     public static string BuildConnectionString(string host, string database, string username, string password, int? port = null, bool? ssl = null)
     {
+        ValidateRequiredConnectionValue(host, nameof(host), "Host");
+        ValidateRequiredConnectionValue(database, nameof(database), "Database");
+        ValidateRequiredConnectionValue(username, nameof(username), "Username");
+
+        if (ssl == false)
+        {
+            throw new ArgumentException("PostgreSQL connections must require SSL. Pass true or omit the ssl argument.", nameof(ssl));
+        }
+
         var builder = new NpgsqlConnectionStringBuilder
         {
             Host = host,
             Database = database,
             Username = username,
             Password = password,
-            Pooling = true
+            Pooling = true,
+            SslMode = SslMode.Require
         };
 
         if (port.HasValue)
@@ -63,9 +73,9 @@ public partial class PostgreSql : DatabaseClientBase
             builder.Port = port.Value;
         }
 
-        if (ssl.HasValue)
+        if (ssl == true)
         {
-            builder.SslMode = ssl.Value ? SslMode.Require : SslMode.Disable;
+            builder.SslMode = SslMode.Require;
         }
 
         return builder.ConnectionString;
@@ -105,4 +115,12 @@ public partial class PostgreSql : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new NpgsqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
+    }
 }

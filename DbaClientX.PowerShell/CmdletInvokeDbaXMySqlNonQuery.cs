@@ -21,6 +21,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
     internal static Func<DBAClientX.MySql> MySqlFactory { get; set; } = () => new DBAClientX.MySql();
+    internal static ScriptBlock? NonQueryOverride { get; set; }
 
     /// <summary>Specifies the MySQL server.</summary>
     [Parameter(Mandatory = true)]
@@ -47,14 +48,17 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>Credential for authentication.</summary>
+    [Parameter]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -74,14 +78,17 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL non-query")) {
             return;
         }
-        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "MySQL");
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
         {
             return;
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
-            var affected = mySql.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
+            var affected = NonQueryOverride is not null
+                ? PowerShellHelpers.InvokeOverrideAsync<int>(NonQueryOverride, this, parameters, resolvedUsername, resolvedPassword).GetAwaiter().GetResult()
+                : mySql.ExecuteNonQuery(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXMySqlNonQuery - Error executing MySql: {ex.Message}");

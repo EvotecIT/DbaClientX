@@ -14,6 +14,10 @@ describe 'Invoke-DbaXOracle cmdlet' {
         (Get-Command Invoke-DbaXOracle).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXOracle).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     it 'supports ReturnType parameter' {
         (Get-Command Invoke-DbaXOracle).Parameters.Keys | Should -Contain 'ReturnType'
     }
@@ -43,6 +47,34 @@ describe 'Invoke-DbaXOracle cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastOracleQuery = $null
+        }
+    }
+
+    it 'accepts PSCredential for query execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracle].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastOracleCredentialQuery = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastOracleCredentialQuery = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+            }
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('Value', [int])
+            $row = $table.NewRow()
+            $row['Value'] = 1
+            $table.Rows.Add($row)
+            return $table
+        })
+        try {
+            Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Credential $credential | Out-Null
+            $script:lastOracleCredentialQuery.CredentialUser | Should -Be 'u'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastOracleCredentialQuery = $null
         }
     }
 

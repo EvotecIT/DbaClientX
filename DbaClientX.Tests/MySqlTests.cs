@@ -167,6 +167,18 @@ public class MySqlTests
         });
     }
 
+    [Fact]
+    public async Task RunQueriesInParallel_WithBlankQuery_ThrowsBeforeStartingWork()
+    {
+        using var mySql = new DelayMySql(TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            mySql.RunQueriesInParallel(new[] { "SELECT 1", " " }, "h", "d", "u", "p"));
+
+        Assert.Equal("queries", exception.ParamName);
+        Assert.Equal(0, mySql.MaxConcurrency);
+    }
+
     private class OpenFailureMySql : DBAClientX.MySql
     {
         public int DisposeCalls { get; private set; }
@@ -461,6 +473,22 @@ public class MySqlTests
         var outParam = new MySqlParameter("@out", MySqlDbType.Int32) { Direction = ParameterDirection.Output };
         await mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
+    }
+
+    [Fact]
+    public void Query_WithEmptySql_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+
+        Assert.Throws<ArgumentException>(() => mySql.Query("h", "d", "u", "p", " "));
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+
+        Assert.Throws<ArgumentException>(() => mySql.ExecuteStoredProcedure("h", "d", "u", "p", " ", parameters: (IDictionary<string, object?>?)null));
     }
 
     private class FakeTransactionMySql : DBAClientX.MySql

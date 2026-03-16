@@ -167,6 +167,18 @@ public class SqlServerTests
         });
     }
 
+    [Fact]
+    public async Task RunQueriesInParallel_WithBlankQuery_ThrowsBeforeStartingWork()
+    {
+        using var sqlServer = new DelaySqlServer(TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            sqlServer.RunQueriesInParallel(new[] { "SELECT 1", " " }, "s", "db", true));
+
+        Assert.Equal("queries", exception.ParamName);
+        Assert.Equal(0, sqlServer.MaxConcurrency);
+    }
+
     private class CaptureParametersSqlServer : DBAClientX.SqlServer
     {
         public List<(string Name, object? Value, SqlDbType Type)> Captured { get; } = new();
@@ -439,6 +451,22 @@ public class SqlServerTests
         var outParam = new SqlParameter("@out", SqlDbType.Int) { Direction = ParameterDirection.Output };
         await sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
+    }
+
+    [Fact]
+    public void Query_WithEmptySql_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+
+        Assert.Throws<ArgumentException>(() => sqlServer.Query("s", "db", true, " "));
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+
+        Assert.Throws<ArgumentException>(() => sqlServer.ExecuteStoredProcedure("s", "db", true, " ", parameters: (IDictionary<string, object?>?)null));
     }
 
     private class FakeTransactionSqlServer : DBAClientX.SqlServer

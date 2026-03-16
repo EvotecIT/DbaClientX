@@ -49,21 +49,31 @@ public partial class MySql : DatabaseClientBase
     /// </remarks>
     public static string BuildConnectionString(string host, string database, string username, string password, uint? port = null, bool? ssl = null)
     {
+        ValidateRequiredConnectionValue(host, nameof(host), "Host");
+        ValidateRequiredConnectionValue(database, nameof(database), "Database");
+        ValidateRequiredConnectionValue(username, nameof(username), "Username");
+
+        if (ssl == false)
+        {
+            throw new ArgumentException("MySQL connections must require SSL. Pass true or omit the ssl argument.", nameof(ssl));
+        }
+
         var builder = new MySqlConnectionStringBuilder
         {
             Server = host,
             Database = database,
             UserID = username,
             Password = password,
-            Pooling = true
+            Pooling = true,
+            SslMode = MySqlSslMode.Required
         };
         if (port.HasValue)
         {
             builder.Port = port.Value;
         }
-        if (ssl.HasValue)
+        if (ssl == true)
         {
-            builder.SslMode = ssl.Value ? MySqlSslMode.Required : MySqlSslMode.None;
+            builder.SslMode = MySqlSslMode.Required;
         }
         return builder.ConnectionString;
     }
@@ -119,4 +129,12 @@ public partial class MySql : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new MySqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
+    }
 }

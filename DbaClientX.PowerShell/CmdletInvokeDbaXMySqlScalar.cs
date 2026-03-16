@@ -12,6 +12,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     internal static Func<DBAClientX.MySql> MySqlFactory { get; set; } = () => new DBAClientX.MySql();
+    internal static ScriptBlock? ScalarOverride { get; set; }
 
     /// <summary>Specifies the MySQL server.</summary>
     [Parameter(Mandatory = true)]
@@ -43,14 +44,17 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>Credential for authentication.</summary>
+    [Parameter]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -71,14 +75,23 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL scalar query")) {
             return;
         }
-        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "MySQL");
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
         {
             return;
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
-            var result = await mySql.ExecuteScalarAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            object? result;
+            if (ScalarOverride is not null)
+            {
+                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(ScalarOverride, this, parameters, resolvedUsername, resolvedPassword).ConfigureAwait(false);
+            }
+            else
+            {
+                result = await mySql.ExecuteScalarAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            }
             switch (ReturnType) {
                 case ReturnType.DataTable:
                     DataTable table = new DataTable();

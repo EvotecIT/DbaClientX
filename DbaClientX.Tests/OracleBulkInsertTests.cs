@@ -183,4 +183,23 @@ public class OracleBulkInsertTests
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Equal(1, oracle.DisposeCalls);
     }
+
+    [Fact]
+    public void BulkInsert_WithEmptyDestination_Throws()
+    {
+        using var oracle = new DBAClientX.Oracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        Assert.Throws<ArgumentException>(() => oracle.BulkInsert("h", "svc", "u", "p", table, " "));
+    }
+
+    [Fact]
+    public void BulkInsert_WithNoColumns_Throws()
+    {
+        using var oracle = new DBAClientX.Oracle();
+        var table = new DataTable();
+
+        Assert.Throws<ArgumentException>(() => oracle.BulkInsert("h", "svc", "u", "p", table, "Dest"));
+    }
 }

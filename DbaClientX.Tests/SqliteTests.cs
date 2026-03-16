@@ -55,6 +55,14 @@ public class SqliteTests
         }
     }
 
+    [Fact]
+    public void Query_WithEmptySql_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+
+        Assert.Throws<ArgumentException>(() => sqlite.Query(":memory:", " "));
+    }
+
     private class OutputDictionarySqlite : DBAClientX.SQLite
     {
         public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
@@ -349,6 +357,18 @@ public class SqliteTests
         await sqlite.RunQueriesInParallel(queries, ":memory:");
 
         Assert.InRange(sqlite.MaxConcurrency, 1, DBAClientX.SQLite.DefaultMaxParallelQueries);
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_WithBlankQuery_ThrowsBeforeStartingWork()
+    {
+        using var sqlite = new DelaySqlite(TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            sqlite.RunQueriesInParallel(new[] { "SELECT 1", " " }, ":memory:"));
+
+        Assert.Equal("queries", exception.ParamName);
+        Assert.Equal(0, sqlite.MaxConcurrency);
     }
 
     [Fact]

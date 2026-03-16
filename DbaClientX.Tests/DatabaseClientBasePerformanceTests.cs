@@ -137,7 +137,7 @@ public class DatabaseClientBasePerformanceTests
 
     private class TestClient : DatabaseClientBase
     {
-        public object? Execute(DbConnection connection) => ExecuteQuery(connection, null, string.Empty, null);
+        public object? Execute(DbConnection connection) => ExecuteQuery(connection, null, "SELECT 1", null);
     }
 
     [Fact]

@@ -108,4 +108,63 @@ public class MySqlGenericExecutorsTests
             DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory = originalFactory;
         }
     }
+
+    [Fact]
+    public async Task ExecuteSqlAsync_WithBlankConnectionString_ThrowsWithoutCreatingClient()
+    {
+        var factoryCalls = 0;
+        var originalFactory = DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory;
+        DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory = () =>
+        {
+            factoryCalls++;
+            return new CaptureMySql();
+        };
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+                DBAClientX.MySqlGeneric.GenericExecutors.ExecuteSqlAsync(" ", "UPDATE t SET c = 1"));
+
+            Assert.Equal("connectionString", exception.ParamName);
+            Assert.Equal(0, factoryCalls);
+        }
+        finally
+        {
+            DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory = originalFactory;
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteProcedureAsync_WithBlankProcedure_ThrowsWithoutCreatingClient()
+    {
+        var builder = new MySqlConnectionStringBuilder
+        {
+            Server = "dbhost",
+            Database = "app",
+            UserID = "user",
+            Password = "pass",
+            SslMode = MySqlSslMode.Required
+        };
+
+        var factoryCalls = 0;
+        var originalFactory = DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory;
+        DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory = () =>
+        {
+            factoryCalls++;
+            return new CaptureMySql();
+        };
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+                DBAClientX.MySqlGeneric.GenericExecutors.ExecuteProcedureAsync(builder.ConnectionString, " "));
+
+            Assert.Equal("procedure", exception.ParamName);
+            Assert.Equal(0, factoryCalls);
+        }
+        finally
+        {
+            DBAClientX.MySqlGeneric.GenericExecutors.ClientFactory = originalFactory;
+        }
+    }
 }

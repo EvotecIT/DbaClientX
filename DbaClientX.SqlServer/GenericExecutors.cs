@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Data.SqlClient;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 
 namespace DBAClientX.SqlServerGeneric;
 
@@ -22,6 +24,8 @@ public static class GenericExecutors
     /// <returns>Number of affected rows (as reported by the provider).</returns>
     public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(sql, nameof(sql), "SQL text");
         var b = new SqlConnectionStringBuilder(connectionString);
         var cli = new DBAClientX.SqlServer();
         return cli.ExecuteNonQueryAsync(b.DataSource, b.InitialCatalog, b.IntegratedSecurity, sql, parameters, cancellationToken: ct, username: b.UserID, password: b.Password);
@@ -37,9 +41,28 @@ public static class GenericExecutors
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
         var b = new SqlConnectionStringBuilder(connectionString);
         var cli = new DBAClientX.SqlServer();
         await cli.ExecuteStoredProcedureAsync(b.DataSource, b.InitialCatalog, b.IntegratedSecurity, procedure, parameters, cancellationToken: ct, username: b.UserID, password: b.Password).ConfigureAwait(false);
         return 0;
+    }
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var result = DbaConnectionFactory.Validate("sqlserver", connectionString);
+        if (!result.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(result), nameof(connectionString));
+        }
+    }
+
+    private static void ValidateCommandText(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
     }
 }

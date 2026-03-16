@@ -10,6 +10,10 @@ describe 'Invoke-DbaXOracleScalar cmdlet' {
         (Get-Command Invoke-DbaXOracleScalar).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXOracleScalar).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     it 'supports ReturnType parameter' {
         (Get-Command Invoke-DbaXOracleScalar).Parameters.Keys | Should -Contain 'ReturnType'
     }
@@ -34,6 +38,29 @@ describe 'Invoke-DbaXOracleScalar cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastOracleScalar = $null
+        }
+    }
+
+    it 'accepts PSCredential for scalar execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXOracleScalar].GetProperty('ScalarOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastOracleCredentialScalar = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastOracleCredentialScalar = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+            }
+            return 1
+        })
+        try {
+            Invoke-DbaXOracleScalar -Server s -Database db -Query 'SELECT 1 FROM dual' -Credential $credential | Out-Null
+            $script:lastOracleCredentialScalar.CredentialUser | Should -Be 'u'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastOracleCredentialScalar = $null
         }
     }
 

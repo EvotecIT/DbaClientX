@@ -159,6 +159,18 @@ public class PostgreSqlTests
         });
     }
 
+    [Fact]
+    public async Task RunQueriesInParallel_WithBlankQuery_ThrowsBeforeStartingWork()
+    {
+        using var pg = new DelayPostgreSql(TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            pg.RunQueriesInParallel(new[] { "SELECT 1", " " }, "h", "d", "u", "p"));
+
+        Assert.Equal("queries", exception.ParamName);
+        Assert.Equal(0, pg.MaxConcurrency);
+    }
+
     private class OpenFailurePostgreSql : DBAClientX.PostgreSql
     {
         public int DisposeCalls { get; private set; }
@@ -482,6 +494,22 @@ public class PostgreSqlTests
         var outParam = new NpgsqlParameter("@out", NpgsqlDbType.Integer) { Direction = ParameterDirection.Output };
         await pg.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", new[] { outParam });
         Assert.Equal(5, outParam.Value);
+    }
+
+    [Fact]
+    public void Query_WithEmptySql_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+
+        Assert.Throws<ArgumentException>(() => pg.Query("h", "d", "u", "p", " "));
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+
+        Assert.Throws<ArgumentException>(() => pg.ExecuteStoredProcedure("h", "d", "u", "p", " ", parameters: (IDictionary<string, object?>?)null));
     }
 
     [Fact]

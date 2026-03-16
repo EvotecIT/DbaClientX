@@ -28,6 +28,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     internal static Func<DBAClientX.MySql> MySqlFactory { get; set; } = () => new DBAClientX.MySql();
+    internal static ScriptBlock? QueryOverride { get; set; }
 
     /// <summary>Specifies the MySQL server to connect to.</summary>
     [Parameter(Mandatory = true)]
@@ -63,14 +64,17 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>Credential for authentication.</summary>
+    [Parameter]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -92,7 +96,8 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL query")) {
             return;
         }
-        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "MySQL");
+        var connectionString = DBAClientX.MySql.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "mysql", connectionString, ErrorAction))
         {
             return;
@@ -101,7 +106,7 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
-                var enumerable = mySql.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);
+                var enumerable = mySql.QueryStreamAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken);
                 switch (ReturnType) {
                     case ReturnType.DataRow:
                         await foreach (var row in enumerable.ConfigureAwait(false)) {
@@ -143,7 +148,15 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
                 throw new NotSupportedException("Streaming is not supported on this platform.");
             }
 #endif
-            var result = await mySql.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            object? result;
+            if (QueryOverride is not null)
+            {
+                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters, resolvedUsername, resolvedPassword).ConfigureAwait(false);
+            }
+            else
+            {
+                result = await mySql.QueryAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+            }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
                     foreach (DataRow row in ((DataTable)result).Rows) {

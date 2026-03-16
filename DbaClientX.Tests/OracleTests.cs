@@ -367,6 +367,22 @@ public class OracleTests
         Assert.Equal(5, outParam.Value);
     }
 
+    [Fact]
+    public void Query_WithEmptySql_Throws()
+    {
+        using var oracle = new DBAClientX.Oracle();
+
+        Assert.Throws<ArgumentException>(() => oracle.Query("h", "svc", "u", "p", " "));
+    }
+
+    [Fact]
+    public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
+    {
+        using var oracle = new DBAClientX.Oracle();
+
+        Assert.Throws<ArgumentException>(() => oracle.ExecuteStoredProcedure("h", "svc", "u", "p", " ", parameters: (IDictionary<string, object?>?)null));
+    }
+
     private class DelayOracle : DBAClientX.Oracle
     {
         private readonly TimeSpan _delay;
@@ -444,6 +460,18 @@ public class OracleTests
         {
             await oracle.RunQueriesInParallel(queries, "h", "svc", "u", "p", cts.Token);
         });
+    }
+
+    [Fact]
+    public async Task RunQueriesInParallel_WithBlankQuery_ThrowsBeforeStartingWork()
+    {
+        using var oracle = new DelayOracle(TimeSpan.FromSeconds(5));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            oracle.RunQueriesInParallel(new[] { "SELECT 1 FROM dual", " " }, "h", "svc", "u", "p"));
+
+        Assert.Equal("queries", exception.ParamName);
+        Assert.Equal(0, oracle.MaxConcurrency);
     }
 
     private class OpenFailureOracle : DBAClientX.Oracle

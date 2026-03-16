@@ -64,14 +64,17 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>Credential for authentication.</summary>
+    [Parameter]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -90,7 +93,8 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle query")) {
             return;
         }
-        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "Oracle");
+        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "oracle", connectionString, ErrorAction))
         {
             return;
@@ -105,7 +109,7 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                 }
 
                 using var oracle = CreateOracle();
-                await WriteRowsAsync(oracle.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken)).ConfigureAwait(false);
+                await WriteRowsAsync(oracle.QueryStreamAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken)).ConfigureAwait(false);
                 return;
             }
 #else
@@ -115,10 +119,10 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
 #endif
             object? result;
             if (QueryOverride is not null) {
-                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters).ConfigureAwait(false);
+                result = await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters, resolvedUsername, resolvedPassword).ConfigureAwait(false);
             } else {
                 using var oracle = CreateOracle();
-                result = await oracle.QueryAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
+                result = await oracle.QueryAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

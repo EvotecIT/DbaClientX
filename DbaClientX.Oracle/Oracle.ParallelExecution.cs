@@ -24,13 +24,26 @@ public partial class Oracle
             throw new ArgumentNullException(nameof(queries));
         }
 
+        var validatedQueries = new List<string>();
+        var queryIndex = 0;
+        foreach (var query in queries)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                throw new ArgumentException($"Query at index {queryIndex} cannot be null or whitespace.", nameof(queries));
+            }
+
+            validatedQueries.Add(query);
+            queryIndex++;
+        }
+
         var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0
             ? maxDegreeOfParallelism.Value
             : DefaultMaxParallelQueries;
         using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
         var taskList = new List<Task<object?>>();
-        foreach (var query in queries)
+        foreach (var query in validatedQueries)
         {
             async Task<object?> ExecuteQueryAsync(string sql)
             {

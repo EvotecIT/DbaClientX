@@ -170,4 +170,23 @@ public class MySqlBulkInsertTests
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Equal(1, mySql.DisposeCalls);
     }
+
+    [Fact]
+    public void BulkInsert_WithEmptyDestination_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        Assert.Throws<ArgumentException>(() => mySql.BulkInsert("h", "db", "u", "p", table, " "));
+    }
+
+    [Fact]
+    public void BulkInsert_WithNoColumns_Throws()
+    {
+        using var mySql = new DBAClientX.MySql();
+        var table = new DataTable();
+
+        Assert.Throws<ArgumentException>(() => mySql.BulkInsert("h", "db", "u", "p", table, "Dest"));
+    }
 }

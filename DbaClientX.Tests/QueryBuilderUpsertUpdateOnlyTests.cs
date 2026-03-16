@@ -36,7 +36,7 @@ public class QueryBuilderUpsertUpdateOnlyTests
             .UpsertUpdateOnly("name");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        var expected = "MERGE INTO [users] AS target USING (VALUES (1, 'Bob', 'bob@example.com')) AS source ([id], [name], [email]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name], [email]) VALUES (source.[id], source.[name], source.[email])";
+        var expected = "UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; IF @@ROWCOUNT = 0 INSERT INTO [users] ([id], [name], [email]) VALUES (1, 'Bob', 'bob@example.com')";
         Assert.Equal(expected, sql);
     }
 }

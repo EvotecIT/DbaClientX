@@ -10,6 +10,10 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         (Get-Command Invoke-DbaXNonQuery).Parameters.Keys | Should -Contain 'Password'
     }
 
+    It 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXNonQuery).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     It 'passes credentials to provider when supplied' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
@@ -33,6 +37,33 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastNonQueryCall = $null
+        }
+    }
+
+    It 'accepts PSCredential for provider execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastNonQueryCredentialCall = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastNonQueryCredentialCall = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+                Username = $cmdlet.Username
+                Password = $cmdlet.Password
+            }
+            return 0
+        })
+        try {
+            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -Credential $credential | Out-Null
+            $script:lastNonQueryCredentialCall.CredentialUser | Should -Be 'u'
+            $script:lastNonQueryCredentialCall.Username | Should -Be ''
+            $script:lastNonQueryCredentialCall.Password | Should -Be ''
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastNonQueryCredentialCall = $null
         }
     }
 

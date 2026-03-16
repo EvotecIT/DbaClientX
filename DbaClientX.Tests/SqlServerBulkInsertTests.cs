@@ -144,4 +144,23 @@ public class SqlServerBulkInsertTests
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Equal(1, sqlServer.DisposeCalls);
     }
+
+    [Fact]
+    public void BulkInsert_WithEmptyDestination_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, " "));
+    }
+
+    [Fact]
+    public void BulkInsert_WithNoColumns_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        var table = new DataTable();
+
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest"));
+    }
 }

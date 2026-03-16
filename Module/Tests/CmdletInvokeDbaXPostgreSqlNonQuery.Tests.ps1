@@ -10,74 +10,99 @@ describe 'Invoke-DbaXPostgreSqlNonQuery cmdlet' {
         (Get-Command Invoke-DbaXPostgreSqlNonQuery).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXPostgreSqlNonQuery).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     it 'passes credentials to provider when supplied' {
-        class TestPostgreSql : DBAClientX.PostgreSql {
-            static [TestPostgreSql] $Last
-            [string] $User
-            [string] $Pass
-            TestPostgreSql () { [TestPostgreSql]::Last = $this }
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[NpgsqlTypes.NpgsqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                $this.User = $username
-                $this.Pass = $password
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('PostgreSqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.PostgreSql]]{ [TestPostgreSql]::new() })
+        $script:lastPostgreSqlNonQuery = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastPostgreSqlNonQuery = [pscustomobject]@{
+                User = $resolvedUsername
+                Pass = $resolvedPassword
+            }
+            return 0
+        })
         try {
             Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
-            [TestPostgreSql]::Last.User | Should -Be 'u'
-            [TestPostgreSql]::Last.Pass | Should -Be 'p'
+            $script:lastPostgreSqlNonQuery.User | Should -Be 'u'
+            $script:lastPostgreSqlNonQuery.Pass | Should -Be 'p'
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastPostgreSqlNonQuery = $null
+        }
+    }
+
+    it 'accepts PSCredential for provider execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('NonQueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastPostgreSqlCredentialNonQuery = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastPostgreSqlCredentialNonQuery = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+                User = $resolvedUsername
+                Pass = $resolvedPassword
+            }
+            return 0
+        })
+        try {
+            Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Credential $credential | Out-Null
+            $script:lastPostgreSqlCredentialNonQuery.CredentialUser | Should -Be 'u'
+            $script:lastPostgreSqlCredentialNonQuery.User | Should -Be 'u'
+            $script:lastPostgreSqlCredentialNonQuery.Pass | Should -Be 'p'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastPostgreSqlCredentialNonQuery = $null
         }
     }
 
     it 'passes QueryTimeout and Parameters to provider' {
-        class TestPostgreSqlOptions : DBAClientX.PostgreSql {
-            static [TestPostgreSqlOptions] $Last
-            [int] $Timeout
-            [System.Collections.Generic.IDictionary[[string],[object]]] $Params
-            TestPostgreSqlOptions () { [TestPostgreSqlOptions]::Last = $this }
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[NpgsqlTypes.NpgsqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                $this.Timeout = $this.CommandTimeout
-                $this.Params = $parameters
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('PostgreSqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.PostgreSql]]{ [TestPostgreSqlOptions]::new() })
+        $script:lastPostgreSqlNonQueryOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastPostgreSqlNonQueryOptions = [pscustomobject]@{
+                Timeout = $cmdlet.QueryTimeout
+                ParameterValue = $parameters['B']
+            }
+            return 0
+        })
         try {
             Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -QueryTimeout 7 -Parameters @{ B = 2 } | Out-Null
-            [TestPostgreSqlOptions]::Last.Timeout | Should -Be 7
-            [TestPostgreSqlOptions]::Last.Params['B'] | Should -Be 2
+            $script:lastPostgreSqlNonQueryOptions.Timeout | Should -Be 7
+            $script:lastPostgreSqlNonQueryOptions.ParameterValue | Should -Be 2
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastPostgreSqlNonQueryOptions = $null
         }
     }
 
     it 'honors WhatIf and skips provider execution' {
-        class TestPostgreSqlWhatIf : DBAClientX.PostgreSql {
-            static [int] $Calls
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[NpgsqlTypes.NpgsqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                [TestPostgreSqlWhatIf]::Calls++
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('PostgreSqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXPostgreSqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        [TestPostgreSqlWhatIf]::Calls = 0
-        $prop.SetValue($null, [System.Func[DBAClientX.PostgreSql]]{ [TestPostgreSqlWhatIf]::new() })
+        $script:postgreSqlNonQueryCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:postgreSqlNonQueryCalls++
+            return 0
+        })
         try {
             Invoke-DbaXPostgreSqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -WhatIf | Out-Null
-            [TestPostgreSqlWhatIf]::Calls | Should -Be 0
+            $script:postgreSqlNonQueryCalls | Should -Be 0
         } finally {
             $prop.SetValue($null, $orig)
+            $script:postgreSqlNonQueryCalls = 0
         }
     }
 

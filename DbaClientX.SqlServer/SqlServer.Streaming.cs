@@ -27,6 +27,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(query);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
@@ -71,6 +72,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
@@ -113,6 +115,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()

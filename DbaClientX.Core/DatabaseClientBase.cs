@@ -337,6 +337,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The query result shaped according to <see cref="ReturnType"/>.</returns>
     protected virtual object? ExecuteQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         return ExecuteWithRetry<object?>(() =>
         {
             using var command = connection.CreateCommand();
@@ -413,6 +414,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The number of rows affected.</returns>
     protected virtual int ExecuteNonQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         int ExecuteOperation()
         {
             using var command = connection.CreateCommand();
@@ -447,6 +449,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The scalar result.</returns>
     protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         return ExecuteWithRetry<object?>(() =>
         {
             using var command = connection.CreateCommand();
@@ -477,6 +480,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The query result shaped according to <see cref="ReturnType"/>.</returns>
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         return await ExecuteWithRetryAsync(async () =>
         {
             using var command = connection.CreateCommand();
@@ -561,6 +565,7 @@ public abstract class DatabaseClientBase : IDisposable
         IDictionary<string, DbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         async Task<int> ExecuteOperationAsync()
         {
             using var command = connection.CreateCommand();
@@ -599,6 +604,7 @@ public abstract class DatabaseClientBase : IDisposable
     /// <returns>The scalar result.</returns>
     protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         return await ExecuteWithRetryAsync(async () =>
         {
             using var command = connection.CreateCommand();
@@ -642,6 +648,7 @@ public abstract class DatabaseClientBase : IDisposable
         IEnumerable<DbParameter>? dbParameters = null,
         CommandType commandType = CommandType.Text)
     {
+        ValidateCommandText(query, commandType);
         var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
         var attempt = 0;
 
@@ -698,6 +705,23 @@ public abstract class DatabaseClientBase : IDisposable
         yield break;
     }
 #endif
+
+    /// <summary>
+    /// Validates SQL text or stored procedure names passed to execution helpers.
+    /// </summary>
+    protected static void ValidateCommandText(string commandText, CommandType commandType = CommandType.Text)
+    {
+        if (!string.IsNullOrWhiteSpace(commandText))
+        {
+            return;
+        }
+
+        var parameterName = commandType == CommandType.StoredProcedure ? "procedure" : "query";
+        var message = commandType == CommandType.StoredProcedure
+            ? "Stored procedure name cannot be null or whitespace."
+            : "Query text cannot be null or whitespace.";
+        throw new ArgumentException(message, parameterName);
+    }
 
     /// <summary>
     /// Shapes a <see cref="DataSet"/> into the configured <see cref="ReturnType"/>.

@@ -22,6 +22,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
@@ -61,6 +62,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database, readOnly: true);
 
         SqliteConnection? connection = null;
@@ -115,7 +117,7 @@ public partial class SQLite
         IDictionary<string, ParameterDirection>? parameterDirections = null,
         Action<DbDataReader>? initialize = null)
     {
-        if (string.IsNullOrWhiteSpace(query)) throw new ArgumentNullException(nameof(query));
+        ValidateCommandText(query);
         if (map == null) throw new ArgumentNullException(nameof(map));
 
         var connectionString = BuildOperationalConnectionString(database, readOnly: true);
@@ -186,6 +188,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
@@ -225,6 +228,7 @@ public partial class SQLite
         IDictionary<string, SqliteType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;

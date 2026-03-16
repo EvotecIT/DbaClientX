@@ -89,6 +89,12 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Password { get; set; } = string.Empty;
 
+    /// <summary>Optional SQL authentication credential.</summary>
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    [Credential]
+    public PSCredential? Credential { get; set; }
+
     private ActionPreference ErrorAction;
 
     /// <summary>
@@ -178,8 +184,8 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 }
             }
 
-            var integratedSecurity = string.IsNullOrEmpty(Username) && string.IsNullOrEmpty(Password);
-            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, Username, Password);
+            var (resolvedUsername, resolvedPassword, integratedSecurity) = PowerShellHelpers.ResolveSqlServerCredential(Username, Password, Credential);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, resolvedUsername, resolvedPassword);
             if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
             {
                 return;
@@ -192,12 +198,12 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 {
                     var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
                     using var sqlServer = CreateSqlServer();
-                    await WriteRowsAsync(sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: Username, password: Password)).ConfigureAwait(false);
+                    await WriteRowsAsync(sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: resolvedUsername, password: resolvedPassword)).ConfigureAwait(false);
                     return;
                 }
 
                 using var streamSqlServer = CreateSqlServer();
-                await WriteRowsAsync(streamSqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: Username, password: Password)).ConfigureAwait(false);
+                await WriteRowsAsync(streamSqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: resolvedUsername, password: resolvedPassword)).ConfigureAwait(false);
                 return;
             }
 #endif
@@ -205,10 +211,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
             if (!string.IsNullOrEmpty(StoredProcedure)) {
                 var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
                 using var sqlServer = CreateSqlServer();
-                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, dbParameters, username: Username, password: Password);
+                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, dbParameters, username: resolvedUsername, password: resolvedPassword);
             } else {
                 using var sqlServer = CreateSqlServer();
-                result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: Username, password: Password);
+                result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: resolvedUsername, password: resolvedPassword);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

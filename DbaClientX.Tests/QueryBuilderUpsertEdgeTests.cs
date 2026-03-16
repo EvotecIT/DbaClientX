@@ -24,8 +24,20 @@ public class QueryBuilderUpsertEdgeTests
             .UpsertUpdateOnly("Id", "Name");
 
         var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
-        var expected = "MERGE INTO [dbo].[Users] AS target USING (VALUES (1, 'Bob', 'bob@example.com')) AS source ([Id], [Name], [Email]) ON (target.[Id] = source.[Id]) WHEN MATCHED THEN UPDATE SET target.[Name] = source.[Name] WHEN NOT MATCHED THEN INSERT ([Id], [Name], [Email]) VALUES (source.[Id], source.[Name], source.[Email])";
+        var expected = "UPDATE [dbo].[Users] SET [Name] = 'Bob' WHERE [Id] = 1; IF @@ROWCOUNT = 0 INSERT INTO [dbo].[Users] ([Id], [Name], [Email]) VALUES (1, 'Bob', 'bob@example.com')";
         Assert.Equal(expected, sql);
+    }
+
+    [Fact]
+    public void UpsertUpdateOnly_AllKeys_SqlServer_UsesIfNotExistsInsert()
+    {
+        var q = new Query()
+            .InsertOrUpdate("Users", new[] { ("Id", (object)1), ("Name", (object)"Bob") }, "Id")
+            .UpsertUpdateOnly("Id");
+
+        var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
+
+        Assert.Equal("IF NOT EXISTS (SELECT 1 FROM [Users] WHERE [Id] = 1) INSERT INTO [Users] ([Id], [Name]) VALUES (1, 'Bob')", sql);
     }
 
     [Fact]

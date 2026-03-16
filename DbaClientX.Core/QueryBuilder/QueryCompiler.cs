@@ -306,7 +306,8 @@ public class QueryCompiler
 
         if (query.SelectColumns.Count > 0)
         {
-            sb.Append(string.Join(", ", query.SelectColumns.Select(QuoteIdentifier)));
+            var allowStandaloneLiterals = string.IsNullOrWhiteSpace(query.Table) && !query.FromSubquery.HasValue;
+            sb.Append(string.Join(", ", query.SelectColumns.Select(column => QuoteSelectColumn(column, allowStandaloneLiterals))));
         }
         else
         {
@@ -491,34 +492,27 @@ public class QueryCompiler
                 }
                 return sb.ToString();
             case SqlDialect.SqlServer:
-                sb.Append("MERGE INTO ").Append(QuoteIdentifier(query.InsertTable!)).Append(" AS target USING (VALUES (");
+                var tableName = QuoteIdentifier(query.InsertTable!);
+                var sourceColumns = string.Join(", ", query.InsertColumns.Select(QuoteIdentifier));
+                var insertValues = new StringBuilder();
+                insertValues.Append('(');
                 for (int i = 0; i < row.Count; i++)
                 {
                     if (i > 0)
                     {
-                        sb.Append(", ");
+                        insertValues.Append(", ");
                     }
-                    AppendValue(sb, row[i], parameters);
+                    AppendValue(insertValues, row[i], parameters);
                 }
-                sb.Append(")) AS source (")
-                  .Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier)))
-                  .Append(") ON (");
-                for (int i = 0; i < query.ConflictColumns.Count; i++)
-                {
-                    if (i > 0)
-                    {
-                        sb.Append(" AND ");
-                    }
-                    var col = query.ConflictColumns[i];
-                    sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
-                }
-                sb.Append(") ");
+                insertValues.Append(')');
+
                 var updateColsMs = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
+                var conflictPredicate = BuildSqlServerUpsertPredicate(query, row, parameters);
                 if (updateColsMs.Count > 0)
                 {
-                    sb.Append("WHEN MATCHED THEN UPDATE SET ");
+                    sb.Append("UPDATE ").Append(tableName).Append(" SET ");
                     for (int i = 0; i < updateColsMs.Count; i++)
                     {
                         if (i > 0)
@@ -526,22 +520,23 @@ public class QueryCompiler
                             sb.Append(", ");
                         }
                         var col = updateColsMs[i];
-                        sb.Append("target.").Append(QuoteIdentifier(col)).Append(" = source.").Append(QuoteIdentifier(col));
+                        sb.Append(QuoteIdentifier(col)).Append(" = ");
+                        var columnIndex = FindInsertColumnIndex(query.InsertColumns, col);
+                        AppendValue(sb, row[columnIndex], parameters);
                     }
+                    sb.Append(" WHERE ").Append(conflictPredicate)
+                      .Append("; IF @@ROWCOUNT = 0 ");
                 }
-                sb.Append(" WHEN NOT MATCHED THEN INSERT (")
-                  .Append(string.Join(", ", query.InsertColumns.Select(QuoteIdentifier)))
-                  .Append(") VALUES (");
-                for (int i = 0; i < query.InsertColumns.Count; i++)
+                else
                 {
-                    if (i > 0)
-                    {
-                        sb.Append(", ");
-                    }
-                    var col = query.InsertColumns[i];
-                    sb.Append("source.").Append(QuoteIdentifier(col));
+                    sb.Append("IF NOT EXISTS (SELECT 1 FROM ").Append(tableName).Append(" WHERE ")
+                      .Append(conflictPredicate)
+                      .Append(") ");
                 }
-                sb.Append(")");
+
+                sb.Append("INSERT INTO ").Append(tableName)
+                  .Append(" (").Append(sourceColumns).Append(") VALUES ")
+                  .Append(insertValues);
                 return sb.ToString();
             default:
                 throw new NotSupportedException($"Upsert not supported for {_dialect}");
@@ -613,6 +608,38 @@ public class QueryCompiler
         }
     }
 
+    private string BuildSqlServerUpsertPredicate(Query query, IReadOnlyList<object> row, List<object>? parameters)
+    {
+        var predicate = new StringBuilder();
+        for (int i = 0; i < query.ConflictColumns.Count; i++)
+        {
+            if (i > 0)
+            {
+                predicate.Append(" AND ");
+            }
+
+            var conflictColumn = query.ConflictColumns[i];
+            var columnIndex = FindInsertColumnIndex(query.InsertColumns, conflictColumn);
+            predicate.Append(QuoteIdentifier(conflictColumn)).Append(" = ");
+            AppendValue(predicate, row[columnIndex], parameters);
+        }
+
+        return predicate.ToString();
+    }
+
+    private static int FindInsertColumnIndex(IReadOnlyList<string> insertColumns, string columnName)
+    {
+        for (int i = 0; i < insertColumns.Count; i++)
+        {
+            if (string.Equals(insertColumns[i], columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        throw new InvalidOperationException($"Upsert column '{columnName}' is missing from the insert column list.");
+    }
+
     private string QuoteIdentifier(string identifier)
     {
         if (string.IsNullOrEmpty(identifier))
@@ -655,11 +682,39 @@ public class QueryCompiler
             {
                 sb.Append('.');
             }
-            sb.Append(open).Append(parts[i]).Append(close);
+            var escapedPart = parts[i].Replace(close.ToString(), new string(close, 2));
+            sb.Append(open).Append(escapedPart).Append(close);
         }
 
         sb.Append(suffix);
         return sb.ToString();
+    }
+
+    private string QuoteSelectColumn(string identifier, bool allowStandaloneLiterals)
+    {
+        if (allowStandaloneLiterals && LooksLikeStandaloneLiteral(identifier))
+        {
+            return identifier;
+        }
+
+        return QuoteIdentifier(identifier);
+    }
+
+    private static bool LooksLikeStandaloneLiteral(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            return false;
+        }
+
+        if (double.TryParse(identifier, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return true;
+        }
+
+        return string.Equals(identifier, "NULL", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identifier, "TRUE", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identifier, "FALSE", StringComparison.OrdinalIgnoreCase);
     }
 
     private void AppendValue(StringBuilder sb, object value, List<object>? parameters)
@@ -693,13 +748,20 @@ public class QueryCompiler
         {
             string s => $"'{s.Replace("'", "''")}'",
             null => "NULL",
-            bool b => b ? "1" : "0",
+            bool b => FormatBooleanLiteral(b),
             DateTime dt => $"'{dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
-            DateTimeOffset dto => $"'{dto.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
+            DateTimeOffset dto => $"'{dto.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture)}'",
             decimal d => d.ToString(CultureInfo.InvariantCulture),
             double d => d.ToString(CultureInfo.InvariantCulture),
             float f => f.ToString(CultureInfo.InvariantCulture),
             _ => value.ToString() ?? string.Empty
         };
     }
+
+    private string FormatBooleanLiteral(bool value)
+        => _dialect switch
+        {
+            SqlDialect.PostgreSql => value ? "TRUE" : "FALSE",
+            _ => value ? "1" : "0"
+        };
 }

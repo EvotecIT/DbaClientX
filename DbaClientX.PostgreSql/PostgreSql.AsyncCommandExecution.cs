@@ -25,6 +25,7 @@ public partial class PostgreSql
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
@@ -64,6 +65,7 @@ public partial class PostgreSql
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
@@ -103,6 +105,7 @@ public partial class PostgreSql
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;

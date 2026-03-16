@@ -26,6 +26,7 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
@@ -70,6 +71,7 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()
@@ -112,6 +114,7 @@ public partial class MySql
         bool useTransaction = false,
         CancellationToken cancellationToken = default)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         return Stream();
 
         async IAsyncEnumerable<DataRow> Stream()

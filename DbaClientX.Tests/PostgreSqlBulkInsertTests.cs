@@ -63,6 +63,12 @@ public class PostgreSqlBulkInsertTests
         }
     }
 
+    private sealed class InspectingPostgreSql : DBAClientX.PostgreSql
+    {
+        public string BuildCommand(DataColumnCollection columns, string destinationTable)
+            => BuildCopyCommand(columns, destinationTable);
+    }
+
     private class OpenFailureBulkPostgreSql : DBAClientX.PostgreSql
     {
         public int DisposeCalls { get; private set; }
@@ -169,5 +175,37 @@ public class PostgreSqlBulkInsertTests
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Equal(1, pg.DisposeCalls);
+    }
+
+    [Fact]
+    public void BuildCopyCommand_QuotesDestinationPathAndEscapesColumns()
+    {
+        using var pg = new InspectingPostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Order");
+        table.Columns.Add("Display\"Name");
+
+        var command = pg.BuildCommand(table.Columns, "reporting.Monthly Sales");
+
+        Assert.Equal("COPY \"reporting\".\"Monthly Sales\" (\"Order\", \"Display\"\"Name\") FROM STDIN (FORMAT BINARY)", command);
+    }
+
+    [Fact]
+    public void BulkInsert_WithEmptyDestination_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+
+        Assert.Throws<ArgumentException>(() => pg.BulkInsert("h", "db", "u", "p", table, " "));
+    }
+
+    [Fact]
+    public void BulkInsert_WithNoColumns_Throws()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        var table = new DataTable();
+
+        Assert.Throws<ArgumentException>(() => pg.BulkInsert("h", "db", "u", "p", table, "Dest"));
     }
 }
