@@ -36,7 +36,7 @@ public class QueryBuilderUpsertUpdateOnlyTests
             .UpsertUpdateOnly("name");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        var expected = "UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; IF @@ROWCOUNT = 0 INSERT INTO [users] ([id], [name], [email]) VALUES (1, 'Bob', 'bob@example.com')";
+        var expected = "BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name], [email]) VALUES (1, 'Bob', 'bob@example.com'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH";
         Assert.Equal(expected, sql);
     }
 }

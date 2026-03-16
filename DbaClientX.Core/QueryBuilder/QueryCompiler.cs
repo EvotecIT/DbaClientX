@@ -510,9 +510,19 @@ public class QueryCompiler
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
                 var conflictPredicate = BuildSqlServerUpsertPredicate(query, row, parameters);
+                var lockedExistenceCheck = new StringBuilder()
+                    .Append("SELECT 1 FROM ")
+                    .Append(tableName)
+                    .Append(" WITH (UPDLOCK, HOLDLOCK) WHERE ")
+                    .Append(conflictPredicate)
+                    .ToString();
+
+                sb.Append("BEGIN TRY BEGIN TRANSACTION; ");
                 if (updateColsMs.Count > 0)
                 {
-                    sb.Append("UPDATE ").Append(tableName).Append(" SET ");
+                    sb.Append("IF EXISTS (").Append(lockedExistenceCheck).Append(") BEGIN UPDATE ")
+                      .Append(tableName)
+                      .Append(" SET ");
                     for (int i = 0; i < updateColsMs.Count; i++)
                     {
                         if (i > 0)
@@ -525,18 +535,17 @@ public class QueryCompiler
                         AppendValue(sb, row[columnIndex], parameters);
                     }
                     sb.Append(" WHERE ").Append(conflictPredicate)
-                      .Append("; IF @@ROWCOUNT = 0 ");
+                      .Append("; END ELSE BEGIN ");
                 }
                 else
                 {
-                    sb.Append("IF NOT EXISTS (SELECT 1 FROM ").Append(tableName).Append(" WHERE ")
-                      .Append(conflictPredicate)
-                      .Append(") ");
+                    sb.Append("IF NOT EXISTS (").Append(lockedExistenceCheck).Append(") BEGIN ");
                 }
 
                 sb.Append("INSERT INTO ").Append(tableName)
                   .Append(" (").Append(sourceColumns).Append(") VALUES ")
-                  .Append(insertValues);
+                  .Append(insertValues)
+                  .Append("; END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH");
                 return sb.ToString();
             default:
                 throw new NotSupportedException($"Upsert not supported for {_dialect}");

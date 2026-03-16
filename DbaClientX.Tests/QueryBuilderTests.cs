@@ -107,7 +107,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; IF @@ROWCOUNT = 0 INSERT INTO [users] ([id], [name]) VALUES (1, 'Bob')", sql);
+        Assert.Equal("BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name]) VALUES (1, 'Bob'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH", sql);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1 AND [email] = 'bob@example.com'; IF @@ROWCOUNT = 0 INSERT INTO [users] ([id], [email], [name]) VALUES (1, 'bob@example.com', 'Bob')", sql);
+        Assert.Equal("BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1 AND [email] = 'bob@example.com') BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1 AND [email] = 'bob@example.com'; END ELSE BEGIN INSERT INTO [users] ([id], [email], [name]) VALUES (1, 'bob@example.com', 'Bob'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH", sql);
     }
 
     [Fact]

@@ -24,7 +24,7 @@ public class QueryBuilderUpsertEdgeTests
             .UpsertUpdateOnly("Id", "Name");
 
         var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
-        var expected = "UPDATE [dbo].[Users] SET [Name] = 'Bob' WHERE [Id] = 1; IF @@ROWCOUNT = 0 INSERT INTO [dbo].[Users] ([Id], [Name], [Email]) VALUES (1, 'Bob', 'bob@example.com')";
+        var expected = "BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [dbo].[Users] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = 1) BEGIN UPDATE [dbo].[Users] SET [Name] = 'Bob' WHERE [Id] = 1; END ELSE BEGIN INSERT INTO [dbo].[Users] ([Id], [Name], [Email]) VALUES (1, 'Bob', 'bob@example.com'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH";
         Assert.Equal(expected, sql);
     }
 
@@ -37,7 +37,7 @@ public class QueryBuilderUpsertEdgeTests
 
         var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
 
-        Assert.Equal("IF NOT EXISTS (SELECT 1 FROM [Users] WHERE [Id] = 1) INSERT INTO [Users] ([Id], [Name]) VALUES (1, 'Bob')", sql);
+        Assert.Equal("BEGIN TRY BEGIN TRANSACTION; IF NOT EXISTS (SELECT 1 FROM [Users] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = 1) BEGIN INSERT INTO [Users] ([Id], [Name]) VALUES (1, 'Bob'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH", sql);
     }
 
     [Fact]

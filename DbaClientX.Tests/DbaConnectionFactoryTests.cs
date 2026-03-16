@@ -84,6 +84,16 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
+    public void Validate_PostgreSqlConnectionString_WithoutSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;Username=user;Password=password";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Validate_SqliteMissingFile()
     {
         var result = DbaConnectionFactory.Validate("sqlite", "Mode=ReadOnly");

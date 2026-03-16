@@ -1,4 +1,9 @@
 ﻿Build-Module -ModuleName 'DbaClientX' {
+    $netSearchClasses = @(
+        'DbaClientX.PowerShell.CmdletIInvokeDbaXQuery'
+        'DbaClientX.PowerShell.CmdletIInvokeDbaXNonQuery'
+    )
+
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
         ModuleVersion        = '0.1.0'
@@ -12,7 +17,20 @@
         Tags                 = @('Windows', 'MacOS', 'Linux')
         ProjectUri           = 'https://github.com/EvotecIT/DbaClientX'
         #AliasesToExport      = @('')
-        CmdletsToExport      = @('Invoke-DbaXQuery', 'Invoke-DbaXNonQuery', 'New-DbaXQuery')
+        CmdletsToExport      = @(
+            'Invoke-DbaXQuery'
+            'Invoke-DbaXNonQuery'
+            'New-DbaXQuery'
+            'Invoke-DbaXMySql'
+            'Invoke-DbaXMySqlNonQuery'
+            'Invoke-DbaXMySqlScalar'
+            'Invoke-DbaXPostgreSql'
+            'Invoke-DbaXPostgreSqlNonQuery'
+            'Invoke-DbaXOracle'
+            'Invoke-DbaXOracleNonQuery'
+            'Invoke-DbaXOracleScalar'
+            'Invoke-DbaXSQLite'
+        )
     }
     New-ConfigurationManifest @Manifest
 
@@ -89,7 +107,8 @@
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
-        NETSearchClass                    = "DbaClientX.PowerShell.CmdletIInvokeDbaXQuery", "DbaClientX.PowerShell.CmdletIInvokeDbaXNonQuery"
+        # PSPublishModule 3.x tightened this legacy option to a single string value.
+        NETSearchClass                    = $netSearchClasses -join ','
         DotSourceLibraries                = $true
         RefreshPSD1Only                   = $true
     }
