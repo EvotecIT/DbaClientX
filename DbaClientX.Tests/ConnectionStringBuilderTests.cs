@@ -18,6 +18,7 @@ public class ConnectionStringBuilderTests
         Assert.Equal("db", builder.Database);
         Assert.Equal("user", builder.UserID);
         Assert.Equal("pass", builder.Password);
+        Assert.Equal(MySqlSslMode.Required, builder.SslMode);
     }
 
     [Fact]
@@ -30,6 +31,20 @@ public class ConnectionStringBuilderTests
     }
 
     [Fact]
+    public void MySql_BuildConnectionString_RejectsDisabledSsl()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.MySql.BuildConnectionString("host", "db", "user", "pass", ssl: false));
+        Assert.Contains("require SSL", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MySql_BuildConnectionString_RejectsBlankHost()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.MySql.BuildConnectionString(" ", "db", "user", "pass"));
+        Assert.Equal("host", exception.ParamName);
+    }
+
+    [Fact]
     public void PostgreSql_BuildConnectionString_CreatesExpectedValues()
     {
         var cs = DBAClientX.PostgreSql.BuildConnectionString("host", "db", "user", "pass");
@@ -38,6 +53,7 @@ public class ConnectionStringBuilderTests
         Assert.Equal("db", builder.Database);
         Assert.Equal("user", builder.Username);
         Assert.Equal("pass", builder.Password);
+        Assert.Equal(SslMode.Require, builder.SslMode);
     }
 
     [Fact]
@@ -47,6 +63,20 @@ public class ConnectionStringBuilderTests
         var builder = new NpgsqlConnectionStringBuilder(cs);
         Assert.Equal(5433, builder.Port);
         Assert.Equal(SslMode.Require, builder.SslMode);
+    }
+
+    [Fact]
+    public void PostgreSql_BuildConnectionString_RejectsDisabledSsl()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.PostgreSql.BuildConnectionString("host", "db", "user", "pass", ssl: false));
+        Assert.Contains("require SSL", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PostgreSql_BuildConnectionString_RejectsBlankDatabase()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.PostgreSql.BuildConnectionString("host", " ", "user", "pass"));
+        Assert.Equal("database", exception.ParamName);
     }
 
     [Fact]
@@ -74,6 +104,20 @@ public class ConnectionStringBuilderTests
         Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
         Assert.Equal(5, builder.DefaultTimeout);
         Assert.False(builder.Pooling);
+    }
+
+    [Fact]
+    public void SQLite_BuildConnectionString_RejectsBlankDatabasePath()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.SQLite.BuildConnectionString(" "));
+        Assert.Equal("database", exception.ParamName);
+    }
+
+    [Fact]
+    public void SQLite_BuildConnectionString_RejectsNegativeBusyTimeout()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => DBAClientX.SQLite.BuildConnectionString("data.db", readOnly: false, busyTimeoutMs: -1));
+        Assert.Equal("busyTimeoutMs", exception.ParamName);
     }
 
     [Fact]
@@ -108,6 +152,13 @@ public class ConnectionStringBuilderTests
     }
 
     [Fact]
+    public void SqlServer_BuildConnectionString_RejectsMissingUsernameWhenSqlAuthIsRequested()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.SqlServer.BuildConnectionString("srv", "db", false, username: " "));
+        Assert.Equal("username", exception.ParamName);
+    }
+
+    [Fact]
     public void Oracle_BuildConnectionString_CreatesExpectedValues()
     {
         var cs = DBAClientX.Oracle.BuildConnectionString("host", "svc", "user", "pass");
@@ -123,5 +174,12 @@ public class ConnectionStringBuilderTests
         var cs = DBAClientX.Oracle.BuildConnectionString("host", "svc", "user", "pass", port: 1522);
         var builder = new OracleConnectionStringBuilder(cs);
         Assert.Equal("host:1522/svc", builder.DataSource);
+    }
+
+    [Fact]
+    public void Oracle_BuildConnectionString_RejectsBlankServiceName()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.Oracle.BuildConnectionString("host", " ", "user", "pass"));
+        Assert.Equal("serviceName", exception.ParamName);
     }
 }

@@ -18,6 +18,10 @@ describe 'Invoke-DbaXQuery cmdlet' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXQuery -Server '' -Database db -Query 'SELECT 1' -ErrorAction Stop } | Should -Throw
     }
@@ -56,6 +60,33 @@ describe 'Invoke-DbaXQuery cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastQueryCall = $null
+        }
+    }
+
+    it 'accepts PSCredential for query execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastQueryCredentialCall = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:lastQueryCredentialCall = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+                Username = $cmdlet.Username
+                Password = $cmdlet.Password
+            }
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -Credential $credential | Out-Null
+            $script:lastQueryCredentialCall.CredentialUser | Should -Be 'u'
+            $script:lastQueryCredentialCall.Username | Should -Be ''
+            $script:lastQueryCredentialCall.Password | Should -Be ''
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastQueryCredentialCall = $null
         }
     }
 
@@ -156,6 +187,29 @@ describe 'Invoke-DbaXQuery cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastProcedureCall = $null
+        }
+    }
+
+    it 'accepts PSCredential for stored procedure execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('StoredProcedureOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastProcedureCredentialCall = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:lastProcedureCredentialCall = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+            }
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -StoredProcedure sp -Credential $credential | Out-Null
+            $script:lastProcedureCredentialCall.CredentialUser | Should -Be 'u'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastProcedureCredentialCall = $null
         }
     }
 

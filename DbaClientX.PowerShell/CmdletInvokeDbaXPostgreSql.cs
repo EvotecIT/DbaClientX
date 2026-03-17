@@ -30,6 +30,8 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     internal static Func<DBAClientX.PostgreSql> PostgreSqlFactory { get; set; } = () => new DBAClientX.PostgreSql();
+    internal static ScriptBlock? QueryOverride { get; set; }
+    internal static ScriptBlock? StoredProcedureOverride { get; set; }
 
     /// <summary>Specifies the PostgreSQL server to connect to.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
@@ -75,16 +77,20 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>The user name for authentication.</summary>
-    [Parameter(Mandatory = true, ParameterSetName = "Query")]
-    [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
-    [ValidateNotNullOrEmpty]
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>The password for authentication.</summary>
-    [Parameter(Mandatory = true, ParameterSetName = "Query")]
-    [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
-    [ValidateNotNullOrEmpty]
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>The credential for authentication.</summary>
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -108,7 +114,8 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;
         }
-        var connectionString = DBAClientX.PostgreSql.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "PostgreSQL");
+        var connectionString = DBAClientX.PostgreSql.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "postgresql", connectionString, ErrorAction))
         {
             return;
@@ -118,7 +125,7 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
             IEnumerable<DbParameter>? dbParameters = parameters?.Select(kvp => (DbParameter)new NpgsqlParameter(kvp.Key, kvp.Value ?? DBNull.Value)).ToList();
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
-                var enumerable = postgreSql.QueryStreamAsync(Server, Database, Username, Password, Query, parameters, cancellationToken: CancelToken);
+                var enumerable = postgreSql.QueryStreamAsync(Server, Database, resolvedUsername, resolvedPassword, Query, parameters, cancellationToken: CancelToken);
                 switch (ReturnType) {
                     case ReturnType.DataRow:
                         await foreach (var row in enumerable.ConfigureAwait(false)) {
@@ -162,9 +169,13 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
 #endif
             object? result;
             if (!string.IsNullOrEmpty(StoredProcedure)) {
-                result = postgreSql.ExecuteStoredProcedure(Server, Database, Username, Password, StoredProcedure, dbParameters);
+                result = StoredProcedureOverride is not null
+                    ? await PowerShellHelpers.InvokeOverrideAsync<object?>(StoredProcedureOverride, this, parameters, dbParameters, resolvedUsername, resolvedPassword).ConfigureAwait(false)
+                    : postgreSql.ExecuteStoredProcedure(Server, Database, resolvedUsername, resolvedPassword, StoredProcedure, dbParameters);
             } else {
-                result = postgreSql.Query(Server, Database, Username, Password, Query, parameters);
+                result = QueryOverride is not null
+                    ? await PowerShellHelpers.InvokeOverrideAsync<object?>(QueryOverride, this, parameters, dbParameters, resolvedUsername, resolvedPassword).ConfigureAwait(false)
+                    : postgreSql.Query(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

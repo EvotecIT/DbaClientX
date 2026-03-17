@@ -19,6 +19,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
     internal static Func<DBAClientX.Oracle> OracleFactory { get; set; } = () => new DBAClientX.Oracle();
+    internal static ScriptBlock? NonQueryOverride { get; set; }
 
     /// <summary>Specifies the Oracle server.</summary>
     [Parameter(Mandatory = true)]
@@ -45,14 +46,17 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
     public Hashtable? Parameters { get; set; }
 
     /// <summary>User name for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Password for authentication.</summary>
-    [Parameter(Mandatory = true)]
-    [ValidateNotNullOrEmpty]
+    [Parameter]
     public string Password { get; set; } = string.Empty;
+
+    /// <summary>Credential for authentication.</summary>
+    [Parameter]
+    [Credential]
+    public PSCredential? Credential { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -72,14 +76,17 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
         if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle non-query")) {
             return;
         }
-        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, Username, Password);
+        var (resolvedUsername, resolvedPassword) = PowerShellHelpers.ResolveExplicitCredential(Username, Password, Credential, "Oracle");
+        var connectionString = DBAClientX.Oracle.BuildConnectionString(Server, Database, resolvedUsername, resolvedPassword);
         if (!PowerShellHelpers.TryValidateConnection(this, "oracle", connectionString, ErrorAction))
         {
             return;
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
-            var affected = oracle.ExecuteNonQuery(Server, Database, Username, Password, Query, parameters);
+            var affected = NonQueryOverride is not null
+                ? PowerShellHelpers.InvokeOverrideAsync<int>(NonQueryOverride, this, parameters, resolvedUsername, resolvedPassword).GetAwaiter().GetResult()
+                : oracle.ExecuteNonQuery(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXOracleNonQuery - Error executing Oracle: {ex.Message}");

@@ -21,10 +21,7 @@ public partial class SQLite
         bool useTransaction = false,
         int? batchSize = null)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize);
 
         var connectionString = BuildOperationalConnectionString(database);
 
@@ -115,10 +112,7 @@ public partial class SQLite
         int? batchSize = null,
         CancellationToken cancellationToken = default)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize);
 
         var connectionString = BuildOperationalConnectionString(database);
 
@@ -363,6 +357,29 @@ public partial class SQLite
                 command.Parameters[parameterIndex].Value = row[columns[colIndex]];
                 parameterIndex++;
             }
+        }
+    }
+
+    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize)
+    {
+        if (table == null)
+        {
+            throw new ArgumentNullException(nameof(table));
+        }
+
+        if (string.IsNullOrWhiteSpace(destinationTable))
+        {
+            throw new ArgumentException("Destination table cannot be null or whitespace.", nameof(destinationTable));
+        }
+
+        if (table.Columns.Count == 0)
+        {
+            throw new ArgumentException("Bulk insert requires at least one column.", nameof(table));
+        }
+
+        if (batchSize.HasValue && batchSize.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
         }
     }
 }

@@ -100,6 +100,24 @@ public class SQLiteBulkInsertTests
         Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.BulkInsert(":memory:", table, "Dest", useTransaction: true));
     }
 
+    [Fact]
+    public void BulkInsert_WithEmptyDestination_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        var table = CreateTable(1);
+
+        Assert.Throws<ArgumentException>(() => sqlite.BulkInsert(":memory:", table, " "));
+    }
+
+    [Fact]
+    public void BulkInsert_WithNoColumns_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        var table = new DataTable();
+
+        Assert.Throws<ArgumentException>(() => sqlite.BulkInsert(":memory:", table, "Dest"));
+    }
+
     private static DataTable CreateTable(int rows)
     {
         var table = new DataTable();

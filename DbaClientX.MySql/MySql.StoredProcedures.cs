@@ -24,6 +24,7 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
@@ -85,6 +86,7 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
         return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
@@ -154,6 +156,7 @@ public partial class MySql
         IEnumerable<DbParameter>? parameters = null,
         bool useTransaction = false)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;
@@ -210,6 +213,7 @@ public partial class MySql
         bool useTransaction = false,
         CancellationToken cancellationToken = default)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
 
         MySqlConnection? connection = null;

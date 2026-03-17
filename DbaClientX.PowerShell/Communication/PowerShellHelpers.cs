@@ -5,6 +5,7 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Management.Automation;
+using System.Net;
 using System.Threading.Tasks;
 using DBAClientX.Invoker;
 
@@ -38,6 +39,44 @@ internal static class PowerShellHelpers
             ParameterName = name,
             Value = value ?? DBNull.Value
         });
+
+    internal static (string Username, string Password, bool IntegratedSecurity) ResolveSqlServerCredential(
+        string? username,
+        string? password,
+        PSCredential? credential)
+    {
+        if (credential != null)
+        {
+            NetworkCredential networkCredential = credential.GetNetworkCredential();
+            return (networkCredential.UserName ?? string.Empty, networkCredential.Password ?? string.Empty, false);
+        }
+
+        var resolvedUsername = username ?? string.Empty;
+        var resolvedPassword = password ?? string.Empty;
+        return (resolvedUsername, resolvedPassword, string.IsNullOrEmpty(resolvedUsername) && string.IsNullOrEmpty(resolvedPassword));
+    }
+
+    internal static (string Username, string Password) ResolveExplicitCredential(
+        string? username,
+        string? password,
+        PSCredential? credential,
+        string providerName)
+    {
+        if (credential != null)
+        {
+            NetworkCredential networkCredential = credential.GetNetworkCredential();
+            return (networkCredential.UserName ?? string.Empty, networkCredential.Password ?? string.Empty);
+        }
+
+        var resolvedUsername = username ?? string.Empty;
+        var resolvedPassword = password ?? string.Empty;
+        if (string.IsNullOrEmpty(resolvedUsername) || string.IsNullOrEmpty(resolvedPassword))
+        {
+            throw new PSArgumentException($"Provide either -Credential or both -Username and -Password for {providerName} authentication.");
+        }
+
+        return (resolvedUsername, resolvedPassword);
+    }
 
     internal static bool TryValidateConnection(
         PSCmdlet cmdlet,

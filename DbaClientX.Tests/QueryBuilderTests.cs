@@ -101,13 +101,13 @@ public class QueryBuilderTests
     }
 
     [Fact]
-    public void InsertOrUpdate_SqlServer_UsesMerge()
+    public void InsertOrUpdate_SqlServer_UsesUpdateThenInsert()
     {
         var query = new Query()
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'Bob')) AS source ([id], [name]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name]) VALUES (source.[id], source.[name])", sql);
+        Assert.Equal("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name]) VALUES (1, 'Bob'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH", sql);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("MERGE INTO [users] AS target USING (VALUES (1, 'bob@example.com', 'Bob')) AS source ([id], [email], [name]) ON (target.[id] = source.[id] AND target.[email] = source.[email]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [email], [name]) VALUES (source.[id], source.[email], source.[name])", sql);
+        Assert.Equal("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1 AND [email] = 'bob@example.com') BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1 AND [email] = 'bob@example.com'; END ELSE BEGIN INSERT INTO [users] ([id], [email], [name]) VALUES (1, 'bob@example.com', 'Bob'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH", sql);
     }
 
     [Fact]
@@ -424,7 +424,7 @@ public class QueryBuilderTests
             .Where("active", true);
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" > 18 AND \"active\" = 1", sql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE \"age\" > 18 AND \"active\" = TRUE", sql);
     }
 
     [Fact]
@@ -545,7 +545,7 @@ public class QueryBuilderTests
             .Select("1");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT \"1\"", sql);
+        Assert.Equal("SELECT 1", sql);
     }
 
     [Fact]
@@ -626,7 +626,7 @@ public class QueryBuilderTests
             .Where("active", true);
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT * FROM \"users\" WHERE (\"age\" < 18 OR \"age\" > 60) AND \"active\" = 1", sql);
+        Assert.Equal("SELECT * FROM \"users\" WHERE (\"age\" < 18 OR \"age\" > 60) AND \"active\" = TRUE", sql);
     }
 
     [Fact]
@@ -757,7 +757,7 @@ public class QueryBuilderTests
                 .Where("created", dateOffset);
 
             var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-            Assert.Equal("SELECT * FROM \"events\" WHERE \"created\" = '2024-01-02 03:04:05'", sql);
+            Assert.Equal("SELECT * FROM \"events\" WHERE \"created\" = '2024-01-02T03:04:05.0000000+02:00'", sql);
         }
         finally
         {
@@ -891,6 +891,36 @@ public class QueryBuilderTests
     }
 
     [Fact]
+    public void SqlServerIdentifiers_EscapeClosingBracketCharacters()
+    {
+        var query = new Query().Select("na]me").From("ta]ble");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
+
+        Assert.Equal("SELECT [na]]me] FROM [ta]]ble]", sql);
+    }
+
+    [Fact]
+    public void PostgreSqlIdentifiers_EscapeDoubleQuoteCharacters()
+    {
+        var query = new Query().Select("na\"me").From("ta\"ble");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+
+        Assert.Equal("SELECT \"na\"\"me\" FROM \"ta\"\"ble\"", sql);
+    }
+
+    [Fact]
+    public void MySqlIdentifiers_EscapeBacktickCharacters()
+    {
+        var query = new Query().Select("na`me").From("ta`ble");
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.MySql);
+
+        Assert.Equal("SELECT `na``me` FROM `ta``ble`", sql);
+    }
+
+    [Fact]
     public void SelectWhere_OracleUsesParameters()
     {
         var query = new Query().From("users").Select("id").Where("name", "Alice");
@@ -900,4 +930,3 @@ public class QueryBuilderTests
         Assert.Equal("Alice", parameters[0]);
     }
 }
-

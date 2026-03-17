@@ -23,10 +23,7 @@ public partial class PostgreSql
         int? batchSize = null,
         int? bulkCopyTimeout = null)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -82,10 +79,7 @@ public partial class PostgreSql
         int? bulkCopyTimeout = null,
         CancellationToken cancellationToken = default)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
 
@@ -142,8 +136,7 @@ public partial class PostgreSql
     /// </summary>
     protected virtual void WriteRows(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
     {
-        var columnList = string.Join(", ", columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
-        var copyCommand = $"COPY {destinationTable} ({columnList}) FROM STDIN (FORMAT BINARY)";
+        var copyCommand = BuildCopyCommand(columns, destinationTable);
         using var importer = connection.BeginBinaryImport(copyCommand);
         if (bulkCopyTimeout.HasValue)
         {
@@ -187,8 +180,7 @@ public partial class PostgreSql
     /// </summary>
     protected virtual async Task WriteRowsAsync(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
     {
-        var columnList = string.Join(", ", columns.Cast<DataColumn>().Select(c => $"\"{c.ColumnName}\""));
-        var copyCommand = $"COPY {destinationTable} ({columnList}) FROM STDIN (FORMAT BINARY)";
+        var copyCommand = BuildCopyCommand(columns, destinationTable);
         await using var importer = await connection.BeginBinaryImportAsync(copyCommand, cancellationToken).ConfigureAwait(false);
         if (bulkCopyTimeout.HasValue)
         {
@@ -213,6 +205,15 @@ public partial class PostgreSql
         }
 
         await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Builds the PostgreSQL <c>COPY</c> command for the supplied destination table and columns.
+    /// </summary>
+    protected virtual string BuildCopyCommand(DataColumnCollection columns, string destinationTable)
+    {
+        var columnList = string.Join(", ", columns.Cast<DataColumn>().Select(c => QuoteIdentifier(c.ColumnName)));
+        return $"COPY {QuoteIdentifierPath(destinationTable)} ({columnList}) FROM STDIN (FORMAT BINARY)";
     }
 
     /// <summary>
@@ -246,6 +247,65 @@ public partial class PostgreSql
         for (var i = start; i < end; i++)
         {
             yield return rows[i];
+        }
+    }
+
+    private static string QuoteIdentifier(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifier));
+        }
+
+        return "\"" + identifier.Replace("\"", "\"\"") + "\"";
+    }
+
+    private static string QuoteIdentifierPath(string identifierPath)
+    {
+        if (string.IsNullOrWhiteSpace(identifierPath))
+        {
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
+        }
+
+        var parts = identifierPath.Split('.');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(parts[i]))
+            {
+                throw new ArgumentException("Identifier cannot contain empty segments.", nameof(identifierPath));
+            }
+
+            parts[i] = QuoteIdentifier(parts[i].Trim());
+        }
+
+        return string.Join(".", parts);
+    }
+
+    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
+    {
+        if (table == null)
+        {
+            throw new ArgumentNullException(nameof(table));
+        }
+
+        if (string.IsNullOrWhiteSpace(destinationTable))
+        {
+            throw new ArgumentException("Destination table cannot be null or whitespace.", nameof(destinationTable));
+        }
+
+        if (table.Columns.Count == 0)
+        {
+            throw new ArgumentException("Bulk insert requires at least one column.", nameof(table));
+        }
+
+        if (batchSize.HasValue && batchSize.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
+        }
+
+        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
         }
     }
 }

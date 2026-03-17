@@ -24,8 +24,20 @@ public class QueryBuilderUpsertEdgeTests
             .UpsertUpdateOnly("Id", "Name");
 
         var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
-        var expected = "MERGE INTO [dbo].[Users] AS target USING (VALUES (1, 'Bob', 'bob@example.com')) AS source ([Id], [Name], [Email]) ON (target.[Id] = source.[Id]) WHEN MATCHED THEN UPDATE SET target.[Name] = source.[Name] WHEN NOT MATCHED THEN INSERT ([Id], [Name], [Email]) VALUES (source.[Id], source.[Name], source.[Email])";
+        var expected = "DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [dbo].[Users] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = 1) BEGIN UPDATE [dbo].[Users] SET [Name] = 'Bob' WHERE [Id] = 1; END ELSE BEGIN INSERT INTO [dbo].[Users] ([Id], [Name], [Email]) VALUES (1, 'Bob', 'bob@example.com'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH";
         Assert.Equal(expected, sql);
+    }
+
+    [Fact]
+    public void UpsertUpdateOnly_AllKeys_SqlServer_UsesIfNotExistsInsert()
+    {
+        var q = new Query()
+            .InsertOrUpdate("Users", new[] { ("Id", (object)1), ("Name", (object)"Bob") }, "Id")
+            .UpsertUpdateOnly("Id");
+
+        var sql = QueryBuilder.Compile(q, SqlDialect.SqlServer);
+
+        Assert.Equal("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF NOT EXISTS (SELECT 1 FROM [Users] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = 1) BEGIN INSERT INTO [Users] ([Id], [Name]) VALUES (1, 'Bob'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH", sql);
     }
 
     [Fact]

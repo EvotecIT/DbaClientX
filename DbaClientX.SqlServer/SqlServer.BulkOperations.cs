@@ -23,10 +23,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
@@ -88,10 +85,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
@@ -186,4 +180,32 @@ public partial class SqlServer
     /// Disposes a SQL Server connection created for the current operation.
     /// </summary>
     protected virtual void DisposeConnection(SqlConnection connection) => connection.Dispose();
+
+    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
+    {
+        if (table == null)
+        {
+            throw new ArgumentNullException(nameof(table));
+        }
+
+        if (string.IsNullOrWhiteSpace(destinationTable))
+        {
+            throw new ArgumentException("Destination table cannot be null or whitespace.", nameof(destinationTable));
+        }
+
+        if (table.Columns.Count == 0)
+        {
+            throw new ArgumentException("Bulk insert requires at least one column.", nameof(table));
+        }
+
+        if (batchSize.HasValue && batchSize.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
+        }
+
+        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
+        }
+    }
 }

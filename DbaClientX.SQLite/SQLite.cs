@@ -80,6 +80,12 @@ public partial class SQLite : DatabaseClientBase
     /// <returns>A connection string that targets <paramref name="database"/>.</returns>
     public static string BuildConnectionString(string database, bool readOnly, int? busyTimeoutMs)
     {
+        ValidateDatabasePath(database);
+        if (busyTimeoutMs.HasValue && busyTimeoutMs.Value < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
+        }
+
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = database,
@@ -196,6 +202,14 @@ public partial class SQLite : DatabaseClientBase
         catch
         {
             return false;
+        }
+    }
+
+    private static void ValidateDatabasePath(string database)
+    {
+        if (string.IsNullOrWhiteSpace(database))
+        {
+            throw new ArgumentException("Database path cannot be null or whitespace.", nameof(database));
         }
     }
 }

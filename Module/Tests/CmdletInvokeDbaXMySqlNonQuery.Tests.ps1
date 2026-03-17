@@ -10,74 +10,99 @@ describe 'Invoke-DbaXMySqlNonQuery cmdlet' {
         (Get-Command Invoke-DbaXMySqlNonQuery).Parameters.Keys | Should -Contain 'Password'
     }
 
+    it 'supports Credential parameter' {
+        (Get-Command Invoke-DbaXMySqlNonQuery).Parameters.Keys | Should -Contain 'Credential'
+    }
+
     it 'passes credentials to provider when supplied' {
-        class TestMySql : DBAClientX.MySql {
-            static [TestMySql] $Last
-            [string] $User
-            [string] $Pass
-            TestMySql () { [TestMySql]::Last = $this }
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[MySqlConnector.MySqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                $this.User = $username
-                $this.Pass = $password
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('MySqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.MySql]]{ [TestMySql]::new() })
+        $script:lastMySqlNonQuery = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastMySqlNonQuery = [pscustomobject]@{
+                User = $resolvedUsername
+                Pass = $resolvedPassword
+            }
+            return 0
+        })
         try {
             Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p | Out-Null
-            [TestMySql]::Last.User | Should -Be 'u'
-            [TestMySql]::Last.Pass | Should -Be 'p'
+            $script:lastMySqlNonQuery.User | Should -Be 'u'
+            $script:lastMySqlNonQuery.Pass | Should -Be 'p'
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastMySqlNonQuery = $null
+        }
+    }
+
+    it 'accepts PSCredential for provider execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('NonQueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastMySqlCredentialNonQuery = $null
+        $secure = ConvertTo-SecureString 'p' -AsPlainText -Force
+        $credential = [pscredential]::new('u', $secure)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastMySqlCredentialNonQuery = [pscustomobject]@{
+                CredentialUser = $cmdlet.Credential.UserName
+                User = $resolvedUsername
+                Pass = $resolvedPassword
+            }
+            return 0
+        })
+        try {
+            Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Credential $credential | Out-Null
+            $script:lastMySqlCredentialNonQuery.CredentialUser | Should -Be 'u'
+            $script:lastMySqlCredentialNonQuery.User | Should -Be 'u'
+            $script:lastMySqlCredentialNonQuery.Pass | Should -Be 'p'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastMySqlCredentialNonQuery = $null
         }
     }
 
     it 'passes QueryTimeout and Parameters to provider' {
-        class TestMySqlOptions : DBAClientX.MySql {
-            static [TestMySqlOptions] $Last
-            [int] $Timeout
-            [System.Collections.Generic.IDictionary[[string],[object]]] $Params
-            TestMySqlOptions () { [TestMySqlOptions]::Last = $this }
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[MySqlConnector.MySqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                $this.Timeout = $this.CommandTimeout
-                $this.Params = $parameters
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('MySqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        $prop.SetValue($null, [System.Func[DBAClientX.MySql]]{ [TestMySqlOptions]::new() })
+        $script:lastMySqlNonQueryOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:lastMySqlNonQueryOptions = [pscustomobject]@{
+                Timeout = $cmdlet.QueryTimeout
+                ParameterValue = $parameters['A']
+            }
+            return 0
+        })
         try {
             Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -QueryTimeout 11 -Parameters @{ A = 1 } | Out-Null
-            [TestMySqlOptions]::Last.Timeout | Should -Be 11
-            [TestMySqlOptions]::Last.Params['A'] | Should -Be 1
+            $script:lastMySqlNonQueryOptions.Timeout | Should -Be 11
+            $script:lastMySqlNonQueryOptions.ParameterValue | Should -Be 1
         } finally {
             $prop.SetValue($null, $orig)
+            $script:lastMySqlNonQueryOptions = $null
         }
     }
 
     it 'honors WhatIf and skips provider execution' {
-        class TestMySqlWhatIf : DBAClientX.MySql {
-            static [int] $Calls
-            [int] ExecuteNonQuery([string]$h, [string]$db, [string]$username, [string]$password, [string]$query, [System.Collections.Generic.IDictionary[[string],[object]]] $parameters = $null, [bool]$useTransaction = $false, [System.Collections.Generic.IDictionary[[string],[MySqlConnector.MySqlDbType]]] $parameterTypes = $null, [System.Collections.Generic.IDictionary[[string],[System.Data.ParameterDirection]]] $parameterDirections = $null) {
-                [TestMySqlWhatIf]::Calls++
-                return 0
-            }
-        }
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
-        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('MySqlFactory',$binding)
+        $prop = [DBAClientX.PowerShell.CmdletInvokeDbaXMySqlNonQuery].GetProperty('NonQueryOverride', $binding)
         $orig = $prop.GetValue($null)
-        [TestMySqlWhatIf]::Calls = 0
-        $prop.SetValue($null, [System.Func[DBAClientX.MySql]]{ [TestMySqlWhatIf]::new() })
+        $script:mySqlNonQueryCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $resolvedUsername, $resolvedPassword)
+            $script:mySqlNonQueryCalls++
+            return 0
+        })
         try {
             Invoke-DbaXMySqlNonQuery -Server s -Database db -Query 'Q' -Username u -Password p -WhatIf | Out-Null
-            [TestMySqlWhatIf]::Calls | Should -Be 0
+            $script:mySqlNonQueryCalls | Should -Be 0
         } finally {
             $prop.SetValue($null, $orig)
+            $script:mySqlNonQueryCalls = 0
         }
     }
 

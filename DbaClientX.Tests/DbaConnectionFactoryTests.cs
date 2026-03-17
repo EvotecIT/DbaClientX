@@ -59,13 +59,38 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
-    public void Validate_MySqlBuildConnectionString_WithSslDisabled_IsRejected()
+    public void Validate_MySqlConnectionString_WithSslPreferred_IsRejected()
     {
-        var connectionString = DBAClientX.MySql.BuildConnectionString("dbhost", "app", "user", "password", ssl: false);
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Preferred";
         var result = DbaConnectionFactory.Validate("mysql", connectionString);
 
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
-        Assert.Equal("SSL Mode", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.True(string.Equals("SSL Mode", result.Details, StringComparison.OrdinalIgnoreCase)
+            || string.Equals("SslMode", result.Details, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("Disable")]
+    [InlineData("Allow")]
+    [InlineData("Prefer")]
+    public void Validate_PostgreSqlConnectionString_WithInsecureSslModes_IsRejected(string sslMode)
+    {
+        var connectionString = $"Server=dbhost;Database=app;Username=user;Password=password;SslMode={sslMode}";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
+        Assert.True(string.Equals("SSL Mode", result.Details, StringComparison.OrdinalIgnoreCase)
+            || string.Equals("SslMode", result.Details, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_PostgreSqlConnectionString_WithoutSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;Username=user;Password=password";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]

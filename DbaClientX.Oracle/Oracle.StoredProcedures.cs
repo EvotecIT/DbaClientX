@@ -24,6 +24,7 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
@@ -85,6 +86,7 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
@@ -143,6 +145,7 @@ public partial class Oracle
         IEnumerable<DbParameter>? parameters = null,
         bool useTransaction = false)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
@@ -199,6 +202,7 @@ public partial class Oracle
         bool useTransaction = false,
         CancellationToken cancellationToken = default)
     {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;

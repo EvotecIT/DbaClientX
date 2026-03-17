@@ -12,6 +12,17 @@ public sealed class SQLiteMappedQueryTests
     private readonly record struct SampleRow(long Id, string? Name);
 
     [Fact]
+    public async Task QueryReadOnlyAsync_WithEmptySql_Throws()
+    {
+        var sqlite = new SQLite();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            sqlite.QueryReadOnlyAsync(":memory:", " "));
+
+        Assert.Equal("query", exception.ParamName);
+    }
+
+    [Fact]
     public async Task QueryReadOnlyAsListAsync_SimpleSelect_ReturnsMappedRows()
     {
         string database = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db");
@@ -83,5 +94,16 @@ public sealed class SQLiteMappedQueryTests
                 // Ignore cleanup failures on locked temp files.
             }
         }
+    }
+
+    [Fact]
+    public async Task QueryReadOnlyAsListAsync_WithEmptySql_Throws()
+    {
+        var sqlite = new SQLite();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            sqlite.QueryReadOnlyAsListAsync(":memory:", " ", r => r.GetInt64(0)));
+
+        Assert.Equal("query", exception.ParamName);
     }
 }

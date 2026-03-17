@@ -66,7 +66,7 @@ public static class DbaConnectionFactory
     private static readonly Dictionary<string, ProviderValidationProfile> ProviderProfiles = new(StringComparer.OrdinalIgnoreCase)
     {
         ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase),
-        ["postgresql"] = new("postgresql", RequiredServerAndDatabase, ValidatePortRange),
+        ["postgresql"] = new("postgresql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidatePostgreSqlOptions(builder)),
         ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
         ["sqlite"] = new("sqlite", new List<string[]>
         {
@@ -249,10 +249,39 @@ public static class DbaConnectionFactory
     {
         foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
-            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue && sslValue.Equals("None", StringComparison.OrdinalIgnoreCase))
+            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
             {
-                return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must use SSL (SslMode cannot be None).", key);
+                if (sslValue.Equals("None", StringComparison.OrdinalIgnoreCase)
+                    || sslValue.Equals("Preferred", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode cannot be None or Preferred).", key);
+                }
             }
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidatePostgreSqlOptions(DbConnectionStringBuilder builder)
+    {
+        var sslModeSpecified = false;
+        foreach (var key in new[] { "SslMode", "SSL Mode" })
+        {
+            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
+            {
+                sslModeSpecified = true;
+                if (sslValue.Equals("Disable", StringComparison.OrdinalIgnoreCase)
+                    || sslValue.Equals("Allow", StringComparison.OrdinalIgnoreCase)
+                    || sslValue.Equals("Prefer", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode cannot be Disable, Allow, or Prefer).", key);
+                }
+            }
+        }
+
+        if (!sslModeSpecified)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "PostgreSQL connections must explicitly require SSL (SslMode must be Require or Verify*).", "SslMode");
         }
 
         return null;

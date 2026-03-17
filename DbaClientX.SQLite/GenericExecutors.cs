@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using Microsoft.Data.Sqlite;
 
 namespace DBAClientX.SQLiteGeneric;
@@ -27,6 +29,7 @@ public static class GenericExecutors
     /// </remarks>
     public static Task<int> ExecuteSqlAsync(string connectionStringOrPath, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateCommandText(sql, nameof(sql), "SQL text");
         var db = ResolveDatabasePath(connectionStringOrPath);
         var cli = new DBAClientX.SQLite();
         return cli.ExecuteNonQueryAsync(db, sql, parameters, cancellationToken: ct);
@@ -41,11 +44,30 @@ public static class GenericExecutors
 
     private static string ResolveDatabasePath(string connectionStringOrPath)
     {
+        if (string.IsNullOrWhiteSpace(connectionStringOrPath))
+        {
+            throw new ArgumentException("Connection string or database path cannot be null or whitespace.", nameof(connectionStringOrPath));
+        }
+
         if (connectionStringOrPath.IndexOf('=') >= 0)
         {
+            var validationResult = DbaConnectionFactory.Validate("sqlite", connectionStringOrPath);
+            if (!validationResult.IsValid)
+            {
+                throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionStringOrPath));
+            }
+
             var b = new SqliteConnectionStringBuilder(connectionStringOrPath);
             return b.DataSource;
         }
         return connectionStringOrPath;
+    }
+
+    private static void ValidateCommandText(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
     }
 }

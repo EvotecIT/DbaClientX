@@ -38,6 +38,7 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
@@ -76,6 +77,7 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
@@ -114,6 +116,7 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;

@@ -25,6 +25,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
@@ -65,6 +66,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
@@ -105,6 +107,7 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
+        ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;

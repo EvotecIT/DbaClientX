@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 
 namespace DBAClientX.OracleGeneric;
 
@@ -21,6 +23,7 @@ public static class GenericExecutors
     /// <returns>Number of affected rows.</returns>
     public static Task<int> ExecuteSqlAsync(string host, string serviceName, string username, string password, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateCommandText(sql, nameof(sql), "SQL text");
         var cli = new DBAClientX.Oracle();
         return cli.ExecuteNonQueryAsync(host, serviceName, username, password, sql, parameters, cancellationToken: ct);
     }
@@ -33,6 +36,8 @@ public static class GenericExecutors
     /// <returns>Number of affected rows.</returns>
     public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(sql, nameof(sql), "SQL text");
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
         var (host, service) = SplitDataSource(b.DataSource);
         var cli = new DBAClientX.Oracle();
@@ -50,6 +55,7 @@ public static class GenericExecutors
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
     public static async Task<int> ExecuteProcedureAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
         var cli = new DBAClientX.Oracle();
         await cli.ExecuteStoredProcedureAsync(host, serviceName, username, password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
@@ -63,6 +69,8 @@ public static class GenericExecutors
     /// <returns>Zero. This façade returns 0 to keep cross-provider signatures uniform.</returns>
     public static async Task<int> ExecuteProcedureAsync(string connectionString, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
         var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
         var (host, service) = SplitDataSource(b.DataSource);
         var cli = new DBAClientX.Oracle();
@@ -85,5 +93,22 @@ public static class GenericExecutors
         }
 
         return (value, value);
+    }
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var result = DbaConnectionFactory.Validate("oracle", connectionString);
+        if (!result.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(result), nameof(connectionString));
+        }
+    }
+
+    private static void ValidateCommandText(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
     }
 }

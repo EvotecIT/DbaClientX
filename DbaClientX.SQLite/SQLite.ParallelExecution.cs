@@ -22,12 +22,25 @@ public partial class SQLite
             throw new ArgumentNullException(nameof(queries));
         }
 
+        var validatedQueries = new List<string>();
+        var queryIndex = 0;
+        foreach (var query in queries)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                throw new ArgumentException($"Query at index {queryIndex} cannot be null or whitespace.", nameof(queries));
+            }
+
+            validatedQueries.Add(query);
+            queryIndex++;
+        }
+
         var effectiveMaxDegreeOfParallelism = maxDegreeOfParallelism.HasValue && maxDegreeOfParallelism.Value > 0
             ? maxDegreeOfParallelism.Value
             : DefaultMaxParallelQueries;
         using var throttler = new SemaphoreSlim(effectiveMaxDegreeOfParallelism);
 
-        var tasks = queries.Select(async q =>
+        var tasks = validatedQueries.Select(async q =>
         {
             await throttler.WaitAsync(cancellationToken).ConfigureAwait(false);
 

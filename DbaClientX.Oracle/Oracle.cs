@@ -51,6 +51,10 @@ public partial class Oracle : DatabaseClientBase
     /// </remarks>
     public static string BuildConnectionString(string host, string serviceName, string username, string password, int? port = null)
     {
+        ValidateRequiredConnectionValue(host, nameof(host), "Host");
+        ValidateRequiredConnectionValue(serviceName, nameof(serviceName), "Service name");
+        ValidateRequiredConnectionValue(username, nameof(username), "Username");
+
         var builder = new OracleConnectionStringBuilder
         {
             DataSource = port.HasValue ? $"{host}:{port}/{serviceName}" : $"{host}/{serviceName}",
@@ -116,4 +120,12 @@ public partial class Oracle : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new OracleConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
+    }
 }

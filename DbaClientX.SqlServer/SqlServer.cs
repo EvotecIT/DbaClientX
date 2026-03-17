@@ -64,6 +64,13 @@ public partial class SqlServer : DatabaseClientBase
         int? port = null,
         bool? ssl = null)
     {
+        ValidateRequiredConnectionValue(serverOrInstance, nameof(serverOrInstance), "Server");
+        ValidateRequiredConnectionValue(database, nameof(database), "Database");
+        if (!integratedSecurity)
+        {
+            ValidateRequiredConnectionValue(username, nameof(username), "Username");
+        }
+
         var dataSource = port.HasValue ? $"{serverOrInstance},{port.Value}" : serverOrInstance;
         var connectionStringBuilder = new SqlConnectionStringBuilder
         {
@@ -313,4 +320,12 @@ public partial class SqlServer : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new SqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateRequiredConnectionValue(string? value, string paramName, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException($"{displayName} cannot be null or whitespace.", paramName);
+        }
+    }
 }

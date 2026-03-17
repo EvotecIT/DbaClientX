@@ -36,7 +36,7 @@ public class QueryBuilderUpsertUpdateOnlyTests
             .UpsertUpdateOnly("name");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        var expected = "MERGE INTO [users] AS target USING (VALUES (1, 'Bob', 'bob@example.com')) AS source ([id], [name], [email]) ON (target.[id] = source.[id]) WHEN MATCHED THEN UPDATE SET target.[name] = source.[name] WHEN NOT MATCHED THEN INSERT ([id], [name], [email]) VALUES (source.[id], source.[name], source.[email])";
+        var expected = "DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name], [email]) VALUES (1, 'Bob', 'bob@example.com'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH";
         Assert.Equal(expected, sql);
     }
 }
