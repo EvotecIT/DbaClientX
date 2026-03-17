@@ -107,7 +107,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("name", "Bob") }, "id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name]) VALUES (1, 'Bob'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH", sql);
+        Assert.Equal("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1) BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1; END ELSE BEGIN INSERT INTO [users] ([id], [name]) VALUES (1, 'Bob'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH", sql);
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class QueryBuilderTests
             .InsertOrUpdate("users", new[] { ("id", (object)1), ("email", "bob@example.com"), ("name", "Bob") }, "id", "email");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.SqlServer);
-        Assert.Equal("BEGIN TRY BEGIN TRANSACTION; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1 AND [email] = 'bob@example.com') BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1 AND [email] = 'bob@example.com'; END ELSE BEGIN INSERT INTO [users] ([id], [email], [name]) VALUES (1, 'bob@example.com', 'Bob'); END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH", sql);
+        Assert.Equal("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION DbaClientXUpsert; IF EXISTS (SELECT 1 FROM [users] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = 1 AND [email] = 'bob@example.com') BEGIN UPDATE [users] SET [name] = 'Bob' WHERE [id] = 1 AND [email] = 'bob@example.com'; END ELSE BEGIN INSERT INTO [users] ([id], [email], [name]) VALUES (1, 'bob@example.com', 'Bob'); END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION DbaClientXUpsert; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH", sql);
     }
 
     [Fact]

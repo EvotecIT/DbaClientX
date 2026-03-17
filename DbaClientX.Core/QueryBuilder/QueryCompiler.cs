@@ -516,8 +516,11 @@ public class QueryCompiler
                     .Append(" WITH (UPDLOCK, HOLDLOCK) WHERE ")
                     .Append(conflictPredicate)
                     .ToString();
+                const string sqlServerUpsertSavepointName = "DbaClientXUpsert";
 
-                sb.Append("BEGIN TRY BEGIN TRANSACTION; ");
+                sb.Append("DECLARE @__dbaClientXTranCount int = @@TRANCOUNT; BEGIN TRY IF @__dbaClientXTranCount = 0 BEGIN TRANSACTION; ELSE SAVE TRANSACTION ")
+                  .Append(sqlServerUpsertSavepointName)
+                  .Append("; ");
                 if (updateColsMs.Count > 0)
                 {
                     sb.Append("IF EXISTS (").Append(lockedExistenceCheck).Append(") BEGIN UPDATE ")
@@ -545,7 +548,9 @@ public class QueryCompiler
                 sb.Append("INSERT INTO ").Append(tableName)
                   .Append(" (").Append(sourceColumns).Append(") VALUES ")
                   .Append(insertValues)
-                  .Append("; END; COMMIT TRANSACTION; END TRY BEGIN CATCH IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION; THROW; END CATCH");
+                  .Append("; END; IF @__dbaClientXTranCount = 0 COMMIT TRANSACTION; END TRY BEGIN CATCH IF XACT_STATE() = 1 BEGIN IF @__dbaClientXTranCount = 0 ROLLBACK TRANSACTION; ELSE ROLLBACK TRANSACTION ")
+                  .Append(sqlServerUpsertSavepointName)
+                  .Append("; END ELSE IF XACT_STATE() = -1 AND @__dbaClientXTranCount = 0 BEGIN ROLLBACK TRANSACTION; END; THROW; END CATCH");
                 return sb.ToString();
             default:
                 throw new NotSupportedException($"Upsert not supported for {_dialect}");
