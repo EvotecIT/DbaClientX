@@ -29,11 +29,11 @@
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0'">
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+    <Reference Include="System.Data.Common" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Collections" />

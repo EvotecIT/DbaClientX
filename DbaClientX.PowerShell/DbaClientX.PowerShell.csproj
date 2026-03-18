@@ -14,14 +14,14 @@
 		<Company>Evotec</Company>
 		<Authors>Przemyslaw Klys</Authors>
 		<LangVersion>latest</LangVersion>
-	</PropertyGroup>
+        </PropertyGroup>
         <ItemGroup>
-                <PackageReference Include="PowerShellStandard.Library" Version="5.1.1" PrivateAssets="all" />
-                <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+                <PackageReference Include="PowerShellStandard.Library" PrivateAssets="all" />
+                <PackageReference Include="Microsoft.Data.SqlClient" />
         </ItemGroup>
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
-                <PackageReference Include="System.Formats.Asn1" Version="8.0.1" />
-                <PackageReference Include="System.Text.Json" Version="8.0.5" />
+                <PackageReference Include="System.Formats.Asn1" />
+                <PackageReference Include="System.Text.Json" />
         </ItemGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
@@ -73,7 +73,7 @@
 
 	<ItemGroup>
 		<!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
-                <PackageReference Include="MatejKafka.XmlDoc2CmdletDoc" Version="0.7.0">
+                <PackageReference Include="MatejKafka.XmlDoc2CmdletDoc">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
