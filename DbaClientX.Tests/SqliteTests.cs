@@ -310,6 +310,58 @@ public class SqliteTests
         }
     }
 
+    [Fact]
+    public async Task PrepareForShutdownAsync_WalDatabase_CheckpointsAndKeepsDatabaseHealthy()
+    {
+        var path = Path.GetTempFileName();
+        string walPath = path + "-wal";
+
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            await sqlite.ExecuteNonQueryAsync(path, "PRAGMA journal_mode=WAL;");
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER, payload TEXT);");
+            await sqlite.ExecuteNonQueryAsync(path, "INSERT INTO t(id, payload) VALUES (1, $payload);", new Dictionary<string, object?>
+            {
+                ["$payload"] = new string('x', 4096)
+            });
+
+            await sqlite.PrepareForShutdownAsync(path, new SqliteShutdownMaintenanceOptions
+            {
+                CheckpointMode = SqliteCheckpointMode.Truncate,
+                OptimizeAfterCheckpoint = true
+            });
+
+            if (File.Exists(walPath))
+            {
+                Assert.Equal(0, new FileInfo(walPath).Length);
+            }
+
+            await using var connection = new SqliteConnection(DBAClientX.SQLite.BuildConnectionString(path));
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA integrity_check;";
+            object? result = await command.ExecuteScalarAsync();
+            Assert.Equal("ok", result?.ToString());
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task PrepareForShutdownAsync_WhenTransactionActive_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await sqlite.BeginTransactionAsync(":memory:");
+
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(async () =>
+            await sqlite.PrepareForShutdownAsync(":memory:"));
+
+        await sqlite.RollbackAsync();
+    }
+
     private class DelaySqlite : DBAClientX.SQLite
     {
         private readonly TimeSpan _delay;
@@ -440,10 +492,19 @@ public class SqliteTests
 
     private static void Cleanup(string path)
     {
-        if (File.Exists(path))
+        TryDelete(path);
+        TryDelete(path + "-wal");
+        TryDelete(path + "-shm");
+    }
+
+    private static void TryDelete(string path)
+    {
+        if (!File.Exists(path))
         {
-            File.Delete(path);
+            return;
         }
+
+        File.Delete(path);
     }
 
     private static SqliteConnection GetTransactionConnection(DBAClientX.SQLite sqlite)
