@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Management.Automation;
 using System.Reflection;
+using System.Threading;
 #if NET5_0_OR_GREATER
 using System.Runtime.Loader;
 #endif
@@ -10,16 +11,22 @@ using System.Runtime.Loader;
 /// Handles module import/removal events and resolves dependent assemblies for both .NET Framework and .NET (Core/5+).
 /// </summary>
 public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemblyCleanup {
+#if NET5_0_OR_GREATER
+    private static int _defaultAlcResolvingRegistered;
+#else
+    private static int _appDomainAssemblyResolveRegistered;
+#endif
+
     /// <summary>
     /// Called by PowerShell when the module is imported. Wires up assembly resolution for Framework/Core.
     /// </summary>
     public void OnImport() {
         if (IsNetFramework()) {
-            AppDomain.CurrentDomain.AssemblyResolve += MyResolveEventHandler;
+            RegisterFrameworkAssemblyResolver();
         }
 #if NET5_0_OR_GREATER
         else {
-            AssemblyLoadContext.Default.Resolving += ResolveAlc;
+            RegisterDefaultAlcResolver();
         }
 #endif
     }
@@ -29,34 +36,69 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     /// </summary>
     public void OnRemove(PSModuleInfo module) {
         if (IsNetFramework()) {
-            AppDomain.CurrentDomain.AssemblyResolve -= MyResolveEventHandler;
+            UnregisterFrameworkAssemblyResolver();
         }
 #if NET5_0_OR_GREATER
         else {
-            AssemblyLoadContext.Default.Resolving -= ResolveAlc;
+            UnregisterDefaultAlcResolver();
         }
 #endif
     }
 
     private static Assembly? MyResolveEventHandler(object? sender, ResolveEventArgs args) {
-        //This code is used to resolve the assemblies
-        //Console.WriteLine($"Resolving {args.Name}");
+        var requestedAssemblyName = GetSimpleAssemblyName(args.Name);
+        if (string.IsNullOrEmpty(requestedAssemblyName) ||
+            string.Equals(requestedAssemblyName, "DBAClientX.PowerShell", StringComparison.OrdinalIgnoreCase)) {
+            return null;
+        }
+
         var directoryPath = Path.GetDirectoryName(typeof(OnModuleImportAndRemove).Assembly.Location);
         if (string.IsNullOrEmpty(directoryPath)) {
             return null;
         }
-        var filesInDirectory = Directory.GetFiles(directoryPath);
 
-        foreach (var file in filesInDirectory) {
-            var fileName = Path.GetFileName(file);
+        foreach (var file in Directory.EnumerateFiles(directoryPath, "*.dll")) {
             var assemblyName = Path.GetFileNameWithoutExtension(file);
-
-            if (args.Name.StartsWith(assemblyName)) {
-                //Console.WriteLine($"Loading {args.Name} assembly {fileName}");
+            if (string.Equals(assemblyName, requestedAssemblyName, StringComparison.OrdinalIgnoreCase)) {
                 return Assembly.LoadFile(file);
             }
         }
+
         return null;
+    }
+
+    private static string? GetSimpleAssemblyName(string? assemblyName) {
+        if (string.IsNullOrWhiteSpace(assemblyName)) {
+            return null;
+        }
+
+        try {
+            return new AssemblyName(assemblyName).Name;
+        } catch (FileLoadException) {
+            return null;
+        } catch (FileNotFoundException) {
+            return null;
+        } catch (BadImageFormatException) {
+            return null;
+        } catch (ArgumentException) {
+            return null;
+        }
+    }
+
+    private static void RegisterFrameworkAssemblyResolver() {
+#if !NET5_0_OR_GREATER
+        if (Interlocked.CompareExchange(ref _appDomainAssemblyResolveRegistered, 1, 0) == 0) {
+            AppDomain.CurrentDomain.AssemblyResolve += MyResolveEventHandler;
+        }
+#endif
+    }
+
+    private static void UnregisterFrameworkAssemblyResolver() {
+#if !NET5_0_OR_GREATER
+        if (Interlocked.CompareExchange(ref _appDomainAssemblyResolveRegistered, 0, 1) == 1) {
+            AppDomain.CurrentDomain.AssemblyResolve -= MyResolveEventHandler;
+        }
+#endif
     }
 
 #if NET5_0_OR_GREATER
@@ -69,6 +111,18 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     /// Gets the module's dedicated AssemblyLoadContext used for resolving dependent assemblies.
     /// </summary>
     public static AssemblyLoadContext LoadContext => _alc;
+
+    private static void RegisterDefaultAlcResolver() {
+        if (Interlocked.CompareExchange(ref _defaultAlcResolvingRegistered, 1, 0) == 0) {
+            AssemblyLoadContext.Default.Resolving += ResolveAlc;
+        }
+    }
+
+    private static void UnregisterDefaultAlcResolver() {
+        if (Interlocked.CompareExchange(ref _defaultAlcResolvingRegistered, 0, 1) == 1) {
+            AssemblyLoadContext.Default.Resolving -= ResolveAlc;
+        }
+    }
 
     private static Assembly? ResolveAlc(AssemblyLoadContext defaultAlc, AssemblyName assemblyToResolve) {
         string asmPath = Path.Join(_assemblyDir, $"{assemblyToResolve.Name}.dll");

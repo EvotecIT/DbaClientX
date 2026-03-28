@@ -127,6 +127,67 @@ public class MySqlTransactionTests
         Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
     }
 
+    [Fact]
+    public void RunInTransaction_CommitsAndReturnsResult()
+    {
+        using var mySql = new TestMySql();
+
+        var result = mySql.RunInTransaction("h", "d", "u", "p", client =>
+        {
+            client.Query("h", "d", "u", "p", "q", useTransaction: true);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(mySql.Transaction);
+    }
+
+    [Fact]
+    public void RunInTransaction_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var mySql = new TestMySql();
+        FakeMySqlTransaction? txn = null;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            mySql.RunInTransaction("h", "d", "u", "p", client =>
+            {
+                txn = mySql.Transaction;
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(mySql.Transaction);
+    }
+
+    private class BeginFailureTransactionMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(MySqlConnection connection)
+        {
+        }
+
+        protected override MySqlTransaction BeginDbTransaction(MySqlConnection connection, IsolationLevel isolationLevel)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void BeginTransaction_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var mySql = new BeginFailureTransactionMySql();
+
+        Assert.Throws<InvalidOperationException>(() => mySql.BeginTransaction("h", "d", "u", "p"));
+        Assert.Throws<InvalidOperationException>(() => mySql.BeginTransaction("h", "d", "u", "p"));
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(2, mySql.DisposeCalls);
+    }
+
     private class ThrowingCommitMySql : DBAClientX.MySql
     {
         public int DisposeCalls { get; private set; }
@@ -185,5 +246,42 @@ public class MySqlTransactionTests
         Assert.False(mySql.IsInTransaction);
         Assert.Equal(1, mySql.DisposeCalls);
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.Rollback());
+    }
+
+    private sealed class DisposeTrackingMySql : DBAClientX.MySql
+    {
+        public int RollbackCalls { get; private set; }
+        public int TransactionDisposals { get; private set; }
+        public int ConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(MySqlTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeDbTransaction(MySqlTransaction transaction)
+            => TransactionDisposals++;
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => ConnectionDisposals++;
+    }
+
+    [Fact]
+    public void Dispose_WithActiveTransaction_RollsBackAndCleansUpOnce()
+    {
+        var mySql = new DisposeTrackingMySql();
+        mySql.SeedActiveTransaction();
+
+        mySql.Dispose();
+        mySql.Dispose();
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(1, mySql.RollbackCalls);
+        Assert.Equal(1, mySql.TransactionDisposals);
+        Assert.Equal(1, mySql.ConnectionDisposals);
     }
 }

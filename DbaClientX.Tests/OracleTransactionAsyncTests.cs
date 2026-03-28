@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Oracle.ManagedDataAccess.Client;
@@ -9,6 +11,11 @@ namespace DbaClientX.Tests;
 
 public class OracleTransactionAsyncTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.Oracle)
+        .GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.Oracle)
+        .GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeOracleConnection
     {
         public bool BeginCalled { get; private set; }
@@ -195,6 +202,41 @@ public class OracleTransactionAsyncTests
         Assert.Equal(IsolationLevel.Serializable, oracle.Connection!.Level);
     }
 
+    [Fact]
+    public async Task RunInTransactionAsync_CommitsAndReturnsResult()
+    {
+        using var oracle = new TestOracle();
+
+        var result = await oracle.RunInTransactionAsync("h", "svc", "u", "p", async (client, token) =>
+        {
+            await client.QueryAsync("h", "svc", "u", "p", "q", useTransaction: true, cancellationToken: token);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(oracle.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var oracle = new TestOracle();
+        FakeOracleTransaction? txn = null;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            oracle.RunInTransactionAsync("h", "svc", "u", "p", async (_, _) =>
+            {
+                txn = oracle.Transaction;
+                await Task.Yield();
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(oracle.Transaction);
+    }
+
     private class OpenFailureTransactionOracle : DBAClientX.Oracle
     {
         public int DisposeCalls { get; private set; }
@@ -204,6 +246,12 @@ public class OracleTransactionAsyncTests
 
         protected override void DisposeConnection(OracleConnection connection)
             => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -216,5 +264,92 @@ public class OracleTransactionAsyncTests
 
         Assert.False(oracle.IsInTransaction);
         Assert.Equal(2, oracle.DisposeCalls);
+    }
+
+    private class BeginFailureTransactionOracle : DBAClientX.Oracle
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override Task<OracleTransaction> BeginDbTransactionAsync(OracleConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+            => Task.FromException<OracleTransaction>(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var oracle = new BeginFailureTransactionOracle();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => oracle.BeginTransactionAsync("h", "svc", "u", "p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => oracle.BeginTransactionAsync("h", "svc", "u", "p"));
+
+        Assert.False(oracle.IsInTransaction);
+        Assert.Equal(2, oracle.DisposeCalls);
+    }
+
+    private sealed class AsyncDisposeTrackingOracle : DBAClientX.Oracle
+    {
+        public int AsyncRollbackCalls { get; private set; }
+        public int AsyncTransactionDisposals { get; private set; }
+        public int AsyncConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleConnection)));
+        }
+
+        protected override ValueTask DisposeDbTransactionAsync(OracleTransaction transaction)
+        {
+            AsyncTransactionDisposals++;
+            return default;
+        }
+
+        protected override Task TryRollbackDbTransactionOnDisposeAsync(OracleTransaction? transaction)
+        {
+            AsyncRollbackCalls++;
+            return Task.CompletedTask;
+        }
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            AsyncConnectionDisposals++;
+            return default;
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(OracleTransaction? transaction)
+            => throw new InvalidOperationException("Synchronous rollback should not be used by DisposeAsync.");
+
+        protected override void DisposeDbTransaction(OracleTransaction transaction)
+            => throw new InvalidOperationException("Synchronous transaction disposal should not be used by DisposeAsync.");
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => throw new InvalidOperationException("Synchronous connection disposal should not be used by DisposeAsync.");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WithActiveTransaction_UsesAsyncCleanupAndClearsState()
+    {
+        var oracle = new AsyncDisposeTrackingOracle();
+        oracle.SeedActiveTransaction();
+
+        await oracle.DisposeAsync();
+        await oracle.DisposeAsync();
+
+        Assert.False(oracle.IsInTransaction);
+        Assert.Equal(1, oracle.AsyncRollbackCalls);
+        Assert.Equal(1, oracle.AsyncTransactionDisposals);
+        Assert.Equal(1, oracle.AsyncConnectionDisposals);
     }
 }

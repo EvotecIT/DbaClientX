@@ -25,6 +25,7 @@ public partial class SQLite : DatabaseClientBase
     private readonly object _syncRoot = new();
     private SqliteConnection? _transactionConnection;
     private SqliteTransaction? _transaction;
+    private string? _transactionConnectionString;
     private bool _transactionInitializing;
     private volatile int _busyTimeoutMs = DefaultBusyTimeoutMs;
 
@@ -116,6 +117,9 @@ public partial class SQLite : DatabaseClientBase
 
     private static string BuildOperationalConnectionString(string database, bool readOnly = false) =>
         BuildConnectionString(database, readOnly, busyTimeoutMs: null);
+
+    private static string NormalizeConnectionString(string connectionString)
+        => new SqliteConnectionStringBuilder(connectionString).ToString();
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)
     {

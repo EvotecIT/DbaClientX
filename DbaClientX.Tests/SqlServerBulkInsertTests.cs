@@ -15,6 +15,8 @@ public class SqlServerBulkInsertTests
         public int? Timeout { get; private set; }
         public string? Destination { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override SqlConnection CreateConnection(string connectionString) => new();
 
@@ -41,11 +43,21 @@ public class SqlServerBulkInsertTests
             WriteToServer(bulkCopy, table);
             return Task.CompletedTask;
         }
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     private class OpenFailureBulkCopySqlServer : DBAClientX.SqlServer
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(SqlConnection connection)
             => throw new InvalidOperationException("boom");
@@ -54,7 +66,13 @@ public class SqlServerBulkInsertTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(SqlConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -71,6 +89,8 @@ public class SqlServerBulkInsertTests
         Assert.Equal(100, sqlServer.BatchSize);
         Assert.Equal(60, sqlServer.Timeout);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(1, sqlServer.SyncDisposeCalls);
+        Assert.Equal(0, sqlServer.AsyncDisposeCalls);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Name" && m.Destination == "Name");
     }
@@ -89,6 +109,8 @@ public class SqlServerBulkInsertTests
         Assert.Equal(50, sqlServer.BatchSize);
         Assert.Equal(30, sqlServer.Timeout);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Name" && m.Destination == "Name");
     }
@@ -129,7 +151,8 @@ public class SqlServerBulkInsertTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, sqlServer.DisposeCalls);
+        Assert.Equal(1, sqlServer.SyncDisposeCalls);
+        Assert.Equal(0, sqlServer.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -142,7 +165,8 @@ public class SqlServerBulkInsertTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, sqlServer.DisposeCalls);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
     }
 
     [Fact]

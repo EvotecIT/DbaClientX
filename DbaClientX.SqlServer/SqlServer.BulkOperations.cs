@@ -124,10 +124,7 @@ public partial class SqlServer
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -180,6 +177,19 @@ public partial class SqlServer
     /// Disposes a SQL Server connection created for the current operation.
     /// </summary>
     protected virtual void DisposeConnection(SqlConnection connection) => connection.Dispose();
+
+    /// <summary>
+    /// Asynchronously disposes a SQL Server connection created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeConnectionAsync(SqlConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
+    }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
     {

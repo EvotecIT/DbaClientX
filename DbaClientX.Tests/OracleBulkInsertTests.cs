@@ -15,6 +15,8 @@ public class OracleBulkInsertTests
         public string? Destination { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override OracleConnection CreateConnection(string connectionString) => new();
 
@@ -43,6 +45,15 @@ public class OracleBulkInsertTests
             WriteToServer(bulkCopy, table);
             return Task.CompletedTask;
         }
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     private class CancellableBulkCopyOracle : DBAClientX.Oracle
@@ -63,7 +74,8 @@ public class OracleBulkInsertTests
 
     private class OpenFailureBulkOracle : DBAClientX.Oracle
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(OracleConnection connection)
             => throw new InvalidOperationException("boom");
@@ -72,7 +84,13 @@ public class OracleBulkInsertTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(OracleConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -89,6 +107,8 @@ public class OracleBulkInsertTests
 
         Assert.Equal(60, oracle.Timeout);
         Assert.Equal("Dest", oracle.Destination);
+        Assert.Equal(1, oracle.SyncDisposeCalls);
+        Assert.Equal(0, oracle.AsyncDisposeCalls);
         Assert.Contains(oracle.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(oracle.Mappings, m => m.Source == "Name" && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, oracle.BatchRowCounts);
@@ -108,6 +128,8 @@ public class OracleBulkInsertTests
 
         Assert.Equal(30, oracle.Timeout);
         Assert.Equal("Dest", oracle.Destination);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
         Assert.Contains(oracle.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(oracle.Mappings, m => m.Source == "Name" && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, oracle.BatchRowCounts);
@@ -168,7 +190,8 @@ public class OracleBulkInsertTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => oracle.BulkInsert("h", "svc", "u", "p", table, "Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, oracle.DisposeCalls);
+        Assert.Equal(1, oracle.SyncDisposeCalls);
+        Assert.Equal(0, oracle.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -181,7 +204,8 @@ public class OracleBulkInsertTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.BulkInsertAsync("h", "svc", "u", "p", table, "Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, oracle.DisposeCalls);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
     }
 
     [Fact]

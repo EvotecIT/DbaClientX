@@ -236,7 +236,7 @@ public partial class SqlServer : DatabaseClientBase
         }
         catch
         {
-            DisposeConnection(connection);
+            await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
             throw;
         }
     }

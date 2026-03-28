@@ -6,6 +6,7 @@ using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -15,6 +16,9 @@ namespace DbaClientX.Tests;
 
 public class SqliteTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.SQLite).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.SQLite).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     [Fact]
     public void ExecuteNonQuery_CreatesAndReadsData()
     {
@@ -174,6 +178,57 @@ public class SqliteTests
     }
 
     [Fact]
+    public void RunInTransaction_CommitsOnSuccess()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+
+            var result = sqlite.RunInTransaction(path, client =>
+            {
+                client.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
+                return 42;
+            });
+
+            Assert.Equal(42, result);
+            var table = Assert.IsType<DataTable>(sqlite.Query(path, "SELECT id FROM t;"));
+            Assert.Single(table.Rows);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void RunInTransaction_WhenOperationFails_RollsBackAndRethrows()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE t(id INTEGER);");
+
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                sqlite.RunInTransaction(path, client =>
+                {
+                    client.ExecuteNonQuery(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true);
+                    throw new InvalidOperationException("boom");
+                }));
+
+            Assert.Equal("boom", ex.Message);
+            var table = Assert.IsType<DataTable>(sqlite.Query(path, "SELECT id FROM t;"));
+            Assert.Empty(table.Rows);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void Rollback_DiscardsChanges()
     {
         var path = Path.GetTempFileName();
@@ -202,6 +257,88 @@ public class SqliteTests
         Assert.True(sqlite.IsInTransaction);
         sqlite.Dispose();
         Assert.False(sqlite.IsInTransaction);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_EndsTransaction()
+    {
+        var sqlite = new DBAClientX.SQLite();
+        await sqlite.BeginTransactionAsync(":memory:");
+        Assert.True(sqlite.IsInTransaction);
+
+        await sqlite.DisposeAsync();
+
+        Assert.False(sqlite.IsInTransaction);
+    }
+
+    private sealed class DisposeTrackingSqlite : DBAClientX.SQLite
+    {
+        public int RollbackCalls { get; private set; }
+        public int CleanupCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(SqliteTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeTransactionResources(SqliteTransaction? transaction, SqliteConnection? connection)
+            => CleanupCalls++;
+    }
+
+    [Fact]
+    public void Dispose_WithActiveTransaction_RollsBackAndCleansUpOnce()
+    {
+        var sqlite = new DisposeTrackingSqlite();
+        sqlite.SeedActiveTransaction();
+
+        sqlite.Dispose();
+        sqlite.Dispose();
+
+        Assert.False(sqlite.IsInTransaction);
+        Assert.Equal(1, sqlite.RollbackCalls);
+        Assert.Equal(1, sqlite.CleanupCalls);
+    }
+
+    private sealed class ThrowingDisposeSqlite : DBAClientX.SQLite
+    {
+        public int RollbackCalls { get; private set; }
+        public int CleanupCalls { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(SqliteTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeTransactionResources(SqliteTransaction? transaction, SqliteConnection? connection)
+        {
+            CleanupCalls++;
+            throw new InvalidOperationException("cleanup failed");
+        }
+    }
+
+    [Fact]
+    public void Dispose_WhenCleanupThrows_ClearsTransactionState()
+    {
+        var sqlite = new ThrowingDisposeSqlite();
+        sqlite.SeedActiveTransaction();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => sqlite.Dispose());
+
+        Assert.Equal("cleanup failed", ex.Message);
+        Assert.False(sqlite.IsInTransaction);
+        Assert.Equal(1, sqlite.RollbackCalls);
+        Assert.Equal(1, sqlite.CleanupCalls);
+        sqlite.Dispose();
+        Assert.Equal(1, sqlite.RollbackCalls);
+        Assert.Equal(1, sqlite.CleanupCalls);
     }
 
     [Fact]
@@ -360,6 +497,101 @@ public class SqliteTests
             await sqlite.PrepareForShutdownAsync(":memory:"));
 
         await sqlite.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_CommitsOnSuccess()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER);");
+
+            var result = await sqlite.RunInTransactionAsync(path, async (client, token) =>
+            {
+                await client.ExecuteNonQueryAsync(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true, cancellationToken: token);
+                return 42;
+            });
+
+            Assert.Equal(42, result);
+            var table = Assert.IsType<DataTable>(await sqlite.QueryAsync(path, "SELECT id FROM t;"));
+            Assert.Single(table.Rows);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenOperationFails_RollsBackAndRethrows()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER);");
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                sqlite.RunInTransactionAsync(path, async (client, token) =>
+                {
+                    await client.ExecuteNonQueryAsync(path, "INSERT INTO t(id) VALUES (1);", useTransaction: true, cancellationToken: token);
+                    throw new InvalidOperationException("boom");
+                }));
+
+            Assert.Equal("boom", ex.Message);
+            var table = Assert.IsType<DataTable>(await sqlite.QueryAsync(path, "SELECT id FROM t;"));
+            Assert.Empty(table.Rows);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void Query_WithMismatchedTransactionDatabase_Throws()
+    {
+        var path1 = Path.GetTempFileName();
+        var path2 = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.BeginTransaction(path1);
+
+            var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlite.Query(path2, "SELECT 1", useTransaction: true));
+
+            Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
+            sqlite.Rollback();
+        }
+        finally
+        {
+            Cleanup(path1);
+            Cleanup(path2);
+        }
+    }
+
+    [Fact]
+    public async Task QueryAsync_WithMismatchedTransactionDatabase_Throws()
+    {
+        var path1 = Path.GetTempFileName();
+        var path2 = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            await sqlite.BeginTransactionAsync(path1);
+
+            var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlite.QueryAsync(path2, "SELECT 1", useTransaction: true));
+
+            Assert.IsType<DBAClientX.DbaTransactionException>(ex.InnerException);
+            await sqlite.RollbackAsync();
+        }
+        finally
+        {
+            Cleanup(path1);
+            Cleanup(path2);
+        }
     }
 
     private class DelaySqlite : DBAClientX.SQLite

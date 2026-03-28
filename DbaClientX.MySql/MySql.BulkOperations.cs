@@ -137,10 +137,7 @@ public partial class MySql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -188,6 +185,19 @@ public partial class MySql
     /// Disposes a MySQL connection created for the current operation.
     /// </summary>
     protected virtual void DisposeConnection(MySqlConnection connection) => connection.Dispose();
+
+    /// <summary>
+    /// Asynchronously disposes a MySQL connection created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeConnectionAsync(MySqlConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
+    }
 
     private static IEnumerable<DataRow> EnumerateRows(DataRowCollection rows, int start, int count)
     {

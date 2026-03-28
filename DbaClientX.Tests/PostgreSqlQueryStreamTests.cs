@@ -3,6 +3,7 @@ using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
+using Npgsql;
 using NpgsqlTypes;
 using Xunit;
 
@@ -30,5 +31,39 @@ public class PostgreSqlQueryStreamTests
             {
             }
         });
+    }
+
+    private class OpenFailurePg : DBAClientX.PostgreSql
+    {
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(NpgsqlConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(NpgsqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_WhenOpenFails_UsesAsyncDispose()
+    {
+        using var pg = new OpenFailurePg();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await using var enumerator = pg.QueryStreamAsync("h", "d", "u", "p", "q").GetAsyncEnumerator();
+            await enumerator.MoveNextAsync();
+        });
+
+        Assert.Equal("boom", ex.Message);
+        Assert.Equal(0, pg.SyncDisposeCalls);
+        Assert.Equal(1, pg.AsyncDisposeCalls);
     }
 }

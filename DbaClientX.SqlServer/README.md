@@ -39,15 +39,15 @@ await foreach (DataRow row in cli.QueryStreamAsync(
 Transactions:
 
 ```csharp
-cli.BeginTransaction(serverOrInstance: ".", database: "App", integratedSecurity: true);
-try {
-    cli.ExecuteNonQuery(".", "App", true, "DELETE FROM Logs WHERE Level='Debug'");
-    cli.Commit();
-} catch { cli.Rollback(); throw; }
+cli.RunInTransaction(
+    serverOrInstance: ".",
+    database: "App",
+    integratedSecurity: true,
+    operation: tx => tx.ExecuteNonQuery(".", "App", true, "DELETE FROM Logs WHERE Level='Debug'", useTransaction: true)
+);
 ```
 
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
 - Other providers: PostgreSql, MySql, SQLite, Oracle
-

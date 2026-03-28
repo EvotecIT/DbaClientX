@@ -476,7 +476,8 @@ public class OracleTests
 
     private class OpenFailureOracle : DBAClientX.Oracle
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(OracleConnection connection)
             => throw new InvalidOperationException("boom");
@@ -485,7 +486,13 @@ public class OracleTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(OracleConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -496,7 +503,8 @@ public class OracleTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteNonQuery("h", "svc", "u", "p", "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, oracle.DisposeCalls);
+        Assert.Equal(1, oracle.SyncDisposeCalls);
+        Assert.Equal(0, oracle.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -507,7 +515,44 @@ public class OracleTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteNonQueryAsync("h", "svc", "u", "p", "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, oracle.DisposeCalls);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task QueryAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.QueryAsync("h", "svc", "u", "p", "SELECT 1 FROM dual"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteScalarAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteScalarAsync("h", "svc", "u", "p", "SELECT 1 FROM dual"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => oracle.ExecuteStoredProcedureAsync("h", "svc", "u", "p", "sp_test", parameters: (IDictionary<string, object?>?)null));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
     }
 
     private class SeededTransactionOracle : DBAClientX.Oracle

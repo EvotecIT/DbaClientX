@@ -130,6 +130,67 @@ public class SqlServerTransactionTests
         Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
     }
 
+    [Fact]
+    public void RunInTransaction_CommitsAndReturnsResult()
+    {
+        using var server = new TestSqlServer();
+
+        var result = server.RunInTransaction("s", "db", true, client =>
+        {
+            client.Query("s", "db", true, "q", useTransaction: true);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public void RunInTransaction_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var server = new TestSqlServer();
+        FakeSqlTransaction? txn = null;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            server.RunInTransaction("s", "db", true, client =>
+            {
+                txn = server.Transaction;
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(server.Transaction);
+    }
+
+    private class BeginFailureTransactionSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(SqlConnection connection)
+        {
+        }
+
+        protected override SqlTransaction BeginDbTransaction(SqlConnection connection, IsolationLevel isolationLevel)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void BeginTransaction_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var server = new BeginFailureTransactionSqlServer();
+
+        Assert.Throws<InvalidOperationException>(() => server.BeginTransaction("s", "db", true));
+        Assert.Throws<InvalidOperationException>(() => server.BeginTransaction("s", "db", true));
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(2, server.DisposeCalls);
+    }
+
     private class ThrowingCommitSqlServer : DBAClientX.SqlServer
     {
         public int DisposeCalls { get; private set; }
@@ -188,5 +249,42 @@ public class SqlServerTransactionTests
         Assert.False(server.IsInTransaction);
         Assert.Equal(1, server.DisposeCalls);
         Assert.Throws<DBAClientX.DbaTransactionException>(() => server.Rollback());
+    }
+
+    private sealed class DisposeTrackingSqlServer : DBAClientX.SqlServer
+    {
+        public int RollbackCalls { get; private set; }
+        public int TransactionDisposals { get; private set; }
+        public int ConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(SqlTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeDbTransaction(SqlTransaction transaction)
+            => TransactionDisposals++;
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => ConnectionDisposals++;
+    }
+
+    [Fact]
+    public void Dispose_WithActiveTransaction_RollsBackAndCleansUpOnce()
+    {
+        var server = new DisposeTrackingSqlServer();
+        server.SeedActiveTransaction();
+
+        server.Dispose();
+        server.Dispose();
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(1, server.RollbackCalls);
+        Assert.Equal(1, server.TransactionDisposals);
+        Assert.Equal(1, server.ConnectionDisposals);
     }
 }

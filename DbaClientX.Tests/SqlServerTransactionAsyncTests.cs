@@ -1,4 +1,6 @@
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -8,6 +10,9 @@ namespace DbaClientX.Tests;
 
 public class SqlServerTransactionAsyncTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.SqlServer).GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.SqlServer).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeSqlConnection
     {
         public bool BeginCalled { get; private set; }
@@ -191,6 +196,41 @@ public class SqlServerTransactionAsyncTests
         Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
     }
 
+    [Fact]
+    public async Task RunInTransactionAsync_CommitsAndReturnsResult()
+    {
+        using var server = new TestSqlServer();
+
+        var result = await server.RunInTransactionAsync("s", "db", true, async (client, token) =>
+        {
+            await client.QueryAsync("s", "db", true, "q", useTransaction: true, cancellationToken: token);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var server = new TestSqlServer();
+        FakeSqlTransaction? txn = null;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            server.RunInTransactionAsync("s", "db", true, async (_, _) =>
+            {
+                txn = server.Transaction;
+                await Task.Yield();
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(server.Transaction);
+    }
+
     private class OpenFailureTransactionSqlServer : DBAClientX.SqlServer
     {
         public int DisposeCalls { get; private set; }
@@ -200,6 +240,12 @@ public class SqlServerTransactionAsyncTests
 
         protected override void DisposeConnection(SqlConnection connection)
             => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -212,5 +258,92 @@ public class SqlServerTransactionAsyncTests
 
         Assert.False(server.IsInTransaction);
         Assert.Equal(2, server.DisposeCalls);
+    }
+
+    private class BeginFailureTransactionSqlServer : DBAClientX.SqlServer
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override Task<SqlTransaction> BeginDbTransactionAsync(SqlConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+            => Task.FromException<SqlTransaction>(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var server = new BeginFailureTransactionSqlServer();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => server.BeginTransactionAsync("s", "db", true));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => server.BeginTransactionAsync("s", "db", true));
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(2, server.DisposeCalls);
+    }
+
+    private class AsyncDisposeTrackingSqlServer : DBAClientX.SqlServer
+    {
+        public int AsyncRollbackCalls { get; private set; }
+        public int AsyncTransactionDisposals { get; private set; }
+        public int AsyncConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqlConnection)));
+        }
+
+        protected override ValueTask DisposeDbTransactionAsync(SqlTransaction transaction)
+        {
+            AsyncTransactionDisposals++;
+            return default;
+        }
+
+        protected override Task TryRollbackDbTransactionOnDisposeAsync(SqlTransaction? transaction)
+        {
+            AsyncRollbackCalls++;
+            return Task.CompletedTask;
+        }
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            AsyncConnectionDisposals++;
+            return default;
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(SqlTransaction? transaction)
+            => throw new InvalidOperationException("Synchronous rollback should not be used by DisposeAsync.");
+
+        protected override void DisposeDbTransaction(SqlTransaction transaction)
+            => throw new InvalidOperationException("Synchronous transaction disposal should not be used by DisposeAsync.");
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => throw new InvalidOperationException("Synchronous connection disposal should not be used by DisposeAsync.");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WithActiveTransaction_UsesAsyncCleanupAndClearsState()
+    {
+        var server = new AsyncDisposeTrackingSqlServer();
+        server.SeedActiveTransaction();
+
+        await server.DisposeAsync();
+        await server.DisposeAsync();
+
+        Assert.False(server.IsInTransaction);
+        Assert.Equal(1, server.AsyncRollbackCalls);
+        Assert.Equal(1, server.AsyncTransactionDisposals);
+        Assert.Equal(1, server.AsyncConnectionDisposals);
     }
 }

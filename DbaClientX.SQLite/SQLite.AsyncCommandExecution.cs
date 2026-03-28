@@ -26,12 +26,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -69,7 +70,7 @@ public partial class SQLite
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
+            (connection, _, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -126,7 +127,7 @@ public partial class SQLite
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
+            (connection, _, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
 
             var list = await ExecuteWithRetryAsync(async () =>
@@ -192,12 +193,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteNonQueryAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -232,12 +234,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteScalarAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await base.ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -256,21 +259,42 @@ public partial class SQLite
         }
     }
 
-    private async Task<(SqliteConnection Connection, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken, int? busyTimeoutMs = null)
+    private async Task<(SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken, int? busyTimeoutMs = null)
     {
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
 
-            return (_transactionConnection, false);
+                var normalizedConnectionString = NormalizeConnectionString(connectionString);
+                if (_transactionConnectionString != null && !string.Equals(_transactionConnectionString, normalizedConnectionString, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DbaTransactionException("The requested connection details do not match the active transaction.");
+                }
+
+                return (_transactionConnection, _transaction, false);
+            }
         }
 
         var connection = new SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
-        return (connection, true);
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
+            return (connection, null, true);
+        }
+        catch
+        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            await connection.DisposeAsync().ConfigureAwait(false);
+#else
+            connection.Dispose();
+#endif
+            throw;
+        }
     }
 }

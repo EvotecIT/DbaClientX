@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
@@ -14,7 +15,7 @@ namespace DBAClientX;
 /// Provides a common foundation for database client implementations, including
 /// retry logic, parameter handling, and result materialization helpers.
 /// </summary>
-public abstract class DatabaseClientBase : IDisposable
+public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
 {
     private readonly object _syncRoot = new();
     private ReturnType _returnType;
@@ -22,7 +23,7 @@ public abstract class DatabaseClientBase : IDisposable
     private int _maxRetryAttempts = 3;
     private TimeSpan _retryDelay = TimeSpan.FromMilliseconds(200);
     private bool _retryNonQueryOperations;
-    private bool _disposed;
+    private int _disposeSignaled;
 
     private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
     private static readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 31 + Thread.CurrentThread.ManagedThreadId)));
@@ -161,6 +162,194 @@ public abstract class DatabaseClientBase : IDisposable
             }
         }
         throw lastException ?? new Exception("Operation failed.");
+    }
+
+    /// <summary>
+    /// Asynchronously disposes a resource only when the current operation owns it.
+    /// </summary>
+    /// <typeparam name="TResource">The resource type.</typeparam>
+    /// <param name="resource">The resource instance to dispose.</param>
+    /// <param name="ownsResource"><see langword="true"/> when the caller created and owns the resource.</param>
+    /// <param name="disposeAsync">Asynchronous disposal callback for the resource.</param>
+    protected static async ValueTask DisposeOwnedResourceAsync<TResource>(TResource? resource, bool ownsResource, Func<TResource, ValueTask> disposeAsync)
+        where TResource : class
+    {
+        if (!ownsResource || resource == null)
+        {
+            return;
+        }
+
+        await disposeAsync(resource).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Disposes a pair of resources in order, skipping any <see langword="null"/> values.
+    /// </summary>
+    /// <typeparam name="TPrimary">The primary resource type.</typeparam>
+    /// <typeparam name="TSecondary">The secondary resource type.</typeparam>
+    /// <param name="primary">The primary resource instance.</param>
+    /// <param name="disposePrimary">Synchronous disposal callback for the primary resource.</param>
+    /// <param name="secondary">The secondary resource instance.</param>
+    /// <param name="disposeSecondary">Synchronous disposal callback for the secondary resource.</param>
+    protected static void DisposeResourcePair<TPrimary, TSecondary>(
+        TPrimary? primary,
+        Action<TPrimary> disposePrimary,
+        TSecondary? secondary,
+        Action<TSecondary> disposeSecondary)
+        where TPrimary : class
+        where TSecondary : class
+    {
+        if (primary != null)
+        {
+            disposePrimary(primary);
+        }
+
+        if (secondary != null)
+        {
+            disposeSecondary(secondary);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously disposes a pair of resources in order, skipping any <see langword="null"/> values.
+    /// </summary>
+    /// <typeparam name="TPrimary">The primary resource type.</typeparam>
+    /// <typeparam name="TSecondary">The secondary resource type.</typeparam>
+    /// <param name="primary">The primary resource instance.</param>
+    /// <param name="disposePrimaryAsync">Asynchronous disposal callback for the primary resource.</param>
+    /// <param name="secondary">The secondary resource instance.</param>
+    /// <param name="disposeSecondaryAsync">Asynchronous disposal callback for the secondary resource.</param>
+    protected static async ValueTask DisposeResourcePairAsync<TPrimary, TSecondary>(
+        TPrimary? primary,
+        Func<TPrimary, ValueTask> disposePrimaryAsync,
+        TSecondary? secondary,
+        Func<TSecondary, ValueTask> disposeSecondaryAsync)
+        where TPrimary : class
+        where TSecondary : class
+    {
+        if (primary != null)
+        {
+            await disposePrimaryAsync(primary).ConfigureAwait(false);
+        }
+
+        if (secondary != null)
+        {
+            await disposeSecondaryAsync(secondary).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Detaches the current transaction state and clears the stored references.
+    /// </summary>
+    /// <typeparam name="TTransaction">The provider transaction type.</typeparam>
+    /// <typeparam name="TConnection">The provider connection type.</typeparam>
+    /// <param name="transaction">Reference to the stored transaction field.</param>
+    /// <param name="connection">Reference to the stored connection field.</param>
+    /// <param name="connectionString">Reference to the stored normalized connection string field.</param>
+    /// <param name="transactionInitializing">Reference to the transaction initialization flag.</param>
+    /// <param name="requireActiveTransaction"><see langword="true"/> to throw when no transaction is active.</param>
+    /// <returns>The detached transaction and connection pair.</returns>
+    /// <exception cref="DbaTransactionException">Thrown when <paramref name="requireActiveTransaction"/> is <see langword="true"/> and no transaction is active.</exception>
+    protected static (TTransaction? Transaction, TConnection? Connection) DetachTransactionState<TTransaction, TConnection>(
+        ref TTransaction? transaction,
+        ref TConnection? connection,
+        ref string? connectionString,
+        ref bool transactionInitializing,
+        bool requireActiveTransaction = false)
+        where TTransaction : class
+        where TConnection : class
+    {
+        if (requireActiveTransaction && transaction == null)
+        {
+            throw new DbaTransactionException("No active transaction.");
+        }
+
+        var detachedTransaction = transaction;
+        var detachedConnection = connection;
+        transaction = null;
+        connection = null;
+        connectionString = null;
+        transactionInitializing = false;
+        return (detachedTransaction, detachedConnection);
+    }
+
+    /// <summary>
+    /// Throws when a transaction is already active or currently being initialized.
+    /// </summary>
+    /// <typeparam name="TTransaction">The provider transaction type.</typeparam>
+    /// <param name="transaction">The currently stored transaction reference.</param>
+    /// <param name="transactionInitializing">The transaction initialization flag.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active or being initialized.</exception>
+    protected static void EnsureTransactionStartAllowed<TTransaction>(TTransaction? transaction, bool transactionInitializing)
+        where TTransaction : class
+    {
+        if (transaction != null || transactionInitializing)
+        {
+            throw new DbaTransactionException("Transaction already started.");
+        }
+    }
+
+    /// <summary>
+    /// Reserves transaction initialization after confirming that no transaction is active.
+    /// </summary>
+    /// <typeparam name="TTransaction">The provider transaction type.</typeparam>
+    /// <param name="transaction">The currently stored transaction reference.</param>
+    /// <param name="transactionInitializing">Reference to the transaction initialization flag.</param>
+    protected static void ReserveTransactionStart<TTransaction>(TTransaction? transaction, ref bool transactionInitializing)
+        where TTransaction : class
+    {
+        EnsureTransactionStartAllowed(transaction, transactionInitializing);
+        transactionInitializing = true;
+    }
+
+    /// <summary>
+    /// Stores a successfully started transaction and clears the initialization reservation.
+    /// </summary>
+    /// <typeparam name="TTransaction">The provider transaction type.</typeparam>
+    /// <typeparam name="TConnection">The provider connection type.</typeparam>
+    /// <param name="transactionField">Reference to the stored transaction field.</param>
+    /// <param name="connectionField">Reference to the stored connection field.</param>
+    /// <param name="connectionStringField">Reference to the stored normalized connection string field.</param>
+    /// <param name="transactionInitializing">Reference to the transaction initialization flag.</param>
+    /// <param name="transaction">The started transaction instance.</param>
+    /// <param name="connection">The opened connection instance.</param>
+    /// <param name="normalizedConnectionString">The normalized connection string associated with the transaction.</param>
+    protected static void StoreStartedTransaction<TTransaction, TConnection>(
+        ref TTransaction? transactionField,
+        ref TConnection? connectionField,
+        ref string? connectionStringField,
+        ref bool transactionInitializing,
+        TTransaction transaction,
+        TConnection connection,
+        string normalizedConnectionString)
+        where TTransaction : class
+        where TConnection : class
+    {
+        if (transactionField != null)
+        {
+            transactionInitializing = false;
+            throw new DbaTransactionException("Transaction already started.");
+        }
+
+        connectionField = connection;
+        transactionField = transaction;
+        connectionStringField = normalizedConnectionString;
+        transactionInitializing = false;
+    }
+
+    /// <summary>
+    /// Clears the transaction initialization reservation when no active transaction was stored.
+    /// </summary>
+    /// <typeparam name="TTransaction">The provider transaction type.</typeparam>
+    /// <param name="transaction">The currently stored transaction reference.</param>
+    /// <param name="transactionInitializing">Reference to the transaction initialization flag.</param>
+    protected static void ReleaseTransactionStartReservationIfNeeded<TTransaction>(TTransaction? transaction, ref bool transactionInitializing)
+        where TTransaction : class
+    {
+        if (transaction == null)
+        {
+            transactionInitializing = false;
+        }
     }
 
     private TimeSpan ComputeBackoffDelay(int attempt)
@@ -753,12 +942,162 @@ public abstract class DatabaseClientBase : IDisposable
     }
 
     /// <summary>
+    /// Attempts to roll back an active transaction after an operation failure and rethrows the original exception.
+    /// </summary>
+    protected static void HandleTransactionFailure(Exception originalException, Action rollback, Func<bool> hasActiveTransaction)
+    {
+        var hadActiveTransaction = hasActiveTransaction();
+        Exception? rollbackException = null;
+        try
+        {
+            rollback();
+        }
+        catch (DbaTransactionException) when (!hadActiveTransaction)
+        {
+            rollbackException = null;
+        }
+        catch (Exception ex)
+        {
+            rollbackException = ex;
+        }
+
+        if (rollbackException != null)
+        {
+            throw new AggregateException("Transaction operation failed and rollback also failed.", originalException, rollbackException);
+        }
+
+        ExceptionDispatchInfo.Capture(originalException).Throw();
+    }
+
+    /// <summary>
+    /// Attempts to roll back an active transaction after an asynchronous operation failure and rethrows the original exception.
+    /// </summary>
+    protected static async Task HandleTransactionFailureAsync(
+        Exception originalException,
+        Func<CancellationToken, Task> rollbackAsync,
+        Func<bool> hasActiveTransaction,
+        CancellationToken cancellationToken)
+    {
+        var hadActiveTransaction = hasActiveTransaction();
+        Exception? rollbackException = null;
+        try
+        {
+            await rollbackAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbaTransactionException) when (!hadActiveTransaction)
+        {
+            rollbackException = null;
+        }
+        catch (Exception ex)
+        {
+            rollbackException = ex;
+        }
+
+        if (rollbackException != null)
+        {
+            throw new AggregateException("Transaction operation failed and rollback also failed.", originalException, rollbackException);
+        }
+
+        ExceptionDispatchInfo.Capture(originalException).Throw();
+    }
+
+    /// <summary>
+    /// Executes an operation inside an already-configured transaction lifecycle.
+    /// </summary>
+    /// <typeparam name="TResult">The operation result type.</typeparam>
+    /// <param name="beginTransaction">Callback that starts the transaction.</param>
+    /// <param name="operation">Callback executed inside the transaction.</param>
+    /// <param name="commitTransaction">Callback that commits the transaction.</param>
+    /// <param name="rollbackTransaction">Callback that rolls back the transaction on failure.</param>
+    /// <param name="hasActiveTransaction">Callback that indicates whether a transaction is still active.</param>
+    protected static TResult ExecuteInTransaction<TResult>(
+        Action beginTransaction,
+        Func<TResult> operation,
+        Action commitTransaction,
+        Action rollbackTransaction,
+        Func<bool> hasActiveTransaction)
+    {
+        beginTransaction();
+        try
+        {
+            var result = operation();
+            commitTransaction();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            HandleTransactionFailure(ex, rollbackTransaction, hasActiveTransaction);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Executes an asynchronous operation inside an already-configured transaction lifecycle.
+    /// </summary>
+    /// <typeparam name="TResult">The operation result type.</typeparam>
+    /// <param name="beginTransactionAsync">Callback that starts the transaction.</param>
+    /// <param name="operationAsync">Callback executed inside the transaction.</param>
+    /// <param name="commitTransactionAsync">Callback that commits the transaction.</param>
+    /// <param name="rollbackTransactionAsync">Callback that rolls back the transaction on failure.</param>
+    /// <param name="hasActiveTransaction">Callback that indicates whether a transaction is still active.</param>
+    /// <param name="cancellationToken">Cancellation token for the async workflow.</param>
+    protected static async Task<TResult> ExecuteInTransactionAsync<TResult>(
+        Func<CancellationToken, Task> beginTransactionAsync,
+        Func<CancellationToken, Task<TResult>> operationAsync,
+        Func<CancellationToken, Task> commitTransactionAsync,
+        Func<CancellationToken, Task> rollbackTransactionAsync,
+        Func<bool> hasActiveTransaction,
+        CancellationToken cancellationToken)
+    {
+        await beginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await operationAsync(cancellationToken).ConfigureAwait(false);
+            await commitTransactionAsync(cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            await HandleTransactionFailureAsync(ex, rollbackTransactionAsync, hasActiveTransaction, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Disposes the instance and suppresses finalization.
     /// </summary>
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposeSignaled, 1) != 0)
+        {
+            return;
+        }
+
         Dispose(true);
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Asynchronously disposes the instance and suppresses finalization.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposeSignaled, 1) != 0)
+        {
+            return;
+        }
+
+        await DisposeAsyncCore().ConfigureAwait(false);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Releases managed resources asynchronously. Override to dispose async-aware state.
+    /// </summary>
+    protected virtual ValueTask DisposeAsyncCore()
+    {
+        Dispose(true);
+        return default;
     }
 
     /// <summary>
@@ -767,10 +1106,5 @@ public abstract class DatabaseClientBase : IDisposable
     /// <param name="disposing">Indicates whether the method is invoked from <see cref="Dispose()"/>.</param>
     protected virtual void Dispose(bool disposing)
     {
-        if (_disposed)
-        {
-            return;
-        }
-        _disposed = true;
     }
 }

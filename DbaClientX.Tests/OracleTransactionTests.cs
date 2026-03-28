@@ -123,6 +123,66 @@ public class OracleTransactionTests
         Assert.Equal(IsolationLevel.Serializable, oracle.Connection!.Level);
     }
 
+    [Fact]
+    public void RunInTransaction_CommitsAndReturnsResult()
+    {
+        using var oracle = new TestOracle();
+
+        var result = oracle.RunInTransaction("h", "svc", "u", "p", client =>
+        {
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(oracle.Transaction);
+    }
+
+    [Fact]
+    public void RunInTransaction_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var oracle = new TestOracle();
+        FakeOracleTransaction? txn = null;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            oracle.RunInTransaction("h", "svc", "u", "p", client =>
+            {
+                txn = oracle.Transaction;
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(oracle.Transaction);
+    }
+
+    private class BeginFailureTransactionOracle : DBAClientX.Oracle
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(OracleConnection connection)
+        {
+        }
+
+        protected override OracleTransaction BeginDbTransaction(OracleConnection connection, IsolationLevel isolationLevel)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void BeginTransaction_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var oracle = new BeginFailureTransactionOracle();
+
+        Assert.Throws<InvalidOperationException>(() => oracle.BeginTransaction("h", "svc", "u", "p"));
+        Assert.Throws<InvalidOperationException>(() => oracle.BeginTransaction("h", "svc", "u", "p"));
+
+        Assert.False(oracle.IsInTransaction);
+        Assert.Equal(2, oracle.DisposeCalls);
+    }
+
     private class ThrowingCommitOracle : DBAClientX.Oracle
     {
         public int DisposeCalls { get; private set; }
@@ -181,5 +241,42 @@ public class OracleTransactionTests
         Assert.False(oracle.IsInTransaction);
         Assert.Equal(1, oracle.DisposeCalls);
         Assert.Throws<DBAClientX.DbaTransactionException>(() => oracle.Rollback());
+    }
+
+    private sealed class DisposeTrackingOracle : DBAClientX.Oracle
+    {
+        public int RollbackCalls { get; private set; }
+        public int TransactionDisposals { get; private set; }
+        public int ConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(OracleConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(OracleTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeDbTransaction(OracleTransaction transaction)
+            => TransactionDisposals++;
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => ConnectionDisposals++;
+    }
+
+    [Fact]
+    public void Dispose_WithActiveTransaction_RollsBackAndCleansUpOnce()
+    {
+        var oracle = new DisposeTrackingOracle();
+        oracle.SeedActiveTransaction();
+
+        oracle.Dispose();
+        oracle.Dispose();
+
+        Assert.False(oracle.IsInTransaction);
+        Assert.Equal(1, oracle.RollbackCalls);
+        Assert.Equal(1, oracle.TransactionDisposals);
+        Assert.Equal(1, oracle.ConnectionDisposals);
     }
 }

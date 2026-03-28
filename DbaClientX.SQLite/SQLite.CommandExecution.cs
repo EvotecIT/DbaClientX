@@ -23,12 +23,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return base.ExecuteQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteQuery(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -58,12 +59,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return base.ExecuteScalar(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteScalar(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -93,12 +95,13 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return base.ExecuteNonQuery(connection, useTransaction ? _transaction : null, query, parameters, dbTypes, parameterDirections);
+            return base.ExecuteNonQuery(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
         catch (Exception ex)
         {
@@ -113,24 +116,39 @@ public partial class SQLite
         }
     }
 
-    private SqliteConnection ResolveConnection(string connectionString, bool useTransaction, out bool dispose, int? busyTimeoutMs = null)
+    private (SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose) ResolveConnection(string connectionString, bool useTransaction, int? busyTimeoutMs = null)
     {
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
+            lock (_syncRoot)
             {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
+                if (_transaction == null || _transactionConnection == null)
+                {
+                    throw new DbaTransactionException("Transaction has not been started.");
+                }
 
-            dispose = false;
-            return _transactionConnection;
+                var normalizedConnectionString = NormalizeConnectionString(connectionString);
+                if (_transactionConnectionString != null && !string.Equals(_transactionConnectionString, normalizedConnectionString, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new DbaTransactionException("The requested connection details do not match the active transaction.");
+                }
+
+                return (_transactionConnection, _transaction, false);
+            }
         }
 
         var connection = new SqliteConnection(connectionString);
-        connection.Open();
-        ApplyBusyTimeout(connection, busyTimeoutMs);
-        dispose = true;
-        return connection;
+        try
+        {
+            connection.Open();
+            ApplyBusyTimeout(connection, busyTimeoutMs);
+            return (connection, null, true);
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>
