@@ -76,4 +76,38 @@ public class MySqlQueryStreamTests
             }
         });
     }
+
+    private class OpenFailureMySql : DBAClientX.MySql
+    {
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_WhenOpenFails_UsesAsyncDispose()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await using var enumerator = mySql.QueryStreamAsync("h", "d", "u", "p", "q").GetAsyncEnumerator();
+            await enumerator.MoveNextAsync();
+        });
+
+        Assert.Equal("boom", ex.Message);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
+    }
 }

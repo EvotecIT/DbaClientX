@@ -5,6 +5,7 @@ It offers:
 
 - Providers: SQL Server, PostgreSQL, MySQL, SQLite, Oracle
 - Sync/async APIs with cancellation, retries, and transactions
+- Transaction wrapper helpers that commit on success and roll back on failures
 - A small SQL query builder with dialect support and parameterization
 - PowerShell cmdlets for quick scripting
 

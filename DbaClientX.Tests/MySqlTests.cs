@@ -181,7 +181,8 @@ public class MySqlTests
 
     private class OpenFailureMySql : DBAClientX.MySql
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(MySqlConnection connection)
             => throw new InvalidOperationException("boom");
@@ -190,7 +191,13 @@ public class MySqlTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(MySqlConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -201,7 +208,8 @@ public class MySqlTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteNonQuery("h", "d", "u", "p", "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Equal(1, mySql.SyncDisposeCalls);
+        Assert.Equal(0, mySql.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -212,7 +220,44 @@ public class MySqlTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteNonQueryAsync("h", "d", "u", "p", "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task QueryAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.QueryAsync("h", "d", "u", "p", "SELECT 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteScalarAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteScalarAsync("h", "d", "u", "p", "SELECT 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var mySql = new OpenFailureMySql();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.ExecuteStoredProcedureAsync("h", "d", "u", "p", "sp_test", parameters: (IDictionary<string, object?>?)null));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
     }
 
     private class SeededTransactionMySql : DBAClientX.MySql

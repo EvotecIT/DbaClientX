@@ -27,10 +27,11 @@ public partial class SQLite
 
         SqliteConnection? connection = null;
         var dispose = false;
+        SqliteTransaction? activeTransaction = null;
         SqliteTransaction? transaction = null;
         try
         {
-            connection = ResolveConnection(connectionString, useTransaction, out dispose);
+            (connection, activeTransaction, dispose) = ResolveConnection(connectionString, useTransaction);
 
             if (!useTransaction)
             {
@@ -56,7 +57,7 @@ public partial class SQLite
                     if (command == null || preparedRowsPerBatch != currentRows)
                     {
                         command?.Dispose();
-                        command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows, CommandTimeout);
                         preparedRowsPerBatch = currentRows;
                     }
 
@@ -118,10 +119,11 @@ public partial class SQLite
 
         SqliteConnection? connection = null;
         var dispose = false;
+        SqliteTransaction? activeTransaction = null;
         SqliteTransaction? transaction = null;
         try
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            (connection, activeTransaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
 
             if (!useTransaction)
             {
@@ -160,7 +162,7 @@ public partial class SQLite
 #endif
                         }
 
-                        command = CreatePreparedBulkInsertCommand(connection, useTransaction ? _transaction : transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows, CommandTimeout);
                         preparedRowsPerBatch = currentRows;
                     }
 

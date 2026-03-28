@@ -26,20 +26,16 @@ public partial class SQLite
         var connectionString = BuildOperationalConnectionString(database);
 
         SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
         var dispose = false;
 
         if (useTransaction)
         {
-            if (_transaction == null || _transactionConnection == null)
-            {
-                throw new DbaTransactionException("Transaction has not been started.");
-            }
-
-            connection = _transactionConnection;
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, true, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            (connection, dispose) = await ResolveConnectionAsync(connectionString, false, cancellationToken).ConfigureAwait(false);
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, false, cancellationToken).ConfigureAwait(false);
         }
 
         var dbTypes = ConvertParameterTypes(parameterTypes);
@@ -50,7 +46,7 @@ public partial class SQLite
 
         try
         {
-            await foreach (var row in base.ExecuteQueryStreamAsync(connection, useTransaction ? _transaction : null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+            await foreach (var row in base.ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
             {
                 yield return row;
             }

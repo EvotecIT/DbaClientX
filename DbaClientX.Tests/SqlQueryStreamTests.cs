@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
+using Microsoft.Data.SqlClient;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -74,5 +75,39 @@ public class QueryStreamTests
             {
             }
         });
+    }
+
+    private class OpenFailureSqlServer : DBAClientX.SqlServer
+    {
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(SqlConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_WhenOpenFails_UsesAsyncDispose()
+    {
+        using var server = new OpenFailureSqlServer();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await using var enumerator = server.QueryStreamAsync("s", "d", true, "q").GetAsyncEnumerator();
+            await enumerator.MoveNextAsync();
+        });
+
+        Assert.Equal("boom", ex.Message);
+        Assert.Equal(0, server.SyncDisposeCalls);
+        Assert.Equal(1, server.AsyncDisposeCalls);
     }
 }

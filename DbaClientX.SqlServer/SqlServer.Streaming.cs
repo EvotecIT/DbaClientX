@@ -48,10 +48,7 @@ public partial class SqlServer
             }
             finally
             {
-                if (dispose)
-                {
-                    DisposeConnection(connection!);
-                }
+                await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
             }
         }
     }
@@ -93,10 +90,7 @@ public partial class SqlServer
             }
             finally
             {
-                if (dispose)
-                {
-                    DisposeConnection(connection!);
-                }
+                await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
             }
         }
     }
@@ -135,10 +129,7 @@ public partial class SqlServer
             }
             finally
             {
-                if (dispose)
-                {
-                    DisposeConnection(connection!);
-                }
+                await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
             }
         }
     }

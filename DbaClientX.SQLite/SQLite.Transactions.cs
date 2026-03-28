@@ -15,12 +15,9 @@ public partial class SQLite
     {
         lock (_syncRoot)
         {
-            if (_transaction != null)
-            {
-                throw new DbaTransactionException("Transaction already started.");
-            }
-
+            EnsureTransactionStartAllowed(_transaction, _transactionInitializing);
             var connectionString = BuildOperationalConnectionString(database);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
             SqliteConnection? connection = null;
             SqliteTransaction? transaction = null;
             try
@@ -29,15 +26,20 @@ public partial class SQLite
                 connection.Open();
                 ApplyBusyTimeout(connection);
                 transaction = connection.BeginTransaction();
-                _transactionConnection = connection;
-                _transaction = transaction;
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
             finally
             {
-                transaction?.Dispose();
-                connection?.Dispose();
+                DisposeTransactionResources(transaction, connection);
             }
         }
     }
@@ -49,12 +51,9 @@ public partial class SQLite
     {
         lock (_syncRoot)
         {
-            if (_transaction != null)
-            {
-                throw new DbaTransactionException("Transaction already started.");
-            }
-
+            EnsureTransactionStartAllowed(_transaction, _transactionInitializing);
             var connectionString = BuildOperationalConnectionString(database);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
             SqliteConnection? connection = null;
             SqliteTransaction? transaction = null;
             try
@@ -63,15 +62,20 @@ public partial class SQLite
                 connection.Open();
                 ApplyBusyTimeout(connection);
                 transaction = connection.BeginTransaction(isolationLevel);
-                _transactionConnection = connection;
-                _transaction = transaction;
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
             finally
             {
-                transaction?.Dispose();
-                connection?.Dispose();
+                DisposeTransactionResources(transaction, connection);
             }
         }
     }
@@ -87,15 +91,11 @@ public partial class SQLite
         {
             lock (_syncRoot)
             {
-                if (_transaction != null || _transactionInitializing)
-                {
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionInitializing = true;
+                ReserveTransactionStart(_transaction, ref _transactionInitializing);
             }
 
             var connectionString = BuildOperationalConnectionString(database);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
             connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -108,17 +108,14 @@ public partial class SQLite
 
             lock (_syncRoot)
             {
-                if (_transaction != null)
-                {
-                    transaction.Dispose();
-                    connection.Dispose();
-                    _transactionInitializing = false;
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionConnection = connection;
-                _transaction = transaction;
-                _transactionInitializing = false;
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
@@ -127,14 +124,10 @@ public partial class SQLite
         {
             lock (_syncRoot)
             {
-                if (_transaction == null)
-                {
-                    _transactionInitializing = false;
-                }
+                ReleaseTransactionStartReservationIfNeeded(_transaction, ref _transactionInitializing);
             }
 
-            transaction?.Dispose();
-            connection?.Dispose();
+            await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
             throw;
         }
     }
@@ -146,6 +139,98 @@ public partial class SQLite
         => BeginTransactionAsyncCore(database, isolationLevel, cancellationToken);
 
     /// <summary>
+    /// Runs the provided callback inside a SQLite transaction and commits on success.
+    /// </summary>
+    public virtual void RunInTransaction(
+        string database,
+        Action<SQLite> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        RunInTransaction(
+            database,
+            client =>
+            {
+                operation(client);
+                return true;
+            },
+            isolationLevel);
+    }
+
+    /// <summary>
+    /// Runs the provided callback inside a SQLite transaction and commits on success.
+    /// </summary>
+    public virtual TResult RunInTransaction<TResult>(
+        string database,
+        Func<SQLite, TResult> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return ExecuteInTransaction(
+            () => BeginTransaction(database, isolationLevel),
+            () => operation(this),
+            Commit,
+            Rollback,
+            () => IsInTransaction);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a SQLite transaction and commits on success.
+    /// </summary>
+    public virtual Task RunInTransactionAsync(
+        string database,
+        Func<SQLite, CancellationToken, Task> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return RunInTransactionAsync(
+            database,
+            async (client, token) =>
+            {
+                await operation(client, token).ConfigureAwait(false);
+                return true;
+            },
+            isolationLevel,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a SQLite transaction and commits on success.
+    /// </summary>
+    public virtual async Task<TResult> RunInTransactionAsync<TResult>(
+        string database,
+        Func<SQLite, CancellationToken, Task<TResult>> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return await ExecuteInTransactionAsync(
+            token => BeginTransactionAsync(database, isolationLevel, token),
+            token => operation(this, token),
+            CommitAsync,
+            RollbackAsync,
+            () => IsInTransaction,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Commits the currently active transaction.
     /// </summary>
     public virtual void Commit()
@@ -154,16 +239,12 @@ public partial class SQLite
         SqliteConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -172,8 +253,7 @@ public partial class SQLite
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -186,15 +266,12 @@ public partial class SQLite
         SqliteConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -208,8 +285,7 @@ public partial class SQLite
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            await DisposeTransactionResourcesAsync(tx, conn).ConfigureAwait(false);
         }
     }
 
@@ -222,16 +298,12 @@ public partial class SQLite
         SqliteConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -240,8 +312,7 @@ public partial class SQLite
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            DisposeTransactionResources(tx, conn);
         }
     }
 
@@ -254,15 +325,12 @@ public partial class SQLite
         SqliteConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -276,8 +344,7 @@ public partial class SQLite
         }
         finally
         {
-            tx!.Dispose();
-            conn?.Dispose();
+            await DisposeTransactionResourcesAsync(tx, conn).ConfigureAwait(false);
         }
     }
 
@@ -291,12 +358,87 @@ public partial class SQLite
 
     private void DisposeTransactionLocked()
     {
-        _transaction?.Dispose();
-        _transaction = null;
-        _transactionConnection?.Dispose();
-        _transactionConnection = null;
-        _transactionInitializing = false;
+        var (transaction, connection) = DetachTransactionState(
+            ref _transaction,
+            ref _transactionConnection,
+            ref _transactionConnectionString,
+            ref _transactionInitializing);
+
+        TryRollbackDbTransactionOnDispose(transaction);
+        DisposeTransactionResources(transaction, connection);
     }
+
+    private async ValueTask DisposeTransactionAsync()
+    {
+        SqliteTransaction? transaction;
+        SqliteConnection? connection;
+        lock (_syncRoot)
+        {
+            (transaction, connection) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing);
+        }
+
+        await TryRollbackDbTransactionOnDisposeAsync(transaction).ConfigureAwait(false);
+        await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Attempts to roll back an active provider transaction during disposal, ignoring rollback failures so cleanup can continue.
+    /// </summary>
+    protected virtual void TryRollbackDbTransactionOnDispose(SqliteTransaction? transaction)
+    {
+        if (transaction == null)
+        {
+            return;
+        }
+
+        try
+        {
+            transaction.Rollback();
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Attempts to asynchronously roll back an active provider transaction during disposal, ignoring rollback failures so cleanup can continue.
+    /// </summary>
+    protected virtual async Task TryRollbackDbTransactionOnDisposeAsync(SqliteTransaction? transaction)
+    {
+        if (transaction == null)
+        {
+            return;
+        }
+
+        try
+        {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+            await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+#else
+            await Task.Yield();
+            transaction.Rollback();
+#endif
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Disposes SQLite transaction resources created for the current operation.
+    /// </summary>
+    protected virtual void DisposeTransactionResources(SqliteTransaction? transaction, SqliteConnection? connection)
+        => DisposeResourcePair(transaction, DisposeDbTransaction, connection, DisposeDbConnection);
+
+    /// <summary>
+    /// Asynchronously disposes SQLite transaction resources created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeTransactionResourcesAsync(SqliteTransaction? transaction, SqliteConnection? connection)
+        => DisposeResourcePairAsync(transaction, DisposeDbTransactionAsync, connection, DisposeDbConnectionAsync);
 
     /// <inheritdoc />
     protected override bool IsTransient(Exception ex) =>
@@ -314,6 +456,12 @@ public partial class SQLite
         base.Dispose(disposing);
     }
 
+    /// <inheritdoc />
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        await DisposeTransactionAsync().ConfigureAwait(false);
+    }
+
     private async Task BeginTransactionAsyncCore(string database, IsolationLevel isolationLevel, CancellationToken cancellationToken)
     {
         SqliteConnection? connection = null;
@@ -322,15 +470,11 @@ public partial class SQLite
         {
             lock (_syncRoot)
             {
-                if (_transaction != null || _transactionInitializing)
-                {
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionInitializing = true;
+                ReserveTransactionStart(_transaction, ref _transactionInitializing);
             }
 
             var connectionString = BuildOperationalConnectionString(database);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
             connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -343,17 +487,14 @@ public partial class SQLite
 
             lock (_syncRoot)
             {
-                if (_transaction != null)
-                {
-                    transaction.Dispose();
-                    connection.Dispose();
-                    _transactionInitializing = false;
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionConnection = connection;
-                _transaction = transaction;
-                _transactionInitializing = false;
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
@@ -362,15 +503,47 @@ public partial class SQLite
         {
             lock (_syncRoot)
             {
-                if (_transaction == null)
-                {
-                    _transactionInitializing = false;
-                }
+                ReleaseTransactionStartReservationIfNeeded(_transaction, ref _transactionInitializing);
             }
 
-            transaction?.Dispose();
-            connection?.Dispose();
+            await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual void DisposeDbTransaction(SqliteTransaction transaction) => transaction.Dispose();
+
+    /// <summary>
+    /// Asynchronously disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeDbTransactionAsync(SqliteTransaction transaction)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return transaction.DisposeAsync();
+#else
+        transaction.Dispose();
+        return default;
+#endif
+    }
+
+    /// <summary>
+    /// Disposes a provider connection created for the current operation.
+    /// </summary>
+    protected virtual void DisposeDbConnection(SqliteConnection connection) => connection.Dispose();
+
+    /// <summary>
+    /// Asynchronously disposes a provider connection created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeDbConnectionAsync(SqliteConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
     }
 }

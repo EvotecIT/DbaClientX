@@ -8,18 +8,12 @@ public static class TransactionPostgreSqlExample
     public static Task RunAsync()
     {
         using var pg = new PostgreSql();
-        pg.BeginTransaction("localhost", "postgres", "user", "password", IsolationLevel.Serializable);
-        try
+        pg.RunInTransaction("localhost", "postgres", "user", "password", client =>
         {
-            pg.Query("localhost", "postgres", "user", "password", "CREATE TABLE temp(id int)", null, true);
-            pg.Commit();
-            Console.WriteLine("Committed");
-        }
-        catch
-        {
-            pg.Rollback();
-            Console.WriteLine("Rolled back");
-        }
+            client.Query("localhost", "postgres", "user", "password", "CREATE TABLE temp(id int)", null, true);
+        }, IsolationLevel.Serializable);
+
+        Console.WriteLine("Committed");
         return Task.CompletedTask;
     }
 }

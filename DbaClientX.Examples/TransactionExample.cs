@@ -8,18 +8,12 @@ public static class TransactionExample
     public static Task RunAsync()
     {
         using var sql = new SqlServer();
-        sql.BeginTransaction("SQL1", "master", true, IsolationLevel.Serializable);
-        try
+        sql.RunInTransaction("SQL1", "master", true, client =>
         {
-            sql.Query("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true);
-            sql.Commit();
-            Console.WriteLine("Committed");
-        }
-        catch
-        {
-            sql.Rollback();
-            Console.WriteLine("Rolled back");
-        }
+            client.Query("SQL1", "master", true, "CREATE TABLE #temp(id int)", null, true);
+        }, IsolationLevel.Serializable);
+
+        Console.WriteLine("Committed");
         return Task.CompletedTask;
     }
 }

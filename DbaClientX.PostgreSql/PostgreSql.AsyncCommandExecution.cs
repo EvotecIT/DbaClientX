@@ -43,10 +43,7 @@ public partial class PostgreSql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -83,10 +80,7 @@ public partial class PostgreSql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -123,10 +117,7 @@ public partial class PostgreSql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -159,7 +150,7 @@ public partial class PostgreSql
         }
         catch
         {
-            DisposeConnection(connection);
+            await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
             throw;
         }
     }

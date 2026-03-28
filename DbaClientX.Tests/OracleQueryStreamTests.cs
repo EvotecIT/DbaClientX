@@ -76,4 +76,38 @@ public class OracleQueryStreamTests
             }
         });
     }
+
+    private class OpenFailureOracle : DBAClientX.Oracle
+    {
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken)
+            => Task.FromException(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(OracleConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(OracleConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task QueryStreamAsync_WhenOpenFails_UsesAsyncDispose()
+    {
+        using var oracle = new OpenFailureOracle();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await using var enumerator = oracle.QueryStreamAsync("h", "s", "u", "p", "q").GetAsyncEnumerator();
+            await enumerator.MoveNextAsync();
+        });
+
+        Assert.Equal("boom", ex.Message);
+        Assert.Equal(0, oracle.SyncDisposeCalls);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
+    }
 }

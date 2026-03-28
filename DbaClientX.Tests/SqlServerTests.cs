@@ -552,7 +552,8 @@ public class SqlServerTests
 
     private class OpenFailureSqlServer : DBAClientX.SqlServer
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(SqlConnection connection)
             => throw new InvalidOperationException("boom");
@@ -561,7 +562,13 @@ public class SqlServerTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(SqlConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -572,7 +579,8 @@ public class SqlServerTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteNonQuery("s", "db", true, "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, sqlServer.DisposeCalls);
+        Assert.Equal(1, sqlServer.SyncDisposeCalls);
+        Assert.Equal(0, sqlServer.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -583,7 +591,44 @@ public class SqlServerTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteNonQueryAsync("s", "db", true, "UPDATE t SET c = 1"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, sqlServer.DisposeCalls);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task QueryAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var sqlServer = new OpenFailureSqlServer();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.QueryAsync("s", "db", true, "SELECT 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteScalarAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var sqlServer = new OpenFailureSqlServer();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteScalarAsync("s", "db", true, "SELECT 1"));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ExecuteStoredProcedureAsync_WhenOpenFails_DisposesConnectionAsynchronously()
+    {
+        using var sqlServer = new OpenFailureSqlServer();
+
+        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => sqlServer.ExecuteStoredProcedureAsync("s", "db", true, "sp_test", parameters: (IDictionary<string, object?>?)null));
+
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
     }
 
     private class SeededTransactionSqlServer : DBAClientX.SqlServer

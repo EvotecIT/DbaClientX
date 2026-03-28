@@ -129,6 +129,67 @@ public class PostgreSqlTransactionTests
         Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
     }
 
+    [Fact]
+    public void RunInTransaction_CommitsAndReturnsResult()
+    {
+        using var pg = new TestPostgreSql();
+
+        var result = pg.RunInTransaction("h", "d", "u", "p", client =>
+        {
+            client.Query("h", "d", "u", "p", "q", useTransaction: true);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(pg.Transaction);
+    }
+
+    [Fact]
+    public void RunInTransaction_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var pg = new TestPostgreSql();
+        FakeNpgsqlTransaction? txn = null;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            pg.RunInTransaction("h", "d", "u", "p", client =>
+            {
+                txn = pg.Transaction;
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(pg.Transaction);
+    }
+
+    private class BeginFailureTransactionPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override void OpenConnection(Npgsql.NpgsqlConnection connection)
+        {
+        }
+
+        protected override Npgsql.NpgsqlTransaction BeginDbTransaction(Npgsql.NpgsqlConnection connection, IsolationLevel isolationLevel)
+            => throw new InvalidOperationException("boom");
+
+        protected override void DisposeConnection(Npgsql.NpgsqlConnection connection)
+            => DisposeCalls++;
+    }
+
+    [Fact]
+    public void BeginTransaction_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var pg = new BeginFailureTransactionPostgreSql();
+
+        Assert.Throws<InvalidOperationException>(() => pg.BeginTransaction("h", "d", "u", "p"));
+        Assert.Throws<InvalidOperationException>(() => pg.BeginTransaction("h", "d", "u", "p"));
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(2, pg.DisposeCalls);
+    }
+
     private class ThrowingCommitPostgreSql : DBAClientX.PostgreSql
     {
         public int DisposeCalls { get; private set; }
@@ -187,6 +248,43 @@ public class PostgreSqlTransactionTests
         Assert.False(pg.IsInTransaction);
         Assert.Equal(1, pg.DisposeCalls);
         Assert.Throws<DBAClientX.DbaTransactionException>(() => pg.Rollback());
+    }
+
+    private sealed class DisposeTrackingPostgreSql : DBAClientX.PostgreSql
+    {
+        public int RollbackCalls { get; private set; }
+        public int TransactionDisposals { get; private set; }
+        public int ConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(Npgsql.NpgsqlConnection)));
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(Npgsql.NpgsqlTransaction? transaction)
+            => RollbackCalls++;
+
+        protected override void DisposeDbTransaction(Npgsql.NpgsqlTransaction transaction)
+            => TransactionDisposals++;
+
+        protected override void DisposeConnection(Npgsql.NpgsqlConnection connection)
+            => ConnectionDisposals++;
+    }
+
+    [Fact]
+    public void Dispose_WithActiveTransaction_RollsBackAndCleansUpOnce()
+    {
+        var pg = new DisposeTrackingPostgreSql();
+        pg.SeedActiveTransaction();
+
+        pg.Dispose();
+        pg.Dispose();
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(1, pg.RollbackCalls);
+        Assert.Equal(1, pg.TransactionDisposals);
+        Assert.Equal(1, pg.ConnectionDisposals);
     }
 }
 

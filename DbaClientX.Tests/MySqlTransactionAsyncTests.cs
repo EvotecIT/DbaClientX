@@ -15,6 +15,8 @@ public class MySqlTransactionAsyncTests
         .GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly FieldInfo TransactionField = typeof(DBAClientX.MySql)
         .GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.MySql)
+        .GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     private class FakeMySqlConnection
     {
@@ -199,6 +201,41 @@ public class MySqlTransactionAsyncTests
         Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
     }
 
+    [Fact]
+    public async Task RunInTransactionAsync_CommitsAndReturnsResult()
+    {
+        using var mySql = new TestMySql();
+
+        var result = await mySql.RunInTransactionAsync("h", "d", "u", "p", async (client, token) =>
+        {
+            await client.QueryAsync("h", "d", "u", "p", "q", useTransaction: true, cancellationToken: token);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(mySql.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var mySql = new TestMySql();
+        FakeMySqlTransaction? txn = null;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            mySql.RunInTransactionAsync("h", "d", "u", "p", async (_, _) =>
+            {
+                txn = mySql.Transaction;
+                await Task.Yield();
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(mySql.Transaction);
+    }
+
     private class OpenFailureTransactionMySql : DBAClientX.MySql
     {
         public int DisposeCalls { get; private set; }
@@ -208,12 +245,50 @@ public class MySqlTransactionAsyncTests
 
         protected override void DisposeConnection(MySqlConnection connection)
             => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
     public async Task BeginTransactionAsync_WhenOpenFails_DisposesConnectionAndResetsState()
     {
         using var mySql = new OpenFailureTransactionMySql();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(2, mySql.DisposeCalls);
+    }
+
+    private class BeginFailureTransactionMySql : DBAClientX.MySql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override Task<MySqlTransaction> BeginDbTransactionAsync(MySqlConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+            => Task.FromException<MySqlTransaction>(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var mySql = new BeginFailureTransactionMySql();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => mySql.BeginTransactionAsync("h", "d", "u", "p"));
@@ -265,5 +340,60 @@ public class MySqlTransactionAsyncTests
         await mySql.RollbackAsync();
 
         Assert.Null(TransactionConnectionStringField.GetValue(mySql));
+    }
+
+    private sealed class AsyncDisposeTrackingMySql : DBAClientX.MySql
+    {
+        public int AsyncRollbackCalls { get; private set; }
+        public int AsyncTransactionDisposals { get; private set; }
+        public int AsyncConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(MySqlConnection)));
+        }
+
+        protected override ValueTask DisposeDbTransactionAsync(MySqlTransaction transaction)
+        {
+            AsyncTransactionDisposals++;
+            return default;
+        }
+
+        protected override Task TryRollbackDbTransactionOnDisposeAsync(MySqlTransaction? transaction)
+        {
+            AsyncRollbackCalls++;
+            return Task.CompletedTask;
+        }
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            AsyncConnectionDisposals++;
+            return default;
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(MySqlTransaction? transaction)
+            => throw new InvalidOperationException("Synchronous rollback should not be used by DisposeAsync.");
+
+        protected override void DisposeDbTransaction(MySqlTransaction transaction)
+            => throw new InvalidOperationException("Synchronous transaction disposal should not be used by DisposeAsync.");
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => throw new InvalidOperationException("Synchronous connection disposal should not be used by DisposeAsync.");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WithActiveTransaction_UsesAsyncCleanupAndClearsState()
+    {
+        var mySql = new AsyncDisposeTrackingMySql();
+        mySql.SeedActiveTransaction();
+
+        await mySql.DisposeAsync();
+        await mySql.DisposeAsync();
+
+        Assert.False(mySql.IsInTransaction);
+        Assert.Equal(1, mySql.AsyncRollbackCalls);
+        Assert.Equal(1, mySql.AsyncTransactionDisposals);
+        Assert.Equal(1, mySql.AsyncConnectionDisposals);
     }
 }

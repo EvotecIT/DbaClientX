@@ -151,10 +151,7 @@ public partial class Oracle
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -197,6 +194,19 @@ public partial class Oracle
     /// Disposes an Oracle connection created for the current operation.
     /// </summary>
     protected virtual void DisposeConnection(OracleConnection connection) => connection.Dispose();
+
+    /// <summary>
+    /// Asynchronously disposes an Oracle connection created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeConnectionAsync(OracleConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
+    }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
     {

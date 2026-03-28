@@ -137,10 +137,7 @@ public partial class MySql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -250,10 +247,7 @@ public partial class MySql
         }
         finally
         {
-            if (dispose)
-            {
-                connection?.Dispose();
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 

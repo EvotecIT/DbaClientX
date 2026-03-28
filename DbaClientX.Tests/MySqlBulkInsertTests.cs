@@ -17,6 +17,8 @@ public class MySqlBulkInsertTests
         public List<(int Ordinal, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
         public bool UsedRowEnumeration { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override MySqlConnection CreateConnection(string connectionString) => new();
 
@@ -61,11 +63,21 @@ public class MySqlBulkInsertTests
             WriteToServer(bulkCopy, rows, columnCount);
             return Task.CompletedTask;
         }
+
+        protected override void DisposeConnection(MySqlConnection connection)
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     private class OpenFailureBulkMySql : DBAClientX.MySql
     {
-        public int DisposeCalls { get; private set; }
+        public int SyncDisposeCalls { get; private set; }
+        public int AsyncDisposeCalls { get; private set; }
 
         protected override void OpenConnection(MySqlConnection connection)
             => throw new InvalidOperationException("boom");
@@ -74,7 +86,13 @@ public class MySqlBulkInsertTests
             => Task.FromException(new InvalidOperationException("boom"));
 
         protected override void DisposeConnection(MySqlConnection connection)
-            => DisposeCalls++;
+            => SyncDisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(MySqlConnection connection)
+        {
+            AsyncDisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -91,6 +109,8 @@ public class MySqlBulkInsertTests
 
         Assert.Equal(60, mySql.Timeout);
         Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(1, mySql.SyncDisposeCalls);
+        Assert.Equal(0, mySql.AsyncDisposeCalls);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);
@@ -111,6 +131,8 @@ public class MySqlBulkInsertTests
 
         Assert.Equal(30, mySql.Timeout);
         Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);
@@ -155,7 +177,8 @@ public class MySqlBulkInsertTests
         var ex = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => mySql.BulkInsert("h", "db", "u", "p", table, "Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Equal(1, mySql.SyncDisposeCalls);
+        Assert.Equal(0, mySql.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -168,7 +191,8 @@ public class MySqlBulkInsertTests
         var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() => mySql.BulkInsertAsync("h", "db", "u", "p", table, "Dest"));
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
-        Assert.Equal(1, mySql.DisposeCalls);
+        Assert.Equal(0, mySql.SyncDisposeCalls);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
     }
 
     [Fact]

@@ -21,12 +21,9 @@ public partial class PostgreSql
     {
         lock (_syncRoot)
         {
-            if (_transaction != null || _transactionInitializing)
-            {
-                throw new DbaTransactionException("Transaction already started.");
-            }
-
+            EnsureTransactionStartAllowed(_transaction, _transactionInitializing);
             var connectionString = BuildConnectionString(host, database, username, password);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
             NpgsqlConnection? connection = null;
             NpgsqlTransaction? transaction = null;
             try
@@ -34,9 +31,14 @@ public partial class PostgreSql
                 connection = CreateConnection(connectionString);
                 OpenConnection(connection);
                 transaction = BeginDbTransaction(connection, isolationLevel);
-                _transactionConnection = connection;
-                _transaction = transaction;
-                _transactionConnectionString = NormalizeConnectionString(connectionString);
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
@@ -64,15 +66,11 @@ public partial class PostgreSql
         {
             lock (_syncRoot)
             {
-                if (_transaction != null || _transactionInitializing)
-                {
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionInitializing = true;
+                ReserveTransactionStart(_transaction, ref _transactionInitializing);
             }
 
             var connectionString = BuildConnectionString(host, database, username, password);
+            var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
             connection = CreateConnection(connectionString);
             await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -80,16 +78,14 @@ public partial class PostgreSql
 
             lock (_syncRoot)
             {
-                if (_transaction != null)
-                {
-                    _transactionInitializing = false;
-                    throw new DbaTransactionException("Transaction already started.");
-                }
-
-                _transactionConnection = connection;
-                _transaction = transaction;
-                _transactionConnectionString = NormalizeConnectionString(connectionString);
-                _transactionInitializing = false;
+                StoreStartedTransaction(
+                    ref _transaction,
+                    ref _transactionConnection,
+                    ref _transactionConnectionString,
+                    ref _transactionInitializing,
+                    transaction,
+                    connection,
+                    normalizedConnectionString);
                 connection = null;
                 transaction = null;
             }
@@ -98,15 +94,122 @@ public partial class PostgreSql
         {
             lock (_syncRoot)
             {
-                if (_transaction == null)
-                {
-                    _transactionInitializing = false;
-                }
+                ReleaseTransactionStartReservationIfNeeded(_transaction, ref _transactionInitializing);
             }
 
-            DisposeTransactionResources(transaction, connection);
+            await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Runs the provided callback inside a PostgreSQL transaction and commits on success.
+    /// </summary>
+    public virtual void RunInTransaction(
+        string host,
+        string database,
+        string username,
+        string password,
+        Action<PostgreSql> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        RunInTransaction(
+            host,
+            database,
+            username,
+            password,
+            client =>
+            {
+                operation(client);
+                return true;
+            },
+            isolationLevel);
+    }
+
+    /// <summary>
+    /// Runs the provided callback inside a PostgreSQL transaction and commits on success.
+    /// </summary>
+    public virtual TResult RunInTransaction<TResult>(
+        string host,
+        string database,
+        string username,
+        string password,
+        Func<PostgreSql, TResult> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return ExecuteInTransaction(
+            () => BeginTransaction(host, database, username, password, isolationLevel),
+            () => operation(this),
+            Commit,
+            Rollback,
+            () => IsInTransaction);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a PostgreSQL transaction and commits on success.
+    /// </summary>
+    public virtual Task RunInTransactionAsync(
+        string host,
+        string database,
+        string username,
+        string password,
+        Func<PostgreSql, CancellationToken, Task> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return RunInTransactionAsync(
+            host,
+            database,
+            username,
+            password,
+            async (client, token) =>
+            {
+                await operation(client, token).ConfigureAwait(false);
+                return true;
+            },
+            isolationLevel,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a PostgreSQL transaction and commits on success.
+    /// </summary>
+    public virtual async Task<TResult> RunInTransactionAsync<TResult>(
+        string host,
+        string database,
+        string username,
+        string password,
+        Func<PostgreSql, CancellationToken, Task<TResult>> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return await ExecuteInTransactionAsync(
+            token => BeginTransactionAsync(host, database, username, password, isolationLevel, token),
+            token => operation(this, token),
+            CommitAsync,
+            RollbackAsync,
+            () => IsInTransaction,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -118,17 +221,12 @@ public partial class PostgreSql
         NpgsqlConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionConnectionString = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -150,17 +248,12 @@ public partial class PostgreSql
         NpgsqlConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionConnectionString = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -169,7 +262,7 @@ public partial class PostgreSql
         }
         finally
         {
-            DisposeTransactionResources(tx, conn);
+            await DisposeTransactionResourcesAsync(tx, conn).ConfigureAwait(false);
         }
     }
 
@@ -182,17 +275,12 @@ public partial class PostgreSql
         NpgsqlConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionConnectionString = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -214,17 +302,12 @@ public partial class PostgreSql
         NpgsqlConnection? conn;
         lock (_syncRoot)
         {
-            if (_transaction == null)
-            {
-                throw new DbaTransactionException("No active transaction.");
-            }
-
-            tx = _transaction;
-            conn = _transactionConnection;
-            _transaction = null;
-            _transactionConnection = null;
-            _transactionConnectionString = null;
-            _transactionInitializing = false;
+            (tx, conn) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing,
+                requireActiveTransaction: true);
         }
 
         try
@@ -233,7 +316,7 @@ public partial class PostgreSql
         }
         finally
         {
-            DisposeTransactionResources(tx, conn);
+            await DisposeTransactionResourcesAsync(tx, conn).ConfigureAwait(false);
         }
     }
 
@@ -247,18 +330,69 @@ public partial class PostgreSql
 
     private void DisposeTransactionLocked()
     {
-        if (_transaction != null)
+        var (transaction, connection) = DetachTransactionState(
+            ref _transaction,
+            ref _transactionConnection,
+            ref _transactionConnectionString,
+            ref _transactionInitializing);
+
+        TryRollbackDbTransactionOnDispose(transaction);
+        DisposeTransactionResources(transaction, connection);
+    }
+
+    private async ValueTask DisposeTransactionAsync()
+    {
+        NpgsqlTransaction? transaction;
+        NpgsqlConnection? connection;
+        lock (_syncRoot)
         {
-            DisposeDbTransaction(_transaction);
+            (transaction, connection) = DetachTransactionState(
+                ref _transaction,
+                ref _transactionConnection,
+                ref _transactionConnectionString,
+                ref _transactionInitializing);
         }
-        _transaction = null;
-        if (_transactionConnection != null)
+
+        await TryRollbackDbTransactionOnDisposeAsync(transaction).ConfigureAwait(false);
+        await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Attempts to roll back an active provider transaction during disposal, ignoring rollback failures so cleanup can continue.
+    /// </summary>
+    protected virtual void TryRollbackDbTransactionOnDispose(NpgsqlTransaction? transaction)
+    {
+        if (transaction == null)
         {
-            DisposeConnection(_transactionConnection);
+            return;
         }
-        _transactionConnection = null;
-        _transactionConnectionString = null;
-        _transactionInitializing = false;
+
+        try
+        {
+            RollbackDbTransaction(transaction);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Attempts to asynchronously roll back an active provider transaction during disposal, ignoring rollback failures so cleanup can continue.
+    /// </summary>
+    protected virtual async Task TryRollbackDbTransactionOnDisposeAsync(NpgsqlTransaction? transaction)
+    {
+        if (transaction == null)
+        {
+            return;
+        }
+
+        try
+        {
+            await RollbackDbTransactionAsync(transaction, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+        }
     }
 
     /// <summary>
@@ -321,20 +455,29 @@ public partial class PostgreSql
     protected virtual void DisposeDbTransaction(NpgsqlTransaction transaction) => transaction.Dispose();
 
     /// <summary>
+    /// Asynchronously disposes a provider transaction created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeDbTransactionAsync(NpgsqlTransaction transaction)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return transaction.DisposeAsync();
+#else
+        transaction.Dispose();
+        return default;
+#endif
+    }
+
+    /// <summary>
     /// Disposes transaction resources created for the current operation.
     /// </summary>
     protected virtual void DisposeTransactionResources(NpgsqlTransaction? transaction, NpgsqlConnection? connection)
-    {
-        if (transaction != null)
-        {
-            DisposeDbTransaction(transaction);
-        }
+        => DisposeResourcePair(transaction, DisposeDbTransaction, connection, DisposeConnection);
 
-        if (connection != null)
-        {
-            DisposeConnection(connection);
-        }
-    }
+    /// <summary>
+    /// Asynchronously disposes transaction resources created for the current operation.
+    /// </summary>
+    protected virtual ValueTask DisposeTransactionResourcesAsync(NpgsqlTransaction? transaction, NpgsqlConnection? connection)
+        => DisposeResourcePairAsync(transaction, DisposeDbTransactionAsync, connection, DisposeConnectionAsync);
 
     /// <inheritdoc />
     protected override bool IsTransient(Exception ex) =>
@@ -350,5 +493,11 @@ public partial class PostgreSql
         }
 
         base.Dispose(disposing);
+    }
+
+    /// <inheritdoc />
+    protected override async ValueTask DisposeAsyncCore()
+    {
+        await DisposeTransactionAsync().ConfigureAwait(false);
     }
 }

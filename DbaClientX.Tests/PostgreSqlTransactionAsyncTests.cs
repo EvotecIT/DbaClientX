@@ -1,7 +1,10 @@
 using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Data;
+using Npgsql;
 using NpgsqlTypes;
 using Xunit;
 
@@ -9,6 +12,11 @@ namespace DbaClientX.Tests;
 
 public class PostgreSqlTransactionAsyncTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.PostgreSql)
+        .GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.PostgreSql)
+        .GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeNpgsqlConnection
     {
         public bool BeginCalled { get; private set; }
@@ -192,6 +200,41 @@ public class PostgreSqlTransactionAsyncTests
         Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
     }
 
+    [Fact]
+    public async Task RunInTransactionAsync_CommitsAndReturnsResult()
+    {
+        using var pg = new TestPostgreSql();
+
+        var result = await pg.RunInTransactionAsync("h", "d", "u", "p", async (client, token) =>
+        {
+            await client.QueryAsync("h", "d", "u", "p", "q", useTransaction: true, cancellationToken: token);
+            return 42;
+        });
+
+        Assert.Equal(42, result);
+        Assert.Null(pg.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenOperationFails_RollsBackAndRethrows()
+    {
+        using var pg = new TestPostgreSql();
+        FakeNpgsqlTransaction? txn = null;
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            pg.RunInTransactionAsync("h", "d", "u", "p", async (_, _) =>
+            {
+                txn = pg.Transaction;
+                await Task.Yield();
+                throw new InvalidOperationException("boom");
+            }));
+
+        Assert.Equal("boom", ex.Message);
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.Null(pg.Transaction);
+    }
+
     private class OpenFailureTransactionPostgreSql : DBAClientX.PostgreSql
     {
         public int DisposeCalls { get; private set; }
@@ -201,6 +244,12 @@ public class PostgreSqlTransactionAsyncTests
 
         protected override void DisposeConnection(Npgsql.NpgsqlConnection connection)
             => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(Npgsql.NpgsqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
     }
 
     [Fact]
@@ -213,5 +262,92 @@ public class PostgreSqlTransactionAsyncTests
 
         Assert.False(pg.IsInTransaction);
         Assert.Equal(2, pg.DisposeCalls);
+    }
+
+    private class BeginFailureTransactionPostgreSql : DBAClientX.PostgreSql
+    {
+        public int DisposeCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(Npgsql.NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override Task<Npgsql.NpgsqlTransaction> BeginDbTransactionAsync(Npgsql.NpgsqlConnection connection, IsolationLevel isolationLevel, CancellationToken cancellationToken)
+            => Task.FromException<Npgsql.NpgsqlTransaction>(new InvalidOperationException("boom"));
+
+        protected override void DisposeConnection(Npgsql.NpgsqlConnection connection)
+            => DisposeCalls++;
+
+        protected override ValueTask DisposeConnectionAsync(Npgsql.NpgsqlConnection connection)
+        {
+            DisposeCalls++;
+            return default;
+        }
+    }
+
+    [Fact]
+    public async Task BeginTransactionAsync_WhenBeginDbTransactionFails_DisposesConnectionAndResetsState()
+    {
+        using var pg = new BeginFailureTransactionPostgreSql();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pg.BeginTransactionAsync("h", "d", "u", "p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pg.BeginTransactionAsync("h", "d", "u", "p"));
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(2, pg.DisposeCalls);
+    }
+
+    private sealed class AsyncDisposeTrackingPostgreSql : DBAClientX.PostgreSql
+    {
+        public int AsyncRollbackCalls { get; private set; }
+        public int AsyncTransactionDisposals { get; private set; }
+        public int AsyncConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(NpgsqlTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(NpgsqlConnection)));
+        }
+
+        protected override ValueTask DisposeDbTransactionAsync(NpgsqlTransaction transaction)
+        {
+            AsyncTransactionDisposals++;
+            return default;
+        }
+
+        protected override Task TryRollbackDbTransactionOnDisposeAsync(NpgsqlTransaction? transaction)
+        {
+            AsyncRollbackCalls++;
+            return Task.CompletedTask;
+        }
+
+        protected override ValueTask DisposeConnectionAsync(NpgsqlConnection connection)
+        {
+            AsyncConnectionDisposals++;
+            return default;
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(NpgsqlTransaction? transaction)
+            => throw new InvalidOperationException("Synchronous rollback should not be used by DisposeAsync.");
+
+        protected override void DisposeDbTransaction(NpgsqlTransaction transaction)
+            => throw new InvalidOperationException("Synchronous transaction disposal should not be used by DisposeAsync.");
+
+        protected override void DisposeConnection(NpgsqlConnection connection)
+            => throw new InvalidOperationException("Synchronous connection disposal should not be used by DisposeAsync.");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WithActiveTransaction_UsesAsyncCleanupAndClearsState()
+    {
+        var pg = new AsyncDisposeTrackingPostgreSql();
+        pg.SeedActiveTransaction();
+
+        await pg.DisposeAsync();
+        await pg.DisposeAsync();
+
+        Assert.False(pg.IsInTransaction);
+        Assert.Equal(1, pg.AsyncRollbackCalls);
+        Assert.Equal(1, pg.AsyncTransactionDisposals);
+        Assert.Equal(1, pg.AsyncConnectionDisposals);
     }
 }

@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Data;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Microsoft.Data.Sqlite;
 using Xunit;
 
@@ -9,6 +11,11 @@ namespace DbaClientX.Tests;
 
 public class SQLiteTransactionAsyncTests
 {
+    private static readonly FieldInfo TransactionField = typeof(DBAClientX.SQLite)
+        .GetField("_transaction", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.SQLite)
+        .GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private class FakeSqliteConnection
     {
         public bool BeginCalled { get; private set; }
@@ -146,6 +153,21 @@ public class SQLiteTransactionAsyncTests
     }
 
     [Fact]
+    public async Task BeginTransaction_OnConcreteClient_WhileAsyncInitializationIsReserved_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+
+        var first = sqlite.BeginTransactionAsync(":memory:");
+        Assert.Throws<DBAClientX.DbaTransactionException>(() => sqlite.BeginTransaction(":memory:"));
+
+        await first;
+        Assert.True(sqlite.IsInTransaction);
+
+        await sqlite.RollbackAsync();
+        Assert.False(sqlite.IsInTransaction);
+    }
+
+    [Fact]
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var sqlite = new TestSQLite();
@@ -165,5 +187,60 @@ public class SQLiteTransactionAsyncTests
         await sqlite.RollbackAsync();
         Assert.True(txn.RollbackCalled);
         Assert.Null(sqlite.Transaction);
+    }
+
+    private sealed class AsyncDisposeTrackingSqlite : DBAClientX.SQLite
+    {
+        public int AsyncRollbackCalls { get; private set; }
+        public int AsyncTransactionDisposals { get; private set; }
+        public int AsyncConnectionDisposals { get; private set; }
+
+        public void SeedActiveTransaction()
+        {
+            TransactionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteTransaction)));
+            TransactionConnectionField.SetValue(this, RuntimeHelpers.GetUninitializedObject(typeof(SqliteConnection)));
+        }
+
+        protected override Task TryRollbackDbTransactionOnDisposeAsync(SqliteTransaction? transaction)
+        {
+            AsyncRollbackCalls++;
+            return Task.CompletedTask;
+        }
+
+        protected override void TryRollbackDbTransactionOnDispose(SqliteTransaction? transaction)
+            => throw new InvalidOperationException("Synchronous rollback should not be used by DisposeAsync.");
+
+        protected override async ValueTask DisposeTransactionResourcesAsync(SqliteTransaction? transaction, SqliteConnection? connection)
+        {
+            if (transaction != null)
+            {
+                AsyncTransactionDisposals++;
+            }
+
+            if (connection != null)
+            {
+                AsyncConnectionDisposals++;
+            }
+
+            await ValueTask.CompletedTask;
+        }
+
+        protected override void DisposeTransactionResources(SqliteTransaction? transaction, SqliteConnection? connection)
+            => throw new InvalidOperationException("Synchronous cleanup should not be used by DisposeAsync.");
+    }
+
+    [Fact]
+    public async Task DisposeAsync_WithActiveTransaction_RollsBackAndUsesAsyncCleanup()
+    {
+        var sqlite = new AsyncDisposeTrackingSqlite();
+        sqlite.SeedActiveTransaction();
+
+        await sqlite.DisposeAsync();
+        await sqlite.DisposeAsync();
+
+        Assert.False(sqlite.IsInTransaction);
+        Assert.Equal(1, sqlite.AsyncRollbackCalls);
+        Assert.Equal(1, sqlite.AsyncTransactionDisposals);
+        Assert.Equal(1, sqlite.AsyncConnectionDisposals);
     }
 }
