@@ -207,7 +207,7 @@ public partial class SQLite
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
                 if (transaction != null)
                 {
-                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
                 }
 #else
                 transaction?.Rollback();

@@ -1,5 +1,6 @@
 using System.Data;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -42,6 +43,37 @@ public class SQLiteBulkInsertTests
 
             var count = await sqlite.ExecuteScalarAsync(path, "SELECT COUNT(*) FROM Dest;");
             Assert.Equal(2L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenCancelled_RollsBackOwnedTransaction()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
+
+            var table = CreateTable(5000);
+            using var cts = new CancellationTokenSource();
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(10);
+                cts.Cancel();
+            });
+
+            var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+                sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1, cancellationToken: cts.Token));
+
+            Assert.IsAssignableFrom<OperationCanceledException>(ex.InnerException);
+
+            var count = await sqlite.ExecuteScalarAsync(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(0L, count);
         }
         finally
         {
