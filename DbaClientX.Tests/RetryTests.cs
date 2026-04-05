@@ -112,6 +112,7 @@ public class RetryTests
         protected override bool IsTransient(Exception ex) => ex is TransientTestException;
         public object? Run(DbConnection connection) => ExecuteScalar(connection, null, "q");
         public Task<object?> RunAsync(DbConnection connection, CancellationToken token = default) => ExecuteScalarAsync(connection, null, "q", cancellationToken: token);
+        public Task<T> RunOperationAsync<T>(Func<Task<T>> operation, CancellationToken token = default) => ExecuteWithRetryAsync(operation, token);
     }
 
     private class RetryNonQueryClient : DBAClientX.DatabaseClientBase
@@ -195,5 +196,53 @@ public class RetryTests
     {
         var client = new RetryClient();
         Assert.Throws<ArgumentOutOfRangeException>(() => client.MaxRetryAttempts = -1);
+    }
+
+    [Fact]
+    public void RetryDelay_Negative_Throws()
+    {
+        var client = new RetryClient();
+        Assert.Throws<ArgumentOutOfRangeException>(() => client.RetryDelay = TimeSpan.FromMilliseconds(-1));
+    }
+
+    [Fact]
+    public async Task ExecuteWithRetryAsync_WithPreCancelledToken_DoesNotInvokeOperation()
+    {
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var cts = new CancellationTokenSource();
+        var attempts = 0;
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.RunOperationAsync(() =>
+            {
+                attempts++;
+                return Task.FromResult(1);
+            }, cts.Token));
+
+        Assert.Equal(0, attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteWithRetryAsync_WhenCancelledAfterTransientFailure_ThrowsOperationCanceled()
+    {
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var cts = new CancellationTokenSource();
+        var attempts = 0;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.RunOperationAsync<int>(() =>
+            {
+                attempts++;
+                if (attempts == 1)
+                {
+                    cts.Cancel();
+                    throw new TransientTestException();
+                }
+
+                return Task.FromResult(1);
+            }, cts.Token));
+
+        Assert.Equal(1, attempts);
     }
 }
