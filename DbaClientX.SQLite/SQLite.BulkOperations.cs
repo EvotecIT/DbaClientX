@@ -332,7 +332,14 @@ public partial class SQLite
     /// <param name="transaction">The owned transaction to roll back.</param>
     /// <param name="cancellationToken">Cleanup token used for rollback.</param>
     protected virtual Task RollbackOwnedBulkInsertTransactionAsync(SqliteTransaction transaction, CancellationToken cancellationToken)
-        => transaction.RollbackAsync(cancellationToken);
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return transaction.RollbackAsync(cancellationToken);
+#else
+        transaction.Rollback();
+        return Task.CompletedTask;
+#endif
+    }
 
     private static string GetParameterName(int rowIndex, int colIndex) => $"@p{rowIndex}_{colIndex}";
 
