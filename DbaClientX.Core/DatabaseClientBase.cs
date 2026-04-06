@@ -71,7 +71,15 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     public TimeSpan RetryDelay
     {
         get { lock (_syncRoot) { return _retryDelay; } }
-        set { lock (_syncRoot) { _retryDelay = value; } }
+        set
+        {
+            if (value < TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "RetryDelay cannot be negative.");
+            }
+
+            lock (_syncRoot) { _retryDelay = value; }
+        }
     }
 
     /// <summary>
@@ -142,6 +150,8 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
         while (attempts < maxAttempts)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             try
             {
                 return await operation().ConfigureAwait(false);
@@ -150,7 +160,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 lastException = ex;
                 attempts++;
-                if (attempts >= maxAttempts || cancellationToken.IsCancellationRequested)
+                if (attempts >= maxAttempts)
                 {
                     break;
                 }
@@ -982,7 +992,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         Exception? rollbackException = null;
         try
         {
-            await rollbackAsync(cancellationToken).ConfigureAwait(false);
+            await rollbackAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (DbaTransactionException) when (!hadActiveTransaction)
         {

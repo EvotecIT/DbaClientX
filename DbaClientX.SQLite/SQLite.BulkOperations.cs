@@ -167,9 +167,7 @@ public partial class SQLite
                     }
 
                     ApplyBatchValues(command, columns, table, offset, currentRows);
-                    await ExecuteWithRetryAsync(
-                        async () => await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false),
-                        cancellationToken).ConfigureAwait(false);
+                    await ExecuteBulkInsertCommandAsync(command, cancellationToken).ConfigureAwait(false);
                 }
             }
             finally
@@ -207,7 +205,7 @@ public partial class SQLite
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
                 if (transaction != null)
                 {
-                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                    await RollbackOwnedBulkInsertTransactionAsync(transaction, CancellationToken.None).ConfigureAwait(false);
                 }
 #else
                 transaction?.Rollback();
@@ -313,6 +311,34 @@ public partial class SQLite
 
         command.Prepare();
         return command;
+    }
+
+    /// <summary>
+    /// Executes the prepared SQLite bulk-insert command for the current batch.
+    /// </summary>
+    /// <param name="command">Prepared command populated with batch values.</param>
+    /// <param name="cancellationToken">Token used to cancel execution and retry delays.</param>
+    protected virtual Task ExecuteBulkInsertCommandAsync(SqliteCommand command, CancellationToken cancellationToken)
+        => ExecuteWithRetryAsync(
+            async () => {
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                return 0;
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Rolls back an owned bulk-insert transaction during asynchronous failure cleanup.
+    /// </summary>
+    /// <param name="transaction">The owned transaction to roll back.</param>
+    /// <param name="cancellationToken">Cleanup token used for rollback.</param>
+    protected virtual Task RollbackOwnedBulkInsertTransactionAsync(SqliteTransaction transaction, CancellationToken cancellationToken)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return transaction.RollbackAsync(cancellationToken);
+#else
+        transaction.Rollback();
+        return Task.CompletedTask;
+#endif
     }
 
     private static string GetParameterName(int rowIndex, int colIndex) => $"@p{rowIndex}_{colIndex}";

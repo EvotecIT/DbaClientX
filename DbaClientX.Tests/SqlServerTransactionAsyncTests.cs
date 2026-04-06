@@ -35,6 +35,7 @@ public class SqlServerTransactionAsyncTests
         private readonly FakeSqlConnection _connection;
         public bool CommitCalled { get; private set; }
         public bool RollbackCalled { get; private set; }
+        public CancellationToken RollbackCancellationToken { get; private set; }
 
         public FakeSqlTransaction(FakeSqlConnection connection)
         {
@@ -50,6 +51,7 @@ public class SqlServerTransactionAsyncTests
         public Task RollbackAsync(CancellationToken cancellationToken = default)
         {
             RollbackCalled = true;
+            RollbackCancellationToken = cancellationToken;
             return Task.CompletedTask;
         }
     }
@@ -228,6 +230,29 @@ public class SqlServerTransactionAsyncTests
         Assert.Equal("boom", ex.Message);
         Assert.NotNull(txn);
         Assert.True(txn!.RollbackCalled);
+        Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WhenCancelled_RollsBackWithoutReusingCancelledToken()
+    {
+        using var server = new TestSqlServer();
+        FakeSqlTransaction? txn = null;
+        using var cts = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            server.RunInTransactionAsync("s", "db", true, async (_, token) =>
+            {
+                txn = server.Transaction;
+                cts.Cancel();
+                await Task.Yield();
+                token.ThrowIfCancellationRequested();
+                return 0;
+            }, cancellationToken: cts.Token));
+
+        Assert.NotNull(txn);
+        Assert.True(txn!.RollbackCalled);
+        Assert.False(txn.RollbackCancellationToken.IsCancellationRequested);
         Assert.Null(server.Transaction);
     }
 
