@@ -51,8 +51,8 @@ public partial class PostgreSql
 
         async IAsyncEnumerable<DataRow> Stream()
         {
-            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             try
             {
                 await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
@@ -88,9 +88,9 @@ public partial class PostgreSql
         async IAsyncEnumerable<DataRow> Stream()
         {
             var connectionString = BuildConnectionString(host, database, username, password);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
 
             var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            var dbTypes = ConvertParameterTypes(parameterTypes);
             try
             {
                 await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
@@ -186,8 +186,8 @@ public partial class PostgreSql
 
         async IAsyncEnumerable<T> Stream()
         {
-            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             try
             {
                 await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
