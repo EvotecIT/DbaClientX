@@ -2,6 +2,7 @@ using System;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using Npgsql;
 
 namespace DBAClientX;
@@ -115,6 +116,17 @@ public partial class PostgreSql : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new NpgsqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate("postgresql", connectionString);
+        if (!validationResult.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));
+        }
+
+        _ = NormalizeConnectionString(connectionString);
+    }
 
     private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
     {

@@ -20,6 +20,22 @@ public class DatabaseClientBaseOutputParameterTests
 
         public Task<object?> RunQueryAsync(DbConnection connection, IDictionary<string, object?> parameters, IDictionary<string, ParameterDirection> directions)
             => ExecuteQueryAsync(connection, null, "q", parameters, parameterDirections: directions);
+
+        public Task<IReadOnlyList<T>> RunMappedQueryAsync<T>(
+            DbConnection connection,
+            Func<IDataRecord, T> map,
+            Action<IDataRecord>? initialize = null,
+            IDictionary<string, object?>? parameters = null,
+            IDictionary<string, ParameterDirection>? directions = null)
+            => ExecuteMappedQueryAsync(connection, null, "q", map, initialize, parameters, parameterDirections: directions);
+
+        public IAsyncEnumerable<T> RunMappedStream<T>(
+            DbConnection connection,
+            Func<IDataRecord, T> map,
+            Action<IDataRecord>? initialize = null,
+            IDictionary<string, object?>? parameters = null,
+            IDictionary<string, ParameterDirection>? directions = null)
+            => ExecuteMappedQueryStreamAsync(connection, null, "q", map, initialize, parameters, parameterDirections: directions);
     }
 
     private sealed class FakeConnection : DbConnection
@@ -252,5 +268,69 @@ public class DatabaseClientBaseOutputParameterTests
         Assert.Single(parameters);
         Assert.True(parameters.ContainsKey("@Out"));
         Assert.Equal(5, parameters["@Out"]);
+    }
+
+    [Fact]
+    public async Task ExecuteMappedQueryAsync_MapsRowsAndRunsInitializer()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+        var initializeCount = 0;
+        var idOrdinal = -1;
+
+        IReadOnlyList<int> rows = await client.RunMappedQueryAsync(
+            connection,
+            record => record.GetInt32(idOrdinal),
+            record => {
+                initializeCount++;
+                idOrdinal = record.GetOrdinal("id");
+            });
+
+        Assert.Equal(new[] { 1 }, rows);
+        Assert.Equal(1, initializeCount);
+        Assert.Equal(0, idOrdinal);
+    }
+
+    [Fact]
+    public async Task ExecuteMappedQueryAsync_UpdatesOutputParameters()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+        var parameters = new Dictionary<string, object?> { ["@out"] = null };
+        var directions = new Dictionary<string, ParameterDirection> { ["@out"] = ParameterDirection.Output };
+
+        IReadOnlyList<int> rows = await client.RunMappedQueryAsync(
+            connection,
+            record => record.GetInt32(0),
+            parameters: parameters,
+            directions: directions);
+
+        Assert.Equal(new[] { 1 }, rows);
+        Assert.Equal(5, parameters["@out"]);
+    }
+
+    [Fact]
+    public async Task ExecuteMappedQueryStreamAsync_MapsRowsAndRunsInitializer()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+        var rows = new List<int>();
+        var initializeCount = 0;
+        var idOrdinal = -1;
+
+        await foreach (int row in client.RunMappedStream(
+            connection,
+            record => record.GetInt32(idOrdinal),
+            record => {
+                initializeCount++;
+                idOrdinal = record.GetOrdinal("id");
+            }))
+        {
+            rows.Add(row);
+        }
+
+        Assert.Equal(new[] { 1 }, rows);
+        Assert.Equal(1, initializeCount);
+        Assert.Equal(0, idOrdinal);
     }
 }

@@ -550,6 +550,47 @@ public class PostgreSqlTests
     }
 
     [Fact]
+    public async Task QueryAsync_WithConnectionString_UsesProvidedSettings()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        const string connectionString = "Host=127.0.0.1;Port=65432;Database=certwatch;Username=guest;Password=;SSL Mode=Require;Timeout=1;Command Timeout=1";
+
+        var exception = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+            pg.QueryAsync(connectionString, "SELECT 1"));
+
+        Assert.Contains("SELECT 1", exception.Message);
+        Assert.IsNotType<ArgumentException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task QueryAsListAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
+    {
+        using var pg = new OpenFailurePostgreSql();
+        const string connectionString = "Host=127.0.0.1;Port=65432;Database=certwatch;Username=guest;Password=;SSL Mode=Require";
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            pg.QueryAsListAsync<int>(connectionString, "SELECT 1", null!));
+
+        Assert.Equal(0, pg.SyncDisposeCalls);
+        Assert.Equal(0, pg.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task QueryAsync_WithInsecureConnectionString_ThrowsBeforeOpeningConnection()
+    {
+        using var pg = new OpenFailurePostgreSql();
+        const string connectionString = "Host=db.example.com;Database=certwatch;Username=guest;Password=;SSL Mode=Disable";
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            pg.QueryAsync(connectionString, "SELECT 1"));
+
+        Assert.Equal("connectionString", exception.ParamName);
+        Assert.Contains("require SSL", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, pg.SyncDisposeCalls);
+        Assert.Equal(0, pg.AsyncDisposeCalls);
+    }
+
+    [Fact]
     public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
     {
         using var pg = new DBAClientX.PostgreSql();
