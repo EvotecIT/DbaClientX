@@ -371,8 +371,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
         // Exponential backoff with jitter (full jitter)
         var factor = Math.Pow(2, Math.Max(0, attempt - 1));
-        var ms = baseDelay.TotalMilliseconds * factor;
-        var jitter = _rand.Value!.NextDouble() * baseDelay.TotalMilliseconds; // 0..base
+        var baseMilliseconds = baseDelay.TotalMilliseconds;
+        var ms = baseMilliseconds * factor;
+        var jitter = _rand.Value!.NextDouble() * baseMilliseconds; // 0..base
         var total = Math.Min(ms + jitter, MaxBackoffMilliseconds);
         return TimeSpan.FromMilliseconds(total);
     }
