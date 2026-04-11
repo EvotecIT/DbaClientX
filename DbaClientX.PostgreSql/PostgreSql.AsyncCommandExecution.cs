@@ -67,7 +67,7 @@ public partial class PostgreSql
     /// <summary>
     /// Asynchronously executes a SQL query and maps each row with a caller-provided mapper.
     /// </summary>
-    public virtual async Task<IReadOnlyList<T>> QueryAsync<T>(
+    public virtual Task<IReadOnlyList<T>> QueryAsync<T>(
         string host,
         string database,
         string username,
@@ -79,12 +79,12 @@ public partial class PostgreSql
         CancellationToken cancellationToken = default,
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
-        => await QueryAsListAsync(host, database, username, password, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+        => QueryAsListAsync(host, database, username, password, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections);
 
     /// <summary>
     /// Asynchronously executes a SQL query and maps each row with a caller-provided mapper.
     /// </summary>
-    public virtual async Task<IReadOnlyList<T>> QueryAsListAsync<T>(
+    public virtual Task<IReadOnlyList<T>> QueryAsListAsync<T>(
         string host,
         string database,
         string username,
@@ -102,13 +102,13 @@ public partial class PostgreSql
         if (map == null) throw new ArgumentNullException(nameof(map));
 
         var connectionString = BuildConnectionString(host, database, username, password);
-        return await QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections, initialize).ConfigureAwait(false);
+        return QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections, initialize);
     }
 
     /// <summary>
     /// Asynchronously executes a SQL query using a full PostgreSQL connection string and maps each row with a caller-provided mapper.
     /// </summary>
-    public virtual async Task<IReadOnlyList<T>> QueryAsync<T>(
+    public virtual Task<IReadOnlyList<T>> QueryAsync<T>(
         string connectionString,
         string query,
         Func<IDataRecord, T> map,
@@ -117,7 +117,7 @@ public partial class PostgreSql
         CancellationToken cancellationToken = default,
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
-        => await QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+        => QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections);
 
     /// <summary>
     /// Asynchronously executes a SQL query using a full PostgreSQL connection string and maps each row with a caller-provided mapper.
