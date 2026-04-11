@@ -2,6 +2,7 @@ using System;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using Npgsql;
 
 namespace DBAClientX;
@@ -118,9 +119,10 @@ public partial class PostgreSql : DatabaseClientBase
 
     private static void ValidateConnectionString(string connectionString)
     {
-        if (string.IsNullOrWhiteSpace(connectionString))
+        var validationResult = DbaConnectionFactory.Validate("postgresql", connectionString);
+        if (!validationResult.IsValid)
         {
-            throw new ArgumentException("Connection string cannot be null or whitespace.", nameof(connectionString));
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));
         }
 
         _ = NormalizeConnectionString(connectionString);
