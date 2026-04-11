@@ -550,6 +550,32 @@ public class PostgreSqlTests
     }
 
     [Fact]
+    public async Task QueryAsync_WithConnectionString_UsesProvidedSettings()
+    {
+        using var pg = new DBAClientX.PostgreSql();
+        const string connectionString = "Host=127.0.0.1;Port=1;Database=certwatch;Username=guest;Password=;SSL Mode=Disable;Timeout=1;Command Timeout=1";
+
+        var exception = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+            pg.QueryAsync(connectionString, "SELECT 1"));
+
+        Assert.Contains("SELECT 1", exception.Message);
+        Assert.IsNotType<ArgumentException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task QueryAsListAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
+    {
+        using var pg = new OpenFailurePostgreSql();
+        const string connectionString = "Host=127.0.0.1;Port=1;Database=certwatch;Username=guest;Password=;SSL Mode=Disable";
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            pg.QueryAsListAsync<int>(connectionString, "SELECT 1", null!));
+
+        Assert.Equal(0, pg.SyncDisposeCalls);
+        Assert.Equal(0, pg.AsyncDisposeCalls);
+    }
+
+    [Fact]
     public void ExecuteStoredProcedure_WithEmptyProcedure_Throws()
     {
         using var pg = new DBAClientX.PostgreSql();

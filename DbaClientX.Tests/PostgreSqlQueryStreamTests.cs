@@ -66,4 +66,17 @@ public class PostgreSqlQueryStreamTests
         Assert.Equal(0, pg.SyncDisposeCalls);
         Assert.Equal(1, pg.AsyncDisposeCalls);
     }
+
+    [Fact]
+    public void QueryStreamAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
+    {
+        using var pg = new OpenFailurePg();
+        const string connectionString = "Host=127.0.0.1;Port=1;Database=certwatch;Username=guest;Password=;SSL Mode=Disable";
+
+        Assert.Throws<ArgumentNullException>(() =>
+            pg.QueryStreamAsync<int>(connectionString, "SELECT 1", null!));
+
+        Assert.Equal(0, pg.SyncDisposeCalls);
+        Assert.Equal(0, pg.AsyncDisposeCalls);
+    }
 }

@@ -116,6 +116,16 @@ public partial class PostgreSql : DatabaseClientBase
     private static string NormalizeConnectionString(string connectionString)
         => new NpgsqlConnectionStringBuilder(connectionString).ConnectionString;
 
+    private static void ValidateConnectionString(string connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new ArgumentException("Connection string cannot be null or whitespace.", nameof(connectionString));
+        }
+
+        _ = NormalizeConnectionString(connectionString);
+    }
+
     private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
     {
         if (string.IsNullOrWhiteSpace(value))

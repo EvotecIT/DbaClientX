@@ -745,6 +745,64 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Asynchronously executes a query and maps each row with a caller-provided mapper.
+    /// </summary>
+    /// <typeparam name="T">The row result type produced by <paramref name="map"/>.</typeparam>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="map">A mapper that converts the current data record into a result value.</param>
+    /// <param name="initialize">Optional callback invoked once after the reader opens and before the first row is read.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The mapped result rows.</returns>
+    protected virtual async Task<IReadOnlyList<T>> ExecuteMappedQueryAsync<T>(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        Func<IDataRecord, T> map,
+        Action<IDataRecord>? initialize = null,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        if (map == null)
+        {
+            throw new ArgumentNullException(nameof(map));
+        }
+
+        return await ExecuteWithRetryAsync(async () =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = query;
+            command.Transaction = transaction;
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var rows = new List<T>();
+            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                initialize?.Invoke(reader);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    rows.Add(map(reader));
+                }
+            }
+
+            UpdateOutputParameters(command, parameters);
+            return (IReadOnlyList<T>)rows;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Asynchronously executes a non-query command (INSERT/UPDATE/DELETE) with retry support.
     /// </summary>
     /// <param name="connection">The open database connection.</param>
@@ -898,6 +956,85 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
             }
             yield return row;
+        }
+
+        UpdateOutputParameters(command, parameters);
+        yield break;
+    }
+
+    /// <summary>
+    /// Asynchronously streams query rows through a caller-provided mapper.
+    /// </summary>
+    /// <typeparam name="T">The row result type produced by <paramref name="map"/>.</typeparam>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="map">A mapper that converts the current data record into a result value.</param>
+    /// <param name="initialize">Optional callback invoked once after the reader opens and before the first row is read.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Token used to cancel the iteration.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <param name="dbParameters">Provider-specific parameters to attach directly to the command.</param>
+    /// <param name="commandType">Command type to use (Text or StoredProcedure).</param>
+    /// <returns>An asynchronous stream of mapped result rows.</returns>
+    protected virtual async IAsyncEnumerable<T> ExecuteMappedQueryStreamAsync<T>(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        Func<IDataRecord, T> map,
+        Action<IDataRecord>? initialize = null,
+        IDictionary<string, object?>? parameters = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        IEnumerable<DbParameter>? dbParameters = null,
+        CommandType commandType = CommandType.Text)
+    {
+        ValidateCommandText(query, commandType);
+        if (map == null)
+        {
+            throw new ArgumentNullException(nameof(map));
+        }
+        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
+        var attempt = 0;
+
+        using var command = connection.CreateCommand();
+        command.CommandText = query;
+        command.Transaction = transaction;
+        command.CommandType = commandType;
+        AddParameters(command, parameters, parameterTypes, parameterDirections);
+        AddParameters(command, dbParameters);
+        var commandTimeout = CommandTimeout;
+        if (commandTimeout > 0)
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+
+        async Task<DbDataReader> OpenReaderAsync()
+        {
+            while (true)
+            {
+                try
+                {
+                    return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
+                {
+                    var delay = ComputeBackoffDelay(attempt);
+                    if (delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+
+        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+        initialize?.Invoke(reader);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            yield return map(reader);
         }
 
         UpdateOutputParameters(command, parameters);
