@@ -1100,9 +1100,10 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     protected static DataTable ReadDataTable(DbDataReader reader, string tableName)
     {
         var table = new DataTable(tableName);
+        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < reader.FieldCount; i++)
         {
-            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
         }
 
         while (reader.Read())
@@ -1129,9 +1130,10 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     protected static async Task<DataTable> ReadDataTableAsync(DbDataReader reader, string tableName, CancellationToken cancellationToken)
     {
         var table = new DataTable(tableName);
+        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < reader.FieldCount; i++)
         {
-            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
         }
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -1148,6 +1150,20 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
 
         return table;
+    }
+
+    private static string GetUniqueColumnName(string? columnName, int ordinal, HashSet<string> usedNames)
+    {
+        var baseName = string.IsNullOrEmpty(columnName) ? $"Column{ordinal + 1}" : columnName!;
+        var name = baseName;
+        var suffix = 1;
+        while (!usedNames.Add(name))
+        {
+            name = baseName + suffix;
+            suffix++;
+        }
+
+        return name;
     }
 
     /// <summary>
