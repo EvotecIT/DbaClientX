@@ -58,10 +58,14 @@ public class DbaConnectionFactoryTests
         Assert.Contains("disabled", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
     }
 
-    [Fact]
-    public void Validate_MySqlConnectionString_WithSslPreferred_IsRejected()
+    [Theory]
+    [InlineData("None")]
+    [InlineData("Preferred")]
+    [InlineData("Disabled")]
+    [InlineData("Invalid")]
+    public void Validate_MySqlConnectionString_WithNonEnforcingSslMode_IsRejected(string sslMode)
     {
-        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Preferred";
+        var connectionString = $"Server=dbhost;Database=app;User ID=user;Password=password;SslMode={sslMode}";
         var result = DbaConnectionFactory.Validate("mysql", connectionString);
 
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
@@ -69,10 +73,69 @@ public class DbaConnectionFactoryTests
             || string.Equals("SslMode", result.Details, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Validate_MySqlConnectionString_WithEmptySslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_MySqlConnectionString_WithWhitespaceSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=   ";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Required")]
+    [InlineData("VerifyCA")]
+    [InlineData("VerifyFull")]
+    [InlineData("required")]
+    public void Validate_MySqlConnectionString_WithEnforcingSslMode_Succeeds(string sslMode)
+    {
+        var connectionString = $"Server=dbhost;Database=app;User ID=user;Password=password;SslMode={sslMode}";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_MySqlConnectionString_WithoutSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("False")]
+    [InlineData("No")]
+    [InlineData("Optional")]
+    public void Validate_SqlServerConnectionString_WithDisabledEncryption_IsRejected(string encrypt)
+    {
+        var connectionString = $"Server=dbhost;Database=app;Encrypt={encrypt}";
+        var result = DbaConnectionFactory.Validate("sqlserver", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
+        Assert.True(string.Equals("Encrypt", result.Details, StringComparison.OrdinalIgnoreCase)
+            || string.Equals("Encryption", result.Details, StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("Disable")]
     [InlineData("Allow")]
     [InlineData("Prefer")]
+    [InlineData("Invalid")]
     public void Validate_PostgreSqlConnectionString_WithInsecureSslModes_IsRejected(string sslMode)
     {
         var connectionString = $"Server=dbhost;Database=app;Username=user;Password=password;SslMode={sslMode}";
@@ -81,6 +144,40 @@ public class DbaConnectionFactoryTests
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
         Assert.True(string.Equals("SSL Mode", result.Details, StringComparison.OrdinalIgnoreCase)
             || string.Equals("SslMode", result.Details, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_PostgreSqlConnectionString_WithEmptySslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;Username=user;Password=password;SslMode=";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_PostgreSqlConnectionString_WithWhitespaceSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;Username=user;Password=password;SslMode=   ";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Require")]
+    [InlineData("VerifyCA")]
+    [InlineData("VerifyFull")]
+    [InlineData("require")]
+    public void Validate_PostgreSqlConnectionString_WithEnforcingSslMode_Succeeds(string sslMode)
+    {
+        var connectionString = $"Server=dbhost;Database=app;Username=user;Password=password;SslMode={sslMode}";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
     }
 
     [Fact]

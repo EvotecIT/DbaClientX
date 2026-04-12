@@ -44,7 +44,7 @@ public partial class SqlServer
             }
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -105,7 +105,7 @@ public partial class SqlServer
             }
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {

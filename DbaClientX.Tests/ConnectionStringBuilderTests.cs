@@ -128,6 +128,7 @@ public class ConnectionStringBuilderTests
         Assert.Equal("srv", builder.DataSource);
         Assert.Equal("db", builder.InitialCatalog);
         Assert.True(builder.IntegratedSecurity);
+        Assert.True(builder.Encrypt);
     }
 
     [Fact]
@@ -149,6 +150,13 @@ public class ConnectionStringBuilderTests
         var builder = new SqlConnectionStringBuilder(cs);
         Assert.Equal("srv,1444", builder.DataSource);
         Assert.True(builder.Encrypt);
+    }
+
+    [Fact]
+    public void SqlServer_BuildConnectionString_RejectsDisabledEncryption()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => DBAClientX.SqlServer.BuildConnectionString("srv", "db", true, ssl: false));
+        Assert.Contains("encryption", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

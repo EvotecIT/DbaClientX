@@ -14,7 +14,7 @@ public class MySqlGenericExecutorsTests
         public string? LastConnectionString { get; private set; }
         public string? LastCommandText { get; private set; }
 
-        internal override Task<int> ExecuteNonQueryAsync(
+        public override Task<int> ExecuteNonQueryAsync(
             string connectionString,
             string query,
             IDictionary<string, object?>? parameters = null,
@@ -28,7 +28,7 @@ public class MySqlGenericExecutorsTests
             return Task.FromResult(7);
         }
 
-        internal override Task<object?> ExecuteStoredProcedureAsync(
+        public override Task<object?> ExecuteStoredProcedureAsync(
             string connectionString,
             string procedure,
             IDictionary<string, object?>? parameters = null,

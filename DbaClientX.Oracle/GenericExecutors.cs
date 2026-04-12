@@ -12,6 +12,8 @@ namespace DBAClientX.OracleGeneric;
 /// </summary>
 public static class GenericExecutors
 {
+    internal static Func<DBAClientX.Oracle> ClientFactory { get; set; } = static () => new DBAClientX.Oracle();
+
     /// <summary>Executes a parameterized SQL statement.</summary>
     /// <param name="host">Oracle host name or address.</param>
     /// <param name="serviceName">Oracle service or SID.</param>
@@ -21,11 +23,11 @@ public static class GenericExecutors
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    public static Task<int> ExecuteSqlAsync(string host, string serviceName, string username, string password, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string host, string serviceName, string username, string password, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         ValidateCommandText(sql, nameof(sql), "SQL text");
-        var cli = new DBAClientX.Oracle();
-        return cli.ExecuteNonQueryAsync(host, serviceName, username, password, sql, parameters, cancellationToken: ct);
+        using var cli = ClientFactory();
+        return await cli.ExecuteNonQueryAsync(host, serviceName, username, password, sql, parameters, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>Executes a parameterized SQL statement using a connection string.</summary>
@@ -34,14 +36,12 @@ public static class GenericExecutors
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(sql, nameof(sql), "SQL text");
-        var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
-        var (host, service) = SplitDataSource(b.DataSource);
-        var cli = new DBAClientX.Oracle();
-        return cli.ExecuteNonQueryAsync(host, service, b.UserID, b.Password, sql, parameters, cancellationToken: ct);
+        using var cli = ClientFactory();
+        return await cli.ExecuteNonQueryAsync(connectionString, sql, parameters, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>Executes a stored procedure.</summary>
@@ -56,7 +56,7 @@ public static class GenericExecutors
     public static async Task<int> ExecuteProcedureAsync(string host, string serviceName, string username, string password, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
-        var cli = new DBAClientX.Oracle();
+        using var cli = ClientFactory();
         await cli.ExecuteStoredProcedureAsync(host, serviceName, username, password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
     }
@@ -71,28 +71,9 @@ public static class GenericExecutors
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
-        var b = new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString);
-        var (host, service) = SplitDataSource(b.DataSource);
-        var cli = new DBAClientX.Oracle();
-        await cli.ExecuteStoredProcedureAsync(host, service, b.UserID, b.Password, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
+        using var cli = ClientFactory();
+        await cli.ExecuteStoredProcedureAsync(connectionString, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
-    }
-
-    private static (string Host, string ServiceName) SplitDataSource(string? dataSource)
-    {
-        var value = dataSource ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return (string.Empty, string.Empty);
-        }
-
-        var slash = value.LastIndexOf('/');
-        if (slash > 0 && slash < value.Length - 1)
-        {
-            return (value.Substring(0, slash), value.Substring(slash + 1));
-        }
-
-        return (value, value);
     }
 
     private static void ValidateConnectionString(string connectionString)

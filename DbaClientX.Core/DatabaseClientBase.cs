@@ -481,7 +481,15 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         };
     }
 
-    private static bool TryGetDictionaryValue<TValue>(IDictionary<string, TValue>? dictionary, string key, out TValue value)
+    /// <summary>
+    /// Looks up a dictionary value using the supplied key, falling back to a case-insensitive comparison.
+    /// </summary>
+    /// <typeparam name="TValue">The dictionary value type.</typeparam>
+    /// <param name="dictionary">The dictionary to inspect.</param>
+    /// <param name="key">The key to find.</param>
+    /// <param name="value">The value when a matching key is found.</param>
+    /// <returns><c>true</c> when the key is present; otherwise, <c>false</c>.</returns>
+    protected static bool TryGetDictionaryValue<TValue>(IDictionary<string, TValue>? dictionary, string key, out TValue value)
     {
         value = default!;
         if (dictionary == null)
@@ -551,7 +559,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             object? result;
-            using (var reader = command.ExecuteReader())
+            using (var reader = command.ExecuteReader(CommandBehavior.SequentialAccess))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
@@ -694,7 +702,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             object? result;
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
@@ -789,7 +797,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             var rows = new List<T>();
-            using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false))
             {
                 initialize?.Invoke(reader);
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -928,7 +936,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {
@@ -1018,7 +1026,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                    return await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {

@@ -65,7 +65,7 @@ public static class DbaConnectionFactory
 
     private static readonly Dictionary<string, ProviderValidationProfile> ProviderProfiles = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase),
+        ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase, ValidateSqlServerOptions),
         ["postgresql"] = new("postgresql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidatePostgreSqlOptions(builder)),
         ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
         ["sqlite"] = new("sqlite", new List<string[]>
@@ -245,18 +245,49 @@ public static class DbaConnectionFactory
         return null;
     }
 
-    private static ConnectionValidationResult? ValidateMySqlOptions(DbConnectionStringBuilder builder)
+    private static ConnectionValidationResult? ValidateSqlServerOptions(DbConnectionStringBuilder builder)
     {
-        foreach (var key in new[] { "SslMode", "SSL Mode" })
+        foreach (var key in new[] { "Encrypt", "Encryption" })
         {
-            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
+            if (builder.TryGetValue(key, out var encrypt) && encrypt is string encryptValue)
             {
-                if (sslValue.Equals("None", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Preferred", StringComparison.OrdinalIgnoreCase))
+                if (encryptValue.Equals("False", StringComparison.OrdinalIgnoreCase)
+                    || encryptValue.Equals("No", StringComparison.OrdinalIgnoreCase)
+                    || encryptValue.Equals("Optional", StringComparison.OrdinalIgnoreCase))
                 {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode cannot be None or Preferred).", key);
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "SQL Server connections must use encryption (Encrypt cannot be False, No, or Optional).", key);
                 }
             }
+        }
+
+        return null;
+    }
+
+    private static ConnectionValidationResult? ValidateMySqlOptions(DbConnectionStringBuilder builder)
+    {
+        var sslModeSpecified = false;
+        foreach (var key in new[] { "SslMode", "SSL Mode" })
+        {
+            if (builder.TryGetValue(key, out var sslMode))
+            {
+                sslModeSpecified = true;
+                var sslValue = Convert.ToString(sslMode);
+                if (string.IsNullOrWhiteSpace(sslValue))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "MySQL connections must explicitly require SSL (SslMode must be Required or Verify*).", key);
+                }
+
+                sslValue = sslValue.Trim();
+                if (!IsMySqlSslModeEnforcing(sslValue))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode must be Required, VerifyCA, or VerifyFull).", key);
+                }
+            }
+        }
+
+        if (!sslModeSpecified)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "MySQL connections must explicitly require SSL (SslMode must be Required or Verify*).", "SslMode");
         }
 
         return null;
@@ -267,14 +298,19 @@ public static class DbaConnectionFactory
         var sslModeSpecified = false;
         foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
-            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
+            if (builder.TryGetValue(key, out var sslMode))
             {
                 sslModeSpecified = true;
-                if (sslValue.Equals("Disable", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Allow", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Prefer", StringComparison.OrdinalIgnoreCase))
+                var sslValue = Convert.ToString(sslMode);
+                if (string.IsNullOrWhiteSpace(sslValue))
                 {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode cannot be Disable, Allow, or Prefer).", key);
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "PostgreSQL connections must explicitly require SSL (SslMode must be Require or Verify*).", key);
+                }
+
+                sslValue = sslValue.Trim();
+                if (!IsPostgreSqlSslModeEnforcing(sslValue))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode must be Require, VerifyCA, or VerifyFull).", key);
                 }
             }
         }
@@ -286,6 +322,18 @@ public static class DbaConnectionFactory
 
         return null;
     }
+
+    private static bool IsMySqlSslModeEnforcing(string? sslMode)
+        => sslMode is not null
+           && (sslMode.Equals("Required", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyCA", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyFull", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsPostgreSqlSslModeEnforcing(string? sslMode)
+        => sslMode is not null
+           && (sslMode.Equals("Require", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyCA", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyFull", StringComparison.OrdinalIgnoreCase));
 
     private static ConnectionValidationResult? ValidateDisallowedOptions(DbConnectionStringBuilder builder)
     {

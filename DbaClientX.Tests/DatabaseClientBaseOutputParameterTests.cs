@@ -45,11 +45,16 @@ public class DatabaseClientBaseOutputParameterTests
         public override string DataSource => string.Empty;
         public override string ServerVersion => string.Empty;
         public override ConnectionState State => ConnectionState.Open;
+        public FakeCommand? LastCommand { get; private set; }
         public override void ChangeDatabase(string databaseName) { }
         public override void Close() { }
         public override void Open() { }
         protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => throw new NotSupportedException();
-        protected override DbCommand CreateDbCommand() => new FakeCommand();
+        protected override DbCommand CreateDbCommand()
+        {
+            LastCommand = new FakeCommand();
+            return LastCommand;
+        }
     }
 
     private sealed class FakeCommand : DbCommand
@@ -59,6 +64,7 @@ public class DatabaseClientBaseOutputParameterTests
         public override string CommandText { get; set; } = string.Empty;
         public override int CommandTimeout { get; set; }
         public override CommandType CommandType { get; set; }
+        public CommandBehavior? LastReaderBehavior { get; private set; }
         public override bool DesignTimeVisible { get; set; }
         public override UpdateRowSource UpdatedRowSource { get; set; }
         protected override DbConnection DbConnection { get; set; } = null!;
@@ -72,12 +78,14 @@ public class DatabaseClientBaseOutputParameterTests
 
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
         {
+            LastReaderBehavior = behavior;
             SetOutputParameterValues();
             return new FakeDataReader();
         }
 
         protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
         {
+            LastReaderBehavior = behavior;
             SetOutputParameterValues();
             return Task.FromResult<DbDataReader>(new FakeDataReader());
         }
@@ -292,6 +300,17 @@ public class DatabaseClientBaseOutputParameterTests
     }
 
     [Fact]
+    public async Task ExecuteMappedQueryAsync_UsesDefaultReaderBehaviorForMapperCompatibility()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+
+        await client.RunMappedQueryAsync(connection, record => record.GetInt32(0));
+
+        Assert.Equal(CommandBehavior.Default, connection.LastCommand?.LastReaderBehavior);
+    }
+
+    [Fact]
     public async Task ExecuteMappedQueryAsync_UpdatesOutputParameters()
     {
         using var client = new TestClient();
@@ -332,5 +351,18 @@ public class DatabaseClientBaseOutputParameterTests
         Assert.Equal(new[] { 1 }, rows);
         Assert.Equal(1, initializeCount);
         Assert.Equal(0, idOrdinal);
+    }
+
+    [Fact]
+    public async Task ExecuteMappedQueryStreamAsync_UsesDefaultReaderBehaviorForMapperCompatibility()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+
+        await foreach (int _ in client.RunMappedStream(connection, record => record.GetInt32(0)))
+        {
+        }
+
+        Assert.Equal(CommandBehavior.Default, connection.LastCommand?.LastReaderBehavior);
     }
 }

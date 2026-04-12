@@ -52,6 +52,65 @@ public partial class SQLite
     }
 
     /// <summary>
+    /// Asynchronously executes a SQL query and maps each returned row using the provided callback.
+    /// </summary>
+    public virtual Task<IReadOnlyList<T>> QueryAsync<T>(
+        string database,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+        => QueryAsListAsync(database, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections);
+
+    /// <summary>
+    /// Asynchronously executes a SQL query and maps each returned row using the provided callback.
+    /// </summary>
+    public virtual async Task<IReadOnlyList<T>> QueryAsListAsync<T>(
+        string database,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        Action<IDataRecord>? initialize = null)
+    {
+        ValidateCommandText(query);
+        if (map == null) throw new ArgumentNullException(nameof(map));
+
+        var connectionString = BuildOperationalConnectionString(database);
+
+        SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteMappedQueryAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
+        }
+        finally
+        {
+            if (dispose && connection != null)
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                connection.Dispose();
+#endif
+            }
+        }
+    }
+
+    /// <summary>
     /// Asynchronously executes a SQL query against a read-only connection and materializes the result using the shared pipeline from <see cref="DatabaseClientBase"/>.
     /// </summary>
     public virtual async Task<object?> QueryReadOnlyAsync(

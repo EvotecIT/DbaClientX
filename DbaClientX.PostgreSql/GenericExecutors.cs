@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DBAClientX.Invoker;
-using Npgsql;
 
 namespace DBAClientX.PostgreSqlGeneric;
 
@@ -13,19 +12,20 @@ namespace DBAClientX.PostgreSqlGeneric;
 /// </summary>
 public static class GenericExecutors
 {
+    internal static Func<DBAClientX.PostgreSql> ClientFactory { get; set; } = static () => new DBAClientX.PostgreSql();
+
     /// <summary>Executes a parameterized SQL statement.</summary>
     /// <param name="connectionString">Npgsql connection string.</param>
     /// <param name="sql">SQL text to execute.</param>
     /// <param name="parameters">Parameter name/value map.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows.</returns>
-    public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(sql, nameof(sql), "SQL text");
-        var b = new NpgsqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.PostgreSql();
-        return cli.ExecuteNonQueryAsync(b.Host ?? string.Empty, b.Database ?? string.Empty, b.Username ?? string.Empty, b.Password ?? string.Empty, sql, parameters, cancellationToken: ct);
+        using var cli = ClientFactory();
+        return await cli.ExecuteNonQueryAsync(connectionString, sql, parameters, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>Executes a stored procedure.</summary>
@@ -38,9 +38,8 @@ public static class GenericExecutors
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
-        var b = new NpgsqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.PostgreSql();
-        await cli.ExecuteStoredProcedureAsync(b.Host ?? string.Empty, b.Database ?? string.Empty, b.Username ?? string.Empty, b.Password ?? string.Empty, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
+        using var cli = ClientFactory();
+        await cli.ExecuteStoredProcedureAsync(connectionString, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
     }
 

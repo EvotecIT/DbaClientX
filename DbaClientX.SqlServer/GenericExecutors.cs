@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Microsoft.Data.SqlClient;
 using System.Threading;
 using System.Threading.Tasks;
 using DBAClientX.Invoker;
@@ -14,6 +13,8 @@ namespace DBAClientX.SqlServerGeneric;
 /// </summary>
 public static class GenericExecutors
 {
+    internal static Func<DBAClientX.SqlServer> ClientFactory { get; set; } = static () => new DBAClientX.SqlServer();
+
     /// <summary>
     /// Executes a parameterized SQL statement using <paramref name="connectionString"/>.
     /// </summary>
@@ -22,13 +23,12 @@ public static class GenericExecutors
     /// <param name="parameters">Parameter name/value map (e.g., {"@UserName":"alice"}).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Number of affected rows (as reported by the provider).</returns>
-    public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(sql, nameof(sql), "SQL text");
-        var b = new SqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.SqlServer();
-        return cli.ExecuteNonQueryAsync(b.DataSource, b.InitialCatalog, b.IntegratedSecurity, sql, parameters, cancellationToken: ct, username: b.UserID, password: b.Password);
+        using var cli = ClientFactory();
+        return await cli.ExecuteNonQueryAsync(connectionString, sql, parameters, cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -43,9 +43,8 @@ public static class GenericExecutors
     {
         ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, nameof(procedure), "Stored procedure name");
-        var b = new SqlConnectionStringBuilder(connectionString);
-        var cli = new DBAClientX.SqlServer();
-        await cli.ExecuteStoredProcedureAsync(b.DataSource, b.InitialCatalog, b.IntegratedSecurity, procedure, parameters, cancellationToken: ct, username: b.UserID, password: b.Password).ConfigureAwait(false);
+        using var cli = ClientFactory();
+        await cli.ExecuteStoredProcedureAsync(connectionString, procedure, parameters, cancellationToken: ct).ConfigureAwait(false);
         return 0;
     }
 

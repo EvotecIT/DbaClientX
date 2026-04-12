@@ -4,6 +4,7 @@ using System.Data;
 using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using Microsoft.Data.SqlClient;
 
 namespace DBAClientX;
@@ -71,12 +72,18 @@ public partial class SqlServer : DatabaseClientBase
             ValidateRequiredConnectionValue(username, nameof(username), "Username");
         }
 
+        if (ssl == false)
+        {
+            throw new ArgumentException("SQL Server connections must use encryption. Pass true or omit the ssl argument.", nameof(ssl));
+        }
+
         var dataSource = port.HasValue ? $"{serverOrInstance},{port.Value}" : serverOrInstance;
         var connectionStringBuilder = new SqlConnectionStringBuilder
         {
             DataSource = dataSource,
             InitialCatalog = database,
             IntegratedSecurity = integratedSecurity,
+            Encrypt = true,
             Pooling = true
         };
         if (!integratedSecurity)
@@ -84,7 +91,7 @@ public partial class SqlServer : DatabaseClientBase
             connectionStringBuilder.UserID = username;
             connectionStringBuilder.Password = password;
         }
-        if (ssl.HasValue)
+        if (ssl == true)
         {
             connectionStringBuilder.Encrypt = ssl.Value;
         }
@@ -157,9 +164,9 @@ public partial class SqlServer : DatabaseClientBase
     private sealed class SqlServerParameterTypeMap : Dictionary<string, DbType>
     {
         public SqlServerParameterTypeMap(IDictionary<string, SqlDbType> providerTypes)
-            : base(providerTypes.Count, StringComparer.Ordinal)
+            : base(providerTypes.Count, StringComparer.OrdinalIgnoreCase)
         {
-            ProviderTypes = new Dictionary<string, SqlDbType>(providerTypes, StringComparer.Ordinal);
+            ProviderTypes = new Dictionary<string, SqlDbType>(providerTypes, StringComparer.OrdinalIgnoreCase);
             foreach (var pair in providerTypes)
             {
                 var parameter = new SqlParameter { SqlDbType = pair.Value };
@@ -167,7 +174,7 @@ public partial class SqlServer : DatabaseClientBase
             }
         }
 
-        public IReadOnlyDictionary<string, SqlDbType> ProviderTypes { get; }
+        public IDictionary<string, SqlDbType> ProviderTypes { get; }
     }
 
     private (SqlConnection Connection, SqlTransaction? Transaction, bool Dispose) ResolveConnection(string connectionString, bool useTransaction)
@@ -264,11 +271,11 @@ public partial class SqlServer : DatabaseClientBase
                 Value = value
             };
 
-            if (sqlTypes.ProviderTypes.TryGetValue(pair.Key, out var providerType))
+            if (TryGetDictionaryValue(sqlTypes.ProviderTypes, pair.Key, out var providerType))
             {
                 parameter.SqlDbType = providerType;
             }
-            else if (parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            else if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
             }
@@ -277,7 +284,7 @@ public partial class SqlServer : DatabaseClientBase
                 parameter.DbType = InferParameterDbType(value);
             }
 
-            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
             }
@@ -320,6 +327,17 @@ public partial class SqlServer : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new SqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate("sqlserver", connectionString);
+        if (!validationResult.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));
+        }
+
+        _ = NormalizeConnectionString(connectionString);
+    }
 
     private static void ValidateRequiredConnectionValue(string? value, string paramName, string displayName)
     {

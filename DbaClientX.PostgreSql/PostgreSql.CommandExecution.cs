@@ -12,9 +12,9 @@ public partial class PostgreSql
     private sealed class NpgsqlParameterTypeMap : Dictionary<string, DbType>
     {
         public NpgsqlParameterTypeMap(IDictionary<string, NpgsqlDbType> providerTypes)
-            : base(providerTypes.Count, StringComparer.Ordinal)
+            : base(providerTypes.Count, StringComparer.OrdinalIgnoreCase)
         {
-            ProviderTypes = new Dictionary<string, NpgsqlDbType>(providerTypes, StringComparer.Ordinal);
+            ProviderTypes = new Dictionary<string, NpgsqlDbType>(providerTypes, StringComparer.OrdinalIgnoreCase);
             foreach (var pair in providerTypes)
             {
                 var parameter = new NpgsqlParameter { NpgsqlDbType = pair.Value };
@@ -22,7 +22,7 @@ public partial class PostgreSql
             }
         }
 
-        public IReadOnlyDictionary<string, NpgsqlDbType> ProviderTypes { get; }
+        public IDictionary<string, NpgsqlDbType> ProviderTypes { get; }
     }
 
     /// <summary>
@@ -41,6 +41,22 @@ public partial class PostgreSql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return Query(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full PostgreSQL connection string and materializes the result using the shared pipeline.
+    /// </summary>
+    public virtual object? Query(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -80,6 +96,22 @@ public partial class PostgreSql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return ExecuteScalar(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a scalar SQL command using a full PostgreSQL connection string and returns the first column of the first row in the result set.
+    /// </summary>
+    public virtual object? ExecuteScalar(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -119,6 +151,22 @@ public partial class PostgreSql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return ExecuteNonQuery(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL command that does not produce a result set using a full PostgreSQL connection string.
+    /// </summary>
+    public virtual int ExecuteNonQuery(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -199,11 +247,11 @@ public partial class PostgreSql
                 Value = value
             };
 
-            if (npgsqlTypes.ProviderTypes.TryGetValue(pair.Key, out var providerType))
+            if (TryGetDictionaryValue(npgsqlTypes.ProviderTypes, pair.Key, out var providerType))
             {
                 parameter.NpgsqlDbType = providerType;
             }
-            else if (parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            else if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
             }
@@ -212,7 +260,7 @@ public partial class PostgreSql
                 parameter.DbType = InferParameterDbType(value);
             }
 
-            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
             }
