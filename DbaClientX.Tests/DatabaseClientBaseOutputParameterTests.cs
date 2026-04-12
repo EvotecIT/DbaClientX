@@ -352,4 +352,17 @@ public class DatabaseClientBaseOutputParameterTests
         Assert.Equal(1, initializeCount);
         Assert.Equal(0, idOrdinal);
     }
+
+    [Fact]
+    public async Task ExecuteMappedQueryStreamAsync_UsesDefaultReaderBehaviorForMapperCompatibility()
+    {
+        using var client = new TestClient();
+        using var connection = new FakeConnection();
+
+        await foreach (int _ in client.RunMappedStream(connection, record => record.GetInt32(0)))
+        {
+        }
+
+        Assert.Equal(CommandBehavior.Default, connection.LastCommand?.LastReaderBehavior);
+    }
 }

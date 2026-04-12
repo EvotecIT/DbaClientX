@@ -1026,7 +1026,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                    return await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {

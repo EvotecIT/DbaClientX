@@ -200,7 +200,7 @@ public partial class SQLite
                     command.CommandTimeout = commandTimeout;
                 }
 
-                using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleResult | CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleResult, cancellationToken).ConfigureAwait(false);
                 initialize?.Invoke(reader);
 
                 var results = new List<T>();
