@@ -26,6 +26,22 @@ public partial class SqlServer
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
+    }
+
+    /// <summary>
+    /// Uses <see cref="SqlBulkCopy"/> to insert data using a full SQL Server connection string.
+    /// </summary>
+    public virtual void BulkInsert(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -35,21 +51,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             using var bulkCopy = CreateBulkCopy(connection!, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (batchSize.HasValue)
-            {
-                bulkCopy.BatchSize = batchSize.Value;
-            }
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
-            }
-
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout);
             WriteToServer(bulkCopy, table);
         }
         catch (DbaTransactionException)
@@ -88,6 +90,23 @@ public partial class SqlServer
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously uses <see cref="SqlBulkCopy"/> to insert data using a full SQL Server connection string.
+    /// </summary>
+    public virtual async Task BulkInsertAsync(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -97,21 +116,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (batchSize.HasValue)
-            {
-                bulkCopy.BatchSize = batchSize.Value;
-            }
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
-            }
-
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout);
             await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
@@ -151,6 +156,24 @@ public partial class SqlServer
     /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
     /// <returns>A task that completes when the transfer finishes.</returns>
     protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken);
+
+    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
+    {
+        bulkCopy.DestinationTableName = destinationTable;
+        if (batchSize.HasValue)
+        {
+            bulkCopy.BatchSize = batchSize.Value;
+        }
+        if (bulkCopyTimeout.HasValue)
+        {
+            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+        }
+
+        foreach (DataColumn column in table.Columns)
+        {
+            bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+        }
+    }
 
     /// <summary>
     /// Creates a new <see cref="SqlConnection"/> for the supplied connection string.

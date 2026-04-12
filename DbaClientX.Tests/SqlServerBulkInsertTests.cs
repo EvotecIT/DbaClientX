@@ -14,11 +14,16 @@ public class SqlServerBulkInsertTests
         public int? BatchSize { get; private set; }
         public int? Timeout { get; private set; }
         public string? Destination { get; private set; }
+        public string? ConnectionString { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
 
-        protected override SqlConnection CreateConnection(string connectionString) => new();
+        protected override SqlConnection CreateConnection(string connectionString)
+        {
+            ConnectionString = connectionString;
+            return new();
+        }
 
         protected override void OpenConnection(SqlConnection connection)
         {
@@ -130,6 +135,36 @@ public class SqlServerBulkInsertTests
         Assert.Equal(30, sqlServer.Timeout);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
         Assert.Equal(table.Columns.Count, sqlServer.Mappings.Count);
+    }
+
+    [Fact]
+    public void BulkInsert_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        sqlServer.BulkInsert("Server=.;Database=DDCT;Integrated Security=True;Application Name=DDCT;", table, "dbo.Dest");
+
+        Assert.Equal("Server=.;Database=DDCT;Integrated Security=True;Application Name=DDCT;", sqlServer.ConnectionString);
+        Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(1, sqlServer.SyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        await sqlServer.BulkInsertAsync("Server=.;Database=DDCT;Integrated Security=True;Application Name=DDCT;", table, "dbo.Dest");
+
+        Assert.Equal("Server=.;Database=DDCT;Integrated Security=True;Application Name=DDCT;", sqlServer.ConnectionString);
+        Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
     }
 
     [Fact]
