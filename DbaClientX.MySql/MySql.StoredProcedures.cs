@@ -26,6 +26,22 @@ public partial class MySql
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return ExecuteStoredProcedure(connectionString, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a stored procedure using a full MySQL connection string and returns the aggregated results.
+    /// </summary>
+    public virtual object? ExecuteStoredProcedure(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -43,7 +59,7 @@ public partial class MySql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -91,7 +107,10 @@ public partial class MySql
         return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
 
-    internal virtual async Task<object?> ExecuteStoredProcedureAsync(
+    /// <summary>
+    /// Executes a stored procedure asynchronously using a full MySQL connection string and returns the aggregated results.
+    /// </summary>
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(
         string connectionString,
         string procedure,
         IDictionary<string, object?>? parameters = null,
@@ -100,6 +119,9 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
         var dispose = false;
@@ -116,7 +138,7 @@ public partial class MySql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {
@@ -171,7 +193,7 @@ public partial class MySql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -228,7 +250,7 @@ public partial class MySql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {

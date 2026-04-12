@@ -69,6 +69,30 @@ public class DbaConnectionFactoryTests
             || string.Equals("SslMode", result.Details, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Validate_MySqlConnectionString_WithoutSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("False")]
+    [InlineData("No")]
+    [InlineData("Optional")]
+    public void Validate_SqlServerConnectionString_WithDisabledEncryption_IsRejected(string encrypt)
+    {
+        var connectionString = $"Server=dbhost;Database=app;Encrypt={encrypt}";
+        var result = DbaConnectionFactory.Validate("sqlserver", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
+        Assert.True(string.Equals("Encrypt", result.Details, StringComparison.OrdinalIgnoreCase)
+            || string.Equals("Encryption", result.Details, StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("Disable")]
     [InlineData("Allow")]

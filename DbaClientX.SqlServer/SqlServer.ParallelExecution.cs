@@ -22,7 +22,7 @@ public partial class SqlServer
     /// <returns>A list containing the result of each query in submission order.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="queries"/> is <see langword="null"/>.</exception>
     /// <remarks>
-    /// Each query is executed via <see cref="QueryAsync"/>.
+    /// Each query is executed via <c>QueryAsync</c>.
     /// </remarks>
     public async Task<IReadOnlyList<object?>> RunQueriesInParallel(
         IEnumerable<string> queries,

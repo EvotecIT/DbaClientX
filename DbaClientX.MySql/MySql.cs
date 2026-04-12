@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using MySqlConnector;
 
 namespace DBAClientX;
@@ -129,6 +130,17 @@ public partial class MySql : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new MySqlConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate("mysql", connectionString);
+        if (!validationResult.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));
+        }
+
+        _ = NormalizeConnectionString(connectionString);
+    }
 
     private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
     {

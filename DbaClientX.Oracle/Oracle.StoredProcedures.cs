@@ -26,6 +26,22 @@ public partial class Oracle
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return ExecuteStoredProcedure(connectionString, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes an Oracle stored procedure using a full connection string and materializes the results into the default return format.
+    /// </summary>
+    public virtual object? ExecuteStoredProcedure(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -43,7 +59,7 @@ public partial class Oracle
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -72,13 +88,10 @@ public partial class Oracle
     }
 
     /// <summary>
-    /// Asynchronously executes an Oracle stored procedure and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// Asynchronously executes an Oracle stored procedure using a full connection string and materializes the results into the default return format.
     /// </summary>
     public virtual async Task<object?> ExecuteStoredProcedureAsync(
-        string host,
-        string serviceName,
-        string username,
-        string password,
+        string connectionString,
         string procedure,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
@@ -86,8 +99,8 @@ public partial class Oracle
         IDictionary<string, OracleDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, CommandType.StoredProcedure);
-        var connectionString = BuildConnectionString(host, serviceName, username, password);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -105,7 +118,7 @@ public partial class Oracle
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {
@@ -126,11 +139,28 @@ public partial class Oracle
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Asynchronously executes an Oracle stored procedure and materializes the results into the default <see cref="DatabaseClientBase"/> return format.
+    /// </summary>
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(
+        string host,
+        string serviceName,
+        string username,
+        string password,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -163,7 +193,7 @@ public partial class Oracle
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -220,7 +250,7 @@ public partial class Oracle
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {

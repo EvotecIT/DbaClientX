@@ -36,6 +36,20 @@ await foreach (DataRow row in sq.QueryStreamAsync(
 }
 ```
 
+Typed mapped query:
+
+```csharp
+var rows = await sq.QueryAsListAsync(
+    database: "app.db",
+    query: "SELECT Id, Name FROM Users ORDER BY Id",
+    map: row => new UserRow(
+        Id: row.GetInt32(row.GetOrdinal("Id")),
+        Name: row.GetString(row.GetOrdinal("Name"))),
+    cancellationToken: ct);
+```
+
+For larger result sets, use `QueryStreamAsync<T>` with the same mapper shape to avoid buffering all rows.
+
 Graceful shutdown maintenance:
 
 ```csharp

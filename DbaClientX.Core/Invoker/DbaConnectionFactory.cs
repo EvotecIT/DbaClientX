@@ -65,7 +65,7 @@ public static class DbaConnectionFactory
 
     private static readonly Dictionary<string, ProviderValidationProfile> ProviderProfiles = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase),
+        ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase, ValidateSqlServerOptions),
         ["postgresql"] = new("postgresql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidatePostgreSqlOptions(builder)),
         ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
         ["sqlite"] = new("sqlite", new List<string[]>
@@ -245,18 +245,43 @@ public static class DbaConnectionFactory
         return null;
     }
 
+    private static ConnectionValidationResult? ValidateSqlServerOptions(DbConnectionStringBuilder builder)
+    {
+        foreach (var key in new[] { "Encrypt", "Encryption" })
+        {
+            if (builder.TryGetValue(key, out var encrypt) && encrypt is string encryptValue)
+            {
+                if (encryptValue.Equals("False", StringComparison.OrdinalIgnoreCase)
+                    || encryptValue.Equals("No", StringComparison.OrdinalIgnoreCase)
+                    || encryptValue.Equals("Optional", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "SQL Server connections must use encryption (Encrypt cannot be False, No, or Optional).", key);
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static ConnectionValidationResult? ValidateMySqlOptions(DbConnectionStringBuilder builder)
     {
+        var sslModeSpecified = false;
         foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
             if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
             {
+                sslModeSpecified = true;
                 if (sslValue.Equals("None", StringComparison.OrdinalIgnoreCase)
                     || sslValue.Equals("Preferred", StringComparison.OrdinalIgnoreCase))
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode cannot be None or Preferred).", key);
                 }
             }
+        }
+
+        if (!sslModeSpecified)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "MySQL connections must explicitly require SSL (SslMode must be Required or Verify*).", "SslMode");
         }
 
         return null;

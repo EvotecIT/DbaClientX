@@ -11,9 +11,9 @@ public partial class Oracle
     private sealed class OracleParameterTypeMap : Dictionary<string, DbType>
     {
         public OracleParameterTypeMap(IDictionary<string, OracleDbType> providerTypes)
-            : base(providerTypes.Count, StringComparer.Ordinal)
+            : base(providerTypes.Count, StringComparer.OrdinalIgnoreCase)
         {
-            ProviderTypes = new Dictionary<string, OracleDbType>(providerTypes, StringComparer.Ordinal);
+            ProviderTypes = new Dictionary<string, OracleDbType>(providerTypes, StringComparer.OrdinalIgnoreCase);
             foreach (var pair in providerTypes)
             {
                 var parameter = new OracleParameter { OracleDbType = pair.Value };
@@ -21,7 +21,7 @@ public partial class Oracle
             }
         }
 
-        public IReadOnlyDictionary<string, OracleDbType> ProviderTypes { get; }
+        public IDictionary<string, OracleDbType> ProviderTypes { get; }
     }
 
     /// <summary>
@@ -40,6 +40,22 @@ public partial class Oracle
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return Query(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full Oracle connection string and materializes the results into the default return format.
+    /// </summary>
+    public virtual object? Query(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -79,6 +95,22 @@ public partial class Oracle
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return ExecuteScalar(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full Oracle connection string and returns the first column of the first row in the result set.
+    /// </summary>
+    public virtual object? ExecuteScalar(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -118,6 +150,22 @@ public partial class Oracle
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return ExecuteNonQuery(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL statement using a full Oracle connection string.
+    /// </summary>
+    public virtual int ExecuteNonQuery(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -198,11 +246,11 @@ public partial class Oracle
                 Value = value
             };
 
-            if (oracleTypes.ProviderTypes.TryGetValue(pair.Key, out var providerType))
+            if (TryGetDictionaryValue(oracleTypes.ProviderTypes, pair.Key, out var providerType))
             {
                 parameter.OracleDbType = providerType;
             }
-            else if (parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            else if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
             }
@@ -211,7 +259,7 @@ public partial class Oracle
                 parameter.DbType = InferParameterDbType(value);
             }
 
-            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
             }

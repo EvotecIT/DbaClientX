@@ -27,6 +27,23 @@ public partial class Oracle
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return await QueryAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL query using a full Oracle connection string.
+    /// </summary>
+    public virtual async Task<object?> QueryAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -40,6 +57,98 @@ public partial class Oracle
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL query and maps each row with a caller-provided mapper.
+    /// </summary>
+    public virtual Task<IReadOnlyList<T>> QueryAsync<T>(
+        string host,
+        string serviceName,
+        string username,
+        string password,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+        => QueryAsListAsync(host, serviceName, username, password, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections);
+
+    /// <summary>
+    /// Asynchronously executes a SQL query and maps each row with a caller-provided mapper.
+    /// </summary>
+    public virtual Task<IReadOnlyList<T>> QueryAsListAsync<T>(
+        string host,
+        string serviceName,
+        string username,
+        string password,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        Action<IDataRecord>? initialize = null)
+    {
+        ValidateCommandText(query);
+        if (map == null) throw new ArgumentNullException(nameof(map));
+
+        var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections, initialize);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL query using a full Oracle connection string and maps each row with a caller-provided mapper.
+    /// </summary>
+    public virtual Task<IReadOnlyList<T>> QueryAsync<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+        => QueryAsListAsync(connectionString, query, map, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections);
+
+    /// <summary>
+    /// Asynchronously executes a SQL query using a full Oracle connection string and maps each row with a caller-provided mapper.
+    /// </summary>
+    public virtual async Task<IReadOnlyList<T>> QueryAsListAsync<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        Action<IDataRecord>? initialize = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
+        if (map == null) throw new ArgumentNullException(nameof(map));
+
+        OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await ExecuteMappedQueryAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
         finally
         {
@@ -64,6 +173,23 @@ public partial class Oracle
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        return await ExecuteScalarAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL query using a full Oracle connection string and returns the first column of the first row in the result set.
+    /// </summary>
+    public virtual async Task<object?> ExecuteScalarAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -77,6 +203,40 @@ public partial class Oracle
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+        }
+        finally
+        {
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL statement using a full Oracle connection string.
+    /// </summary>
+    public virtual async Task<int> ExecuteNonQueryAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, OracleDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
+
+        OracleConnection? connection = null;
+        OracleTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
         }
         finally
         {

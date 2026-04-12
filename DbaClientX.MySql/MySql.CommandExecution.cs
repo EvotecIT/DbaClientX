@@ -11,9 +11,9 @@ public partial class MySql
     private sealed class MySqlParameterTypeMap : Dictionary<string, DbType>
     {
         public MySqlParameterTypeMap(IDictionary<string, MySqlDbType> providerTypes)
-            : base(providerTypes.Count, StringComparer.Ordinal)
+            : base(providerTypes.Count, StringComparer.OrdinalIgnoreCase)
         {
-            ProviderTypes = new Dictionary<string, MySqlDbType>(providerTypes, StringComparer.Ordinal);
+            ProviderTypes = new Dictionary<string, MySqlDbType>(providerTypes, StringComparer.OrdinalIgnoreCase);
             foreach (var pair in providerTypes)
             {
                 var parameter = new MySqlParameter { MySqlDbType = pair.Value };
@@ -21,7 +21,7 @@ public partial class MySql
             }
         }
 
-        public IReadOnlyDictionary<string, MySqlDbType> ProviderTypes { get; }
+        public IDictionary<string, MySqlDbType> ProviderTypes { get; }
     }
 
     /// <summary>
@@ -40,6 +40,22 @@ public partial class MySql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return Query(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full MySQL connection string and materializes the result using the shared pipeline.
+    /// </summary>
+    public virtual object? Query(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -79,6 +95,22 @@ public partial class MySql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return ExecuteScalar(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full MySQL connection string and returns the first column of the first row in the result set.
+    /// </summary>
+    public virtual object? ExecuteScalar(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, MySqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -121,7 +153,10 @@ public partial class MySql
         return ExecuteNonQuery(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
     }
 
-    internal virtual int ExecuteNonQuery(
+    /// <summary>
+    /// Executes a SQL statement that does not produce a result set using a full MySQL connection string.
+    /// </summary>
+    public virtual int ExecuteNonQuery(
         string connectionString,
         string query,
         IDictionary<string, object?>? parameters = null,
@@ -129,6 +164,7 @@ public partial class MySql
         IDictionary<string, MySqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateConnectionString(connectionString);
         ValidateCommandText(query);
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -209,11 +245,11 @@ public partial class MySql
                 Value = value
             };
 
-            if (mySqlTypes.ProviderTypes.TryGetValue(pair.Key, out var providerType))
+            if (TryGetDictionaryValue(mySqlTypes.ProviderTypes, pair.Key, out var providerType))
             {
                 parameter.MySqlDbType = providerType;
             }
-            else if (parameterTypes.TryGetValue(pair.Key, out var explicitType))
+            else if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
             }
@@ -222,7 +258,7 @@ public partial class MySql
                 parameter.DbType = InferParameterDbType(value);
             }
 
-            if (parameterDirections != null && parameterDirections.TryGetValue(pair.Key, out var direction))
+            if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
             }

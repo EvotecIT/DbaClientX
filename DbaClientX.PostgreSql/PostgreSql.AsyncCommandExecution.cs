@@ -173,6 +173,23 @@ public partial class PostgreSql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return await ExecuteNonQueryAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL command that does not produce a result set using a full PostgreSQL connection string.
+    /// </summary>
+    public virtual async Task<int> ExecuteNonQueryAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -210,6 +227,23 @@ public partial class PostgreSql
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return await ExecuteScalarAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a scalar SQL command using a full PostgreSQL connection string and returns the first column of the first row in the result set.
+    /// </summary>
+    public virtual async Task<object?> ExecuteScalarAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;

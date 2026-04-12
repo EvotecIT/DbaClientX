@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Invoker;
 using Oracle.ManagedDataAccess.Client;
 
 namespace DBAClientX;
@@ -120,6 +121,17 @@ public partial class Oracle : DatabaseClientBase
 
     private static string NormalizeConnectionString(string connectionString)
         => new OracleConnectionStringBuilder(connectionString).ConnectionString;
+
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate("oracle", connectionString);
+        if (!validationResult.IsValid)
+        {
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));
+        }
+
+        _ = NormalizeConnectionString(connectionString);
+    }
 
     private static void ValidateRequiredConnectionValue(string value, string paramName, string displayName)
     {

@@ -26,6 +26,22 @@ public partial class SqlServer
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return ExecuteStoredProcedure(connectionString, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a stored procedure using a full SQL Server connection string and materializes the result using the shared pipeline.
+    /// </summary>
+    public virtual object? ExecuteStoredProcedure(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -46,7 +62,7 @@ public partial class SqlServer
             }
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -75,23 +91,19 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Asynchronously executes a stored procedure and materializes the result using the shared <see cref="DatabaseClientBase"/> pipeline.
+    /// Asynchronously executes a stored procedure using a full SQL Server connection string and materializes the result using the shared pipeline.
     /// </summary>
     public virtual async Task<object?> ExecuteStoredProcedureAsync(
-        string serverOrInstance,
-        string database,
-        bool integratedSecurity,
+        string connectionString,
         string procedure,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
         CancellationToken cancellationToken = default,
         IDictionary<string, SqlDbType>? parameterTypes = null,
-        IDictionary<string, ParameterDirection>? parameterDirections = null,
-        string? username = null,
-        string? password = null)
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, CommandType.StoredProcedure);
-        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -112,7 +124,7 @@ public partial class SqlServer
             }
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {
@@ -135,5 +147,26 @@ public partial class SqlServer
         {
             await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a stored procedure and materializes the result using the shared <see cref="DatabaseClientBase"/> pipeline.
+    /// </summary>
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(
+        string serverOrInstance,
+        string database,
+        bool integratedSecurity,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        string? username = null,
+        string? password = null)
+    {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+        var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
 }

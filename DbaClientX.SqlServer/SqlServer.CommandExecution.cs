@@ -24,6 +24,22 @@ public partial class SqlServer
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return Query(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full SQL Server connection string and materializes the result using the shared pipeline.
+    /// </summary>
+    public virtual object? Query(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -64,6 +80,22 @@ public partial class SqlServer
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return ExecuteScalar(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL query using a full SQL Server connection string and returns a single scalar value.
+    /// </summary>
+    public virtual object? ExecuteScalar(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -104,6 +136,22 @@ public partial class SqlServer
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return ExecuteNonQuery(connectionString, query, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a SQL statement using a full SQL Server connection string.
+    /// </summary>
+    public virtual int ExecuteNonQuery(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(query);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;

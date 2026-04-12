@@ -27,6 +27,22 @@ public partial class PostgreSql
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(host, database, username, password);
+        return ExecuteStoredProcedure(connectionString, procedure, parameters, useTransaction, parameterTypes, parameterDirections);
+    }
+
+    /// <summary>
+    /// Executes a stored procedure using a full PostgreSQL connection string and materializes the results into the shared format.
+    /// </summary>
+    public virtual object? ExecuteStoredProcedure(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -44,7 +60,7 @@ public partial class PostgreSql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -73,13 +89,10 @@ public partial class PostgreSql
     }
 
     /// <summary>
-    /// Asynchronously executes a stored procedure and materializes the results into the shared <see cref="DatabaseClientBase"/> format.
+    /// Asynchronously executes a stored procedure using a full PostgreSQL connection string and materializes the results into the shared format.
     /// </summary>
     public virtual async Task<object?> ExecuteStoredProcedureAsync(
-        string host,
-        string database,
-        string username,
-        string password,
+        string connectionString,
         string procedure,
         IDictionary<string, object?>? parameters = null,
         bool useTransaction = false,
@@ -87,8 +100,8 @@ public partial class PostgreSql
         IDictionary<string, NpgsqlDbType>? parameterTypes = null,
         IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        ValidateConnectionString(connectionString);
         ValidateCommandText(procedure, CommandType.StoredProcedure);
-        var connectionString = BuildConnectionString(host, database, username, password);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -106,7 +119,7 @@ public partial class PostgreSql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {
@@ -127,11 +140,28 @@ public partial class PostgreSql
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a stored procedure and materializes the results into the shared <see cref="DatabaseClientBase"/> format.
+    /// </summary>
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(
+        string host,
+        string database,
+        string username,
+        string password,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, NpgsqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+        var connectionString = BuildConnectionString(host, database, username, password);
+        return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -164,7 +194,7 @@ public partial class PostgreSql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader();
+            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
             var tableIndex = 0;
             do
             {
@@ -221,7 +251,7 @@ public partial class PostgreSql
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
             var tableIndex = 0;
             do
             {
