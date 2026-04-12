@@ -11,11 +11,11 @@
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.0.0" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="MySqlConnector" Version="2.5.0" />
-    <PackageVersion Include="Oracle.ManagedDataAccess" Version="23.26.100" />
-    <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.100" />
+    <PackageVersion Include="Oracle.ManagedDataAccess" Version="23.26.200" />
+    <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.200" />
     <PackageVersion Include="PowerShellStandard.Library" Version="5.1.1" />
     <PackageVersion Include="System.Formats.Asn1" Version="10.0.5" />
     <PackageVersion Include="System.Text.Json" Version="10.0.5" />
@@ -24,8 +24,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Keep these conditional pins aligned with the TFMs each provider still ships assets for. -->
     <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.4.14" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.5.5" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.0" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Npgsql" Version="8.0.9" Condition="'$(TargetFramework)' == 'net472'" />
     <PackageVersion Include="Npgsql" Version="10.0.2" Condition="'$(TargetFramework)' != 'net472'" />
   </ItemGroup>
