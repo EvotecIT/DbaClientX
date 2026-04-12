@@ -25,6 +25,22 @@ public partial class Oracle
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
+    }
+
+    /// <summary>
+    /// Performs a bulk insert into an Oracle table using a full Oracle connection string.
+    /// </summary>
+    public virtual void BulkInsert(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -34,16 +50,7 @@ public partial class Oracle
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             using var bulkCopy = CreateBulkCopy(connection, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
-            }
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
             {
@@ -100,6 +107,23 @@ public partial class Oracle
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, serviceName, username, password);
+        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously performs a bulk insert into an Oracle table using a full Oracle connection string.
+    /// </summary>
+    public virtual async Task BulkInsertAsync(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         OracleConnection? connection = null;
         OracleTransaction? transaction = null;
@@ -109,16 +133,7 @@ public partial class Oracle
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
-            }
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
             {
@@ -174,6 +189,20 @@ public partial class Oracle
             cancellationToken.ThrowIfCancellationRequested();
             WriteToServer(bulkCopy, table);
         }, cancellationToken);
+
+    private static void ConfigureBulkCopy(OracleBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
+    {
+        bulkCopy.DestinationTableName = destinationTable;
+        if (bulkCopyTimeout.HasValue)
+        {
+            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+        }
+
+        foreach (DataColumn column in table.Columns)
+        {
+            bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+        }
+    }
 
     /// <summary>
     /// Creates an <see cref="OracleConnection"/> for the provided connection string.

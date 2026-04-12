@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -43,6 +44,7 @@ public static class DbInvoker
     /// <param name="ambient">Ambient values available to mapping keys (e.g., RunId, TsUtc).</param>
     /// <returns>Sum of affected rows reported by the provider (0 for providers that don’t return counts).</returns>
     /// <exception cref="InvalidOperationException">Thrown when provider GenericExecutors cannot be resolved.</exception>
+    [RequiresUnreferencedCode("DbInvoker discovers provider executors and maps object properties by reflection. Preserve provider GenericExecutors types and item properties when trimming.")]
     public static async Task<int> ExecuteSqlAsync(
         string providerAlias,
         string connectionString,
@@ -136,6 +138,7 @@ public static class DbInvoker
     /// <param name="ambient">Ambient values available to mappings.</param>
     /// <returns>Sum of affected rows reported by the provider (0 for providers that don’t return counts).</returns>
     /// <exception cref="InvalidOperationException">Thrown when provider GenericExecutors cannot be resolved.</exception>
+    [RequiresUnreferencedCode("DbInvoker discovers provider executors and maps object properties by reflection. Preserve provider GenericExecutors types and item properties when trimming.")]
     public static async Task<int> ExecuteProcedureAsync(
         string providerAlias,
         string connectionString,
@@ -243,6 +246,7 @@ public static class DbInvoker
         return null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Executor discovery is explicitly marked as reflection-based at the public DbInvoker entry points.")]
     private static MethodInfo? TryGetExec(Assembly asm, string? typeName, string methodName)
     {
         try
@@ -273,6 +277,7 @@ public static class DbInvoker
         return null;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Executor discovery reflects provider GenericExecutors methods by design.")]
     private static MethodInfo? FindPreferredOverload(Type? t, string methodName)
     {
         if (t == null) return null;

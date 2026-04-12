@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Linq;
 using DBAClientX;
 using Xunit;
 using Microsoft.Data.SqlClient;
@@ -66,10 +67,21 @@ public class DatabaseClientBasePerformanceTests
     private class FakeDataReader : DbDataReader
     {
         private readonly int[][] _rows;
+        private readonly string[] _columnNames;
         private int _index = -1;
         public bool ThrowOnSecondRead { get; set; }
         public bool ThrowOnNextResult { get; set; }
-        public FakeDataReader(params int[][] rows) => _rows = rows;
+        public FakeDataReader(params int[][] rows)
+            : this(new[] { "id" }, rows)
+        {
+        }
+
+        public FakeDataReader(string[] columnNames, params int[][] rows)
+        {
+            _columnNames = columnNames;
+            _rows = rows;
+        }
+
         public override bool Read()
         {
             if (_index == 0 && ThrowOnSecondRead)
@@ -87,27 +99,35 @@ public class DatabaseClientBasePerformanceTests
             }
             return false;
         }
-        public override int FieldCount => 1;
-        public override string GetName(int ordinal) => "id";
+        public override int FieldCount => _columnNames.Length;
+        public override string GetName(int ordinal) => _columnNames[ordinal];
         public override Type GetFieldType(int ordinal) => typeof(int);
         public override object GetValue(int ordinal) => _rows[_index][ordinal];
         public override int GetValues(object[] values)
         {
-            values[0] = GetValue(0);
-            return 1;
+            for (var i = 0; i < FieldCount; i++)
+            {
+                values[i] = GetValue(i);
+            }
+
+            return FieldCount;
         }
-        public override int GetOrdinal(string name) => 0;
+        public override int GetOrdinal(string name) => Array.IndexOf(_columnNames, name);
         public override DataTable GetSchemaTable()
         {
             var schema = new DataTable();
             schema.Columns.Add("ColumnName", typeof(string));
             schema.Columns.Add("ColumnOrdinal", typeof(int));
             schema.Columns.Add("DataType", typeof(Type));
-            var row = schema.NewRow();
-            row["ColumnName"] = "id";
-            row["ColumnOrdinal"] = 0;
-            row["DataType"] = typeof(int);
-            schema.Rows.Add(row);
+            for (var i = 0; i < FieldCount; i++)
+            {
+                var row = schema.NewRow();
+                row["ColumnName"] = _columnNames[i];
+                row["ColumnOrdinal"] = i;
+                row["DataType"] = typeof(int);
+                schema.Rows.Add(row);
+            }
+
             return schema;
         }
         public override bool IsDBNull(int ordinal) => false;
@@ -160,5 +180,18 @@ public class DatabaseClientBasePerformanceTests
         var result = client.Execute(connection);
         var table = Assert.IsType<DataTable>(result);
         Assert.Equal(1, table.Rows[0][0]);
+    }
+
+    [Fact]
+    public void ExecuteQuery_DataTable_DisambiguatesDuplicateColumnNames()
+    {
+        var reader = new FakeDataReader(new[] { "id", "id" }, new[] { 1, 2 });
+        using var connection = new FakeDbConnection(reader);
+        using var client = new TestClient { ReturnType = ReturnType.DataTable };
+        var result = client.Execute(connection);
+        var table = Assert.IsType<DataTable>(result);
+        Assert.Equal(new[] { "id", "id1" }, table.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray());
+        Assert.Equal(1, table.Rows[0][0]);
+        Assert.Equal(2, table.Rows[0][1]);
     }
 }

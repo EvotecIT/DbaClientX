@@ -26,6 +26,22 @@ public partial class PostgreSql
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
+        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
+    }
+
+    /// <summary>
+    /// Performs a bulk insert into a PostgreSQL destination table using a full PostgreSQL connection string.
+    /// </summary>
+    public virtual void BulkInsert(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -82,6 +98,23 @@ public partial class PostgreSql
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
+        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously performs a bulk insert into a PostgreSQL destination table using a full PostgreSQL connection string.
+    /// </summary>
+    public virtual async Task BulkInsertAsync(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
@@ -142,19 +175,7 @@ public partial class PostgreSql
 
         foreach (var row in rows)
         {
-            importer.StartRow();
-            foreach (DataColumn column in columns)
-            {
-                var value = row[column];
-                if (value == null || value == DBNull.Value)
-                {
-                    importer.WriteNull();
-                }
-                else
-                {
-                    importer.Write((dynamic)value!);
-                }
-            }
+            importer.WriteRow(GetRowValues(row, columns));
         }
 
         importer.Complete();
@@ -186,19 +207,7 @@ public partial class PostgreSql
 
         foreach (var row in rows)
         {
-            await importer.StartRowAsync(cancellationToken).ConfigureAwait(false);
-            foreach (DataColumn column in columns)
-            {
-                var value = row[column];
-                if (value == null || value == DBNull.Value)
-                {
-                    await importer.WriteNullAsync(cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    await importer.WriteAsync((dynamic)value!, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
-            }
+            await importer.WriteRowAsync(cancellationToken, GetRowValues(row, columns)).ConfigureAwait(false);
         }
 
         await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
@@ -258,6 +267,18 @@ public partial class PostgreSql
         {
             yield return rows[i];
         }
+    }
+
+    private static object?[] GetRowValues(DataRow row, DataColumnCollection columns)
+    {
+        var values = new object?[columns.Count];
+        for (var i = 0; i < columns.Count; i++)
+        {
+            var value = row[columns[i]];
+            values[i] = value == DBNull.Value ? null : value;
+        }
+
+        return values;
     }
 
     private static string QuoteIdentifier(string identifier)

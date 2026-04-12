@@ -15,10 +15,15 @@ public class OracleBulkInsertTests
         public string? Destination { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
+        public string? ConnectionString { get; private set; }
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
 
-        protected override OracleConnection CreateConnection(string connectionString) => new();
+        protected override OracleConnection CreateConnection(string connectionString)
+        {
+            ConnectionString = connectionString;
+            return new();
+        }
 
         protected override void OpenConnection(OracleConnection connection)
         {
@@ -169,6 +174,38 @@ public class OracleBulkInsertTests
         Assert.Equal("Dest", oracle.Destination);
         Assert.Equal(table.Columns.Count, oracle.Mappings.Count);
         Assert.Equal(new[] { 2 }, oracle.BatchRowCounts);
+    }
+
+    [Fact]
+    public void BulkInsert_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var oracle = new CaptureBulkCopyOracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        var connectionString = DBAClientX.Oracle.BuildConnectionString("h", "svc", "u", "p");
+
+        oracle.BulkInsert(connectionString, table, "Dest");
+
+        Assert.Equal(connectionString, oracle.ConnectionString);
+        Assert.Equal("Dest", oracle.Destination);
+        Assert.Equal(1, oracle.SyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var oracle = new CaptureBulkCopyOracle();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        var connectionString = DBAClientX.Oracle.BuildConnectionString("h", "svc", "u", "p");
+
+        await oracle.BulkInsertAsync(connectionString, table, "Dest");
+
+        Assert.Equal(connectionString, oracle.ConnectionString);
+        Assert.Equal("Dest", oracle.Destination);
+        Assert.Equal(1, oracle.AsyncDisposeCalls);
     }
 
     [Fact]

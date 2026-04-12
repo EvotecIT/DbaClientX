@@ -63,8 +63,7 @@ public partial class Oracle
             var tableIndex = 0;
             do
             {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
+                var table = ReadDataTable(reader, $"Table{tableIndex}");
                 dataSet.Tables.Add(table);
                 tableIndex++;
             }
@@ -122,8 +121,7 @@ public partial class Oracle
             var tableIndex = 0;
             do
             {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
+                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
                 dataSet.Tables.Add(table);
                 tableIndex++;
             }
@@ -197,8 +195,7 @@ public partial class Oracle
             var tableIndex = 0;
             do
             {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
+                var table = ReadDataTable(reader, $"Table{tableIndex}");
                 dataSet.Tables.Add(table);
                 tableIndex++;
             }
@@ -254,8 +251,7 @@ public partial class Oracle
             var tableIndex = 0;
             do
             {
-                var table = new DataTable($"Table{tableIndex}");
-                table.Load(reader);
+                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
                 dataSet.Tables.Add(table);
                 tableIndex++;
             }
