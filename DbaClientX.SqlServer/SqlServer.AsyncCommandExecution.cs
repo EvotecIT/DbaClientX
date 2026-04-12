@@ -116,7 +116,7 @@ public partial class SqlServer
     {
         ValidateCommandText(query);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
-        return await ExecuteScalarAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
+        return await QueryAsync(connectionString, query, parameters, useTransaction, cancellationToken, parameterTypes, parameterDirections).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -141,11 +141,11 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {

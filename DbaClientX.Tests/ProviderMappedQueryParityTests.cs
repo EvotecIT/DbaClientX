@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.SqlClient;
@@ -30,6 +32,44 @@ public class ProviderMappedQueryParityTests
         {
             AsyncDisposeCalls++;
             return default;
+        }
+    }
+
+    private sealed class CapturingSqlServer : DBAClientX.SqlServer
+    {
+        public int QueryAsyncCalls { get; private set; }
+        public int ScalarAsyncCalls { get; private set; }
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override ValueTask DisposeConnectionAsync(SqlConnection connection)
+            => default;
+
+        protected override Task<object?> ExecuteQueryAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            string query,
+            IDictionary<string, object?>? parameters = null,
+            CancellationToken cancellationToken = default,
+            IDictionary<string, DbType>? parameterTypes = null,
+            IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            QueryAsyncCalls++;
+            return Task.FromResult<object?>("query");
+        }
+
+        protected override Task<object?> ExecuteScalarAsync(
+            DbConnection connection,
+            DbTransaction? transaction,
+            string query,
+            IDictionary<string, object?>? parameters = null,
+            CancellationToken cancellationToken = default,
+            IDictionary<string, DbType>? parameterTypes = null,
+            IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            ScalarAsyncCalls++;
+            return Task.FromResult<object?>(42);
         }
     }
 
@@ -218,6 +258,42 @@ public class ProviderMappedQueryParityTests
         Assert.Equal(0, mysql.AsyncDisposeCalls);
         Assert.Equal(0, postgreSql.AsyncDisposeCalls);
         Assert.Equal(0, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task SqlServerQueryAsync_UsesQueryExecutionPath()
+    {
+        using var connectionStringSql = new CapturingSqlServer();
+
+        var connectionStringResult = await connectionStringSql.QueryAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "SELECT 42");
+
+        Assert.Equal("query", connectionStringResult);
+        Assert.Equal(1, connectionStringSql.QueryAsyncCalls);
+        Assert.Equal(0, connectionStringSql.ScalarAsyncCalls);
+
+        using var hostSql = new CapturingSqlServer();
+
+        var hostResult = await hostSql.QueryAsync(".", "app", true, "SELECT 42");
+
+        Assert.Equal("query", hostResult);
+        Assert.Equal(1, hostSql.QueryAsyncCalls);
+        Assert.Equal(0, hostSql.ScalarAsyncCalls);
+    }
+
+    [Fact]
+    public async Task SqlServerConnectionStringExecuteScalarAsync_UsesScalarExecutionPath()
+    {
+        using var sql = new CapturingSqlServer();
+
+        var result = await sql.ExecuteScalarAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "SELECT 42");
+
+        Assert.Equal(42, result);
+        Assert.Equal(1, sql.ScalarAsyncCalls);
+        Assert.Equal(0, sql.QueryAsyncCalls);
     }
 
     [Fact]
