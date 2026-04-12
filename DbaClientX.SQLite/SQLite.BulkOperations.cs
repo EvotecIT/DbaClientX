@@ -11,19 +11,17 @@ public partial class SQLite
 {
     private const int DefaultBulkInsertBatchSize = 500;
 
-    /// <summary>
-    /// Inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table.
-    /// </summary>
-    public virtual void BulkInsert(
+    private void BulkInsertCore(
         string database,
         DataTable table,
         string destinationTable,
-        bool useTransaction = false,
-        int? batchSize = null)
+        bool useTransaction,
+        int? batchSize,
+        bool useConnectionString)
     {
         ValidateBulkInsertInputs(table, destinationTable, batchSize);
 
-        var connectionString = BuildOperationalConnectionString(database);
+        var connectionString = ResolveBulkInsertConnectionString(database, useConnectionString);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -103,19 +101,39 @@ public partial class SQLite
     }
 
     /// <summary>
-    /// Asynchronously inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table.
+    /// Inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table.
     /// </summary>
-    public virtual async Task BulkInsertAsync(
+    public virtual void BulkInsert(
         string database,
         DataTable table,
         string destinationTable,
         bool useTransaction = false,
-        int? batchSize = null,
-        CancellationToken cancellationToken = default)
+        int? batchSize = null)
+        => BulkInsertCore(database, table, destinationTable, useTransaction, batchSize, useConnectionString: false);
+
+    /// <summary>
+    /// Inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table using a SQLite connection string.
+    /// </summary>
+    public virtual void BulkInsertWithConnectionString(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null)
+        => BulkInsertCore(connectionString, table, destinationTable, useTransaction, batchSize, useConnectionString: true);
+
+    private async Task BulkInsertCoreAsync(
+        string database,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction,
+        int? batchSize,
+        CancellationToken cancellationToken,
+        bool useConnectionString)
     {
         ValidateBulkInsertInputs(table, destinationTable, batchSize);
 
-        var connectionString = BuildOperationalConnectionString(database);
+        var connectionString = ResolveBulkInsertConnectionString(database, useConnectionString);
 
         SqliteConnection? connection = null;
         var dispose = false;
@@ -242,6 +260,30 @@ public partial class SQLite
         }
     }
 
+    /// <summary>
+    /// Asynchronously inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table.
+    /// </summary>
+    public virtual Task BulkInsertAsync(
+        string database,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        CancellationToken cancellationToken = default)
+        => BulkInsertCoreAsync(database, table, destinationTable, useTransaction, batchSize, cancellationToken, useConnectionString: false);
+
+    /// <summary>
+    /// Asynchronously inserts all rows from the supplied <see cref="DataTable"/> into the specified destination table using a SQLite connection string.
+    /// </summary>
+    public virtual Task BulkInsertWithConnectionStringAsync(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        CancellationToken cancellationToken = default)
+        => BulkInsertCoreAsync(connectionString, table, destinationTable, useTransaction, batchSize, cancellationToken, useConnectionString: true);
+
     private static DataColumn[] GetColumns(DataTable table)
     {
         var columns = new DataColumn[table.Columns.Count];
@@ -251,6 +293,21 @@ public partial class SQLite
         }
 
         return columns;
+    }
+
+    private static string ResolveBulkInsertConnectionString(string database, bool useConnectionString)
+    {
+        if (!useConnectionString)
+        {
+            return BuildOperationalConnectionString(database);
+        }
+
+        if (string.IsNullOrWhiteSpace(database))
+        {
+            throw new ArgumentException("Connection string cannot be null or whitespace.", nameof(database));
+        }
+
+        return NormalizeConnectionString(database);
     }
 
     private static int ResolveRowsPerBatch(int totalRows, int? batchSize)

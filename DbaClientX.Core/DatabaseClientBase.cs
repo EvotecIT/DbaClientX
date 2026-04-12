@@ -585,9 +585,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 }
                 else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
-                    var table = new DataTable("Table0");
-                    table.Load(reader);
-                    result = table;
+                    result = ReadDataTable(reader, "Table0");
                 }
                 else
                 {
@@ -595,8 +593,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                     var tableIndex = 0;
                     do
                     {
-                        var table = new DataTable($"Table{tableIndex}");
-                        table.Load(reader);
+                        var table = ReadDataTable(reader, $"Table{tableIndex}");
                         dataSet.Tables.Add(table);
                         tableIndex++;
                     } while (!reader.IsClosed && reader.NextResult());
@@ -728,9 +725,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 }
                 else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
-                    var table = new DataTable("Table0");
-                    table.Load(reader);
-                    result = table;
+                    result = await ReadDataTableAsync(reader, "Table0", cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -738,8 +733,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                     var tableIndex = 0;
                     do
                     {
-                        var table = new DataTable($"Table{tableIndex}");
-                        table.Load(reader);
+                        var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
                         dataSet.Tables.Add(table);
                         tableIndex++;
                     } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
@@ -1095,6 +1089,65 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             return dataSet;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Materializes the current result set from a data reader without relying on <see cref="DataTable.Load(IDataReader)"/>.
+    /// </summary>
+    /// <param name="reader">Reader positioned before the first row of the current result set.</param>
+    /// <param name="tableName">Name assigned to the created data table.</param>
+    /// <returns>A data table containing every row in the current result set.</returns>
+    protected static DataTable ReadDataTable(DbDataReader reader, string tableName)
+    {
+        var table = new DataTable(tableName);
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+        }
+
+        while (reader.Read())
+        {
+            var row = table.NewRow();
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+            }
+
+            table.Rows.Add(row);
+        }
+
+        return table;
+    }
+
+    /// <summary>
+    /// Asynchronously materializes the current result set from a data reader without relying on <see cref="DataTable.Load(IDataReader)"/>.
+    /// </summary>
+    /// <param name="reader">Reader positioned before the first row of the current result set.</param>
+    /// <param name="tableName">Name assigned to the created data table.</param>
+    /// <param name="cancellationToken">Token used to cancel reader operations.</param>
+    /// <returns>A data table containing every row in the current result set.</returns>
+    protected static async Task<DataTable> ReadDataTableAsync(DbDataReader reader, string tableName, CancellationToken cancellationToken)
+    {
+        var table = new DataTable(tableName);
+        for (var i = 0; i < reader.FieldCount; i++)
+        {
+            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+        }
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var row = table.NewRow();
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                row[i] = await reader.IsDBNullAsync(i, cancellationToken).ConfigureAwait(false)
+                    ? DBNull.Value
+                    : reader.GetValue(i);
+            }
+
+            table.Rows.Add(row);
+        }
+
+        return table;
     }
 
     /// <summary>

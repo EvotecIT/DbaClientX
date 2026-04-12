@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DBAClientX.Mapping;
 
@@ -39,11 +40,37 @@ public static class DbParameterMapper
     /// <param name="options">Conversion options (enum handling, DateTimeOffset conversion, custom converters).</param>
     /// <param name="ambient">Optional ambient values available to mappings when the item does not provide a value (e.g., RunId, TsUtc).</param>
     /// <returns>A new dictionary of provider parameters to values.</returns>
+    [RequiresUnreferencedCode("Use the generic MapItem<T> overload when trimming so public properties can be preserved.")]
     public static IDictionary<string, object?> MapItem(
         object? item,
         IReadOnlyDictionary<string, string> map,
         DbParameterMapperOptions? options = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
+        => MapItemRuntime(item, map, options, ambient);
+
+    [RequiresUnreferencedCode("Use the generic MapItem<T> overload when trimming so public properties can be preserved.")]
+    private static IDictionary<string, object?> MapItemRuntime(
+        object? item,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options,
+        IReadOnlyDictionary<string, object?>? ambient)
+        => MapItemCore(item, map, options, ambient);
+
+    /// <summary>
+    /// Maps a strongly typed item while preserving public properties for trimmed/AOT builds.
+    /// </summary>
+    public static IDictionary<string, object?> MapItem<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
+        T? item,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options = null,
+        IReadOnlyDictionary<string, object?>? ambient = null)
+        => MapItemCore(item, map, options, ambient);
+
+    private static IDictionary<string, object?> MapItemCore<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(
+        T? item,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options,
+        IReadOnlyDictionary<string, object?>? ambient)
     {
         options ??= new DbParameterMapperOptions();
         var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);

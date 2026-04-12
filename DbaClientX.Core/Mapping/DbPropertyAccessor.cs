@@ -2,7 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq.Expressions;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace DBAClientX.Mapping;
@@ -24,14 +24,31 @@ public static class DbPropertyAccessor
     /// <param name="path">Dotted, case-insensitive path (e.g., "User.Name" or "Metadata.Tags.0").</param>
     /// <param name="value">When this method returns, contains the resolved value or null.</param>
     /// <returns>True when a value was resolved; otherwise false.</returns>
+    [RequiresUnreferencedCode("Use the generic TryGetValue<T> overload when trimming so public properties can be preserved.")]
     public static bool TryGetValue(object? item, string path, out object? value)
+        => TryGetValueCore(item, item?.GetType(), path, out value);
+
+    /// <summary>
+    /// Tries to resolve a value from a strongly typed item while preserving public properties for trimmed/AOT builds.
+    /// </summary>
+    /// <param name="item">The typed source object (POCO or dictionary) to read from.</param>
+    /// <param name="path">Dotted, case-insensitive path (e.g., "User.Name" or "Metadata.Tags.0").</param>
+    /// <param name="value">When this method returns, contains the resolved value or null.</param>
+    /// <returns>True when a value was resolved; otherwise false.</returns>
+    public static bool TryGetValue<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] T>(T? item, string path, out object? value)
+        => TryGetValueCore(item, typeof(T), path, out value);
+
+    private static bool TryGetValueCore(object? item, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type? type, string path, out object? value)
     {
         value = null;
-        if (item is null || string.IsNullOrWhiteSpace(path)) return false;
+        if (item is null || type is null || string.IsNullOrWhiteSpace(path)) return false;
 
-        var type = item.GetType();
         var key = (type, path);
-        var getter = _getterCache.GetOrAdd(key, k => BuildGetter(k.Item1, k.Item2));
+        if (!_getterCache.TryGetValue(key, out var getter))
+        {
+            getter = _getterCache.GetOrAdd(key, BuildGetter(type, path));
+        }
+
         if (getter is null) return false;
         value = getter(item);
         if (ReferenceEquals(value, MissingValue))
@@ -42,10 +59,13 @@ public static class DbPropertyAccessor
         return true;
     }
 
-    private static Func<object, object?> BuildGetter(Type type, string path)
+    [UnconditionalSuppressMessage("Trimming", "IL2067", Justification = "Nested runtime property types are a best-effort reflection fallback; strongly typed entry points annotate the root type.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Nested runtime property types are a best-effort reflection fallback; strongly typed entry points annotate the root type.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "The runtime-property fallback is best-effort for dynamic shapes; strongly typed entry points annotate the root type.")]
+    private static Func<object, object?> BuildGetter([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.Interfaces)] Type type, string path)
     {
         var segments = path.Split(new[] { '.' }, StringSplitOptions.RemoveEmptyEntries);
-        // Pre-resolve property infos per segment (case-insensitive), but support dictionaries on the fly
+        // Pre-resolve property infos per segment (case-insensitive), but support dictionaries on the fly.
         var props = new PropertyInfo?[segments.Length];
         Type? current = type;
         for (int i = 0; i < segments.Length; i++)
@@ -72,52 +92,6 @@ public static class DbPropertyAccessor
             if (current is null) break;
         }
 
-        // If all segments resolved to properties (no dictionaries), build a compiled expression fast path
-        bool allProps = true;
-        for (int i = 0; i < props.Length; i++) { if (props[i] == null) { allProps = false; break; } }
-        if (allProps && props.Length > 0)
-        {
-            try
-            {
-                var objParam = Expression.Parameter(typeof(object), "obj");
-                // root may be null or not of the expected type
-                var rootAs = Expression.TypeAs(objParam, type);
-
-                Expression BuildChain(Expression curExpr, int index)
-                {
-                    if (index >= props.Length)
-                    {
-                        return Expression.Convert(curExpr, typeof(object));
-                    }
-                    var prop = props[index]!;
-                    var access = Expression.Property(curExpr, prop);
-                    var t = prop.PropertyType;
-                    bool isRef = !t.IsValueType;
-                    bool isNullableValue = Nullable.GetUnderlyingType(t) != null;
-                    if (isRef || isNullableValue)
-                    {
-                        return Expression.Condition(
-                            Expression.Equal(access, Expression.Constant(null, t)),
-                            Expression.Constant(null, typeof(object)),
-                            BuildChain(access, index + 1));
-                    }
-                    return BuildChain(access, index + 1);
-                }
-
-                var body = Expression.Condition(
-                    Expression.Equal(rootAs, Expression.Constant(null, type)),
-                    Expression.Constant(null, typeof(object)),
-                    BuildChain(rootAs, 0));
-                var lambda = Expression.Lambda<Func<object, object?>>(body, objParam);
-                return lambda.Compile();
-            }
-            catch
-            {
-                // fall back to reflective path below
-            }
-        }
-
-        // Fallback: reflective/dictionary-aware path
         return (obj) =>
         {
             object? cur = obj;
@@ -202,6 +176,8 @@ public static class DbPropertyAccessor
         return false;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2072", Justification = "Generic dictionary probing is a best-effort fallback for runtime dictionary shapes.")]
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Generic dictionary probing is a best-effort fallback for runtime dictionary shapes.")]
     private static bool TryGetFromGenericDictionary(object obj, string key, out object? value)
     {
         value = null;
@@ -219,10 +195,10 @@ public static class DbPropertyAccessor
         return TryGetFromStringDictionaryEnumeration(obj, dictionaryType, key, out value);
     }
 
-    private static bool HasStringDictionaryInterface(Type? type)
+    private static bool HasStringDictionaryInterface([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type? type)
         => FindStringDictionaryInterface(type) is not null;
 
-    private static Type? FindStringDictionaryInterface(Type? type)
+    private static Type? FindStringDictionaryInterface([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type? type)
     {
         if (type is null) return null;
 
@@ -254,7 +230,7 @@ public static class DbPropertyAccessor
         return null;
     }
 
-    private static bool TryGetFromTypedStringDictionary(object obj, Type dictionaryType, string key, out object? value)
+    private static bool TryGetFromTypedStringDictionary(object obj, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.PublicProperties)] Type dictionaryType, string key, out object? value)
     {
         value = null;
 
@@ -285,6 +261,7 @@ public static class DbPropertyAccessor
         return false;
     }
 
+    [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Enumeration fallback reflects KeyValuePair-shaped entries after dictionary interface probing.")]
     private static bool TryGetFromStringDictionaryEnumeration(object obj, Type dictionaryType, string key, out object? value)
     {
         value = null;
@@ -293,18 +270,17 @@ public static class DbPropertyAccessor
             return false;
         }
 
-        var valueType = dictionaryType.GetGenericArguments()[1];
-        var expectedPairType = typeof(KeyValuePair<,>).MakeGenericType(typeof(string), valueType);
-        var keyProperty = expectedPairType.GetProperty(nameof(KeyValuePair<string, object>.Key));
-        var valueProperty = expectedPairType.GetProperty(nameof(KeyValuePair<string, object>.Value));
-        if (keyProperty is null || valueProperty is null)
-        {
-            return false;
-        }
-
         foreach (var entry in enumerable)
         {
-            if (entry is null || !expectedPairType.IsInstanceOfType(entry))
+            if (entry is null)
+            {
+                continue;
+            }
+
+            var entryType = entry.GetType();
+            var keyProperty = entryType.GetProperty(nameof(KeyValuePair<string, object>.Key));
+            var valueProperty = entryType.GetProperty(nameof(KeyValuePair<string, object>.Value));
+            if (keyProperty is null || valueProperty is null)
             {
                 continue;
             }
@@ -320,11 +296,17 @@ public static class DbPropertyAccessor
         return false;
     }
 
-    private static PropertyInfo? FindPropertyIgnoreCase(Type? type, string name)
+    private static PropertyInfo? FindPropertyIgnoreCase([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type? type, string name)
     {
         if (type is null) return null;
-        // Prefer case-insensitive name match, public instance properties
-        var p = type.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
-        return p;
+        foreach (var property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+        {
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return property;
+            }
+        }
+
+        return null;
     }
 }

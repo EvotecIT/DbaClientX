@@ -26,6 +26,22 @@ public partial class MySql
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
+        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
+    }
+
+    /// <summary>
+    /// Performs a bulk insert using <see cref="MySqlBulkCopy"/> and a full MySQL connection string.
+    /// </summary>
+    public virtual void BulkInsert(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -35,16 +51,7 @@ public partial class MySql
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             var bulkCopy = CreateBulkCopy(connection!, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
-            }
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
             {
@@ -94,6 +101,23 @@ public partial class MySql
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         var connectionString = BuildConnectionString(host, database, username, password);
+        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Performs a bulk insert asynchronously using <see cref="MySqlBulkCopy"/> and a full MySQL connection string.
+    /// </summary>
+    public virtual async Task BulkInsertAsync(
+        string connectionString,
+        DataTable table,
+        string destinationTable,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
@@ -103,16 +127,7 @@ public partial class MySql
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var bulkCopy = CreateBulkCopy(connection!, transaction);
-            bulkCopy.DestinationTableName = destinationTable;
-            if (bulkCopyTimeout.HasValue)
-            {
-                bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-            }
-
-            foreach (DataColumn column in table.Columns)
-            {
-                bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
-            }
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
             {
@@ -165,6 +180,20 @@ public partial class MySql
     /// Asynchronously writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
     protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).AsTask();
+
+    private static void ConfigureBulkCopy(MySqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
+    {
+        bulkCopy.DestinationTableName = destinationTable;
+        if (bulkCopyTimeout.HasValue)
+        {
+            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+        }
+
+        foreach (DataColumn column in table.Columns)
+        {
+            bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
+        }
+    }
 
     /// <summary>
     /// Creates a new <see cref="MySqlConnection"/> for the supplied connection string.

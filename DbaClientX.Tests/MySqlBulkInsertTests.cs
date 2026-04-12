@@ -17,10 +17,15 @@ public class MySqlBulkInsertTests
         public List<(int Ordinal, string Destination)> Mappings { get; } = new();
         public List<int> BatchRowCounts { get; } = new();
         public bool UsedRowEnumeration { get; private set; }
+        public string? ConnectionString { get; private set; }
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
 
-        protected override MySqlConnection CreateConnection(string connectionString) => new();
+        protected override MySqlConnection CreateConnection(string connectionString)
+        {
+            ConnectionString = connectionString;
+            return new();
+        }
 
         protected override void OpenConnection(MySqlConnection connection)
         {
@@ -156,6 +161,38 @@ public class MySqlBulkInsertTests
         Assert.Equal(table.Columns.Count, mySql.Mappings.Count);
         Assert.Equal(new[] { 2 }, mySql.BatchRowCounts);
         Assert.False(mySql.UsedRowEnumeration);
+    }
+
+    [Fact]
+    public void BulkInsert_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var mySql = new CaptureBulkCopyMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        var connectionString = DBAClientX.MySql.BuildConnectionString("h", "db", "u", "p");
+
+        mySql.BulkInsert(connectionString, table, "Dest");
+
+        Assert.Equal(connectionString, mySql.ConnectionString);
+        Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(1, mySql.SyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithConnectionString_UsesConnectionStringOverload()
+    {
+        using var mySql = new CaptureBulkCopyMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        var connectionString = DBAClientX.MySql.BuildConnectionString("h", "db", "u", "p");
+
+        await mySql.BulkInsertAsync(connectionString, table, "Dest");
+
+        Assert.Equal(connectionString, mySql.ConnectionString);
+        Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(1, mySql.AsyncDisposeCalls);
     }
 
     [Fact]
