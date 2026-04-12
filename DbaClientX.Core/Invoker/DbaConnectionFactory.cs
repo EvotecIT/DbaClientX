@@ -268,13 +268,13 @@ public static class DbaConnectionFactory
         var sslModeSpecified = false;
         foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
-            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
+            if (builder.TryGetValue(key, out var sslMode))
             {
                 sslModeSpecified = true;
-                if (sslValue.Equals("None", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Preferred", StringComparison.OrdinalIgnoreCase))
+                var sslValue = Convert.ToString(sslMode)?.Trim();
+                if (!IsMySqlSslModeEnforcing(sslValue))
                 {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode cannot be None or Preferred).", key);
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode must be Required, VerifyCA, or VerifyFull).", key);
                 }
             }
         }
@@ -292,14 +292,13 @@ public static class DbaConnectionFactory
         var sslModeSpecified = false;
         foreach (var key in new[] { "SslMode", "SSL Mode" })
         {
-            if (builder.TryGetValue(key, out var sslMode) && sslMode is string sslValue)
+            if (builder.TryGetValue(key, out var sslMode))
             {
                 sslModeSpecified = true;
-                if (sslValue.Equals("Disable", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Allow", StringComparison.OrdinalIgnoreCase)
-                    || sslValue.Equals("Prefer", StringComparison.OrdinalIgnoreCase))
+                var sslValue = Convert.ToString(sslMode)?.Trim();
+                if (!IsPostgreSqlSslModeEnforcing(sslValue))
                 {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode cannot be Disable, Allow, or Prefer).", key);
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode must be Require, VerifyCA, or VerifyFull).", key);
                 }
             }
         }
@@ -311,6 +310,18 @@ public static class DbaConnectionFactory
 
         return null;
     }
+
+    private static bool IsMySqlSslModeEnforcing(string? sslMode)
+        => sslMode is not null
+           && (sslMode.Equals("Required", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyCA", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyFull", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsPostgreSqlSslModeEnforcing(string? sslMode)
+        => sslMode is not null
+           && (sslMode.Equals("Require", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyCA", StringComparison.OrdinalIgnoreCase)
+               || sslMode.Equals("VerifyFull", StringComparison.OrdinalIgnoreCase));
 
     private static ConnectionValidationResult? ValidateDisallowedOptions(DbConnectionStringBuilder builder)
     {
