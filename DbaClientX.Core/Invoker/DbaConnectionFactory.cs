@@ -271,7 +271,13 @@ public static class DbaConnectionFactory
             if (builder.TryGetValue(key, out var sslMode))
             {
                 sslModeSpecified = true;
-                var sslValue = Convert.ToString(sslMode)?.Trim();
+                var sslValue = Convert.ToString(sslMode);
+                if (string.IsNullOrWhiteSpace(sslValue))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "MySQL connections must explicitly require SSL (SslMode must be Required or Verify*).", key);
+                }
+
+                sslValue = sslValue.Trim();
                 if (!IsMySqlSslModeEnforcing(sslValue))
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "MySQL connections must require SSL (SslMode must be Required, VerifyCA, or VerifyFull).", key);
@@ -295,7 +301,13 @@ public static class DbaConnectionFactory
             if (builder.TryGetValue(key, out var sslMode))
             {
                 sslModeSpecified = true;
-                var sslValue = Convert.ToString(sslMode)?.Trim();
+                var sslValue = Convert.ToString(sslMode);
+                if (string.IsNullOrWhiteSpace(sslValue))
+                {
+                    return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "PostgreSQL connections must explicitly require SSL (SslMode must be Require or Verify*).", key);
+                }
+
+                sslValue = sslValue.Trim();
                 if (!IsPostgreSqlSslModeEnforcing(sslValue))
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, "PostgreSQL connections must require SSL (SslMode must be Require, VerifyCA, or VerifyFull).", key);

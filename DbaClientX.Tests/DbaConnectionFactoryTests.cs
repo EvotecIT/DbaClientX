@@ -83,6 +83,16 @@ public class DbaConnectionFactoryTests
         Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Validate_MySqlConnectionString_WithWhitespaceSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=   ";
+        var result = DbaConnectionFactory.Validate("mysql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData("Required")]
     [InlineData("VerifyCA")]
@@ -140,6 +150,16 @@ public class DbaConnectionFactoryTests
     public void Validate_PostgreSqlConnectionString_WithEmptySslMode_IsRejected()
     {
         var connectionString = "Server=dbhost;Database=app;Username=user;Password=password;SslMode=";
+        var result = DbaConnectionFactory.Validate("postgresql", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_PostgreSqlConnectionString_WithWhitespaceSslMode_IsRejected()
+    {
+        var connectionString = "Server=dbhost;Database=app;Username=user;Password=password;SslMode=   ";
         var result = DbaConnectionFactory.Validate("postgresql", connectionString);
 
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
