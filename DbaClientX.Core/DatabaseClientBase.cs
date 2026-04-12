@@ -797,7 +797,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             var rows = new List<T>();
-            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false))
+            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false))
             {
                 initialize?.Invoke(reader);
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
