@@ -30,6 +30,7 @@
             'Invoke-DbaXOracleNonQuery'
             'Invoke-DbaXOracleScalar'
             'Invoke-DbaXSQLite'
+            'Write-DbaXTableData'
         )
     }
     New-ConfigurationManifest @Manifest

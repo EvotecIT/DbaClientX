@@ -103,6 +103,11 @@ if ($Development) {
     )
 }
 
+$LoadedAssemblyNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($LoadedAssembly in [AppDomain]::CurrentDomain.GetAssemblies()) {
+    [void] $LoadedAssemblyNames.Add($LoadedAssembly.GetName().Name)
+}
+
 $FoundErrors = @(
     if ($Development) {
         foreach ($BinaryModule in $BinaryDev) {
@@ -129,9 +134,18 @@ $FoundErrors = @(
         }
     }
     Foreach ($Import in @($Assembly)) {
+        if ($Import.BaseName -like 'System.*' -or $Import.BaseName -like 'Microsoft.*') {
+            continue
+        }
+
+        if ($LoadedAssemblyNames.Contains([System.IO.Path]::GetFileNameWithoutExtension($Import.Name))) {
+            continue
+        }
+
         try {
             #Write-Verbose -Message $Import.FullName
             Add-Type -Path $Import.Fullname -ErrorAction Stop
+            [void] $LoadedAssemblyNames.Add([System.IO.Path]::GetFileNameWithoutExtension($Import.Name))
         } catch [System.Reflection.ReflectionTypeLoadException] {
             Write-Warning "Processing $($Import.Name) Exception: $($_.Exception.Message)"
             $LoaderExceptions = $($_.Exception.LoaderExceptions) | Sort-Object -Unique
