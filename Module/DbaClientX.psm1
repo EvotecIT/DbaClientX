@@ -103,9 +103,14 @@ if ($Development) {
     )
 }
 
-$LoadedAssemblyNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$LoadedAssemblyVersions = [System.Collections.Generic.Dictionary[string, System.Version]]::new([System.StringComparer]::OrdinalIgnoreCase)
 foreach ($LoadedAssembly in [AppDomain]::CurrentDomain.GetAssemblies()) {
-    [void] $LoadedAssemblyNames.Add($LoadedAssembly.GetName().Name)
+    $LoadedAssemblyName = $LoadedAssembly.GetName()
+    if ($LoadedAssemblyName.Name -and (
+            -not $LoadedAssemblyVersions.ContainsKey($LoadedAssemblyName.Name) -or
+            $LoadedAssemblyVersions[$LoadedAssemblyName.Name] -lt $LoadedAssemblyName.Version)) {
+        $LoadedAssemblyVersions[$LoadedAssemblyName.Name] = $LoadedAssemblyName.Version
+    }
 }
 
 $FoundErrors = @(
@@ -138,14 +143,16 @@ $FoundErrors = @(
             continue
         }
 
-        if ($LoadedAssemblyNames.Contains([System.IO.Path]::GetFileNameWithoutExtension($Import.Name))) {
+        $ImportAssemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($Import.FullName)
+        if ($LoadedAssemblyVersions.ContainsKey($ImportAssemblyName.Name) -and
+            $LoadedAssemblyVersions[$ImportAssemblyName.Name] -ge $ImportAssemblyName.Version) {
             continue
         }
 
         try {
             #Write-Verbose -Message $Import.FullName
             Add-Type -Path $Import.Fullname -ErrorAction Stop
-            [void] $LoadedAssemblyNames.Add([System.IO.Path]::GetFileNameWithoutExtension($Import.Name))
+            $LoadedAssemblyVersions[$ImportAssemblyName.Name] = $ImportAssemblyName.Version
         } catch [System.Reflection.ReflectionTypeLoadException] {
             Write-Warning "Processing $($Import.Name) Exception: $($_.Exception.Message)"
             $LoaderExceptions = $($_.Exception.LoaderExceptions) | Sort-Object -Unique

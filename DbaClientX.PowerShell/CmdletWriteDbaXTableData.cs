@@ -42,6 +42,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
 
     /// <summary>Tabular input to write. Accepts DataTable, DataView, IDataReader, DataRow, hashtable, and object pipeline input.</summary>
     [Parameter(ValueFromPipeline = true, Mandatory = true)]
+    [AllowNull]
     public object? InputObject { get; set; }
 
     /// <summary>Optional number of rows per provider bulk batch.</summary>
@@ -74,6 +75,21 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         try
         {
             ValidateOptions();
+
+            if (_input.Count == 0)
+            {
+                if (PassThru.IsPresent)
+                {
+                    WriteObject(new PSObject(new
+                    {
+                        Provider,
+                        DestinationTable,
+                        Rows = 0
+                    }));
+                }
+
+                return;
+            }
 
             if (!ShouldProcess(DestinationTable, $"Bulk write {_input.Count} input item(s) using {Provider}"))
             {
