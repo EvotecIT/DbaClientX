@@ -103,6 +103,16 @@ if ($Development) {
     )
 }
 
+$LoadedAssemblyVersions = [System.Collections.Generic.Dictionary[string, System.Version]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($LoadedAssembly in [AppDomain]::CurrentDomain.GetAssemblies()) {
+    $LoadedAssemblyName = $LoadedAssembly.GetName()
+    if ($LoadedAssemblyName.Name -and (
+            -not $LoadedAssemblyVersions.ContainsKey($LoadedAssemblyName.Name) -or
+            $LoadedAssemblyVersions[$LoadedAssemblyName.Name] -lt $LoadedAssemblyName.Version)) {
+        $LoadedAssemblyVersions[$LoadedAssemblyName.Name] = $LoadedAssemblyName.Version
+    }
+}
+
 $FoundErrors = @(
     if ($Development) {
         foreach ($BinaryModule in $BinaryDev) {
@@ -129,9 +139,20 @@ $FoundErrors = @(
         }
     }
     Foreach ($Import in @($Assembly)) {
+        if ($Import.BaseName -like 'System.*' -or $Import.BaseName -like 'Microsoft.*') {
+            continue
+        }
+
+        $ImportAssemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($Import.FullName)
+        if ($LoadedAssemblyVersions.ContainsKey($ImportAssemblyName.Name) -and
+            $LoadedAssemblyVersions[$ImportAssemblyName.Name] -ge $ImportAssemblyName.Version) {
+            continue
+        }
+
         try {
             #Write-Verbose -Message $Import.FullName
             Add-Type -Path $Import.Fullname -ErrorAction Stop
+            $LoadedAssemblyVersions[$ImportAssemblyName.Name] = $ImportAssemblyName.Version
         } catch [System.Reflection.ReflectionTypeLoadException] {
             Write-Warning "Processing $($Import.Name) Exception: $($_.Exception.Message)"
             $LoaderExceptions = $($_.Exception.LoaderExceptions) | Sort-Object -Unique
