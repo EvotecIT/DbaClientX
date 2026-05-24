@@ -93,11 +93,28 @@
     # configuration for documentation, at the same time it enables documentation processing
     New-ConfigurationDocumentation -Enable:$false -StartClean -UpdateWhenNew -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
-    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules
+    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
+
+    $refreshPSD1Only = $true
+    if (-not [string]::IsNullOrWhiteSpace($env:RefreshPSD1Only)) {
+        switch -Regex ($env:RefreshPSD1Only.Trim()) {
+            '^(1|true|yes|on)$' {
+                $refreshPSD1Only = $true
+                break
+            }
+            '^(0|false|no|off)$' {
+                $refreshPSD1Only = $false
+                break
+            }
+            default {
+                throw "RefreshPSD1Only must be a boolean value or numeric flag, but received '$env:RefreshPSD1Only'."
+            }
+        }
+    }
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = $true
+        SignModule                        = if ($Env:COMPUTERNAME -eq 'EVOMAGIC') { $true } else { $false }
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
         CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
@@ -108,10 +125,25 @@
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
+        NETHandleAssemblyWithSameName     = $true
+        NETAssemblyLoadContext            = $true
+        NETHandleRuntimes                 = $true
+        NETExcludeLibraryFilter           = @(
+            'Microsoft.Data.SqlClient.SNI.arm64.dll'
+            'Microsoft.Data.SqlClient.SNI.dll'
+            'Microsoft.Data.SqlClient.SNI.x64.dll'
+            'Microsoft.Data.SqlClient.SNI.x86.dll'
+        )
+        NETIgnoreLibraryOnLoad            = @(
+            'Microsoft.Data.SqlClient.SNI.arm64.dll'
+            'Microsoft.Data.SqlClient.SNI.dll'
+            'Microsoft.Data.SqlClient.SNI.x64.dll'
+            'Microsoft.Data.SqlClient.SNI.x86.dll'
+        )
         # PSPublishModule 3.x tightened this legacy option to a single string value.
         NETSearchClass                    = $netSearchClasses -join ','
         DotSourceLibraries                = $true
-        RefreshPSD1Only                   = $true
+        RefreshPSD1Only                   = $refreshPSD1Only
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat

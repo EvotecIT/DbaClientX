@@ -117,6 +117,41 @@ jobs:
               shell: pwsh
               run: ./Module/DbaClientX.Tests.ps1
 
+    test-packaged-alc-ps7:
+        name: 'Windows PowerShell 7 Packaged ALC'
+        runs-on: windows-latest
+        timeout-minutes: 15
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: ${{ env.DOTNET_VERSION }}
+
+            - name: Install PowerShell modules
+              shell: pwsh
+              run: |
+                  Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+                  Install-Module -Name PSPublishModule -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
+                  Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
+                  Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
+
+            - name: Build packaged module
+              shell: pwsh
+              env:
+                  RefreshPSD1Only: 'false'
+              run: ./Module/Build/Build-Module.ps1
+
+            - name: Run packaged ALC smoke test
+              shell: pwsh
+              env:
+                  DBACLIENTX_REQUIRE_ALC_SMOKE: 'true'
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module/Tests/AssemblyLoadContext.Tests.ps1 -Output Detailed
+
     test-ubuntu:
         needs: refresh-psd1
         name: 'Ubuntu PowerShell 7'
