@@ -150,7 +150,7 @@ jobs:
                   DBACLIENTX_REQUIRE_ALC_SMOKE: 'true'
               run: |
                   Import-Module Pester -Force
-                  Invoke-Pester -Path ./Module/Tests/AssemblyLoadContext.Tests.ps1 -Output Detailed
+                  Invoke-Pester -Path ./Module/Tests/AssemblyLoadContext.Tests.ps1 -Tag PackagedALC -Output Detailed
 
     test-ubuntu:
         needs: refresh-psd1

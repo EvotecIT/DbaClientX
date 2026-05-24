@@ -10,7 +10,7 @@ Describe 'Assembly Load Context' {
     }
 }
 
-Describe 'Packaged Assembly Load Context' {
+Describe 'Packaged Assembly Load Context' -Tag 'PackagedALC' {
     It 'loads packaged cmdlets through the module-scoped ALC on CoreCLR' {
         $packagedModuleRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Artefacts\Unpacked'))
         $packagedModule = [IO.Path]::GetFullPath((Join-Path $packagedModuleRoot 'DbaClientX'))
