@@ -95,12 +95,14 @@
 
     New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
 
+    $certificateThumbprint = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = if ($Env:COMPUTERNAME -eq 'EVOMAGIC') { $true } else { $false }
+        SignModule                        = Test-Path -LiteralPath "Cert:\CurrentUser\My\$certificateThumbprint"
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+        CertificateThumbprint             = $certificateThumbprint
         NETProjectPath                    = "$PSScriptRoot\..\..\DbaClientX.PowerShell"
         ResolveBinaryConflicts            = $true
         ResolveBinaryConflictsName        = 'DbaClientX.PowerShell'
