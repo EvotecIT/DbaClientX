@@ -95,23 +95,6 @@
 
     New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
 
-    $refreshPSD1Only = $true
-    if (-not [string]::IsNullOrWhiteSpace($env:RefreshPSD1Only)) {
-        switch -Regex ($env:RefreshPSD1Only.Trim()) {
-            '^(1|true|yes|on)$' {
-                $refreshPSD1Only = $true
-                break
-            }
-            '^(0|false|no|off)$' {
-                $refreshPSD1Only = $false
-                break
-            }
-            default {
-                throw "RefreshPSD1Only must be a boolean value or numeric flag, but received '$env:RefreshPSD1Only'."
-            }
-        }
-    }
-
     $newConfigurationBuildSplat = @{
         Enable                            = $true
         SignModule                        = if ($Env:COMPUTERNAME -eq 'EVOMAGIC') { $true } else { $false }
@@ -143,7 +126,7 @@
         # PSPublishModule 3.x tightened this legacy option to a single string value.
         NETSearchClass                    = $netSearchClasses -join ','
         DotSourceLibraries                = $true
-        RefreshPSD1Only                   = $refreshPSD1Only
+        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $true } else { [bool]::Parse($Env:RefreshPSD1Only) }
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
