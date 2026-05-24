@@ -93,14 +93,16 @@
     # configuration for documentation, at the same time it enables documentation processing
     New-ConfigurationDocumentation -Enable:$false -StartClean -UpdateWhenNew -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
-    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules
+    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
+
+    $certificateThumbprint = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = $true
+        SignModule                        = Test-Path -LiteralPath "Cert:\CurrentUser\My\$certificateThumbprint"
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+        CertificateThumbprint             = $certificateThumbprint
         NETProjectPath                    = "$PSScriptRoot\..\..\DbaClientX.PowerShell"
         ResolveBinaryConflicts            = $true
         ResolveBinaryConflictsName        = 'DbaClientX.PowerShell'
@@ -108,10 +110,25 @@
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
+        NETHandleAssemblyWithSameName     = $true
+        NETAssemblyLoadContext            = $true
+        NETHandleRuntimes                 = $true
+        NETExcludeLibraryFilter           = @(
+            'Microsoft.Data.SqlClient.SNI.arm64.dll'
+            'Microsoft.Data.SqlClient.SNI.dll'
+            'Microsoft.Data.SqlClient.SNI.x64.dll'
+            'Microsoft.Data.SqlClient.SNI.x86.dll'
+        )
+        NETIgnoreLibraryOnLoad            = @(
+            'Microsoft.Data.SqlClient.SNI.arm64.dll'
+            'Microsoft.Data.SqlClient.SNI.dll'
+            'Microsoft.Data.SqlClient.SNI.x64.dll'
+            'Microsoft.Data.SqlClient.SNI.x86.dll'
+        )
         # PSPublishModule 3.x tightened this legacy option to a single string value.
         NETSearchClass                    = $netSearchClasses -join ','
         DotSourceLibraries                = $true
-        RefreshPSD1Only                   = $true
+        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $true } else { [bool]::Parse($Env:RefreshPSD1Only) }
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
