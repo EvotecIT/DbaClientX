@@ -540,7 +540,9 @@ public class SqliteTests
     [Fact]
     public async Task CollectDiagnosticsAsync_MissingDatabase_ReturnsMissingSnapshot()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-missing-" + Guid.NewGuid().ToString("N") + ".sqlite");
+        var path = Path.GetTempFileName();
+        File.Delete(path);
+        path += ".sqlite";
         using var sqlite = new DBAClientX.SQLite();
 
         var diagnostics = await sqlite.CollectDiagnosticsAsync(path);

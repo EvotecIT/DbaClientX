@@ -36,10 +36,9 @@ public partial class SQLite
             return diagnostics;
         }
 
-        SqliteConnection? connection = null;
         try
         {
-            connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
+            using var connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
 
@@ -77,20 +76,17 @@ public partial class SQLite
         {
             throw;
         }
-        catch (Exception ex)
+        catch (SqliteException ex)
         {
             diagnostics.ErrorMessage = ex.Message;
         }
-        finally
+        catch (IOException ex)
         {
-            if (connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            diagnostics.ErrorMessage = ex.Message;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            diagnostics.ErrorMessage = ex.Message;
         }
 
         return diagnostics;
