@@ -41,7 +41,13 @@ public sealed class SqlServerAvailabilityGroupHealth
     /// <summary>True when the replica/database row looks healthy.</summary>
     public bool IsHealthy =>
         !IsSuspended &&
-        (string.IsNullOrWhiteSpace(ConnectedState) || string.Equals(ConnectedState, "CONNECTED", System.StringComparison.OrdinalIgnoreCase)) &&
-        (string.IsNullOrWhiteSpace(SynchronizationHealth) || string.Equals(SynchronizationHealth, "HEALTHY", System.StringComparison.OrdinalIgnoreCase)) &&
-        (string.IsNullOrWhiteSpace(DatabaseSynchronizationHealth) || string.Equals(DatabaseSynchronizationHealth, "HEALTHY", System.StringComparison.OrdinalIgnoreCase));
+        HasState(ConnectedState, "CONNECTED") &&
+        HasState(SynchronizationHealth, "HEALTHY") &&
+        (string.IsNullOrWhiteSpace(DatabaseName) || HasState(DatabaseSynchronizationHealth, "HEALTHY"));
+
+    private static bool HasState(string? actual, string expected)
+    {
+        return !string.IsNullOrWhiteSpace(actual) &&
+               string.Equals(actual, expected, System.StringComparison.OrdinalIgnoreCase);
+    }
 }

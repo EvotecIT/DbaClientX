@@ -74,6 +74,11 @@ WITH last_history AS
     FROM msdb.dbo.sysjobhistory AS h
     WHERE h.step_id = 0
 ),
+current_agent_session AS
+(
+    SELECT session_id = MAX(s.session_id)
+    FROM msdb.dbo.syssessions AS s
+),
 active_jobs AS
 (
     SELECT
@@ -82,6 +87,7 @@ active_jobs AS
         ja.stop_execution_date,
         rn = ROW_NUMBER() OVER (PARTITION BY ja.job_id ORDER BY ja.start_execution_date DESC)
     FROM msdb.dbo.sysjobactivity AS ja
+    INNER JOIN current_agent_session AS s ON s.session_id = ja.session_id
     WHERE ja.start_execution_date IS NOT NULL
 )
 SELECT

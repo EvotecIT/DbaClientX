@@ -35,7 +35,7 @@ public partial class SqlServer
         if (options.Includes(SqlServerMonitoringScope.Connectivity))
         {
             snapshot.Connectivity = await GetConnectionDiagnosticsAsync(target, cancellationToken).ConfigureAwait(false);
-            if (snapshot.Connectivity.Connected == false)
+            if (!snapshot.Connectivity.Connected)
             {
                 snapshot.CompletedUtc = DateTimeOffset.UtcNow;
                 return snapshot;
@@ -118,7 +118,21 @@ public partial class SqlServer
             diagnostic.QuerySucceeded = true;
             diagnostic.QueryDuration = query.Elapsed;
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (SqlException ex)
+        {
+            diagnostic.ErrorCategory = ClassifySqlMonitoringError(ex);
+            diagnostic.ErrorMessage = ex.Message;
+        }
+        catch (TimeoutException ex)
+        {
+            diagnostic.ErrorCategory = ClassifySqlMonitoringError(ex);
+            diagnostic.ErrorMessage = ex.Message;
+        }
+        catch (InvalidOperationException ex)
         {
             diagnostic.ErrorCategory = ClassifySqlMonitoringError(ex);
             diagnostic.ErrorMessage = ex.Message;
@@ -206,7 +220,11 @@ public partial class SqlServer
                     }
                 }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (SqlException ex)
             {
                 freshness.ErrorMessage = ex.Message;
             }
@@ -301,10 +319,31 @@ public partial class SqlServer
         {
             await action().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            errors.Add($"{section}: {ClassifySqlMonitoringError(ex)}: {ex.Message}");
+            throw;
         }
+        catch (DbaQueryExecutionException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
+        catch (SqlException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
+        catch (TimeoutException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
+    }
+
+    private static void AddSectionError(List<string> errors, string section, Exception ex)
+    {
+        errors.Add($"{section}: {ClassifySqlMonitoringError(ex)}: {ex.Message}");
     }
 
     private static string BuildMonitoringConnectionString(SqlServerMonitoringTarget target)

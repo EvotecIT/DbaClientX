@@ -63,6 +63,18 @@ public class SqlServerMonitoringTests
     }
 
     [Fact]
+    public void AvailabilityGroupHealth_WithMissingState_IsNotHealthy()
+    {
+        var health = new SqlServerAvailabilityGroupHealth
+        {
+            AvailabilityGroupName = "ag01",
+            ReplicaServerName = "sql01"
+        };
+
+        Assert.False(health.IsHealthy);
+    }
+
+    [Fact]
     public void MonitoringTarget_DefaultsToIntegratedSecurityAndMaster()
     {
         var target = new SqlServerMonitoringTarget
