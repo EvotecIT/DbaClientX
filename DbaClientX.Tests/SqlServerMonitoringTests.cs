@@ -39,6 +39,37 @@ public class SqlServerMonitoringTests
     }
 
     [Fact]
+    public void BuildConnectionString_WithLegacySignature_RemainsCallable()
+    {
+        string connectionString = SqlServer.BuildConnectionString(
+            "sql01",
+            "master",
+            true,
+            null,
+            null,
+            1433,
+            true);
+
+        var builder = new SqlConnectionStringBuilder(connectionString);
+
+        Assert.Equal("sql01,1433", builder.DataSource);
+        Assert.Equal("master", builder.InitialCatalog);
+        Assert.True(builder.IntegratedSecurity);
+        Assert.True(builder.Encrypt);
+    }
+
+    [Fact]
+    public void NormalizeSqlDateTimeUtc_WithUnspecifiedKind_TreatsValueAsUtc()
+    {
+        var value = new DateTime(2026, 5, 25, 12, 30, 0, DateTimeKind.Unspecified);
+
+        DateTime normalized = SqlServerMonitoringMappers.NormalizeSqlDateTimeUtc(value);
+
+        Assert.Equal(DateTimeKind.Utc, normalized.Kind);
+        Assert.Equal(value.Ticks, normalized.Ticks);
+    }
+
+    [Fact]
     public void MonitoringOptions_Includes_ReturnsTrueOnlyForRequestedScopes()
     {
         var options = new SqlServerMonitoringOptions

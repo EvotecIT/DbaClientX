@@ -118,7 +118,7 @@ internal static class SqlServerMonitoringMappers
 
         if (!item.LastGoodCheckDb.HasValue)
         {
-            return item.DatabaseCreated.HasValue && DateTime.UtcNow - item.DatabaseCreated.Value.ToUniversalTime() <= options.MaxCheckDbAge
+            return item.DatabaseCreated.HasValue && DateTime.UtcNow - NormalizeSqlDateTimeUtc(item.DatabaseCreated.Value) <= options.MaxCheckDbAge
                 ? "New"
                 : "Missing";
         }
@@ -147,7 +147,7 @@ internal static class SqlServerMonitoringMappers
     {
         if (!item.LastFullBackup.HasValue)
         {
-            return item.DatabaseCreated.HasValue && DateTime.UtcNow - item.DatabaseCreated.Value.ToUniversalTime() <= options.MaxFullBackupAge
+            return item.DatabaseCreated.HasValue && DateTime.UtcNow - NormalizeSqlDateTimeUtc(item.DatabaseCreated.Value) <= options.MaxFullBackupAge
                 ? "New"
                 : "MissingFull";
         }
@@ -172,7 +172,17 @@ internal static class SqlServerMonitoringMappers
 
     private static TimeSpan? SinceUtc(DateTime nowUtc, DateTime? value)
     {
-        return value.HasValue ? nowUtc - value.Value.ToUniversalTime() : null;
+        return value.HasValue ? nowUtc - NormalizeSqlDateTimeUtc(value.Value) : null;
+    }
+
+    internal static DateTime NormalizeSqlDateTimeUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
     }
 
     private static int? GetInt32(IDataRecord record, string name)

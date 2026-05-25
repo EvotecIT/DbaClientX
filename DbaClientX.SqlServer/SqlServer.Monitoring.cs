@@ -230,7 +230,7 @@ public partial class SqlServer
             }
 
             freshness.SinceLastGoodCheckDb = freshness.LastGoodCheckDb.HasValue
-                ? DateTime.UtcNow - freshness.LastGoodCheckDb.Value.ToUniversalTime()
+                ? DateTime.UtcNow - SqlServerMonitoringMappers.NormalizeSqlDateTimeUtc(freshness.LastGoodCheckDb.Value)
                 : null;
             freshness.Status = SqlServerMonitoringMappers.EvaluateCheckDbStatus(freshness, options);
             results.Add(freshness);
