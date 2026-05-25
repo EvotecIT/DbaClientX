@@ -500,6 +500,83 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task CollectDiagnosticsAsync_FileDatabase_ReturnsHealthAndFileState()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            await sqlite.ExecuteNonQueryAsync(path, "PRAGMA journal_mode=WAL;");
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER PRIMARY KEY, payload TEXT);");
+            await sqlite.ExecuteNonQueryAsync(path, "INSERT INTO t(payload) VALUES ($payload);", new Dictionary<string, object?>
+            {
+                ["$payload"] = new string('x', 2048)
+            });
+
+            var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
+
+            Assert.Equal(Path.GetFullPath(path), diagnostics.FullPath);
+            Assert.True(diagnostics.Exists);
+            Assert.True(diagnostics.CanConnect);
+            Assert.True(diagnostics.IsHealthy);
+            Assert.Equal("ok", diagnostics.IntegrityCheck);
+            Assert.Equal("ok", diagnostics.QuickCheck);
+            Assert.False(string.IsNullOrWhiteSpace(diagnostics.SQLiteVersion));
+            Assert.False(string.IsNullOrWhiteSpace(diagnostics.JournalMode));
+            Assert.True(diagnostics.PageCount > 0);
+            Assert.True(diagnostics.PageSizeBytes > 0);
+            Assert.True(diagnostics.DatabaseFileSizeBytes > 0);
+            Assert.True(diagnostics.TotalFileSizeBytes >= diagnostics.DatabaseFileSizeBytes);
+            Assert.True(diagnostics.LogicalDatabaseSizeBytes > 0);
+            Assert.NotNull(diagnostics.LastWriteTimeUtc);
+            Assert.Null(diagnostics.ErrorMessage);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task CollectDiagnosticsAsync_MissingDatabase_ReturnsMissingSnapshot()
+    {
+        var path = Path.GetTempFileName();
+        File.Delete(path);
+        path += ".sqlite";
+        using var sqlite = new DBAClientX.SQLite();
+
+        var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
+
+        Assert.Equal(Path.GetFullPath(path), diagnostics.FullPath);
+        Assert.False(diagnostics.Exists);
+        Assert.False(diagnostics.CanConnect);
+        Assert.Equal("SQLite database file does not exist.", diagnostics.ErrorMessage);
+        Assert.False(diagnostics.IsHealthy);
+    }
+
+    [Fact]
+    public async Task CollectDiagnosticsAsync_DirectoryPath_ReturnsFileDiagnosticError()
+    {
+        var path = Path.GetTempFileName();
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+
+            var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
+
+            Assert.False(diagnostics.CanConnect);
+            Assert.Equal("SQLite file path points to a directory.", diagnostics.ErrorMessage);
+            Assert.False(diagnostics.IsHealthy);
+        }
+        finally
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RunInTransactionAsync_CommitsOnSuccess()
     {
         var path = Path.GetTempFileName();
