@@ -51,6 +51,9 @@ public partial class SqlServer : DatabaseClientBase
     /// <param name="password">SQL login password when <paramref name="integratedSecurity"/> is <see langword="false"/>.</param>
     /// <param name="port">Optional TCP port appended to <paramref name="serverOrInstance"/>.</param>
     /// <param name="ssl">Optional encryption flag routed to <see cref="SqlConnectionStringBuilder.Encrypt"/>.</param>
+    /// <param name="trustServerCertificate">When true, encrypted connections trust the server certificate without validating the chain.</param>
+    /// <param name="connectTimeoutSeconds">Optional connection timeout in seconds.</param>
+    /// <param name="applicationName">Optional application name written into the connection string.</param>
     /// <returns>A provider-formatted connection string.</returns>
     /// <remarks>
     /// The builder enables pooling by default to keep performance comparable to the MySQL implementation. Additional
@@ -63,7 +66,10 @@ public partial class SqlServer : DatabaseClientBase
         string? username = null,
         string? password = null,
         int? port = null,
-        bool? ssl = null)
+        bool? ssl = null,
+        bool trustServerCertificate = false,
+        int? connectTimeoutSeconds = null,
+        string? applicationName = null)
     {
         ValidateRequiredConnectionValue(serverOrInstance, nameof(serverOrInstance), "Server");
         ValidateRequiredConnectionValue(database, nameof(database), "Database");
@@ -84,8 +90,22 @@ public partial class SqlServer : DatabaseClientBase
             InitialCatalog = database,
             IntegratedSecurity = integratedSecurity,
             Encrypt = true,
+            TrustServerCertificate = trustServerCertificate,
             Pooling = true
         };
+        if (connectTimeoutSeconds.HasValue)
+        {
+            if (connectTimeoutSeconds.Value <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(connectTimeoutSeconds), "Connection timeout must be greater than zero.");
+            }
+
+            connectionStringBuilder.ConnectTimeout = connectTimeoutSeconds.Value;
+        }
+        if (!string.IsNullOrWhiteSpace(applicationName))
+        {
+            connectionStringBuilder.ApplicationName = applicationName;
+        }
         if (!integratedSecurity)
         {
             connectionStringBuilder.UserID = username;
