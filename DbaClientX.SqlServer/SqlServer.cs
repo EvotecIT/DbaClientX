@@ -60,10 +60,52 @@ public partial class SqlServer : DatabaseClientBase
         string serverOrInstance,
         string database,
         bool integratedSecurity,
+        string? username,
+        string? password,
+        int? port,
+        bool? ssl)
+    {
+        return BuildConnectionString(
+            serverOrInstance,
+            database,
+            integratedSecurity,
+            username,
+            password,
+            port,
+            ssl,
+            trustServerCertificate: false,
+            connectTimeoutSeconds: null,
+            applicationName: null);
+    }
+
+    /// <summary>
+    /// Builds a SQL Server connection string from discrete connection components and diagnostics options.
+    /// </summary>
+    /// <param name="serverOrInstance">Server name, address, or <c>Server\Instance</c> style identifier.</param>
+    /// <param name="database">Database (catalog) to target.</param>
+    /// <param name="integratedSecurity">When <see langword="true"/> configures Windows authentication.</param>
+    /// <param name="username">SQL login identifier when <paramref name="integratedSecurity"/> is <see langword="false"/>.</param>
+    /// <param name="password">SQL login password when <paramref name="integratedSecurity"/> is <see langword="false"/>.</param>
+    /// <param name="port">Optional TCP port appended to <paramref name="serverOrInstance"/>.</param>
+    /// <param name="ssl">Optional encryption flag routed to <see cref="SqlConnectionStringBuilder.Encrypt"/>.</param>
+    /// <param name="trustServerCertificate">When true, encrypted connections trust the server certificate without validating the chain.</param>
+    /// <param name="connectTimeoutSeconds">Optional connection timeout in seconds.</param>
+    /// <param name="applicationName">Optional application name written into the connection string.</param>
+    /// <returns>A provider-formatted connection string.</returns>
+    /// <remarks>
+    /// This overload extends the legacy signature while keeping the original overload available for binary-compatible upgrades.
+    /// </remarks>
+    public static string BuildConnectionString(
+        string serverOrInstance,
+        string database,
+        bool integratedSecurity,
         string? username = null,
         string? password = null,
         int? port = null,
-        bool? ssl = null)
+        bool? ssl = null,
+        bool trustServerCertificate = false,
+        int? connectTimeoutSeconds = null,
+        string? applicationName = null)
     {
         ValidateRequiredConnectionValue(serverOrInstance, nameof(serverOrInstance), "Server");
         ValidateRequiredConnectionValue(database, nameof(database), "Database");
@@ -84,8 +126,22 @@ public partial class SqlServer : DatabaseClientBase
             InitialCatalog = database,
             IntegratedSecurity = integratedSecurity,
             Encrypt = true,
+            TrustServerCertificate = trustServerCertificate,
             Pooling = true
         };
+        if (connectTimeoutSeconds.HasValue)
+        {
+            if (connectTimeoutSeconds.Value <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(connectTimeoutSeconds), "Connection timeout must be greater than zero.");
+            }
+
+            connectionStringBuilder.ConnectTimeout = connectTimeoutSeconds.Value;
+        }
+        if (!string.IsNullOrWhiteSpace(applicationName))
+        {
+            connectionStringBuilder.ApplicationName = applicationName;
+        }
         if (!integratedSecurity)
         {
             connectionStringBuilder.UserID = username;
