@@ -29,15 +29,15 @@ public partial class SQLite
             FullPath = fullPath
         };
 
-        ApplyFileDiagnostics(diagnostics, fullPath);
-        if (!diagnostics.Exists)
-        {
-            diagnostics.ErrorMessage = "SQLite database file does not exist.";
-            return diagnostics;
-        }
-
         try
         {
+            ApplyFileDiagnostics(diagnostics, fullPath);
+            if (!diagnostics.Exists)
+            {
+                diagnostics.ErrorMessage = "SQLite database file does not exist.";
+                return diagnostics;
+            }
+
             using var connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
@@ -71,6 +71,7 @@ public partial class SQLite
             diagnostics.UserVersion = ConvertToNullableInt64(await ExecuteDiagnosticScalarAsync(connection, "PRAGMA user_version;", cancellationToken).ConfigureAwait(false));
             diagnostics.ApplicationId = ConvertToNullableInt64(await ExecuteDiagnosticScalarAsync(connection, "PRAGMA application_id;", cancellationToken).ConfigureAwait(false));
             diagnostics.WalAutoCheckpointPages = ConvertToNullableInt64(await ExecuteDiagnosticScalarAsync(connection, "PRAGMA wal_autocheckpoint;", cancellationToken).ConfigureAwait(false));
+            ApplyFileDiagnostics(diagnostics, fullPath);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -94,10 +95,13 @@ public partial class SQLite
 
     private static void ApplyFileDiagnostics(SqliteDatabaseDiagnostics diagnostics, string fullPath)
     {
-        var databaseFile = new FileInfo(fullPath);
-        diagnostics.Exists = databaseFile.Exists;
-        if (databaseFile.Exists)
+        diagnostics.Exists = FilePathExists(fullPath);
+        diagnostics.DatabaseFileSizeBytes = 0L;
+        diagnostics.LastWriteTimeUtc = null;
+
+        if (diagnostics.Exists)
         {
+            var databaseFile = new FileInfo(fullPath);
             diagnostics.DatabaseFileSizeBytes = databaseFile.Length;
             diagnostics.LastWriteTimeUtc = new DateTimeOffset(databaseFile.LastWriteTimeUtc, TimeSpan.Zero);
         }
@@ -108,8 +112,35 @@ public partial class SQLite
 
     private static long GetFileSize(string path)
     {
+        if (!FilePathExists(path))
+        {
+            return 0L;
+        }
+
         var file = new FileInfo(path);
-        return file.Exists ? file.Length : 0L;
+        return file.Length;
+    }
+
+    private static bool FilePathExists(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.Directory) == FileAttributes.Directory)
+            {
+                throw new IOException("SQLite file path points to a directory.");
+            }
+
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
     }
 
     private async Task<object?> ExecuteDiagnosticScalarAsync(

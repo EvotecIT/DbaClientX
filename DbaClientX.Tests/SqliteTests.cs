@@ -555,6 +555,28 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task CollectDiagnosticsAsync_DirectoryPath_ReturnsFileDiagnosticError()
+    {
+        var path = Path.GetTempFileName();
+        File.Delete(path);
+        Directory.CreateDirectory(path);
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+
+            var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
+
+            Assert.False(diagnostics.CanConnect);
+            Assert.Equal("SQLite file path points to a directory.", diagnostics.ErrorMessage);
+            Assert.False(diagnostics.IsHealthy);
+        }
+        finally
+        {
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RunInTransactionAsync_CommitsOnSuccess()
     {
         var path = Path.GetTempFileName();
