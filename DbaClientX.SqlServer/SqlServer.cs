@@ -254,17 +254,21 @@ public partial class SqlServer : DatabaseClientBase
             }
         }
 
-        var connection = CreateConnection(connectionString);
-        try
+        SqlConnection connection = ExecuteConnectionOpenWithRetry(() =>
         {
-            OpenConnection(connection);
-            return (connection, null, true);
-        }
-        catch
-        {
-            DisposeConnection(connection);
-            throw;
-        }
+            var candidate = CreateConnection(connectionString);
+            try
+            {
+                OpenConnection(candidate);
+                return candidate;
+            }
+            catch
+            {
+                DisposeConnection(candidate);
+                throw;
+            }
+        });
+        return (connection, null, true);
     }
 
     private async Task<(SqlConnection Connection, SqlTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(
@@ -291,18 +295,96 @@ public partial class SqlServer : DatabaseClientBase
             }
         }
 
-        var connection = CreateConnection(connectionString);
-        try
+        SqlConnection connection = await ExecuteConnectionOpenWithRetryAsync(async () =>
         {
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            return (connection, null, true);
-        }
-        catch
-        {
-            await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
-            throw;
-        }
+            var candidate = CreateConnection(connectionString);
+            try
+            {
+                await OpenConnectionAsync(candidate, cancellationToken).ConfigureAwait(false);
+                return candidate;
+            }
+            catch
+            {
+                await DisposeOwnedResourceAsync(candidate, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+        return (connection, null, true);
     }
+
+    private T ExecuteConnectionOpenWithRetry<T>(Func<T> operation)
+    {
+        var attempts = 0;
+        Exception? lastException = null;
+        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
+        while (attempts < maxAttempts)
+        {
+            try
+            {
+                return operation();
+            }
+            catch (Exception ex) when (IsConnectionOpenTransient(ex))
+            {
+                lastException = ex;
+                attempts++;
+                if (attempts >= maxAttempts)
+                {
+                    break;
+                }
+
+                var delay = ComputeBackoffDelay(attempts);
+                if (delay > TimeSpan.Zero)
+                {
+                    Thread.Sleep(delay);
+                }
+            }
+        }
+
+        throw lastException ?? new Exception("Operation failed.");
+    }
+
+    private async Task<T> ExecuteConnectionOpenWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        Exception? lastException = null;
+        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
+        while (attempts < maxAttempts)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                return await operation().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsConnectionOpenTransient(ex))
+            {
+                lastException = ex;
+                attempts++;
+                if (attempts >= maxAttempts)
+                {
+                    break;
+                }
+
+                var delay = ComputeBackoffDelay(attempts);
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        throw lastException ?? new Exception("Operation failed.");
+    }
+
+    /// <summary>
+    /// Determines whether a connection-open failure is transient enough to retry.
+    /// </summary>
+    /// <param name="ex">The exception raised while opening the SQL Server connection.</param>
+    /// <returns><see langword="true" /> when opening the connection can be retried.</returns>
+    protected virtual bool IsConnectionOpenTransient(Exception ex) =>
+        IsTransient(ex)
+        || ex is SqlException sqlEx
+            && sqlEx.Number is -2 or 64 or 233 or 10053 or 10054 or 10060;
 
     /// <inheritdoc />
     protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)

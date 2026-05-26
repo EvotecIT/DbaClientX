@@ -67,6 +67,8 @@ public class ProviderRetryTests
     private class SqlServerRetryClient : DBAClientX.SqlServer
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+        public bool IsConnectionOpenRetryable(Exception exception) => IsConnectionOpenTransient(exception);
+        public bool IsCommandRetryable(Exception exception) => IsTransient(exception);
     }
 
     private static SqlException CreateSqlException(int number)
@@ -102,6 +104,15 @@ public class ProviderRetryTests
         });
         Assert.Equal(1, result);
         Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public void SqlServer_RetriesConnectionTimeoutsOnlyForConnectionOpen()
+    {
+        using var client = new SqlServerRetryClient();
+        var exception = CreateSqlException(-2);
+        Assert.True(client.IsConnectionOpenRetryable(exception));
+        Assert.False(client.IsCommandRetryable(exception));
     }
 
     private class SqliteRetryClient : DBAClientX.SQLite
