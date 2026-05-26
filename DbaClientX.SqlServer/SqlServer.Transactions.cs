@@ -542,7 +542,8 @@ public partial class SqlServer
     /// <inheritdoc />
     protected override bool IsTransient(Exception ex) =>
         ex is SqlException sqlEx &&
-        sqlEx.Number is 4060 or 10928 or 10929 or 1205 or 40197 or 40501 or 40613 or 49918 or 49919 or 49920;
+        sqlEx.Number is -2 or 64 or 233 or 4060 or 10928 or 10929 or 1205 or 40197 or 40501 or 40613 or 49918 or 49919 or 49920
+            or 10053 or 10054 or 10060;
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

@@ -254,17 +254,21 @@ public partial class SqlServer : DatabaseClientBase
             }
         }
 
-        var connection = CreateConnection(connectionString);
-        try
+        SqlConnection connection = ExecuteWithRetry(() =>
         {
-            OpenConnection(connection);
-            return (connection, null, true);
-        }
-        catch
-        {
-            DisposeConnection(connection);
-            throw;
-        }
+            var candidate = CreateConnection(connectionString);
+            try
+            {
+                OpenConnection(candidate);
+                return candidate;
+            }
+            catch
+            {
+                DisposeConnection(candidate);
+                throw;
+            }
+        });
+        return (connection, null, true);
     }
 
     private async Task<(SqlConnection Connection, SqlTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(
@@ -291,17 +295,21 @@ public partial class SqlServer : DatabaseClientBase
             }
         }
 
-        var connection = CreateConnection(connectionString);
-        try
+        SqlConnection connection = await ExecuteWithRetryAsync(async () =>
         {
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
-            return (connection, null, true);
-        }
-        catch
-        {
-            await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
-            throw;
-        }
+            var candidate = CreateConnection(connectionString);
+            try
+            {
+                await OpenConnectionAsync(candidate, cancellationToken).ConfigureAwait(false);
+                return candidate;
+            }
+            catch
+            {
+                await DisposeOwnedResourceAsync(candidate, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
+                throw;
+            }
+        }, cancellationToken).ConfigureAwait(false);
+        return (connection, null, true);
     }
 
     /// <inheritdoc />

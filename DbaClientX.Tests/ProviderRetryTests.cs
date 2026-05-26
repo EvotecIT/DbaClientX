@@ -104,6 +104,24 @@ public class ProviderRetryTests
         Assert.Equal(3, attempts);
     }
 
+    [Fact]
+    public void SqlServer_RetriesConnectionTimeouts()
+    {
+        using var client = new SqlServerRetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var exception = CreateSqlException(-2);
+        var attempts = 0;
+        var result = client.Run(() =>
+        {
+            if (++attempts < 3)
+            {
+                throw exception;
+            }
+            return 1;
+        });
+        Assert.Equal(1, result);
+        Assert.Equal(3, attempts);
+    }
+
     private class SqliteRetryClient : DBAClientX.SQLite
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
