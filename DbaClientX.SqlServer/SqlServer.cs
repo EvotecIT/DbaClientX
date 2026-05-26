@@ -332,9 +332,10 @@ public partial class SqlServer : DatabaseClientBase
                     break;
                 }
 
-                if (RetryDelay > TimeSpan.Zero)
+                var delay = ComputeBackoffDelay(attempts);
+                if (delay > TimeSpan.Zero)
                 {
-                    Thread.Sleep(RetryDelay);
+                    Thread.Sleep(delay);
                 }
             }
         }
@@ -364,9 +365,10 @@ public partial class SqlServer : DatabaseClientBase
                     break;
                 }
 
-                if (RetryDelay > TimeSpan.Zero)
+                var delay = ComputeBackoffDelay(attempts);
+                if (delay > TimeSpan.Zero)
                 {
-                    await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
         }

@@ -362,7 +362,12 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
     }
 
-    private TimeSpan ComputeBackoffDelay(int attempt)
+    /// <summary>
+    /// Computes the capped exponential backoff delay with jitter for a retry attempt.
+    /// </summary>
+    /// <param name="attempt">The one-based retry attempt number.</param>
+    /// <returns>The delay before the next retry attempt.</returns>
+    protected TimeSpan ComputeBackoffDelay(int attempt)
     {
         var baseDelay = RetryDelay;
         if (baseDelay <= TimeSpan.Zero)
