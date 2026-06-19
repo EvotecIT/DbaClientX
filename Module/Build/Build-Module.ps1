@@ -1,4 +1,4 @@
-﻿Import-Module PSPublishModule -Force -ErrorAction Stop
+Import-Module PSPublishModule -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' {
     # Usual defaults as per standard module
@@ -74,16 +74,17 @@ Build-Module -ModuleName 'DbaClientX' {
     # configuration for documentation, at the same time it enables documentation processing
     New-ConfigurationDocumentation -Enable:$false -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
-    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
-
-    $certificateThumbprint = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+    $defaultRefreshPSD1Only = $false
+    if ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and -not $IsWindows) {
+        $defaultRefreshPSD1Only = $true
+    }
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
         SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $false } else { [bool]::Parse($Env:SignModule) }
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = $certificateThumbprint
+        CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
         DeleteTargetModuleBeforeBuild     = $true
         NETProjectPath                    = "$PSScriptRoot\..\..\DbaClientX.PowerShell"
         ResolveBinaryConflicts            = $true
@@ -96,12 +97,6 @@ Build-Module -ModuleName 'DbaClientX' {
         NETHandleAssemblyWithSameName     = $true
         NETAssemblyLoadContext            = $true
         NETHandleRuntimes                 = $true
-        NETExcludeLibraryFilter           = @(
-            'Microsoft.Data.SqlClient.SNI.arm64.dll'
-            'Microsoft.Data.SqlClient.SNI.dll'
-            'Microsoft.Data.SqlClient.SNI.x64.dll'
-            'Microsoft.Data.SqlClient.SNI.x86.dll'
-        )
         NETIgnoreLibraryOnLoad            = @(
             'Microsoft.Data.SqlClient.SNI.arm64.dll'
             'Microsoft.Data.SqlClient.SNI.dll'
@@ -110,7 +105,11 @@ Build-Module -ModuleName 'DbaClientX' {
         )
         DotSourceLibraries                = $true
         DotSourceClasses                  = $true
-        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $true } else { [bool]::Parse($Env:RefreshPSD1Only) }
+        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) {
+            $defaultRefreshPSD1Only
+        } else {
+            [bool]::Parse($Env:RefreshPSD1Only)
+        }
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat

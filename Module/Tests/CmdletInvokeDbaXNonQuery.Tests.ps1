@@ -14,6 +14,10 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         (Get-Command Invoke-DbaXNonQuery).Parameters.Keys | Should -Contain 'Credential'
     }
 
+    It 'supports TrustServerCertificate parameter' {
+        (Get-Command Invoke-DbaXNonQuery).Parameters.Keys | Should -Contain 'TrustServerCertificate'
+    }
+
     It 'passes credentials to provider when supplied' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
@@ -88,6 +92,25 @@ Describe 'Invoke-DbaXNonQuery cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastNonQueryOptions = $null
+        }
+    }
+
+    It 'passes TrustServerCertificate to provider execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXNonQuery].GetProperty('NonQueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastNonQueryTrustServerCertificate = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters)
+            $script:lastNonQueryTrustServerCertificate = $cmdlet.TrustServerCertificate.IsPresent
+            return 0
+        })
+        try {
+            Invoke-DbaXNonQuery -Server s -Database db -Query 'Q' -TrustServerCertificate | Out-Null
+            $script:lastNonQueryTrustServerCertificate | Should -BeTrue
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastNonQueryTrustServerCertificate = $null
         }
     }
 

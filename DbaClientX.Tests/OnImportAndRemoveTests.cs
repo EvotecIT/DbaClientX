@@ -1,6 +1,7 @@
 using System;
 using System.Management.Automation;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DBAClientX.PowerShell;
 using Xunit;
 
@@ -58,6 +59,54 @@ public class OnImportAndRemoveTests
 
         sut.OnRemove(null!);
         Assert.Equal(0, stateField.GetValue(null));
+    }
+
+    [Fact]
+    public void GetRuntimeIdentifiers_IncludesUnixFallbackForUnixLikePlatforms()
+    {
+        var method = typeof(OnModuleImportAndRemove).GetMethod(
+            "GetRuntimeIdentifiers",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            new[] { typeof(string), typeof(Architecture), typeof(bool), typeof(bool), typeof(bool) },
+            modifiers: null);
+
+        var result = ((IEnumerable<string>)method!.Invoke(null, new object[] { "linux-x64", Architecture.X64, false, false, true })!).ToArray();
+
+        Assert.Contains("linux-x64", result);
+        Assert.Contains("linux", result);
+        Assert.Contains("unix", result);
+    }
+
+    [Fact]
+    public void GetCompatibleRuntimeLibraryDirectories_UsesCompatibleTargetFramework()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "DbaClientX-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "net8.0"));
+            Directory.CreateDirectory(Path.Combine(root, "net9.0"));
+            Directory.CreateDirectory(Path.Combine(root, "netstandard2.0"));
+
+            var method = typeof(OnModuleImportAndRemove).GetMethod(
+                "GetCompatibleRuntimeLibraryDirectories",
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            var result = ((IEnumerable<string>)method!.Invoke(null, new object[] { root })!)
+                .Select(Path.GetFileName)
+                .ToArray();
+
+            Assert.Equal("net8.0", result[0]);
+            Assert.DoesNotContain("net9.0", result);
+            Assert.Contains("netstandard2.0", result);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 #endif
 }

@@ -12,13 +12,25 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Query Oracle with credentials.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXOracle -Server 'oraclesrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Users'</code>
-/// <para>Returns each row as a <see cref="DataRow"/>.</para>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXOracle -Server 'oracle01' -Database 'ORCLPDB1' -Credential $credential -Query @'
+/// SELECT
+///     USER AS ConnectedUser,
+///     SYS_CONTEXT('USERENV', 'SERVICE_NAME') AS ServiceName
+/// FROM dual
+/// '@</code>
+/// <para>Returns Oracle session context as <see cref="DataRow"/> objects.</para>
 /// </example>
 /// <example>
 /// <summary>Stream results as they arrive.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXOracle -Server 'oraclesrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Logs' -Stream</code>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXOracle -Server 'oracle01' -Database 'ORCLPDB1' -Credential $credential -Query @'
+/// SELECT owner, table_name
+/// FROM all_tables
+/// WHERE owner = USER
+/// ORDER BY table_name
+/// '@ -Stream</code>
 /// <para>Streams rows without buffering the entire result.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/standard/data/sqlite/?tabs=netcore-cli">Oracle provider documentation</seealso>

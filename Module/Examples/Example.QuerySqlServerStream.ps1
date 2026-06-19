@@ -1,5 +1,23 @@
 Clear-Host
-Import-Module $PSScriptRoot\..\DBAClientX.psd1 -Force -Verbose
+Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force
 
-Invoke-DbaXQuery -Query "SELECT * FROM sys.databases" -Server "SQL1" -Database "master" -Stream |
-    Format-Table
+$server = $env:DBACLIENTX_SQLSERVER
+if ([string]::IsNullOrWhiteSpace($server)) {
+    $server = 'localhost'
+}
+
+Invoke-DbaXQuery `
+    -Server $server `
+    -Database 'master' `
+    -TrustServerCertificate `
+    -Stream `
+    -ReturnType PSObject `
+    -Query @'
+SELECT TOP (25)
+    name,
+    type_desc,
+    create_date
+FROM sys.objects
+ORDER BY create_date DESC;
+'@ |
+    Format-Table name, type_desc, create_date -AutoSize

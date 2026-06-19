@@ -1,5 +1,20 @@
 Clear-Host
-Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force -Verbose
+Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force
 
-$parameters = @{ Id = 1 }
-Invoke-DbaXQuery -Query 'SELECT * FROM sys.databases WHERE database_id = @Id' -Server 'SQL1' -Database 'master' -Parameters $parameters | Format-Table
+$server = $env:DBACLIENTX_SQLSERVER
+if ([string]::IsNullOrWhiteSpace($server)) {
+    $server = 'localhost'
+}
+
+$parameters = @{
+    DatabaseName = 'master'
+}
+
+Invoke-DbaXQuery `
+    -Server $server `
+    -Database 'master' `
+    -TrustServerCertificate `
+    -Query 'SELECT name, database_id, state_desc FROM sys.databases WHERE name = @DatabaseName' `
+    -Parameters $parameters `
+    -ReturnType PSObject |
+    Format-Table -AutoSize
