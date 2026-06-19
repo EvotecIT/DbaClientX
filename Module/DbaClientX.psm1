@@ -143,7 +143,12 @@ $FoundErrors = @(
             continue
         }
 
-        $ImportAssemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($Import.FullName)
+        try {
+            $ImportAssemblyName = [System.Reflection.AssemblyName]::GetAssemblyName($Import.FullName)
+        } catch [System.BadImageFormatException] {
+            continue
+        }
+
         if ($LoadedAssemblyVersions.ContainsKey($ImportAssemblyName.Name) -and
             $LoadedAssemblyVersions[$ImportAssemblyName.Name] -ge $ImportAssemblyName.Version) {
             continue
