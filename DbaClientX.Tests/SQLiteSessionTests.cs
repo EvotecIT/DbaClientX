@@ -10,8 +10,8 @@ public class SQLiteSessionTests
     [Fact]
     public void OpenSession_ReusesConnectionForAttachedDatabase()
     {
-        string primary = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db");
-        string legacy = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db");
+        string primary = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        string legacy = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
         try
         {
             using var sqlite = new SQLite();
@@ -40,7 +40,7 @@ public class SQLiteSessionTests
     [Fact]
     public void RunInTransaction_RollsBackWhenOperationFails()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.db");
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
         try
         {
             using var sqlite = new SQLite();

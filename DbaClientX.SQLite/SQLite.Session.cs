@@ -43,7 +43,7 @@ public partial class SQLite
         {
             return ExecuteNonQuery(connection, transaction, query, parameters);
         }
-        catch (Exception ex)
+        catch (SqliteException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
         }
@@ -60,7 +60,7 @@ public partial class SQLite
         {
             return ExecuteScalar(connection, transaction, query, parameters);
         }
-        catch (Exception ex)
+        catch (SqliteException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
@@ -107,7 +107,7 @@ public partial class SQLite
                 return (IReadOnlyList<T>)results;
             });
         }
-        catch (Exception ex)
+        catch (SqliteException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
