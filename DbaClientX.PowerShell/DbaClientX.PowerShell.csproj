@@ -23,6 +23,9 @@
                 <PackageReference Include="System.Formats.Asn1" />
                 <PackageReference Include="System.Text.Json" />
         </ItemGroup>
+        <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
+                <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        </PropertyGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
                 <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
