@@ -25,6 +25,7 @@
         </ItemGroup>
         <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
                 <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+                <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
         </PropertyGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
