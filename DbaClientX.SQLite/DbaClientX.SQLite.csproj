@@ -3,7 +3,7 @@
     <Description>DbaClientX SQLite provider</Description>
     <AssemblyName>DbaClientX.SQLite</AssemblyName>
     <AssemblyTitle>DbaClientX.SQLite</AssemblyTitle>
-    <VersionPrefix>0.6.0</VersionPrefix>
+    <VersionPrefix>0.7.0</VersionPrefix>
     <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">net472;net8.0;net10.0</TargetFrameworks>
     <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">net8.0;net10.0</TargetFrameworks>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
@@ -29,11 +29,16 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0' or '$(TargetFramework)' == 'net10.0'">
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="SQLitePCLRaw.core" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Collections" />
