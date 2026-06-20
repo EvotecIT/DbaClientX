@@ -500,6 +500,38 @@ public class SqliteTests
     }
 
     [Fact]
+    public void BackupDatabase_CopiesReadableDatabase()
+    {
+        var source = Path.GetTempFileName();
+        var destinationDirectory = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var destination = Path.Join(destinationDirectory, "backup.sqlite");
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(source, "CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT NOT NULL);");
+            sqlite.ExecuteNonQuery(source, "INSERT INTO t(name) VALUES ($name);", new Dictionary<string, object?>
+            {
+                ["$name"] = "copied"
+            });
+
+            sqlite.BackupDatabase(source, destination);
+
+            Assert.True(File.Exists(destination));
+            var result = sqlite.ExecuteScalar(destination, "SELECT name FROM t WHERE id = 1;");
+            Assert.Equal("copied", result);
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            if (Directory.Exists(destinationDirectory))
+            {
+                Directory.Delete(destinationDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task CollectDiagnosticsAsync_FileDatabase_ReturnsHealthAndFileState()
     {
         var path = Path.GetTempFileName();

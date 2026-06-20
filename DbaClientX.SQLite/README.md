@@ -1,7 +1,7 @@
 # DbaClientX.SQLite
 
 SQLite provider for DbaClientX (Microsoft.Data.Sqlite). Supports non-query, scalar, queries, streaming, transactions, bulk insert.
-Also includes SQLite maintenance helpers for WAL checkpointing, `PRAGMA optimize`, and graceful shutdown preparation.
+Also includes SQLite maintenance helpers for online database backup, WAL checkpointing, `PRAGMA optimize`, and graceful shutdown preparation.
 
 - Target Frameworks: `net472` (win-x64), `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
@@ -61,6 +61,13 @@ await sq.PrepareForShutdownAsync(
         CheckpointMode = SqliteCheckpointMode.Truncate,
         OptimizeAfterCheckpoint = true
     });
+```
+
+Backup before maintenance:
+
+```csharp
+var sq = new DBAClientX.SQLite();
+sq.BackupDatabase("app.db", "backups/app.db");
 ```
 
 ## See also
