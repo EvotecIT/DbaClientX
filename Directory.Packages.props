@@ -4,7 +4,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="coverlet.collector" Version="8.0.1" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="MatejKafka.XmlDoc2CmdletDoc" Version="0.7.0" />
     <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.5" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
