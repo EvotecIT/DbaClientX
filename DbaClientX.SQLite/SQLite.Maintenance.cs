@@ -47,11 +47,34 @@ public partial class SQLite
 
             source.BackupDatabase(destination);
         }
-        catch (Exception ex)
+        catch (SqliteException ex)
         {
-            throw new DbaQueryExecutionException("Failed to back up SQLite database.", "SQLite online backup", ex);
+            throw CreateBackupException(ex);
+        }
+        catch (IOException ex)
+        {
+            throw CreateBackupException(ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw CreateBackupException(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw CreateBackupException(ex);
+        }
+        catch (ArgumentException ex)
+        {
+            throw CreateBackupException(ex);
+        }
+        catch (NotSupportedException ex)
+        {
+            throw CreateBackupException(ex);
         }
     }
+
+    private static DbaQueryExecutionException CreateBackupException(Exception exception) =>
+        new("Failed to back up SQLite database.", "SQLite online backup", exception);
 
     /// <summary>
     /// Executes <c>PRAGMA wal_checkpoint(...)</c> using the supplied checkpoint mode.

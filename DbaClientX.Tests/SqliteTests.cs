@@ -503,8 +503,8 @@ public class SqliteTests
     public void BackupDatabase_CopiesReadableDatabase()
     {
         var source = Path.GetTempFileName();
-        var destinationDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var destination = Path.Combine(destinationDirectory, "backup.sqlite");
+        var destinationDirectory = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var destination = Path.Join(destinationDirectory, "backup.sqlite");
         try
         {
             using var sqlite = new DBAClientX.SQLite();
