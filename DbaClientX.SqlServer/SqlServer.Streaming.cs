@@ -176,6 +176,43 @@ public partial class SqlServer
     }
 
     /// <summary>
+    /// Asynchronously executes a stored procedure using a full SQL Server connection string and streams the resulting rows.
+    /// </summary>
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(
+        string connectionString,
+        string procedure,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqlDbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
+            SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
+            var dispose = false;
+            try
+            {
+                (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+                var dbTypes = ConvertParameterTypes(parameterTypes);
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, parameters, cancellationToken, dbTypes, parameterDirections, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
     /// Asynchronously executes a stored procedure using <see cref="DbParameter"/> instances and streams the resulting rows.
     /// </summary>
     public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(
@@ -196,6 +233,40 @@ public partial class SqlServer
         {
             var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
 
+            SqlConnection? connection = null;
+            SqlTransaction? transaction = null;
+            var dispose = false;
+            try
+            {
+                (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+                await foreach (var row in ExecuteQueryStreamAsync(connection, transaction, procedure, cancellationToken: cancellationToken, dbParameters: parameters, commandType: CommandType.StoredProcedure).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a stored procedure using a full SQL Server connection string and <see cref="DbParameter"/> instances.
+    /// </summary>
+    public virtual IAsyncEnumerable<DataRow> ExecuteStoredProcedureStreamAsync(
+        string connectionString,
+        string procedure,
+        IEnumerable<DbParameter>? parameters,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
+        return Stream();
+
+        async IAsyncEnumerable<DataRow> Stream()
+        {
             SqlConnection? connection = null;
             SqlTransaction? transaction = null;
             var dispose = false;

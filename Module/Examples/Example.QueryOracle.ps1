@@ -1,5 +1,22 @@
 Clear-Host
-Import-Module $PSScriptRoot\..\DBAClientX.psd1 -Force -Verbose
+Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force
 
-$T = Invoke-DbaXOracle -Query "SELECT 1 FROM dual" -Server "OracleServer" -Database "ORCL" -Username "user" -Password "pass"
-$T | Format-Table
+$server = $env:DBACLIENTX_ORACLE_SERVER
+$service = $env:DBACLIENTX_ORACLE_SERVICE
+if ([string]::IsNullOrWhiteSpace($server) -or [string]::IsNullOrWhiteSpace($service)) {
+    throw 'Set DBACLIENTX_ORACLE_SERVER and DBACLIENTX_ORACLE_SERVICE before running this example.'
+}
+
+$credential = Get-Credential -Message 'Oracle credentials'
+
+Invoke-DbaXOracle `
+    -Server $server `
+    -Database $service `
+    -Credential $credential `
+    -Query @'
+SELECT
+    USER AS ConnectedUser,
+    SYS_CONTEXT('USERENV', 'SERVICE_NAME') AS ServiceName
+FROM dual
+'@ |
+    Format-Table -AutoSize

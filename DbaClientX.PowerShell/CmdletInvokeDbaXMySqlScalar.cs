@@ -5,7 +5,12 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Get a single value.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXMySqlScalar -Server 'mysqlsrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT COUNT(*) FROM Users'</code>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXMySqlScalar -Server 'mysql01' -Database 'app' -Credential $credential -Query @'
+/// SELECT COUNT(*)
+/// FROM users
+/// WHERE is_active = 1;
+/// '@</code>
 /// <para>Returns the number of users.</para>
 /// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXMySqlScalar", SupportsShouldProcess = true)]
@@ -94,22 +99,10 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
             }
             switch (ReturnType) {
                 case ReturnType.DataTable:
-                    DataTable table = new DataTable();
-                    table.Columns.Add("Value", result?.GetType() ?? typeof(object));
-                    var tableRow = table.NewRow();
-                    tableRow[0] = result;
-                    table.Rows.Add(tableRow);
-                    WriteObject(table);
+                    WriteObject(CreateScalarTable(result));
                     break;
                 case ReturnType.DataSet:
-                    DataTable dataTable = new DataTable();
-                    dataTable.Columns.Add("Value", result?.GetType() ?? typeof(object));
-                    var dataRow = dataTable.NewRow();
-                    dataRow[0] = result;
-                    dataTable.Rows.Add(dataRow);
-                    DataSet set = new DataSet();
-                    set.Tables.Add(dataTable);
-                    WriteObject(set);
+                    WriteObject(CreateScalarDataSet(result));
                     break;
                 case ReturnType.PSObject:
                     var psObj = new PSObject();
@@ -117,12 +110,7 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
                     WriteObject(psObj);
                     break;
                 default:
-                    DataTable dt = new DataTable();
-                    dt.Columns.Add("Value", result?.GetType() ?? typeof(object));
-                    var row = dt.NewRow();
-                    row[0] = result;
-                    dt.Rows.Add(row);
-                    WriteObject(row);
+                    WriteObject(CreateScalarRow(result));
                     break;
             }
         } catch (Exception ex) {
@@ -132,4 +120,23 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
             }
         }
     }
+
+    private static DataSet CreateScalarDataSet(object? result)
+    {
+        var set = new DataSet();
+        set.Tables.Add(CreateScalarTable(result));
+        return set;
+    }
+
+    private static DataTable CreateScalarTable(object? result)
+    {
+        var table = new DataTable();
+        table.Columns.Add("Value", result?.GetType() ?? typeof(object));
+        var row = table.NewRow();
+        row[0] = result;
+        table.Rows.Add(row);
+        return table;
+    }
+
+    private static DataRow CreateScalarRow(object? result) => CreateScalarTable(result).Rows[0];
 }

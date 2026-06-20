@@ -1,12 +1,9 @@
-﻿Build-Module -ModuleName 'DbaClientX' {
-    $netSearchClasses = @(
-        'DbaClientX.PowerShell.CmdletIInvokeDbaXQuery'
-        'DbaClientX.PowerShell.CmdletIInvokeDbaXNonQuery'
-    )
+Import-Module PSPublishModule -Force -ErrorAction Stop
 
+Build-Module -ModuleName 'DbaClientX' {
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
-        ModuleVersion        = '0.1.0'
+        ModuleVersion        = '0.1.X'
         CompatiblePSEditions = @('Desktop', 'Core')
         GUID                 = 'c22cc272-c829-49e2-aaa1-58d3c36edb94'
         Author               = 'Przemyslaw Klys'
@@ -16,22 +13,6 @@
         PowerShellVersion    = '5.1'
         Tags                 = @('Windows', 'MacOS', 'Linux')
         ProjectUri           = 'https://github.com/EvotecIT/DbaClientX'
-        #AliasesToExport      = @('')
-        CmdletsToExport      = @(
-            'Invoke-DbaXQuery'
-            'Invoke-DbaXNonQuery'
-            'New-DbaXQuery'
-            'Invoke-DbaXMySql'
-            'Invoke-DbaXMySqlNonQuery'
-            'Invoke-DbaXMySqlScalar'
-            'Invoke-DbaXPostgreSql'
-            'Invoke-DbaXPostgreSqlNonQuery'
-            'Invoke-DbaXOracle'
-            'Invoke-DbaXOracleNonQuery'
-            'Invoke-DbaXOracleScalar'
-            'Invoke-DbaXSQLite'
-            'Write-DbaXTableData'
-        )
     }
     New-ConfigurationManifest @Manifest
 
@@ -93,42 +74,42 @@
     # configuration for documentation, at the same time it enables documentation processing
     New-ConfigurationDocumentation -Enable:$false -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
-    New-ConfigurationImportModule -ImportSelf -ImportRequiredModules -SkipBinaryDependencyCheck
-
-    $certificateThumbprint = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+    $defaultRefreshPSD1Only = $false
+    if ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and -not $IsWindows) {
+        $defaultRefreshPSD1Only = $true
+    }
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = Test-Path -LiteralPath "Cert:\CurrentUser\My\$certificateThumbprint"
+        SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $false } else { [bool]::Parse($Env:SignModule) }
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = $certificateThumbprint
+        CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
+        DeleteTargetModuleBeforeBuild     = $true
         NETProjectPath                    = "$PSScriptRoot\..\..\DbaClientX.PowerShell"
         ResolveBinaryConflicts            = $true
         ResolveBinaryConflictsName        = 'DbaClientX.PowerShell'
         NETProjectName                    = 'DbaClientX.PowerShell'
         NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
+        NETBinaryModuleDocumentation      = $true
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
         NETHandleAssemblyWithSameName     = $true
         NETAssemblyLoadContext            = $true
         NETHandleRuntimes                 = $true
-        NETExcludeLibraryFilter           = @(
-            'Microsoft.Data.SqlClient.SNI.arm64.dll'
-            'Microsoft.Data.SqlClient.SNI.dll'
-            'Microsoft.Data.SqlClient.SNI.x64.dll'
-            'Microsoft.Data.SqlClient.SNI.x86.dll'
-        )
         NETIgnoreLibraryOnLoad            = @(
             'Microsoft.Data.SqlClient.SNI.arm64.dll'
             'Microsoft.Data.SqlClient.SNI.dll'
             'Microsoft.Data.SqlClient.SNI.x64.dll'
             'Microsoft.Data.SqlClient.SNI.x86.dll'
         )
-        # PSPublishModule 3.x tightened this legacy option to a single string value.
-        NETSearchClass                    = $netSearchClasses -join ','
         DotSourceLibraries                = $true
-        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $true } else { [bool]::Parse($Env:RefreshPSD1Only) }
+        DotSourceClasses                  = $true
+        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) {
+            $defaultRefreshPSD1Only
+        } else {
+            [bool]::Parse($Env:RefreshPSD1Only)
+        }
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
@@ -139,4 +120,4 @@
     # global options for publishing to github/psgallery
     #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
     #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -ID 'ToGitHub' -OverwriteTagName 'DnsClientX-PowerShellModule.<TagModuleVersionWithPreRelease>'
-}
+} -ExitCode

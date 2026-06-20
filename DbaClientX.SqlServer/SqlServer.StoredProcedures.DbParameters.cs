@@ -25,6 +25,20 @@ public partial class SqlServer
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return ExecuteStoredProcedure(connectionString, procedure, parameters, useTransaction);
+    }
+
+    /// <summary>
+    /// Executes a stored procedure using a full SQL Server connection string and existing <see cref="DbParameter"/> instances.
+    /// </summary>
+    public virtual object? ExecuteStoredProcedure(
+        string connectionString,
+        string procedure,
+        IEnumerable<DbParameter>? parameters,
+        bool useTransaction = false)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -56,7 +70,11 @@ public partial class SqlServer
 
             return BuildResult(dataSet);
         }
-        catch (Exception ex)
+        catch (SqlException ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        catch (InvalidOperationException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
@@ -85,6 +103,21 @@ public partial class SqlServer
     {
         ValidateCommandText(procedure, CommandType.StoredProcedure);
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
+        return await ExecuteStoredProcedureAsync(connectionString, procedure, parameters, useTransaction, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously executes a stored procedure using a full SQL Server connection string and existing <see cref="DbParameter"/> instances.
+    /// </summary>
+    public virtual async Task<object?> ExecuteStoredProcedureAsync(
+        string connectionString,
+        string procedure,
+        IEnumerable<DbParameter>? parameters,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
+        ValidateCommandText(procedure, CommandType.StoredProcedure);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -116,7 +149,15 @@ public partial class SqlServer
 
             return BuildResult(dataSet);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (SqlException ex)
+        {
+            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+        }
+        catch (InvalidOperationException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }

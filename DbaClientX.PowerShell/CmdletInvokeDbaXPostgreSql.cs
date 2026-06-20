@@ -15,13 +15,20 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Run a query using explicit credentials.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXPostgreSql -Server 'pgsrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM data'</code>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXPostgreSql -Server 'pg01' -Database 'app' -Credential $credential -Query @'
+/// SELECT
+///     current_database() AS database_name,
+///     current_user AS connected_as,
+///     version() AS server_version;
+/// '@</code>
 /// <para>Executes the query and returns each row as a <see cref="DataRow"/>.</para>
 /// </example>
 /// <example>
 /// <summary>Execute a stored procedure and get a DataTable.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXPostgreSql -Server 'pgsrv' -Database 'app' -Username 'user' -Password 'p@ss' -StoredProcedure 'refresh_stats' -ReturnType DataTable</code>
+/// <code>$credential = Get-Credential 'app_writer'
+/// Invoke-DbaXPostgreSql -Server 'pg01' -Database 'app' -Credential $credential -StoredProcedure 'refresh_stats' -ReturnType DataTable</code>
 /// <para>Runs the stored procedure and outputs a <see cref="DataTable"/>.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/ef/core/providers/npgsql/">Npgsql provider on MS Learn</seealso>

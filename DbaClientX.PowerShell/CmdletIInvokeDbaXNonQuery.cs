@@ -10,15 +10,27 @@ namespace DBAClientX.PowerShell;
 /// </item>
 /// </list>
 /// <example>
-/// <summary>Delete rows from a table.</summary>
+/// <summary>Create and populate a local temporary table.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXNonQuery -Server 'sqlsrv' -Database 'app' -Query 'DELETE FROM Users WHERE Disabled = 1'</code>
-/// <para>Removes disabled users and outputs the number of rows deleted.</para>
+/// <code>$sql = @'
+/// CREATE TABLE #DbaClientXDemo
+/// (
+///     Id int NOT NULL,
+///     Name nvarchar(50) NOT NULL
+/// );
+///
+/// INSERT INTO #DbaClientXDemo (Id, Name)
+/// VALUES (1, N'Alpha'), (2, N'Beta');
+/// '@
+///
+/// Invoke-DbaXNonQuery -Server 'localhost' -Database 'master' -TrustServerCertificate -Query $sql</code>
+/// <para>Executes a multi-line command and returns the number of affected rows.</para>
 /// </example>
 /// <example>
 /// <summary>Run a command with SQL authentication.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXNonQuery -Server 'sqlsrv' -Database 'app' -Query 'TRUNCATE TABLE Logs' -Username 'user' -Password 'p@ss'</code>
+/// <code>$credential = Get-Credential 'app_writer'
+/// Invoke-DbaXNonQuery -Server 'sql01' -Database 'app' -Query 'UPDATE dbo.Users SET LastSeenUtc = SYSUTCDATETIME() WHERE Id = @Id' -Credential $credential -Parameters @{ Id = 42 }</code>
 /// <para>Executes the statement using the supplied credentials.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/framework/data/adonet/using-sqlclient">Using SqlClient</seealso>
@@ -65,6 +77,10 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
     [Credential]
     public PSCredential? Credential { get; set; }
 
+    /// <summary>Trusts the SQL Server TLS certificate without validating the certificate chain.</summary>
+    [Parameter(Mandatory = false, ParameterSetName = "DefaultCredentials")]
+    public SwitchParameter TrustServerCertificate { get; set; }
+
     private ActionPreference ErrorAction;
 
     /// <summary>
@@ -97,14 +113,20 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
             }
 
             var (resolvedUsername, resolvedPassword, integratedSecurity) = PowerShellHelpers.ResolveSqlServerCredential(Username, Password, Credential);
-            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, resolvedUsername, resolvedPassword);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(
+                Server,
+                Database,
+                integratedSecurity,
+                resolvedUsername,
+                resolvedPassword,
+                trustServerCertificate: TrustServerCertificate.IsPresent);
             if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
             {
                 return;
             }
 
             using var sqlServer = CreateSqlServer();
-            var affected = sqlServer.ExecuteNonQuery(Server, Database, integratedSecurity, Query, parameters, username: resolvedUsername, password: resolvedPassword);
+            var affected = sqlServer.ExecuteNonQuery(connectionString, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
             WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {ex.Message}");

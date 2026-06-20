@@ -22,6 +22,10 @@ describe 'Invoke-DbaXQuery cmdlet' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Credential'
     }
 
+    it 'supports TrustServerCertificate parameter' {
+        (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'TrustServerCertificate'
+    }
+
     it 'fails when Server is empty' {
         { Invoke-DbaXQuery -Server '' -Database db -Query 'SELECT 1' -ErrorAction Stop } | Should -Throw
     }
@@ -110,6 +114,25 @@ describe 'Invoke-DbaXQuery cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastQueryOptions = $null
+        }
+    }
+
+    it 'passes TrustServerCertificate to query execution' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastQueryTrustServerCertificate = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $script:lastQueryTrustServerCertificate = $cmdlet.TrustServerCertificate.IsPresent
+            return $null
+        })
+        try {
+            Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -TrustServerCertificate | Out-Null
+            $script:lastQueryTrustServerCertificate | Should -BeTrue
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastQueryTrustServerCertificate = $null
         }
     }
 

@@ -15,13 +15,24 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Run a query with integrated security.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXQuery -Server 'sqlsrv' -Database 'app' -Query 'SELECT * FROM Users'</code>
-/// <para>Executes the query and returns each row as a <see cref="DataRow"/>.</para>
+/// <code>$rows = Invoke-DbaXQuery -Server 'localhost' -Database 'master' -TrustServerCertificate -Query @'
+/// SELECT
+///     name,
+///     database_id,
+///     create_date
+/// FROM sys.databases
+/// WHERE database_id &gt; 4
+/// ORDER BY name;
+/// '@
+///
+/// $rows | Format-Table name, database_id, create_date</code>
+/// <para>Executes a multi-line query against a local SQL Server instance and returns each row as a <see cref="DataRow"/>.</para>
 /// </example>
 /// <example>
 /// <summary>Execute a stored procedure using credentials.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXQuery -Server 'sqlsrv' -Database 'app' -StoredProcedure 'usp_DoWork' -Username 'user' -Password 'p@ss' -ReturnType DataTable</code>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXQuery -Server 'sql01' -Database 'app' -StoredProcedure 'dbo.usp_GetActiveUsers' -Credential $credential -ReturnType DataTable</code>
 /// <para>Runs the stored procedure and outputs a <see cref="DataTable"/>.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/framework/data/adonet/using-sqlclient">Using SqlClient</seealso>
@@ -94,6 +105,11 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     [Credential]
     public PSCredential? Credential { get; set; }
+
+    /// <summary>Trusts the SQL Server TLS certificate without validating the certificate chain.</summary>
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    public SwitchParameter TrustServerCertificate { get; set; }
 
     private ActionPreference ErrorAction;
 
@@ -185,7 +201,13 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
             }
 
             var (resolvedUsername, resolvedPassword, integratedSecurity) = PowerShellHelpers.ResolveSqlServerCredential(Username, Password, Credential);
-            var connectionString = DBAClientX.SqlServer.BuildConnectionString(Server, Database, integratedSecurity, resolvedUsername, resolvedPassword);
+            var connectionString = DBAClientX.SqlServer.BuildConnectionString(
+                Server,
+                Database,
+                integratedSecurity,
+                resolvedUsername,
+                resolvedPassword,
+                trustServerCertificate: TrustServerCertificate.IsPresent);
             if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
             {
                 return;
@@ -198,12 +220,12 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 {
                     var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
                     using var sqlServer = CreateSqlServer();
-                    await WriteRowsAsync(sqlServer.ExecuteStoredProcedureStreamAsync(Server, Database, integratedSecurity, StoredProcedure, dbParameters, cancellationToken: CancelToken, username: resolvedUsername, password: resolvedPassword)).ConfigureAwait(false);
+                    await WriteRowsAsync(sqlServer.ExecuteStoredProcedureStreamAsync(connectionString, StoredProcedure, dbParameters, cancellationToken: CancelToken)).ConfigureAwait(false);
                     return;
                 }
 
                 using var streamSqlServer = CreateSqlServer();
-                await WriteRowsAsync(streamSqlServer.QueryStreamAsync(Server, Database, integratedSecurity, Query, parameters, cancellationToken: CancelToken, username: resolvedUsername, password: resolvedPassword)).ConfigureAwait(false);
+                await WriteRowsAsync(streamSqlServer.QueryStreamAsync(connectionString, Query, parameters, cancellationToken: CancelToken)).ConfigureAwait(false);
                 return;
             }
 #endif
@@ -211,10 +233,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
             if (!string.IsNullOrEmpty(StoredProcedure)) {
                 var dbParameters = PowerShellHelpers.ToDbParameters(parameters, static (name, value) => (DbParameter)new SqlParameter(name, value ?? DBNull.Value));
                 using var sqlServer = CreateSqlServer();
-                result = sqlServer.ExecuteStoredProcedure(Server, Database, integratedSecurity, StoredProcedure, dbParameters, username: resolvedUsername, password: resolvedPassword);
+                result = sqlServer.ExecuteStoredProcedure(connectionString, StoredProcedure, dbParameters);
             } else {
                 using var sqlServer = CreateSqlServer();
-                result = sqlServer.Query(Server, Database, integratedSecurity, Query, parameters, username: resolvedUsername, password: resolvedPassword);
+                result = sqlServer.Query(connectionString, Query, parameters);
             }
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {

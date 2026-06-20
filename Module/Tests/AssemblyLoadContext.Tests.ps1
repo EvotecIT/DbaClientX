@@ -54,6 +54,11 @@ Import-Module DbaClientX -Force
 `$command = Get-Command Invoke-DbaXQuery -ErrorAction Stop
 `$commandAssembly = `$command.ImplementingType.Assembly
 `$commandAlc = [System.Runtime.Loader.AssemblyLoadContext]::GetLoadContext(`$commandAssembly)
+`$moduleSqlClientAssembly = [System.Runtime.Loader.AssemblyLoadContext]::All |
+    Where-Object { `$_.Name -eq 'DbaClientX' } |
+    ForEach-Object { `$_.Assemblies } |
+    Where-Object { `$_.GetName().Name -eq 'Microsoft.Data.SqlClient' } |
+    Select-Object -First 1
 `$loadedAssemblies = [System.Runtime.Loader.AssemblyLoadContext]::All |
     ForEach-Object {
         `$alc = `$_
@@ -77,6 +82,7 @@ Import-Module DbaClientX -Force
     InvokeDbaXQueryAssembly = `$commandAssembly.Location
     InvokeDbaXQueryALC = `$commandAlc.Name
     InvokeDbaXQueryALCIsDefault = [object]::ReferenceEquals(`$commandAlc, [System.Runtime.Loader.AssemblyLoadContext]::Default)
+    ModuleSqlClientAssembly = if (`$moduleSqlClientAssembly) { `$moduleSqlClientAssembly.Location } else { `$null }
     LoadedAssemblies = @(`$loadedAssemblies)
 } | ConvertTo-Json -Depth 6 -Compress
 "@
@@ -93,6 +99,9 @@ Import-Module DbaClientX -Force
         $result.InvokeDbaXQueryAssembly | Should -BeLike '*\Module\Artefacts\Unpacked\DbaClientX\Lib\Core\DBAClientX.PowerShell.dll'
         $result.InvokeDbaXQueryALC | Should -Be 'DbaClientX'
         $result.InvokeDbaXQueryALCIsDefault | Should -BeFalse
+        if ($IsWindows) {
+            $result.ModuleSqlClientAssembly | Should -BeLike '*\Module\Artefacts\Unpacked\DbaClientX\Lib\Core\runtimes\win\lib\net8.0\Microsoft.Data.SqlClient.dll'
+        }
 
         $loadedAssemblies = @($result.LoadedAssemblies)
         $dbaClientXPowerShellAssembly = $loadedAssemblies | Where-Object { $_.Assembly -eq 'DbaClientX.PowerShell' -and $_.ALC -eq 'DbaClientX' } | Select-Object -First 1

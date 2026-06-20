@@ -1,5 +1,15 @@
 Clear-Host
-Import-Module $PSScriptRoot\..\DBAClientX.psd1 -Force -Verbose
+Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force
 
-Invoke-DbaXQuery -StoredProcedure "dbo.MyProcedure" -Server "SQL1" -Database "master"
+$server = $env:DBACLIENTX_SQLSERVER
+if ([string]::IsNullOrWhiteSpace($server)) {
+    $server = 'localhost'
+}
 
+Invoke-DbaXQuery `
+    -Server $server `
+    -Database 'master' `
+    -TrustServerCertificate `
+    -StoredProcedure 'sys.sp_databases' `
+    -ReturnType PSObject |
+    Format-Table DATABASE_NAME, DATABASE_SIZE, REMARKS -AutoSize

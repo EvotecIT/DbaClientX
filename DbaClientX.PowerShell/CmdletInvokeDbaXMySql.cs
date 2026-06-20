@@ -13,13 +13,29 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Query MySQL with credentials.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXMySql -Server 'mysqlsrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Users'</code>
-/// <para>Returns each row as a <see cref="DataRow"/>.</para>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXMySql -Server 'mysql01' -Database 'app' -Credential $credential -Query @'
+/// SELECT
+///     id,
+///     email,
+///     created_at
+/// FROM users
+/// WHERE is_active = 1
+/// ORDER BY created_at DESC
+/// LIMIT 25;
+/// '@</code>
+/// <para>Returns recent active users as <see cref="DataRow"/> objects.</para>
 /// </example>
 /// <example>
 /// <summary>Stream results as they arrive.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXMySql -Server 'mysqlsrv' -Database 'app' -Username 'user' -Password 'p@ss' -Query 'SELECT * FROM Logs' -Stream</code>
+/// <code>$credential = Get-Credential 'app_reader'
+/// Invoke-DbaXMySql -Server 'mysql01' -Database 'app' -Credential $credential -Query @'
+/// SELECT id, message, created_at
+/// FROM audit_log
+/// ORDER BY created_at DESC
+/// LIMIT 1000;
+/// '@ -Stream</code>
 /// <para>Streams rows without buffering the entire result.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/ef/core/providers/?tabs=dotnet-core-cli#mysql">MySQL provider on MS Learn</seealso>

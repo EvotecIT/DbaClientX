@@ -1,17 +1,33 @@
-﻿Clear-Host
-Import-Module $PSScriptRoot\..\DBAClientX.psd1 -Force -Verbose
+Clear-Host
+Import-Module $PSScriptRoot\..\DbaClientX.psd1 -Force
 
-$T = Invoke-DbaXQuery -Query "SELECT * FROM sys.databases" -Server "SQL1" -Database "master"
-$T | Format-Table
+$server = $env:DBACLIENTX_SQLSERVER
+if ([string]::IsNullOrWhiteSpace($server)) {
+    $server = 'localhost'
+}
 
-$T1 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -ReturnType DataRow
-$T1 | Format-Table
+$database = $env:DBACLIENTX_SQLDATABASE
+if ([string]::IsNullOrWhiteSpace($database)) {
+    $database = 'master'
+}
 
-$T2 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -ReturnType PSObject
-$T2 | Format-Table
+$query = @'
+SELECT
+    name,
+    database_id,
+    create_date,
+    state_desc
+FROM sys.databases
+WHERE database_id > @MinimumDatabaseId
+ORDER BY name;
+'@
 
-$T3 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -ReturnType DataSet
-$T3 | Format-Table
+$rows = Invoke-DbaXQuery `
+    -Server $server `
+    -Database $database `
+    -TrustServerCertificate `
+    -Query $query `
+    -Parameters @{ MinimumDatabaseId = 4 } `
+    -ReturnType PSObject
 
-$T4 = Invoke-DbaXQuery -Query "SELECT * FROM MSreplication_options" -Server "SQL1" -Database "master" -ReturnType DataTable
-$T4 | Format-Table
+$rows | Format-Table name, database_id, state_desc, create_date -AutoSize
