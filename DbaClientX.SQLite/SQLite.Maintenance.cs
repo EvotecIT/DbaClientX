@@ -10,6 +10,50 @@ namespace DBAClientX;
 public partial class SQLite
 {
     /// <summary>
+    /// Copies a SQLite database into a destination database using SQLite's online backup API.
+    /// </summary>
+    /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
+    /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
+    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds applied to both connections.</param>
+    /// <remarks>
+    /// The source database is opened read-only and the destination is created when it does not exist. This is
+    /// intended for backup-first maintenance workflows that need a provider-owned copy operation without exposing
+    /// <c>Microsoft.Data.Sqlite</c> objects to consumer projects.
+    /// </remarks>
+    public virtual void BackupDatabase(
+        string sourceDatabase,
+        string destinationDatabase,
+        int? busyTimeoutMs = null)
+    {
+        ValidateDatabasePath(sourceDatabase);
+        ValidateDatabasePath(destinationDatabase);
+        EnsureNoActiveTransaction();
+
+        var destinationDirectory = Path.GetDirectoryName(destinationDatabase);
+        if (!string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            Directory.CreateDirectory(destinationDirectory);
+        }
+
+        try
+        {
+            using var source = new SqliteConnection(BuildOperationalConnectionString(sourceDatabase, readOnly: true));
+            source.Open();
+            ApplyBusyTimeout(source, busyTimeoutMs);
+
+            using var destination = new SqliteConnection(BuildConnectionString(destinationDatabase, readOnly: false, busyTimeoutMs: null));
+            destination.Open();
+            ApplyBusyTimeout(destination, busyTimeoutMs);
+
+            source.BackupDatabase(destination);
+        }
+        catch (Exception ex)
+        {
+            throw new DbaQueryExecutionException("Failed to back up SQLite database.", "SQLite online backup", ex);
+        }
+    }
+
+    /// <summary>
     /// Executes <c>PRAGMA wal_checkpoint(...)</c> using the supplied checkpoint mode.
     /// </summary>
     /// <param name="database">Absolute or relative path of the SQLite database file.</param>
