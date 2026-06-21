@@ -45,10 +45,11 @@ New-DbaXQuery -Action Delete -Dialect PostgreSql -TableName 'public.users' -Wher
 New-DbaXQuery -Action Upsert -Dialect PostgreSql -TableName 'public.users' -Values ([ordered]@{ id = 42; display_name = 'Ada'; email = 'ada@example.test' }) -ConflictColumns id -UpsertUpdateOnly display_name,email -Compile
 ```
 
-Return parameterized SQL plus ordered parameter values:
+Return parameterized SQL plus a named parameter map:
 
 ```powershell
-New-DbaXQuery -Action Update -Dialect PostgreSql -TableName 'public.users' -Set @{ display_name = 'Ada' } -Where @{ id = 42 } -CompileWithParameters
+$compiled = New-DbaXQuery -Action Update -Dialect PostgreSql -TableName 'public.users' -Set @{ display_name = 'Ada' } -Where @{ id = 42 } -CompileWithParameters
+Invoke-DbaXPostgreSqlNonQuery -Server 'localhost' -Database 'app' -Username 'user' -Password 'p@ss' -Query $compiled.Sql -Parameters $compiled.Parameters
 ```
 
 ## Notes

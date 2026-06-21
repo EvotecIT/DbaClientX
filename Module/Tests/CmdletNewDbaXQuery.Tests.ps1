@@ -25,6 +25,11 @@ Describe 'New-DbaXQuery builder' {
         $query | Should -Be "INSERT INTO [users] ([id], [name]) VALUES (1, 'Ada')"
     }
 
+    It 'Allows null values in INSERT payloads' {
+        $query = New-DbaXQuery -Action Insert -TableName users -Values ([ordered]@{ id = 1; deleted_at = $null }) -Compile
+        $query | Should -Be 'INSERT INTO [users] ([id], [deleted_at]) VALUES (1, NULL)'
+    }
+
     It 'Compiles UPDATE from Set and Where hashtables through the core builder' {
         $query = New-DbaXQuery -Action Update -Dialect PostgreSql -TableName users -Set ([ordered]@{ name = 'Ada' }) -Where ([ordered]@{ id = 1 }) -Compile
         $query | Should -Be "UPDATE ""users"" SET ""name"" = 'Ada' WHERE ""id"" = 1"
@@ -43,7 +48,9 @@ Describe 'New-DbaXQuery builder' {
     It 'Returns SQL and ordered parameter values when requested' {
         $compiled = New-DbaXQuery -Action Update -Dialect PostgreSql -TableName users -Set ([ordered]@{ name = 'Ada' }) -Where ([ordered]@{ id = 1 }) -CompileWithParameters
         $compiled.Sql | Should -Be 'UPDATE "users" SET "name" = @p0 WHERE "id" = @p1'
-        $compiled.Parameters | Should -Be @('Ada', 1)
+        $compiled.Parameters['@p0'] | Should -Be 'Ada'
+        $compiled.Parameters['@p1'] | Should -Be 1
+        $compiled.ParameterValues | Should -Be @('Ada', 1)
     }
 
     It 'Requires Values for INSERT' {
@@ -56,6 +63,16 @@ Describe 'New-DbaXQuery builder' {
 
     It 'Requires conflict columns for UPSERT' {
         { New-DbaXQuery -Action Upsert -TableName users -Values ([ordered]@{ id = 1; name = 'Ada' }) -Compile } | Should -Throw
+    }
+
+    It 'Rejects paging and ordering options for DML actions' {
+        { New-DbaXQuery -Action Delete -TableName users -Where @{ id = 1 } -Limit 1 -Compile } | Should -Throw
+        { New-DbaXQuery -Action Update -TableName users -Set @{ name = 'Ada' } -OrderBy id -Compile } | Should -Throw
+    }
+
+    It 'Rejects Where for insert and upsert actions' {
+        { New-DbaXQuery -Action Insert -TableName users -Values @{ id = 1 } -Where @{ id = 1 } -Compile } | Should -Throw
+        { New-DbaXQuery -Action Upsert -TableName users -Values @{ id = 1; name = 'Ada' } -ConflictColumns id -Where @{ id = 1 } -Compile } | Should -Throw
     }
 
     It 'Ignores negative pagination values with default ErrorAction' {

@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Linq;
 using System.Management.Automation;
 using DBAClientX.QueryBuilder;
@@ -31,7 +32,7 @@ public enum DbaXQueryAction {
 
 /// <summary>Creates SQL query-builder objects using the DbaClientX core query builder.</summary>
 /// <para>Builds SELECT, INSERT, UPDATE, DELETE, and UPSERT statements without duplicating SQL-generation logic in PowerShell.</para>
-/// <para>Use <c>-Compile</c> for literal SQL output or <c>-CompileWithParameters</c> to return SQL plus ordered parameter values.</para>
+/// <para>Use <c>-Compile</c> for literal SQL output or <c>-CompileWithParameters</c> to return SQL plus an ordered parameter map.</para>
 /// <list type="alertSet">
 /// <item>
 /// <term>Note</term>
@@ -78,7 +79,7 @@ public enum DbaXQueryAction {
 /// <summary>Compile SQL with ordered parameters.</summary>
 /// <prefix>PS&gt; </prefix>
 /// <code>New-DbaXQuery -Action Update -Dialect PostgreSql -TableName 'public.users' -Set @{ display_name = 'Ada' } -Where @{ id = 42 } -CompileWithParameters</code>
-/// <para>Returns an object with <c>Sql</c> and <c>Parameters</c> properties for callers that want to execute parameterized SQL later.</para>
+/// <para>Returns an object with <c>Sql</c>, <c>Parameters</c>, and <c>ParameterValues</c> properties for callers that want to execute parameterized SQL later.</para>
 /// </example>
 /// <seealso href="https://learn.microsoft.com/sql/t-sql/queries/select-transact-sql">SELECT statement (Transact-SQL)</seealso>
 /// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
@@ -177,7 +178,8 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
             var compiled = DbaQueryBuilder.CompileWithParameters(query, Dialect);
             WriteObject(new PSObject(new {
                 compiled.Sql,
-                Parameters = compiled.Parameters.ToArray()
+                Parameters = BuildParameterMap(compiled.Parameters),
+                ParameterValues = compiled.Parameters.ToArray()
             }));
         } else if (Compile) {
             WriteObject(DbaQueryBuilder.Compile(query, Dialect));
@@ -187,6 +189,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     }
 
     private Query BuildQuery() {
+        ValidateUnsupportedOptions();
         var query = DbaQueryBuilder.Query();
 
         switch (Action) {
@@ -219,26 +222,26 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     }
 
     private void ApplyInsert(Query query) {
-        var pairs = GetPairs(Values, nameof(Values));
+        var pairs = GetPairs(Values, nameof(Values), allowNullValues: true);
         query.InsertInto(TableName, pairs.Select(pair => pair.Column).ToArray())
-            .Values(pairs.Select(pair => pair.Value).ToArray());
+            .Values(ToValueArray(pairs));
     }
 
     private void ApplyUpdate(Query query) {
-        var pairs = GetPairs(Set, nameof(Set));
+        var pairs = GetPairs(Set, nameof(Set), allowNullValues: false);
         query.Update(TableName);
         foreach (var pair in pairs) {
-            query.Set(pair.Column, pair.Value);
+            query.Set(pair.Column, pair.Value!);
         }
     }
 
     private void ApplyUpsert(Query query) {
-        var pairs = GetPairs(Values, nameof(Values));
+        var pairs = GetPairs(Values, nameof(Values), allowNullValues: false);
         if (ConflictColumns is not { Length: > 0 }) {
             throw new PSArgumentException("ConflictColumns must be provided for upsert queries.", nameof(ConflictColumns));
         }
 
-        query.InsertOrUpdate(TableName, pairs, ConflictColumns);
+        query.InsertOrUpdate(TableName, pairs.Select(pair => (pair.Column, Value: pair.Value!)), ConflictColumns);
         if (UpsertUpdateOnly is { Length: > 0 }) {
             query.UpsertUpdateOnly(UpsertUpdateOnly);
         }
@@ -249,8 +252,8 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
             return;
         }
 
-        foreach (var pair in GetPairs(Where, nameof(Where))) {
-            query.Where(pair.Column, pair.Value);
+        foreach (var pair in GetPairs(Where, nameof(Where), allowNullValues: false)) {
+            query.Where(pair.Column, pair.Value!);
         }
     }
 
@@ -290,19 +293,51 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
     }
 
-    private static IReadOnlyList<(string Column, object Value)> GetPairs(IDictionary? dictionary, string parameterName) {
+    private void ValidateUnsupportedOptions() {
+        if (Action == DbaXQueryAction.Select) {
+            return;
+        }
+
+        if (Limit.HasValue || Offset.HasValue || OrderBy is { Length: > 0 } || OrderByDescending is { Length: > 0 }) {
+            throw new PSArgumentException("Limit, Offset, OrderBy, and OrderByDescending are only supported for Select queries.");
+        }
+
+        if ((Action == DbaXQueryAction.Insert || Action == DbaXQueryAction.Upsert) && Where != null) {
+            throw new PSArgumentException("Where is only supported for Select, Update, and Delete queries.");
+        }
+    }
+
+    private static OrderedDictionary BuildParameterMap(IReadOnlyList<object> parameters) {
+        var map = new OrderedDictionary();
+        for (var i = 0; i < parameters.Count; i++) {
+            map.Add("@p" + i, parameters[i]);
+        }
+
+        return map;
+    }
+
+    private static object[] ToValueArray(IReadOnlyList<(string Column, object? Value)> pairs) {
+        var values = new object[pairs.Count];
+        for (var i = 0; i < pairs.Count; i++) {
+            values[i] = pairs[i].Value!;
+        }
+
+        return values;
+    }
+
+    private static IReadOnlyList<(string Column, object? Value)> GetPairs(IDictionary? dictionary, string parameterName, bool allowNullValues) {
         if (dictionary == null || dictionary.Count == 0) {
             throw new PSArgumentException($"{parameterName} must contain at least one column/value pair.", parameterName);
         }
 
-        var pairs = new List<(string Column, object Value)>(dictionary.Count);
+        var pairs = new List<(string Column, object? Value)>(dictionary.Count);
         foreach (DictionaryEntry entry in dictionary) {
             var column = entry.Key?.ToString();
             if (string.IsNullOrWhiteSpace(column)) {
                 throw new PSArgumentException($"{parameterName} contains an empty column name.", parameterName);
             }
 
-            if (entry.Value == null) {
+            if (!allowNullValues && entry.Value == null) {
                 throw new PSArgumentException($"{parameterName} cannot contain null values.", parameterName);
             }
 
