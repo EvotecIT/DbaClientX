@@ -20,6 +20,11 @@ Describe 'New-DbaXQuery builder' {
         $query | Should -Be 'SELECT "id", "name" FROM "users" ORDER BY "name" LIMIT 5 OFFSET 2'
     }
 
+    It 'Maps null Where values to IS NULL predicates' {
+        $query = New-DbaXQuery -TableName users -Where @{ deleted_at = $null } -Compile
+        $query | Should -Be 'SELECT * FROM [users] WHERE [deleted_at] IS NULL'
+    }
+
     It 'Compiles INSERT from a hashtable through the core builder' {
         $query = New-DbaXQuery -Action Insert -TableName users -Values ([ordered]@{ id = 1; name = 'Ada' }) -Compile
         $query | Should -Be "INSERT INTO [users] ([id], [name]) VALUES (1, 'Ada')"
@@ -73,6 +78,13 @@ Describe 'New-DbaXQuery builder' {
     It 'Rejects Where for insert and upsert actions' {
         { New-DbaXQuery -Action Insert -TableName users -Values @{ id = 1 } -Where @{ id = 1 } -Compile } | Should -Throw
         { New-DbaXQuery -Action Upsert -TableName users -Values @{ id = 1; name = 'Ada' } -ConflictColumns id -Where @{ id = 1 } -Compile } | Should -Throw
+    }
+
+    It 'Rejects action-specific parameters that would otherwise be ignored' {
+        { New-DbaXQuery -TableName users -Values @{ id = 1 } -Compile } | Should -Throw
+        { New-DbaXQuery -Action Delete -TableName users -Set @{ name = 'Ada' } -Where @{ id = 1 } -Compile } | Should -Throw
+        { New-DbaXQuery -Action Update -TableName users -Values @{ id = 1 } -Set @{ name = 'Ada' } -Compile } | Should -Throw
+        { New-DbaXQuery -Action Upsert -TableName users -Values @{ id = 1; name = 'Ada' } -ConflictColumns id -Columns id -Compile } | Should -Throw
     }
 
     It 'Ignores negative pagination values with default ErrorAction' {

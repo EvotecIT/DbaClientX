@@ -252,8 +252,12 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
             return;
         }
 
-        foreach (var pair in GetPairs(Where, nameof(Where), allowNullValues: false)) {
-            query.Where(pair.Column, pair.Value!);
+        foreach (var pair in GetPairs(Where, nameof(Where), allowNullValues: true)) {
+            if (pair.Value == null) {
+                query.WhereNull(pair.Column);
+            } else {
+                query.Where(pair.Column, pair.Value);
+            }
         }
     }
 
@@ -294,16 +298,44 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
     }
 
     private void ValidateUnsupportedOptions() {
-        if (Action == DbaXQueryAction.Select) {
-            return;
-        }
+        var hasColumns = Columns is { Length: > 0 };
+        var hasValues = Values != null;
+        var hasSet = Set != null;
+        var hasWhere = Where != null;
+        var hasConflictColumns = ConflictColumns is { Length: > 0 };
+        var hasUpsertUpdateOnly = UpsertUpdateOnly is { Length: > 0 };
+        var hasPagingOrOrdering = Limit.HasValue || Offset.HasValue || OrderBy is { Length: > 0 } || OrderByDescending is { Length: > 0 };
 
-        if (Limit.HasValue || Offset.HasValue || OrderBy is { Length: > 0 } || OrderByDescending is { Length: > 0 }) {
+        if (Action != DbaXQueryAction.Select && hasPagingOrOrdering) {
             throw new PSArgumentException("Limit, Offset, OrderBy, and OrderByDescending are only supported for Select queries.");
         }
 
-        if ((Action == DbaXQueryAction.Insert || Action == DbaXQueryAction.Upsert) && Where != null) {
-            throw new PSArgumentException("Where is only supported for Select, Update, and Delete queries.");
+        switch (Action) {
+            case DbaXQueryAction.Select:
+                if (hasValues || hasSet || hasConflictColumns || hasUpsertUpdateOnly) {
+                    throw new PSArgumentException("Values, Set, ConflictColumns, and UpsertUpdateOnly are not supported for Select queries.");
+                }
+                break;
+            case DbaXQueryAction.Insert:
+                if (hasColumns || hasSet || hasWhere || hasConflictColumns || hasUpsertUpdateOnly) {
+                    throw new PSArgumentException("Columns, Set, Where, ConflictColumns, and UpsertUpdateOnly are not supported for Insert queries.");
+                }
+                break;
+            case DbaXQueryAction.Update:
+                if (hasColumns || hasValues || hasConflictColumns || hasUpsertUpdateOnly) {
+                    throw new PSArgumentException("Columns, Values, ConflictColumns, and UpsertUpdateOnly are not supported for Update queries.");
+                }
+                break;
+            case DbaXQueryAction.Delete:
+                if (hasColumns || hasValues || hasSet || hasConflictColumns || hasUpsertUpdateOnly) {
+                    throw new PSArgumentException("Columns, Values, Set, ConflictColumns, and UpsertUpdateOnly are not supported for Delete queries.");
+                }
+                break;
+            case DbaXQueryAction.Upsert:
+                if (hasColumns || hasSet || hasWhere) {
+                    throw new PSArgumentException("Columns, Set, and Where are not supported for Upsert queries.");
+                }
+                break;
         }
     }
 
