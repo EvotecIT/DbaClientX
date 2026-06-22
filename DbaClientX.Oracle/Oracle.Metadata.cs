@@ -70,8 +70,8 @@ ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
         => ExecuteMetadata(connectionString, OracleTablesQuery, MapTable, new Dictionary<string, object?>
         {
             [":schemaTables"] = schema,
-            [":schemaViews"] = schema,
-            [":includeViews"] = includeViews ? 1 : 0
+            [":includeViews"] = includeViews ? 1 : 0,
+            [":schemaViews"] = schema
         });
 
     /// <summary>Lists Oracle columns visible to the connection.</summary>

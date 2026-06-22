@@ -56,13 +56,14 @@ SELECT
     ix.indisprimary AS is_primary_key,
     att.attname AS column_name,
     cols.ordinality AS ordinal_position,
-    false AS is_descending
+    ((COALESCE(opts.indoption_value, 0) & 1) = 1) AS is_descending
 FROM pg_index ix
 INNER JOIN pg_class tbl ON tbl.oid = ix.indrelid
 INNER JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
 INNER JOIN pg_class idx ON idx.oid = ix.indexrelid
 INNER JOIN pg_am am ON am.oid = idx.relam
 LEFT JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS cols(attnum, ordinality) ON true
+LEFT JOIN LATERAL unnest(ix.indoption) WITH ORDINALITY AS opts(indoption_value, ordinality) ON opts.ordinality = cols.ordinality
 LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = cols.attnum
 WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
   AND (@schema IS NULL OR ns.nspname = @schema)

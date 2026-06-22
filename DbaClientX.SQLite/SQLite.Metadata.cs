@@ -12,20 +12,21 @@ PRAGMA database_list;";
 
     private const string SQLiteTablesQuery = @"
 SELECT
-    'main' AS schema_name,
-    m.name AS object_name,
-    CASE WHEN m.type = 'view' THEN 'View' ELSE 'Table' END AS object_kind
-FROM sqlite_master m
-WHERE m.type IN ('table', 'view')
-  AND m.name NOT LIKE 'sqlite_%'
-  AND (@table IS NULL OR m.name = @table)
-  AND (@includeViews = 1 OR m.type = 'table')
-ORDER BY m.name;";
+    tl.schema AS schema_name,
+    tl.name AS object_name,
+    CASE WHEN tl.type = 'view' THEN 'View' ELSE 'Table' END AS object_kind
+FROM pragma_table_list tl
+WHERE tl.schema = 'main'
+  AND tl.type IN ('table', 'view', 'virtual')
+  AND tl.name NOT LIKE 'sqlite_%'
+  AND (@table IS NULL OR tl.name = @table)
+  AND (@includeViews = 1 OR tl.type <> 'view')
+ORDER BY tl.name;";
 
     private const string SQLiteColumnsQuery = @"
 SELECT
-    'main' AS schema_name,
-    m.name AS table_name,
+    tl.schema AS schema_name,
+    tl.name AS table_name,
     ti.name AS column_name,
     ti.type AS data_type,
     ti.cid + 1 AS ordinal_position,
@@ -34,12 +35,13 @@ SELECT
     NULL AS numeric_precision,
     NULL AS numeric_scale,
     ti.dflt_value AS default_expression
-FROM sqlite_master m
-INNER JOIN pragma_table_info(m.name) ti
-WHERE m.type IN ('table', 'view')
-  AND m.name NOT LIKE 'sqlite_%'
-  AND (@table IS NULL OR m.name = @table)
-ORDER BY m.name, ti.cid;";
+FROM pragma_table_list tl
+INNER JOIN pragma_table_xinfo(tl.name) ti
+WHERE tl.schema = 'main'
+  AND tl.type IN ('table', 'view', 'virtual')
+  AND tl.name NOT LIKE 'sqlite_%'
+  AND (@table IS NULL OR tl.name = @table)
+ORDER BY tl.name, ti.cid;";
 
     private const string SQLiteIndexesQuery = @"
 SELECT
@@ -51,12 +53,15 @@ SELECT
     CASE WHEN il.origin = 'pk' THEN 1 ELSE 0 END AS is_primary_key,
     ii.name AS column_name,
     ii.seqno + 1 AS ordinal_position,
-    NULL AS is_descending
-FROM sqlite_master m
+    CASE WHEN ii.""desc"" = 1 THEN 1 ELSE 0 END AS is_descending
+FROM pragma_table_list tl
+INNER JOIN sqlite_master m ON m.name = tl.name AND m.type = 'table'
 INNER JOIN pragma_index_list(m.name) il
-INNER JOIN pragma_index_info(il.name) ii
-WHERE m.type = 'table'
-  AND m.name NOT LIKE 'sqlite_%'
+INNER JOIN pragma_index_xinfo(il.name) ii
+WHERE tl.schema = 'main'
+  AND tl.type IN ('table', 'virtual')
+  AND tl.name NOT LIKE 'sqlite_%'
+  AND ii.""key"" = 1
   AND (@table IS NULL OR m.name = @table)
 ORDER BY m.name, il.name, ii.seqno;";
 

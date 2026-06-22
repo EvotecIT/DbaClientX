@@ -46,24 +46,24 @@ ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
     private const string SqlServerIndexesQuery = @"
 SELECT
     s.name AS schema_name,
-    t.name AS table_name,
+    o.name AS table_name,
     i.name AS index_name,
     i.type_desc AS index_type,
     CAST(i.is_unique AS bit) AS is_unique,
     CAST(i.is_primary_key AS bit) AS is_primary_key,
     c.name AS column_name,
-    ic.key_ordinal AS ordinal_position,
+    CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END AS ordinal_position,
     CAST(ic.is_descending_key AS bit) AS is_descending
 FROM sys.indexes i
-INNER JOIN sys.tables t ON t.object_id = i.object_id
-INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
-LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0
+INNER JOIN sys.objects o ON o.object_id = i.object_id AND o.type IN ('U', 'V')
+INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND (ic.key_ordinal > 0 OR i.type IN (5, 6))
 LEFT JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 WHERE i.index_id > 0
   AND i.name IS NOT NULL
   AND (@schema IS NULL OR s.name = @schema)
-  AND (@table IS NULL OR t.name = @table)
-ORDER BY s.name, t.name, i.name, ic.key_ordinal;";
+  AND (@table IS NULL OR o.name = @table)
+ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END;";
 
     /// <summary>
     /// Lists SQL Server databases visible to the connection.

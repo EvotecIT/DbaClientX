@@ -14,9 +14,10 @@ public class SQLiteMetadataTests
         try
         {
             using var sqlite = new DBAClientX.SQLite();
-            sqlite.ExecuteNonQuery(path, "CREATE TABLE Users(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL DEFAULT 'unknown');");
-            sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_Name ON Users(Name);");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE Users(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL DEFAULT 'unknown', Slug TEXT GENERATED ALWAYS AS (lower(Name)) STORED);");
+            sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_Name ON Users(Name DESC);");
             sqlite.ExecuteNonQuery(path, "CREATE VIEW ActiveUsers AS SELECT Id, Name FROM Users;");
+            sqlite.ExecuteNonQuery(path, "CREATE VIRTUAL TABLE Docs USING fts5(Body);");
 
             var databases = sqlite.GetDatabases(path);
             var tables = sqlite.GetTables(path);
@@ -40,7 +41,9 @@ public class SQLiteMetadataTests
             Assert.False(nameColumn.IsNullable);
             Assert.Equal("'unknown'", nameColumn.DefaultExpression);
 
-            Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && !index.IsPrimaryKey);
+            Assert.Contains(columns, column => column.Name == "Slug");
+            Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
+            Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
         }
         finally
         {
