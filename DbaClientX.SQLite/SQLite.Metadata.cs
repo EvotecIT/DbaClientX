@@ -63,7 +63,30 @@ WHERE tl.schema = 'main'
   AND tl.name NOT LIKE 'sqlite_%'
   AND ii.""key"" = 1
   AND (@table IS NULL OR m.name = @table)
-ORDER BY m.name, il.name, ii.seqno;";
+UNION ALL
+SELECT
+    tl.schema AS schema_name,
+    tl.name AS table_name,
+    'pk_' || tl.name AS index_name,
+    'pk' AS index_type,
+    1 AS is_unique,
+    1 AS is_primary_key,
+    ti.name AS column_name,
+    ti.pk AS ordinal_position,
+    0 AS is_descending
+FROM pragma_table_list tl
+INNER JOIN pragma_table_xinfo(tl.name) ti
+WHERE tl.schema = 'main'
+  AND tl.type IN ('table', 'virtual')
+  AND tl.name NOT LIKE 'sqlite_%'
+  AND ti.pk > 0
+  AND (@table IS NULL OR tl.name = @table)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM pragma_index_list(tl.name) pk
+      WHERE pk.origin = 'pk'
+  )
+ORDER BY table_name, index_name, ordinal_position;";
 
     private const string SQLiteForeignKeysQuery = @"
 SELECT

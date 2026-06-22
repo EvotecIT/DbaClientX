@@ -33,7 +33,10 @@ SELECT
     table_schema AS schema_name,
     table_name,
     column_name,
-    data_type,
+    CASE
+        WHEN data_type IN ('USER-DEFINED', 'ARRAY') THEN udt_schema || '.' || udt_name
+        ELSE data_type
+    END AS data_type,
     ordinal_position,
     CASE WHEN is_nullable = 'YES' THEN true ELSE false END AS is_nullable,
     character_maximum_length AS max_length,
@@ -66,8 +69,10 @@ LEFT JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS cols(attnum, ordinality) 
 LEFT JOIN LATERAL unnest(ix.indoption) WITH ORDINALITY AS opts(indoption_value, ordinality) ON opts.ordinality = cols.ordinality
 LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = cols.attnum
 WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
   AND (@schema IS NULL OR ns.nspname = @schema)
   AND (@table IS NULL OR tbl.relname = @table)
+  AND (cols.ordinality IS NULL OR cols.ordinality <= ix.indnkeyatts)
 ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
 
     private const string PostgreSqlForeignKeysQuery = @"

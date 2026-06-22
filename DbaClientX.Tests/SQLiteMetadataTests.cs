@@ -48,6 +48,7 @@ public class SQLiteMetadataTests
             Assert.Contains(columns, column => column.Name == "Slug");
             Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
             Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
+            Assert.Contains(indexes, index => index.Name == "pk_Users" && index.Column == "Id" && index.IsPrimaryKey);
             Assert.Contains(foreignKeys, foreignKey =>
                 foreignKey.Table == "UserRoles" &&
                 foreignKey.Column == "UserId" &&

@@ -37,7 +37,7 @@ SELECT
     data_length AS max_length,
     data_precision AS numeric_precision,
     data_scale AS numeric_scale,
-    NULL AS default_expression
+    data_default AS default_expression
 FROM all_tab_columns
 WHERE owner = COALESCE(UPPER(:schemaName), owner)
   AND table_name = COALESCE(UPPER(:tableName), table_name)
