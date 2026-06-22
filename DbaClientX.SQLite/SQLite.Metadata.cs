@@ -17,6 +17,7 @@ SELECT
     CASE WHEN tl.type = 'view' THEN 'View' ELSE 'Table' END AS object_kind
 FROM pragma_table_list tl
 WHERE tl.schema = 'main'
+  AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'view', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'
   AND (@table IS NULL OR tl.name = @table)
@@ -38,6 +39,7 @@ SELECT
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'
+  AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'view', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'
   AND (@table IS NULL OR tl.name = @table)
@@ -59,6 +61,7 @@ INNER JOIN sqlite_master m ON m.name = tl.name AND m.type = 'table'
 INNER JOIN pragma_index_list(m.name) il
 INNER JOIN pragma_index_xinfo(il.name) ii
 WHERE tl.schema = 'main'
+  AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'
   AND ii.""key"" = 1
@@ -77,6 +80,7 @@ SELECT
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'
+  AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'
   AND ti.pk > 0
@@ -106,6 +110,7 @@ FROM pragma_table_list tl
 INNER JOIN pragma_foreign_key_list(tl.name) fk
 LEFT JOIN pragma_table_xinfo(fk.""table"") refpk ON refpk.pk = fk.seq + 1
 WHERE tl.schema = 'main'
+  AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'
   AND (@table IS NULL OR tl.name = @table)
@@ -129,6 +134,7 @@ WHERE 1 = 0;";
     public virtual IReadOnlyList<DbaTableInfo> GetTables(string database, string? schema = null, bool includeViews = true)
         => ExecuteMetadata(database, SQLiteTablesQuery, MapTable, new Dictionary<string, object?>
         {
+            ["@schema"] = schema,
             ["@table"] = null,
             ["@includeViews"] = includeViews ? 1 : 0
         });
@@ -137,6 +143,7 @@ WHERE 1 = 0;";
     public virtual IReadOnlyList<DbaColumnInfo> GetColumns(string database, string? schema = null, string? table = null)
         => ExecuteMetadata(database, SQLiteColumnsQuery, MapColumn, new Dictionary<string, object?>
         {
+            ["@schema"] = schema,
             ["@table"] = table
         });
 
@@ -144,6 +151,7 @@ WHERE 1 = 0;";
     public virtual IReadOnlyList<DbaIndexInfo> GetIndexes(string database, string? schema = null, string? table = null)
         => ExecuteMetadata(database, SQLiteIndexesQuery, MapIndex, new Dictionary<string, object?>
         {
+            ["@schema"] = schema,
             ["@table"] = table
         });
 
@@ -151,6 +159,7 @@ WHERE 1 = 0;";
     public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string database, string? schema = null, string? table = null)
         => ExecuteMetadata(database, SQLiteForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
         {
+            ["@schema"] = schema,
             ["@table"] = table
         });
 

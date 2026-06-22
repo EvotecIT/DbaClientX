@@ -31,7 +31,10 @@ SELECT
     TABLE_SCHEMA AS schema_name,
     TABLE_NAME AS table_name,
     COLUMN_NAME AS column_name,
-    DATA_TYPE AS data_type,
+    CASE
+        WHEN DOMAIN_NAME IS NOT NULL THEN CONCAT(COALESCE(DOMAIN_SCHEMA, TABLE_SCHEMA), '.', DOMAIN_NAME)
+        ELSE DATA_TYPE
+    END AS data_type,
     ORDINAL_POSITION AS ordinal_position,
     CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS is_nullable,
     CHARACTER_MAXIMUM_LENGTH AS max_length,

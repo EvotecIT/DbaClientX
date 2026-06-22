@@ -34,13 +34,16 @@ SELECT
     data_type,
     column_id AS ordinal_position,
     CASE WHEN nullable = 'Y' THEN 1 ELSE 0 END AS is_nullable,
-    data_length AS max_length,
+    CASE
+        WHEN data_type IN ('CHAR', 'NCHAR', 'VARCHAR2', 'NVARCHAR2') THEN char_length
+        ELSE data_length
+    END AS max_length,
     data_precision AS numeric_precision,
     data_scale AS numeric_scale,
     data_default AS default_expression
 FROM all_tab_columns
-WHERE owner = COALESCE(UPPER(:schemaName), owner)
-  AND table_name = COALESCE(UPPER(:tableName), table_name)
+WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
+  AND (:tableNameExact IS NULL OR table_name = :tableNameExact OR table_name = UPPER(:tableNameNormalized))
 ORDER BY owner, table_name, column_id";
 
     private const string OracleIndexesQuery = @"
@@ -119,8 +122,10 @@ ORDER BY owner, object_name";
     public virtual IReadOnlyList<DbaColumnInfo> GetColumns(string connectionString, string? schema = null, string? table = null)
         => ExecuteMetadata(connectionString, OracleColumnsQuery, MapColumn, new Dictionary<string, object?>
         {
-            [":schemaName"] = schema,
-            [":tableName"] = table
+            [":schemaNameExact"] = schema,
+            [":schemaNameNormalized"] = schema,
+            [":tableNameExact"] = table,
+            [":tableNameNormalized"] = table
         });
 
     /// <summary>Lists Oracle indexes visible to the connection. Multi-column indexes return one row per indexed column.</summary>

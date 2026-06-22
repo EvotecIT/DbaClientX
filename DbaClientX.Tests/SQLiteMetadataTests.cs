@@ -26,9 +26,13 @@ public class SQLiteMetadataTests
             var databases = sqlite.GetDatabases(path);
             var tables = sqlite.GetTables(path);
             var tablesOnly = sqlite.GetTables(path, includeViews: false);
+            var tempTables = sqlite.GetTables(path, schema: "temp");
             var columns = sqlite.GetColumns(path, table: "Users");
+            var tempColumns = sqlite.GetColumns(path, schema: "temp", table: "Users");
             var indexes = sqlite.GetIndexes(path, table: "Users");
+            var tempIndexes = sqlite.GetIndexes(path, schema: "temp", table: "Users");
             var foreignKeys = sqlite.GetForeignKeys(path, table: "UserRoles");
+            var tempForeignKeys = sqlite.GetForeignKeys(path, schema: "temp", table: "UserRoles");
             var implicitForeignKeys = sqlite.GetForeignKeys(path, table: "ImplicitChildren");
             var routines = sqlite.GetRoutines(path);
 
@@ -39,10 +43,12 @@ public class SQLiteMetadataTests
             Assert.Contains(tables, table => table.Name == "Users" && table.Kind == DbaTableKind.Table);
             Assert.Contains(tables, table => table.Name == "ActiveUsers" && table.Kind == DbaTableKind.View);
             Assert.DoesNotContain(tablesOnly, table => table.Kind == DbaTableKind.View);
+            Assert.Empty(tempTables);
 
             var idColumn = Assert.Single(columns, column => column.Name == "Id");
             Assert.Equal("Users", idColumn.Table);
             Assert.Equal(1, idColumn.Ordinal);
+            Assert.Empty(tempColumns);
 
             var nameColumn = Assert.Single(columns, column => column.Name == "Name");
             Assert.False(nameColumn.IsNullable);
@@ -52,12 +58,14 @@ public class SQLiteMetadataTests
             Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
             Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
             Assert.Contains(indexes, index => index.Name == "pk_Users" && index.Column == "Id" && index.IsPrimaryKey);
+            Assert.Empty(tempIndexes);
             Assert.Contains(foreignKeys, foreignKey =>
                 foreignKey.Table == "UserRoles" &&
                 foreignKey.Column == "UserId" &&
                 foreignKey.ReferencedTable == "Users" &&
                 foreignKey.ReferencedColumn == "Id" &&
                 foreignKey.DeleteRule == "CASCADE");
+            Assert.Empty(tempForeignKeys);
             Assert.Contains(implicitForeignKeys, foreignKey =>
                 foreignKey.Column == "ParentId" &&
                 foreignKey.ReferencedTable == "ImplicitParents" &&
