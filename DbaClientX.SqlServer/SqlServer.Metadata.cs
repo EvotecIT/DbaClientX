@@ -65,6 +65,51 @@ WHERE i.index_id > 0
   AND (@table IS NULL OR o.name = @table)
 ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END;";
 
+    private const string SqlServerForeignKeysQuery = @"
+SELECT
+    ps.name AS schema_name,
+    pt.name AS table_name,
+    fk.name AS foreign_key_name,
+    pc.name AS column_name,
+    rs.name AS referenced_schema_name,
+    rt.name AS referenced_table_name,
+    rc.name AS referenced_column_name,
+    fkc.constraint_column_id AS ordinal_position,
+    fk.update_referential_action_desc AS update_rule,
+    fk.delete_referential_action_desc AS delete_rule,
+    CAST(CASE WHEN fk.is_disabled = 0 THEN 1 ELSE 0 END AS bit) AS is_enabled,
+    CAST(CASE WHEN fk.is_not_trusted = 0 THEN 1 ELSE 0 END AS bit) AS is_trusted
+FROM sys.foreign_keys fk
+INNER JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+INNER JOIN sys.tables pt ON pt.object_id = fk.parent_object_id
+INNER JOIN sys.schemas ps ON ps.schema_id = pt.schema_id
+INNER JOIN sys.columns pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id
+INNER JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+INNER JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+INNER JOIN sys.columns rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id
+WHERE (@schema IS NULL OR ps.name = @schema)
+  AND (@table IS NULL OR pt.name = @table)
+ORDER BY ps.name, pt.name, fk.name, fkc.constraint_column_id;";
+
+    private const string SqlServerRoutinesQuery = @"
+SELECT
+    s.name AS schema_name,
+    o.name AS routine_name,
+    CASE
+        WHEN o.type IN ('P', 'PC', 'X') THEN 'Procedure'
+        WHEN o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') THEN 'Function'
+        ELSE 'Unknown'
+    END AS routine_kind,
+    NULL AS data_type,
+    m.definition,
+    CAST(CASE WHEN o.is_ms_shipped = 1 OR s.name IN ('sys', 'INFORMATION_SCHEMA') THEN 1 ELSE 0 END AS bit) AS is_system
+FROM sys.objects o
+INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id
+WHERE o.type IN ('P', 'PC', 'X', 'FN', 'IF', 'TF', 'FS', 'FT')
+  AND (@schema IS NULL OR s.name = @schema)
+ORDER BY s.name, o.name;";
+
     /// <summary>
     /// Lists SQL Server databases visible to the connection.
     /// </summary>
@@ -99,6 +144,25 @@ ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordina
         {
             ["@schema"] = schema,
             ["@table"] = table
+        });
+
+    /// <summary>
+    /// Lists SQL Server foreign keys visible to the connection. Multi-column keys return one row per column mapping.
+    /// </summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadata(connectionString, SqlServerForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
+    /// <summary>
+    /// Lists SQL Server procedures and functions visible to the connection.
+    /// </summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string connectionString, string? schema = null)
+        => ExecuteMetadata(connectionString, SqlServerRoutinesQuery, MapRoutine, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema
         });
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
@@ -168,6 +232,43 @@ ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordina
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
         };
 
+    private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "table_name"),
+            DbaMetadataReader.GetString(record, "foreign_key_name"),
+            DbaMetadataReader.GetString(record, "column_name"),
+            DbaMetadataReader.GetString(record, "referenced_schema_name"),
+            DbaMetadataReader.GetString(record, "referenced_table_name"),
+            DbaMetadataReader.GetString(record, "referenced_column_name"))
+        {
+            Ordinal = DbaMetadataReader.GetInt32(record, "ordinal_position"),
+            UpdateRule = DbaMetadataReader.GetNullableString(record, "update_rule"),
+            DeleteRule = DbaMetadataReader.GetNullableString(record, "delete_rule"),
+            IsEnabled = DbaMetadataReader.GetNullableBoolean(record, "is_enabled"),
+            IsTrusted = DbaMetadataReader.GetNullableBoolean(record, "is_trusted")
+        };
+
+    private static DbaRoutineInfo MapRoutine(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "routine_name"),
+            ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
+        {
+            DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            Definition = DbaMetadataReader.GetNullableString(record, "definition"),
+            IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
+        };
+
     private static DbaTableKind ParseTableKind(string value)
         => string.Equals(value, "View", StringComparison.OrdinalIgnoreCase) ? DbaTableKind.View : DbaTableKind.Table;
+
+    private static DbaRoutineKind ParseRoutineKind(string value)
+        => value.ToUpperInvariant() switch
+        {
+            "PROCEDURE" => DbaRoutineKind.Procedure,
+            "FUNCTION" => DbaRoutineKind.Function,
+            "PACKAGE" => DbaRoutineKind.Package,
+            _ => DbaRoutineKind.Unknown
+        };
 }

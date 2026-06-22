@@ -42,7 +42,7 @@ Use it when you need:
 - parameterized commands and provider-specific parameter type preservation
 - transaction helpers that commit on success and roll back on failure
 - provider-native bulk insert paths for staging tables and direct table writes
-- provider-neutral metadata discovery for databases, tables, views, columns, and indexes without SQL Server Management Objects
+- provider-neutral metadata discovery for databases, tables, views, columns, indexes, foreign keys, and routines without SQL Server Management Objects
 - PowerShell cmdlets for quick scripts, scheduled jobs, and data movement
 
 ## Supported Providers
@@ -116,6 +116,17 @@ Get-DbaXMetadata `
     -Type Column `
     -ConnectionString '.\app.db' `
     -Table Users
+
+Get-DbaXMetadata `
+    -Provider PostgreSql `
+    -Type ForeignKey `
+    -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' `
+    -Schema public
+
+Get-DbaXMetadata `
+    -Provider Oracle `
+    -Type Routine `
+    -ConnectionString 'User Id=app;Password=secret;Data Source=localhost/XEPDB1'
 ```
 
 ### Write Table Data

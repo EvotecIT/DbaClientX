@@ -70,6 +70,62 @@ WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
   AND (@table IS NULL OR tbl.relname = @table)
 ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
 
+    private const string PostgreSqlForeignKeysQuery = @"
+SELECT
+    ns.nspname AS schema_name,
+    tbl.relname AS table_name,
+    con.conname AS foreign_key_name,
+    att.attname AS column_name,
+    rns.nspname AS referenced_schema_name,
+    rtbl.relname AS referenced_table_name,
+    ratt.attname AS referenced_column_name,
+    cols.ordinality AS ordinal_position,
+    CASE con.confupdtype
+        WHEN 'a' THEN 'NO ACTION'
+        WHEN 'r' THEN 'RESTRICT'
+        WHEN 'c' THEN 'CASCADE'
+        WHEN 'n' THEN 'SET NULL'
+        WHEN 'd' THEN 'SET DEFAULT'
+        ELSE con.confupdtype::text
+    END AS update_rule,
+    CASE con.confdeltype
+        WHEN 'a' THEN 'NO ACTION'
+        WHEN 'r' THEN 'RESTRICT'
+        WHEN 'c' THEN 'CASCADE'
+        WHEN 'n' THEN 'SET NULL'
+        WHEN 'd' THEN 'SET DEFAULT'
+        ELSE con.confdeltype::text
+    END AS delete_rule,
+    true AS is_enabled,
+    con.convalidated AS is_trusted
+FROM pg_constraint con
+INNER JOIN pg_class tbl ON tbl.oid = con.conrelid
+INNER JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+INNER JOIN pg_class rtbl ON rtbl.oid = con.confrelid
+INNER JOIN pg_namespace rns ON rns.oid = rtbl.relnamespace
+LEFT JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ordinality) ON true
+LEFT JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS refcols(attnum, ordinality) ON refcols.ordinality = cols.ordinality
+LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = cols.attnum
+LEFT JOIN pg_attribute ratt ON ratt.attrelid = rtbl.oid AND ratt.attnum = refcols.attnum
+WHERE con.contype = 'f'
+  AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND (@schema IS NULL OR ns.nspname = @schema)
+  AND (@table IS NULL OR tbl.relname = @table)
+ORDER BY ns.nspname, tbl.relname, con.conname, cols.ordinality;";
+
+    private const string PostgreSqlRoutinesQuery = @"
+SELECT
+    routine_schema AS schema_name,
+    routine_name,
+    CASE WHEN routine_type = 'PROCEDURE' THEN 'Procedure' WHEN routine_type = 'FUNCTION' THEN 'Function' ELSE 'Unknown' END AS routine_kind,
+    data_type,
+    routine_definition AS definition,
+    false AS is_system
+FROM information_schema.routines
+WHERE routine_schema NOT IN ('pg_catalog', 'information_schema')
+  AND (@schema IS NULL OR routine_schema = @schema)
+ORDER BY routine_schema, routine_name;";
+
     /// <summary>Lists PostgreSQL databases visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string connectionString)
         => ExecuteMetadata(connectionString, PostgreSqlDatabasesQuery, MapDatabase);
@@ -96,6 +152,21 @@ ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
         {
             ["@schema"] = schema,
             ["@table"] = table
+        });
+
+    /// <summary>Lists PostgreSQL foreign keys visible to the connection. Multi-column keys return one row per column mapping.</summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadata(connectionString, PostgreSqlForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
+    /// <summary>Lists PostgreSQL procedures and functions visible to the connection.</summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string connectionString, string? schema = null)
+        => ExecuteMetadata(connectionString, PostgreSqlRoutinesQuery, MapRoutine, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema
         });
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
@@ -165,6 +236,43 @@ ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
         };
 
+    private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "table_name"),
+            DbaMetadataReader.GetString(record, "foreign_key_name"),
+            DbaMetadataReader.GetString(record, "column_name"),
+            DbaMetadataReader.GetString(record, "referenced_schema_name"),
+            DbaMetadataReader.GetString(record, "referenced_table_name"),
+            DbaMetadataReader.GetString(record, "referenced_column_name"))
+        {
+            Ordinal = DbaMetadataReader.GetInt32(record, "ordinal_position"),
+            UpdateRule = DbaMetadataReader.GetNullableString(record, "update_rule"),
+            DeleteRule = DbaMetadataReader.GetNullableString(record, "delete_rule"),
+            IsEnabled = DbaMetadataReader.GetNullableBoolean(record, "is_enabled"),
+            IsTrusted = DbaMetadataReader.GetNullableBoolean(record, "is_trusted")
+        };
+
+    private static DbaRoutineInfo MapRoutine(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "routine_name"),
+            ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
+        {
+            DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            Definition = DbaMetadataReader.GetNullableString(record, "definition"),
+            IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
+        };
+
     private static DbaTableKind ParseTableKind(string value)
         => string.Equals(value, "View", StringComparison.OrdinalIgnoreCase) ? DbaTableKind.View : DbaTableKind.Table;
+
+    private static DbaRoutineKind ParseRoutineKind(string value)
+        => value.ToUpperInvariant() switch
+        {
+            "PROCEDURE" => DbaRoutineKind.Procedure,
+            "FUNCTION" => DbaRoutineKind.Function,
+            "PACKAGE" => DbaRoutineKind.Package,
+            _ => DbaRoutineKind.Unknown
+        };
 }

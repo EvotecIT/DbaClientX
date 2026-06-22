@@ -15,5 +15,11 @@ public enum DbaXMetadataType
     Column,
 
     /// <summary>Index metadata.</summary>
-    Index
+    Index,
+
+    /// <summary>Foreign key metadata.</summary>
+    ForeignKey,
+
+    /// <summary>Stored routine metadata.</summary>
+    Routine
 }

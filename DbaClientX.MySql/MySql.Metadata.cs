@@ -58,6 +58,42 @@ WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
 
+    private const string MySqlForeignKeysQuery = @"
+SELECT
+    kcu.TABLE_SCHEMA AS schema_name,
+    kcu.TABLE_NAME AS table_name,
+    kcu.CONSTRAINT_NAME AS foreign_key_name,
+    kcu.COLUMN_NAME AS column_name,
+    kcu.REFERENCED_TABLE_SCHEMA AS referenced_schema_name,
+    kcu.REFERENCED_TABLE_NAME AS referenced_table_name,
+    kcu.REFERENCED_COLUMN_NAME AS referenced_column_name,
+    kcu.ORDINAL_POSITION AS ordinal_position,
+    rc.UPDATE_RULE AS update_rule,
+    rc.DELETE_RULE AS delete_rule,
+    NULL AS is_enabled,
+    NULL AS is_trusted
+FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+    ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+    AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+    AND rc.TABLE_NAME = kcu.TABLE_NAME
+WHERE kcu.TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+  AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+  AND (@table IS NULL OR kcu.TABLE_NAME = @table)
+ORDER BY kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;";
+
+    private const string MySqlRoutinesQuery = @"
+SELECT
+    ROUTINE_SCHEMA AS schema_name,
+    ROUTINE_NAME AS routine_name,
+    CASE WHEN ROUTINE_TYPE = 'PROCEDURE' THEN 'Procedure' WHEN ROUTINE_TYPE = 'FUNCTION' THEN 'Function' ELSE 'Unknown' END AS routine_kind,
+    DTD_IDENTIFIER AS data_type,
+    ROUTINE_DEFINITION AS definition,
+    CASE WHEN ROUTINE_SCHEMA IN ('information_schema', 'mysql', 'performance_schema', 'sys') THEN 1 ELSE 0 END AS is_system
+FROM INFORMATION_SCHEMA.ROUTINES
+WHERE ROUTINE_SCHEMA = COALESCE(@schema, DATABASE())
+ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
+
     /// <summary>Lists MySQL databases visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string connectionString)
         => ExecuteMetadata(connectionString, MySqlDatabasesQuery, MapDatabase);
@@ -84,6 +120,21 @@ ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
         {
             ["@schema"] = schema,
             ["@table"] = table
+        });
+
+    /// <summary>Lists MySQL foreign keys visible to the connection. Multi-column keys return one row per column mapping.</summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadata(connectionString, MySqlForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
+    /// <summary>Lists MySQL procedures and functions visible to the connection.</summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string connectionString, string? schema = null)
+        => ExecuteMetadata(connectionString, MySqlRoutinesQuery, MapRoutine, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema
         });
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
@@ -152,6 +203,43 @@ ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
         };
 
+    private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "table_name"),
+            DbaMetadataReader.GetString(record, "foreign_key_name"),
+            DbaMetadataReader.GetString(record, "column_name"),
+            DbaMetadataReader.GetString(record, "referenced_schema_name"),
+            DbaMetadataReader.GetString(record, "referenced_table_name"),
+            DbaMetadataReader.GetString(record, "referenced_column_name"))
+        {
+            Ordinal = DbaMetadataReader.GetInt32(record, "ordinal_position"),
+            UpdateRule = DbaMetadataReader.GetNullableString(record, "update_rule"),
+            DeleteRule = DbaMetadataReader.GetNullableString(record, "delete_rule"),
+            IsEnabled = DbaMetadataReader.GetNullableBoolean(record, "is_enabled"),
+            IsTrusted = DbaMetadataReader.GetNullableBoolean(record, "is_trusted")
+        };
+
+    private static DbaRoutineInfo MapRoutine(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "routine_name"),
+            ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
+        {
+            DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            Definition = DbaMetadataReader.GetNullableString(record, "definition"),
+            IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
+        };
+
     private static DbaTableKind ParseTableKind(string value)
         => string.Equals(value, "View", StringComparison.OrdinalIgnoreCase) ? DbaTableKind.View : DbaTableKind.Table;
+
+    private static DbaRoutineKind ParseRoutineKind(string value)
+        => value.ToUpperInvariant() switch
+        {
+            "PROCEDURE" => DbaRoutineKind.Procedure,
+            "FUNCTION" => DbaRoutineKind.Function,
+            "PACKAGE" => DbaRoutineKind.Package,
+            _ => DbaRoutineKind.Unknown
+        };
 }

@@ -65,6 +65,38 @@ WHERE tl.schema = 'main'
   AND (@table IS NULL OR m.name = @table)
 ORDER BY m.name, il.name, ii.seqno;";
 
+    private const string SQLiteForeignKeysQuery = @"
+SELECT
+    tl.schema AS schema_name,
+    tl.name AS table_name,
+    'fk_' || tl.name || '_' || fk.id AS foreign_key_name,
+    fk.""from"" AS column_name,
+    tl.schema AS referenced_schema_name,
+    fk.""table"" AS referenced_table_name,
+    fk.""to"" AS referenced_column_name,
+    fk.seq + 1 AS ordinal_position,
+    fk.on_update AS update_rule,
+    fk.on_delete AS delete_rule,
+    NULL AS is_enabled,
+    NULL AS is_trusted
+FROM pragma_table_list tl
+INNER JOIN pragma_foreign_key_list(tl.name) fk
+WHERE tl.schema = 'main'
+  AND tl.type IN ('table', 'virtual')
+  AND tl.name NOT LIKE 'sqlite_%'
+  AND (@table IS NULL OR tl.name = @table)
+ORDER BY tl.name, fk.id, fk.seq;";
+
+    private const string SQLiteRoutinesQuery = @"
+SELECT
+    'main' AS schema_name,
+    NULL AS routine_name,
+    'Unknown' AS routine_kind,
+    NULL AS data_type,
+    NULL AS definition,
+    NULL AS is_system
+WHERE 1 = 0;";
+
     /// <summary>Lists attached SQLite databases visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string database)
         => ExecuteMetadata(database, SQLiteDatabasesQuery, MapDatabase);
@@ -90,6 +122,17 @@ ORDER BY m.name, il.name, ii.seqno;";
         {
             ["@table"] = table
         });
+
+    /// <summary>Lists SQLite foreign keys. Multi-column keys return one row per column mapping.</summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string database, string? schema = null, string? table = null)
+        => ExecuteMetadata(database, SQLiteForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            ["@table"] = table
+        });
+
+    /// <summary>Returns an empty collection because SQLite does not expose stored routines.</summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string database, string? schema = null)
+        => ExecuteMetadata(database, SQLiteRoutinesQuery, MapRoutine);
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
         string database,
@@ -153,6 +196,43 @@ ORDER BY m.name, il.name, ii.seqno;";
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
         };
 
+    private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "table_name"),
+            DbaMetadataReader.GetString(record, "foreign_key_name"),
+            DbaMetadataReader.GetString(record, "column_name"),
+            DbaMetadataReader.GetString(record, "referenced_schema_name"),
+            DbaMetadataReader.GetString(record, "referenced_table_name"),
+            DbaMetadataReader.GetString(record, "referenced_column_name"))
+        {
+            Ordinal = DbaMetadataReader.GetInt32(record, "ordinal_position"),
+            UpdateRule = DbaMetadataReader.GetNullableString(record, "update_rule"),
+            DeleteRule = DbaMetadataReader.GetNullableString(record, "delete_rule"),
+            IsEnabled = DbaMetadataReader.GetNullableBoolean(record, "is_enabled"),
+            IsTrusted = DbaMetadataReader.GetNullableBoolean(record, "is_trusted")
+        };
+
+    private static DbaRoutineInfo MapRoutine(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "routine_name"),
+            ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
+        {
+            DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            Definition = DbaMetadataReader.GetNullableString(record, "definition"),
+            IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
+        };
+
     private static DbaTableKind ParseTableKind(string value)
         => string.Equals(value, "View", StringComparison.OrdinalIgnoreCase) ? DbaTableKind.View : DbaTableKind.Table;
+
+    private static DbaRoutineKind ParseRoutineKind(string value)
+        => value.ToUpperInvariant() switch
+        {
+            "PROCEDURE" => DbaRoutineKind.Procedure,
+            "FUNCTION" => DbaRoutineKind.Function,
+            "PACKAGE" => DbaRoutineKind.Package,
+            _ => DbaRoutineKind.Unknown
+        };
 }

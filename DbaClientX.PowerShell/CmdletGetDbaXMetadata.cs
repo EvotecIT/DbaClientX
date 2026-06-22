@@ -1,7 +1,7 @@
 namespace DBAClientX.PowerShell;
 
 /// <summary>Gets database metadata without requiring SQL Server Management Objects.</summary>
-/// <para>Returns provider-neutral metadata for databases, tables/views, columns, and indexes using native catalog queries from the selected provider.</para>
+/// <para>Returns provider-neutral metadata for databases, tables/views, columns, indexes, foreign keys, and routines using native catalog queries from the selected provider.</para>
 /// <example>
 /// <summary>List SQL Server tables.</summary>
 /// <prefix>PS&gt; </prefix>
@@ -35,7 +35,7 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
     [Parameter(Mandatory = false)]
     public string? Schema { get; set; }
 
-    /// <summary>Optional table filter for column and index metadata.</summary>
+    /// <summary>Optional table filter for column, index, and foreign key metadata.</summary>
     [Parameter(Mandatory = false)]
     public string? Table { get; set; }
 
@@ -69,6 +69,8 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
             DbaXMetadataType.Table => client.GetTables(ConnectionString, Schema, !ExcludeViews.IsPresent),
             DbaXMetadataType.Column => client.GetColumns(ConnectionString, Schema, Table),
             DbaXMetadataType.Index => client.GetIndexes(ConnectionString, Schema, Table),
+            DbaXMetadataType.ForeignKey => client.GetForeignKeys(ConnectionString, Schema, Table),
+            DbaXMetadataType.Routine => client.GetRoutines(ConnectionString, Schema),
             _ => throw new NotSupportedException($"Metadata type '{Type}' is not supported.")
         };
     }
@@ -82,6 +84,8 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
             DbaXMetadataType.Table => client.GetTables(ConnectionString, Schema, !ExcludeViews.IsPresent),
             DbaXMetadataType.Column => client.GetColumns(ConnectionString, Schema, Table),
             DbaXMetadataType.Index => client.GetIndexes(ConnectionString, Schema, Table),
+            DbaXMetadataType.ForeignKey => client.GetForeignKeys(ConnectionString, Schema, Table),
+            DbaXMetadataType.Routine => client.GetRoutines(ConnectionString, Schema),
             _ => throw new NotSupportedException($"Metadata type '{Type}' is not supported.")
         };
     }
@@ -95,6 +99,8 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
             DbaXMetadataType.Table => client.GetTables(ConnectionString, Schema, !ExcludeViews.IsPresent),
             DbaXMetadataType.Column => client.GetColumns(ConnectionString, Schema, Table),
             DbaXMetadataType.Index => client.GetIndexes(ConnectionString, Schema, Table),
+            DbaXMetadataType.ForeignKey => client.GetForeignKeys(ConnectionString, Schema, Table),
+            DbaXMetadataType.Routine => client.GetRoutines(ConnectionString, Schema),
             _ => throw new NotSupportedException($"Metadata type '{Type}' is not supported.")
         };
     }
@@ -108,6 +114,8 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
             DbaXMetadataType.Table => client.GetTables(ConnectionString, Schema, !ExcludeViews.IsPresent),
             DbaXMetadataType.Column => client.GetColumns(ConnectionString, Schema, Table),
             DbaXMetadataType.Index => client.GetIndexes(ConnectionString, Schema, Table),
+            DbaXMetadataType.ForeignKey => client.GetForeignKeys(ConnectionString, Schema, Table),
+            DbaXMetadataType.Routine => client.GetRoutines(ConnectionString, Schema),
             _ => throw new NotSupportedException($"Metadata type '{Type}' is not supported.")
         };
     }
@@ -121,6 +129,8 @@ public sealed class CmdletGetDbaXMetadata : AsyncPSCmdlet
             DbaXMetadataType.Table => client.GetTables(ConnectionString, Schema, !ExcludeViews.IsPresent),
             DbaXMetadataType.Column => client.GetColumns(ConnectionString, Schema, Table),
             DbaXMetadataType.Index => client.GetIndexes(ConnectionString, Schema, Table),
+            DbaXMetadataType.ForeignKey => client.GetForeignKeys(ConnectionString, Schema, Table),
+            DbaXMetadataType.Routine => client.GetRoutines(ConnectionString, Schema),
             _ => throw new NotSupportedException($"Metadata type '{Type}' is not supported.")
         };
     }

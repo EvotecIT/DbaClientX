@@ -61,6 +61,47 @@ WHERE i.owner = COALESCE(UPPER(:schemaName), i.owner)
   AND i.table_name = COALESCE(UPPER(:tableName), i.table_name)
 ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
 
+    private const string OracleForeignKeysQuery = @"
+SELECT
+    fk.owner AS schema_name,
+    fk.table_name,
+    fk.constraint_name AS foreign_key_name,
+    fkc.column_name,
+    pk.owner AS referenced_schema_name,
+    pk.table_name AS referenced_table_name,
+    pkc.column_name AS referenced_column_name,
+    fkc.position AS ordinal_position,
+    NULL AS update_rule,
+    fk.delete_rule,
+    CASE WHEN fk.status = 'ENABLED' THEN 1 ELSE 0 END AS is_enabled,
+    CASE WHEN fk.validated = 'VALIDATED' THEN 1 ELSE 0 END AS is_trusted
+FROM all_constraints fk
+INNER JOIN all_cons_columns fkc ON fkc.owner = fk.owner AND fkc.constraint_name = fk.constraint_name
+INNER JOIN all_constraints pk ON pk.owner = fk.r_owner AND pk.constraint_name = fk.r_constraint_name
+INNER JOIN all_cons_columns pkc ON pkc.owner = pk.owner AND pkc.constraint_name = pk.constraint_name AND pkc.position = fkc.position
+WHERE fk.constraint_type = 'R'
+  AND fk.owner = COALESCE(UPPER(:schemaName), fk.owner)
+  AND fk.table_name = COALESCE(UPPER(:tableName), fk.table_name)
+ORDER BY fk.owner, fk.table_name, fk.constraint_name, fkc.position";
+
+    private const string OracleRoutinesQuery = @"
+SELECT
+    owner AS schema_name,
+    object_name AS routine_name,
+    CASE object_type
+        WHEN 'PROCEDURE' THEN 'Procedure'
+        WHEN 'FUNCTION' THEN 'Function'
+        WHEN 'PACKAGE' THEN 'Package'
+        ELSE 'Unknown'
+    END AS routine_kind,
+    NULL AS data_type,
+    NULL AS definition,
+    CASE WHEN owner IN ('SYS', 'SYSTEM') THEN 1 ELSE 0 END AS is_system
+FROM all_objects
+WHERE object_type IN ('PROCEDURE', 'FUNCTION', 'PACKAGE')
+  AND owner = COALESCE(UPPER(:schemaName), owner)
+ORDER BY owner, object_name";
+
     /// <summary>Returns the current Oracle database context visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string connectionString)
         => ExecuteMetadata(connectionString, OracleDatabasesQuery, MapDatabase);
@@ -88,6 +129,21 @@ ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
         {
             [":schemaName"] = schema,
             [":tableName"] = table
+        });
+
+    /// <summary>Lists Oracle foreign keys visible to the connection. Multi-column keys return one row per column mapping.</summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadata(connectionString, OracleForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            [":schemaName"] = schema,
+            [":tableName"] = table
+        });
+
+    /// <summary>Lists Oracle procedures, functions, and packages visible to the connection.</summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string connectionString, string? schema = null)
+        => ExecuteMetadata(connectionString, OracleRoutinesQuery, MapRoutine, new Dictionary<string, object?>
+        {
+            [":schemaName"] = schema
         });
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
@@ -157,6 +213,43 @@ ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
         };
 
+    private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "table_name"),
+            DbaMetadataReader.GetString(record, "foreign_key_name"),
+            DbaMetadataReader.GetString(record, "column_name"),
+            DbaMetadataReader.GetString(record, "referenced_schema_name"),
+            DbaMetadataReader.GetString(record, "referenced_table_name"),
+            DbaMetadataReader.GetString(record, "referenced_column_name"))
+        {
+            Ordinal = DbaMetadataReader.GetInt32(record, "ordinal_position"),
+            UpdateRule = DbaMetadataReader.GetNullableString(record, "update_rule"),
+            DeleteRule = DbaMetadataReader.GetNullableString(record, "delete_rule"),
+            IsEnabled = DbaMetadataReader.GetNullableBoolean(record, "is_enabled"),
+            IsTrusted = DbaMetadataReader.GetNullableBoolean(record, "is_trusted")
+        };
+
+    private static DbaRoutineInfo MapRoutine(IDataRecord record)
+        => new(
+            DbaMetadataReader.GetString(record, "schema_name"),
+            DbaMetadataReader.GetString(record, "routine_name"),
+            ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
+        {
+            DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            Definition = DbaMetadataReader.GetNullableString(record, "definition"),
+            IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
+        };
+
     private static DbaTableKind ParseTableKind(string value)
         => string.Equals(value, "View", StringComparison.OrdinalIgnoreCase) ? DbaTableKind.View : DbaTableKind.Table;
+
+    private static DbaRoutineKind ParseRoutineKind(string value)
+        => value.ToUpperInvariant() switch
+        {
+            "PROCEDURE" => DbaRoutineKind.Procedure,
+            "FUNCTION" => DbaRoutineKind.Function,
+            "PACKAGE" => DbaRoutineKind.Package,
+            _ => DbaRoutineKind.Unknown
+        };
 }
