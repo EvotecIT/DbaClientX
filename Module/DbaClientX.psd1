@@ -8,7 +8,7 @@
     Description          = 'Simple project to query Sql Server and other databases using PowerShell'
     FunctionsToExport    = @('Invoke-DbaXTransaction', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXSQLiteTransaction')
     GUID                 = 'c22cc272-c829-49e2-aaa1-58d3c36edb94'
-    ModuleVersion        = '0.1.0'
+    ModuleVersion        = '1.0.0'
     PowerShellVersion    = '5.1'
     PrivateData          = @{
         PSData = @{

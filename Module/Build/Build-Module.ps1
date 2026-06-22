@@ -1,9 +1,9 @@
-Import-Module PSPublishModule -Force -ErrorAction Stop
+﻿Import-Module PSPublishModule -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' {
     # Usual defaults as per standard module
     $Manifest = [ordered] @{
-        ModuleVersion        = '0.1.X'
+        ModuleVersion        = '1.0.X'
         CompatiblePSEditions = @('Desktop', 'Core')
         GUID                 = 'c22cc272-c829-49e2-aaa1-58d3c36edb94'
         Author               = 'Przemyslaw Klys'
@@ -74,14 +74,9 @@ Build-Module -ModuleName 'DbaClientX' {
     # configuration for documentation, at the same time it enables documentation processing
     New-ConfigurationDocumentation -Enable:$false -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
-    $defaultRefreshPSD1Only = $false
-    if ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and -not $IsWindows) {
-        $defaultRefreshPSD1Only = $true
-    }
-
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $false } else { [bool]::Parse($Env:SignModule) }
+        SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $true } else { [bool]::Parse($Env:SignModule) }
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
         CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
@@ -105,11 +100,7 @@ Build-Module -ModuleName 'DbaClientX' {
         )
         DotSourceLibraries                = $true
         DotSourceClasses                  = $true
-        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) {
-            $defaultRefreshPSD1Only
-        } else {
-            [bool]::Parse($Env:RefreshPSD1Only)
-        }
+        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $false } else { [bool]::Parse($Env:RefreshPSD1Only) }
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
