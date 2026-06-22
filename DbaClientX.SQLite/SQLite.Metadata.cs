@@ -94,21 +94,16 @@ ORDER BY m.name, il.name, ii.seqno;";
     {
         ValidateDatabasePath(database);
         var connectionString = BuildOperationalConnectionString(database, readOnly: true);
-        SqliteConnection? connection = null;
-        SqliteTransaction? transaction = null;
-        var dispose = false;
-        try
+        var (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+        if (dispose)
         {
-            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            return ExecuteMappedQuery(connection, transaction, query, map, parameters: parameters);
-        }
-        finally
-        {
-            if (dispose)
+            using (connection)
             {
-                connection?.Dispose();
+                return ExecuteMappedQuery(connection, transaction, query, map, parameters: parameters);
             }
         }
+
+        return ExecuteMappedQuery(connection, transaction, query, map, parameters: parameters);
     }
 
     private static DbaDatabaseInfo MapDatabase(IDataRecord record)

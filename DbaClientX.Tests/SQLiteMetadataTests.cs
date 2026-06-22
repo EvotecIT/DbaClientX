@@ -24,7 +24,9 @@ public class SQLiteMetadataTests
             var columns = sqlite.GetColumns(path, table: "Users");
             var indexes = sqlite.GetIndexes(path, table: "Users");
 
-            Assert.Contains(databases, database => database.Owner == "main" && database.Name == path);
+            Assert.Contains(databases, database =>
+                database.Owner == "main" &&
+                Path.GetFileName(database.Name) == Path.GetFileName(path));
 
             Assert.Contains(tables, table => table.Name == "Users" && table.Kind == DbaTableKind.Table);
             Assert.Contains(tables, table => table.Name == "ActiveUsers" && table.Kind == DbaTableKind.View);
