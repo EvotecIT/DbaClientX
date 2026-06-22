@@ -17,6 +17,8 @@ public class SQLiteMetadataTests
             sqlite.ExecuteNonQuery(path, "CREATE TABLE Users(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL DEFAULT 'unknown', Slug TEXT GENERATED ALWAYS AS (lower(Name)) STORED);");
             sqlite.ExecuteNonQuery(path, "CREATE TABLE Roles(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL);");
             sqlite.ExecuteNonQuery(path, "CREATE TABLE UserRoles(UserId INTEGER NOT NULL, RoleId INTEGER NOT NULL, CONSTRAINT FK_UserRoles_Users FOREIGN KEY(UserId) REFERENCES Users(Id) ON DELETE CASCADE, FOREIGN KEY(RoleId) REFERENCES Roles(Id));");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE ImplicitParents(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL);");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE ImplicitChildren(ParentId INTEGER NOT NULL REFERENCES ImplicitParents);");
             sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_Name ON Users(Name DESC);");
             sqlite.ExecuteNonQuery(path, "CREATE VIEW ActiveUsers AS SELECT Id, Name FROM Users;");
             sqlite.ExecuteNonQuery(path, "CREATE VIRTUAL TABLE Docs USING fts5(Body);");
@@ -27,6 +29,7 @@ public class SQLiteMetadataTests
             var columns = sqlite.GetColumns(path, table: "Users");
             var indexes = sqlite.GetIndexes(path, table: "Users");
             var foreignKeys = sqlite.GetForeignKeys(path, table: "UserRoles");
+            var implicitForeignKeys = sqlite.GetForeignKeys(path, table: "ImplicitChildren");
             var routines = sqlite.GetRoutines(path);
 
             Assert.Contains(databases, database =>
@@ -55,6 +58,10 @@ public class SQLiteMetadataTests
                 foreignKey.ReferencedTable == "Users" &&
                 foreignKey.ReferencedColumn == "Id" &&
                 foreignKey.DeleteRule == "CASCADE");
+            Assert.Contains(implicitForeignKeys, foreignKey =>
+                foreignKey.Column == "ParentId" &&
+                foreignKey.ReferencedTable == "ImplicitParents" &&
+                foreignKey.ReferencedColumn == "Id");
             Assert.Empty(routines);
         }
         finally

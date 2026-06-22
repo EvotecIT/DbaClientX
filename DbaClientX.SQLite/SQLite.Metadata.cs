@@ -96,7 +96,7 @@ SELECT
     fk.""from"" AS column_name,
     tl.schema AS referenced_schema_name,
     fk.""table"" AS referenced_table_name,
-    fk.""to"" AS referenced_column_name,
+    COALESCE(fk.""to"", refpk.name) AS referenced_column_name,
     fk.seq + 1 AS ordinal_position,
     fk.on_update AS update_rule,
     fk.on_delete AS delete_rule,
@@ -104,6 +104,7 @@ SELECT
     NULL AS is_trusted
 FROM pragma_table_list tl
 INNER JOIN pragma_foreign_key_list(tl.name) fk
+LEFT JOIN pragma_table_xinfo(fk.""table"") refpk ON refpk.pk = fk.seq + 1
 WHERE tl.schema = 'main'
   AND tl.type IN ('table', 'virtual')
   AND tl.name NOT LIKE 'sqlite_%'

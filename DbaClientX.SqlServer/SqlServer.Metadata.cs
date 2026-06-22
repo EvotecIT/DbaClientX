@@ -57,7 +57,7 @@ SELECT
 FROM sys.indexes i
 INNER JOIN sys.objects o ON o.object_id = i.object_id AND o.type IN ('U', 'V')
 INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
-LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND (ic.key_ordinal > 0 OR i.type IN (5, 6))
+LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND (ic.key_ordinal > 0 OR i.type IN (3, 4, 5, 6))
 LEFT JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 WHERE i.index_id > 0
   AND i.name IS NOT NULL
