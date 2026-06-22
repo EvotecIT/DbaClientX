@@ -613,6 +613,62 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
+    /// Executes a query and maps each row with a caller-provided mapper.
+    /// </summary>
+    /// <typeparam name="T">The row result type produced by <paramref name="map"/>.</typeparam>
+    /// <param name="connection">The open database connection.</param>
+    /// <param name="transaction">The transaction to enlist in, if any.</param>
+    /// <param name="query">The query to execute.</param>
+    /// <param name="map">A mapper that converts the current data record into a result value.</param>
+    /// <param name="initialize">Optional callback invoked once after the reader opens and before the first row is read.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="parameterTypes">Optional parameter types.</param>
+    /// <param name="parameterDirections">Optional parameter directions.</param>
+    /// <returns>The mapped result rows.</returns>
+    protected virtual IReadOnlyList<T> ExecuteMappedQuery<T>(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        Func<IDataRecord, T> map,
+        Action<IDataRecord>? initialize = null,
+        IDictionary<string, object?>? parameters = null,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        if (map == null)
+        {
+            throw new ArgumentNullException(nameof(map));
+        }
+
+        return ExecuteWithRetry<IReadOnlyList<T>>(() =>
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = query;
+            command.Transaction = transaction;
+            AddParameters(command, parameters, parameterTypes, parameterDirections);
+            var commandTimeout = CommandTimeout;
+            if (commandTimeout > 0)
+            {
+                command.CommandTimeout = commandTimeout;
+            }
+
+            var rows = new List<T>();
+            using (var reader = command.ExecuteReader(CommandBehavior.Default))
+            {
+                initialize?.Invoke(reader);
+                while (reader.Read())
+                {
+                    rows.Add(map(reader));
+                }
+            }
+
+            UpdateOutputParameters(command, parameters);
+            return rows;
+        });
+    }
+
+    /// <summary>
     /// Executes a non-query command (INSERT/UPDATE/DELETE) with retry support.
     /// </summary>
     /// <param name="connection">The open database connection.</param>
