@@ -136,6 +136,21 @@ internal static class SqlServerManagementScripting
         var builder = new StringBuilder();
         builder.Append("CREATE TABLE ");
         builder.Append(QualifyName(first.SchemaName, first.TableName));
+
+        if (IsFileTable(orderedColumns))
+        {
+            builder.AppendLine();
+            builder.Append("AS FILETABLE;");
+            return new SqlServerScriptInfo
+            {
+                ScriptType = "Table",
+                SchemaName = first.SchemaName,
+                ObjectName = first.TableName,
+                ObjectType = "USER_TABLE",
+                Script = builder.ToString()
+            };
+        }
+
         builder.AppendLine();
         builder.AppendLine("(");
 
@@ -244,6 +259,12 @@ internal static class SqlServerManagementScripting
         }
 
         builder.Append(column.DataType);
+        if (column.IsColumnSet)
+        {
+            builder.Append(" COLUMN_SET FOR ALL_SPARSE_COLUMNS");
+            return builder.ToString();
+        }
+
         if (column.IsSparse)
         {
             builder.Append(" SPARSE");
@@ -412,6 +433,9 @@ internal static class SqlServerManagementScripting
         };
     }
 
+    private static bool IsFileTable(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+        => columns.Any(column => string.Equals(column.GraphTableKind, "FILETABLE", StringComparison.OrdinalIgnoreCase));
+
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         var keyColumns = columns
@@ -451,9 +475,18 @@ internal static class SqlServerManagementScripting
             {
                 var keyColumns = group.OrderBy(column => column.UniqueConstraintOrdinal).ToArray();
                 string keyType = keyColumns[0].UniqueConstraintIndexType ?? string.Empty;
-                string keyword = string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
-                string keyList = string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.UniqueConstraintIsDescending == true ? " DESC" : " ASC")));
-                return $"CONSTRAINT {QuoteName(group.Key)} UNIQUE {keyword} ({keyList})";
+                bool isHash = keyType.IndexOf("HASH", StringComparison.OrdinalIgnoreCase) >= 0;
+                string keyword = isHash
+                    ? "NONCLUSTERED HASH"
+                    : string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
+                string keyList = isHash
+                    ? string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName)))
+                    : string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.UniqueConstraintIsDescending == true ? " DESC" : " ASC")));
+                long? bucketCount = keyColumns[0].UniqueConstraintBucketCount;
+                string bucket = isHash && bucketCount.HasValue
+                    ? " WITH (BUCKET_COUNT = " + bucketCount.GetValueOrDefault() + ")"
+                    : string.Empty;
+                return $"CONSTRAINT {QuoteName(group.Key)} UNIQUE {keyword} ({keyList}){bucket}";
             });
     }
 

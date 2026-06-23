@@ -297,8 +297,18 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "User]Audit",
-                ColumnName = "Blob",
+                ColumnName = "SparseColumns",
                 Ordinal = 6,
+                DataType = "xml",
+                IsNullable = true,
+                IsColumnSet = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Blob",
+                Ordinal = 7,
                 DataType = "varbinary(max) FILESTREAM",
                 IsNullable = true
             },
@@ -307,7 +317,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "SparseCode",
-                Ordinal = 7,
+                Ordinal = 8,
                 DataType = "int",
                 IsNullable = true,
                 IsSparse = true
@@ -317,7 +327,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "Email",
-                Ordinal = 8,
+                Ordinal = 9,
                 DataType = "nvarchar(256)",
                 IsNullable = true,
                 EncryptionDefinition = "ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = [CEK_Audit], ENCRYPTION_TYPE = DETERMINISTIC, ALGORITHM = 'AEAD_AES_256_CBC_HMAC_SHA_256')",
@@ -328,7 +338,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "NameLength",
-                Ordinal = 9,
+                Ordinal = 10,
                 DataType = "int",
                 IsNullable = false,
                 ComputedDefinition = "(len([Name]))",
@@ -339,7 +349,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "ValidFrom",
-                Ordinal = 10,
+                Ordinal = 11,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_START",
@@ -353,7 +363,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "ValidTo",
-                Ordinal = 11,
+                Ordinal = 12,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_END",
@@ -367,7 +377,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "MemoryCode",
-                Ordinal = 12,
+                Ordinal = 13,
                 DataType = "int",
                 IsNullable = false,
                 IsMemoryOptimized = true,
@@ -387,6 +397,8 @@ public class SqlServerManagementTests
         Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL CONSTRAINT [DF_UserAudit_Name] DEFAULT N''", script.Script);
         Assert.Contains("[Ratio] float(24) NULL", script.Script);
         Assert.Contains("[Payload] xml(DOCUMENT [dbo].[AuditPayload]) NULL", script.Script);
+        Assert.Contains("[SparseColumns] xml COLUMN_SET FOR ALL_SPARSE_COLUMNS", script.Script);
+        Assert.DoesNotContain("[SparseColumns] xml NULL", script.Script);
         Assert.Contains("[Blob] varbinary(max) FILESTREAM NULL", script.Script);
         Assert.Contains("[SparseCode] int SPARSE NULL", script.Script);
         Assert.Contains("[Email] nvarchar(256) ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = [CEK_Audit], ENCRYPTION_TYPE = DETERMINISTIC, ALGORITHM = 'AEAD_AES_256_CBC_HMAC_SHA_256') MASKED WITH (FUNCTION = N'email()') NULL", script.Script);
@@ -465,13 +477,34 @@ public class SqlServerManagementTests
         Assert.Contains("/table/durability_desc", modernQuery);
         Assert.Contains("LEFT JOIN sys.hash_indexes AS primary_key_hash", modernQuery);
         Assert.Contains("PrimaryKeyBucketCount = primary_key_hash.bucket_count", modernQuery);
+        Assert.Contains("IsColumnSet = CONVERT(bit, column_info.is_column_set)", modernQuery);
         Assert.Contains("GraphTableKind = graph_info.graph_kind", modernQuery);
+        Assert.Contains("/table/is_filetable", modernQuery);
         Assert.Contains("/table/is_node", modernQuery);
         Assert.Contains("/table/is_edge", modernQuery);
+        Assert.Contains("/table/is_external", modernQuery);
+        Assert.Contains("external_info.is_external = 0", modernQuery);
+        Assert.Contains("LEFT JOIN sys.hash_indexes AS unique_hash", modernQuery);
+        Assert.Contains("LEFT JOIN sys.hash_indexes AS memory_hash", modernQuery);
+        Assert.Contains("INDEX ' + QUOTENAME(memory_index.name)", modernQuery);
+        Assert.Contains("FROM sys.edge_constraints AS edge_constraint", modernQuery);
+        Assert.Contains("FROM sys.edge_constraint_clauses AS edge_clause", modernQuery);
         Assert.Contains("ledger_info.ledger_type <> 1", modernQuery);
-        Assert.Contains("NOT (graph_info.graph_kind IS NOT NULL AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)", modernQuery);
+        Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)", modernQuery);
         Assert.Contains("LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id", modernQuery);
         Assert.DoesNotContain("TableTemporalHistoryTableId", modernQuery);
+    }
+
+    [Fact]
+    public void DependencyQuery_IncludesDdlTriggerDependencies()
+    {
+        string dependenciesQuery = GetPrivateStaticString<SqlServer>("SqlServerDependenciesManagementQuery");
+
+        Assert.Contains("INNER JOIN sys.triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
+        Assert.Contains("dependency.referencing_class = 12", dependenciesQuery);
+        Assert.Contains("trigger_info.parent_class = 0", dependenciesQuery);
+        Assert.Contains("INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
+        Assert.Contains("dependency.referencing_class = 13", dependenciesQuery);
     }
 
     [Fact]
@@ -580,6 +613,22 @@ public class SqlServerManagementTests
                 PrimaryKeyOrdinal = 1,
                 PrimaryKeyIndexType = "NONCLUSTERED HASH",
                 PrimaryKeyBucketCount = 1024
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "MemoryUsers",
+                ColumnName = "ExternalId",
+                Ordinal = 2,
+                DataType = "uniqueidentifier",
+                IsNullable = false,
+                IsMemoryOptimized = true,
+                DurabilityDescription = "SCHEMA_AND_DATA",
+                UniqueConstraintName = "UQ_MemoryUsers_ExternalId",
+                UniqueConstraintOrdinal = 1,
+                UniqueConstraintIndexType = "NONCLUSTERED HASH",
+                UniqueConstraintBucketCount = 2048,
+                AdditionalConstraintDefinitions = "INDEX [IX_MemoryUsers_ExternalId] NONCLUSTERED HASH ([ExternalId]) WITH (BUCKET_COUNT = 4096)"
             }
         };
         var graphColumns = new[]
@@ -595,13 +644,49 @@ public class SqlServerManagementTests
                 GraphTableKind = "NODE"
             }
         };
+        var edgeColumns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "FriendEdge",
+                ColumnName = "Weight",
+                Ordinal = 1,
+                DataType = "int",
+                IsNullable = true,
+                GraphTableKind = "EDGE",
+                PostCreateStatements = "ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);"
+            }
+        };
+        var fileTableColumns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Documents",
+                ColumnName = "stream_id",
+                Ordinal = 1,
+                DataType = "uniqueidentifier",
+                IsNullable = false,
+                GraphTableKind = "FILETABLE"
+            }
+        };
 
-        SqlServerScriptInfo hashScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(hashColumns));
+        SqlServerScriptInfo hashScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(hashColumns), item => item.ScriptType == "Table");
         SqlServerScriptInfo graphScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(graphColumns));
+        IReadOnlyList<SqlServerScriptInfo> edgeScripts = SqlServerManagementScripting.BuildTableScripts(edgeColumns);
+        SqlServerScriptInfo edgeScript = Assert.Single(edgeScripts, item => item.ScriptType == "Table");
+        SqlServerScriptInfo edgePostCreateScript = Assert.Single(edgeScripts, item => item.ScriptType == "TablePostCreate");
+        SqlServerScriptInfo fileTableScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(fileTableColumns));
 
         Assert.Contains("CONSTRAINT [PK_MemoryUsers] PRIMARY KEY NONCLUSTERED HASH ([Id]) WITH (BUCKET_COUNT = 1024)", hashScript.Script);
+        Assert.Contains("CONSTRAINT [UQ_MemoryUsers_ExternalId] UNIQUE NONCLUSTERED HASH ([ExternalId]) WITH (BUCKET_COUNT = 2048)", hashScript.Script);
+        Assert.Contains("INDEX [IX_MemoryUsers_ExternalId] NONCLUSTERED HASH ([ExternalId]) WITH (BUCKET_COUNT = 4096)", hashScript.Script);
         Assert.Contains("WITH (MEMORY_OPTIMIZED = ON, DURABILITY = SCHEMA_AND_DATA);", hashScript.Script);
         Assert.Contains("AS NODE;", graphScript.Script);
+        Assert.Contains("AS EDGE;", edgeScript.Script);
+        Assert.Contains("ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);", edgePostCreateScript.Script);
+        Assert.Equal("CREATE TABLE [dbo].[Documents]" + Environment.NewLine + "AS FILETABLE;", fileTableScript.Script);
     }
 
     [Fact]

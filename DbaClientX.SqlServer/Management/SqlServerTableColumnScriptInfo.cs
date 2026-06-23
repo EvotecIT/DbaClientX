@@ -38,6 +38,8 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public bool IsSparse { get; set; }
 
+    public bool IsColumnSet { get; set; }
+
     public string? MaskingFunction { get; set; }
 
     public string? EncryptionDefinition { get; set; }
@@ -71,6 +73,8 @@ internal sealed class SqlServerTableColumnScriptInfo
     public string? UniqueConstraintIndexType { get; set; }
 
     public bool? UniqueConstraintIsDescending { get; set; }
+
+    public long? UniqueConstraintBucketCount { get; set; }
 
     public string? GraphTableKind { get; set; }
 

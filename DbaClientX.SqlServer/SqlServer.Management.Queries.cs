@@ -315,6 +315,43 @@ WHERE (@schema IS NULL OR referencing_schema.name = @schema)
   AND (@name IS NULL OR referencing_object.name = @name)
 UNION ALL
 SELECT
+    DependencyType = N'SqlExpression',
+    ReferencingSchema = CONVERT(sysname, NULL),
+    ReferencingName = trigger_info.name,
+    ReferencingType = trigger_info.type_desc,
+    ReferencedServerName = dependency.referenced_server_name,
+    ReferencedDatabaseName = dependency.referenced_database_name,
+    ReferencedSchemaName = dependency.referenced_schema_name,
+    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedClassDescription = dependency.referenced_class_desc,
+    IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
+    IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
+FROM sys.sql_expression_dependencies AS dependency
+INNER JOIN sys.triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
+WHERE dependency.referencing_class = 12
+  AND trigger_info.parent_class = 0
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)
+UNION ALL
+SELECT
+    DependencyType = N'SqlExpression',
+    ReferencingSchema = CONVERT(sysname, NULL),
+    ReferencingName = trigger_info.name,
+    ReferencingType = trigger_info.type_desc,
+    ReferencedServerName = dependency.referenced_server_name,
+    ReferencedDatabaseName = dependency.referenced_database_name,
+    ReferencedSchemaName = dependency.referenced_schema_name,
+    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedClassDescription = dependency.referenced_class_desc,
+    IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
+    IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
+FROM sys.sql_expression_dependencies AS dependency
+INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
+WHERE dependency.referencing_class = 13
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)
+UNION ALL
+SELECT
     DependencyType = N'ForeignKey',
     ReferencingSchema = parent_schema.name,
     ReferencingName = parent_table.name,
@@ -414,6 +451,7 @@ SELECT
     END,
     IsHidden = CONVERT(bit, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0)),
     IsSparse = CONVERT(bit, column_info.is_sparse),
+    IsColumnSet = CONVERT(bit, column_info.is_column_set),
     MaskingFunction = {MaskingFunction},
     EncryptionDefinition = {EncryptionDefinition},
     TemporalType = temporal_info.temporal_type,
@@ -431,6 +469,7 @@ SELECT
     UniqueConstraintOrdinal = CONVERT(int, NULL),
     UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
     UniqueConstraintIsDescending = CONVERT(bit, NULL),
+    UniqueConstraintBucketCount = CONVERT(bigint, NULL),
     GraphTableKind = graph_info.graph_kind,
     AdditionalConstraintDefinitions = constraint_info.definitions,
     PostCreateStatements = post_create_info.statements
@@ -484,6 +523,7 @@ OUTER APPLY (
 ) AS memory_info
 OUTER APPLY (
     SELECT graph_kind = CASE
+        WHEN table_metadata.data.exist(N'/table/is_filetable') = 1 AND table_metadata.data.value(N'(/table/is_filetable/text())[1]', N'bit') = 1 THEN N'FILETABLE'
         WHEN table_metadata.data.exist(N'/table/is_node') = 1 AND table_metadata.data.value(N'(/table/is_node/text())[1]', N'bit') = 1 THEN N'NODE'
         WHEN table_metadata.data.exist(N'/table/is_edge') = 1 AND table_metadata.data.value(N'(/table/is_edge/text())[1]', N'bit') = 1 THEN N'EDGE'
         ELSE NULL
@@ -491,15 +531,22 @@ OUTER APPLY (
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS graph_info
 OUTER APPLY (
+    SELECT is_external = CASE
+        WHEN table_metadata.data.exist(N'/table/is_external') = 1 THEN table_metadata.data.value(N'(/table/is_external/text())[1]', N'bit')
+        ELSE CONVERT(bit, 0)
+    END
+    FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
+) AS external_info
+OUTER APPLY (
     SELECT definitions = STUFF((
         SELECT CHAR(30) + definition
         FROM (
             SELECT definition =
                 N'CONSTRAINT ' + QUOTENAME(unique_index.name) + N' UNIQUE ' +
-                CASE WHEN unique_index.type_desc = N'NONCLUSTERED' THEN N'NONCLUSTERED' ELSE N'CLUSTERED' END +
+                CASE WHEN unique_index.type_desc LIKE N'%HASH%' THEN N'NONCLUSTERED HASH' WHEN unique_index.type_desc = N'NONCLUSTERED' THEN N'NONCLUSTERED' ELSE N'CLUSTERED' END +
                 N' (' +
                 STUFF((
-                    SELECT N', ' + QUOTENAME(unique_column.name) + CASE WHEN unique_index_column.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+                    SELECT N', ' + QUOTENAME(unique_column.name) + CASE WHEN unique_index.type_desc LIKE N'%HASH%' THEN N'' WHEN unique_index_column.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
                     FROM sys.index_columns AS unique_index_column
                     INNER JOIN sys.columns AS unique_column ON unique_column.object_id = unique_index_column.object_id AND unique_column.column_id = unique_index_column.column_id
                     WHERE unique_index_column.object_id = unique_index.object_id
@@ -507,10 +554,38 @@ OUTER APPLY (
                       AND unique_index_column.key_ordinal > 0
                     ORDER BY unique_index_column.key_ordinal
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')'
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN unique_index.type_desc LIKE N'%HASH%' AND unique_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), unique_hash.bucket_count) + N')' ELSE N'' END
             FROM sys.indexes AS unique_index
+            LEFT JOIN sys.hash_indexes AS unique_hash ON unique_hash.object_id = unique_index.object_id AND unique_hash.index_id = unique_index.index_id
             WHERE unique_index.object_id = table_info.object_id
               AND unique_index.is_unique_constraint = 1
+            UNION ALL
+            SELECT definition =
+                N'INDEX ' + QUOTENAME(memory_index.name) + N' ' +
+                CASE WHEN memory_index.is_unique = 1 THEN N'UNIQUE ' ELSE N'' END +
+                CASE WHEN memory_index.type_desc LIKE N'%HASH%' THEN N'NONCLUSTERED HASH' WHEN memory_index.type_desc = N'NONCLUSTERED' THEN N'NONCLUSTERED' ELSE memory_index.type_desc END +
+                N' (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(memory_column.name) + CASE WHEN memory_index.type_desc LIKE N'%HASH%' THEN N'' WHEN memory_index_column.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+                    FROM sys.index_columns AS memory_index_column
+                    INNER JOIN sys.columns AS memory_column ON memory_column.object_id = memory_index_column.object_id AND memory_column.column_id = memory_index_column.column_id
+                    WHERE memory_index_column.object_id = memory_index.object_id
+                      AND memory_index_column.index_id = memory_index.index_id
+                      AND memory_index_column.key_ordinal > 0
+                    ORDER BY memory_index_column.key_ordinal
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN memory_index.type_desc LIKE N'%HASH%' AND memory_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), memory_hash.bucket_count) + N')' ELSE N'' END
+            FROM sys.indexes AS memory_index
+            LEFT JOIN sys.hash_indexes AS memory_hash ON memory_hash.object_id = memory_index.object_id AND memory_hash.index_id = memory_index.index_id
+            WHERE memory_index.object_id = table_info.object_id
+              AND memory_info.is_memory_optimized = 1
+              AND memory_index.index_id > 0
+              AND memory_index.is_primary_key = 0
+              AND memory_index.is_unique_constraint = 0
+              AND memory_index.is_hypothetical = 0
+              AND memory_index.is_disabled = 0
             UNION ALL
             SELECT definition =
                 N'CONSTRAINT ' + QUOTENAME(check_info.name) + N' CHECK ' +
@@ -575,6 +650,27 @@ OUTER APPLY (
             INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
             INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
             WHERE foreign_key.parent_object_id = table_info.object_id
+            UNION ALL
+            SELECT statement =
+                N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                N' ADD CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N' CONNECTION (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(from_schema.name) + N'.' + QUOTENAME(from_table.name) + N' TO ' + QUOTENAME(to_schema.name) + N'.' + QUOTENAME(to_table.name)
+                    FROM sys.edge_constraint_clauses AS edge_clause
+                    INNER JOIN sys.tables AS from_table ON from_table.object_id = edge_clause.from_object_id
+                    INNER JOIN sys.schemas AS from_schema ON from_schema.schema_id = from_table.schema_id
+                    INNER JOIN sys.tables AS to_table ON to_table.object_id = edge_clause.to_object_id
+                    INNER JOIN sys.schemas AS to_schema ON to_schema.schema_id = to_table.schema_id
+                    WHERE edge_clause.object_id = edge_constraint.object_id
+                    ORDER BY edge_clause.clause_number
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N');' +
+                CASE WHEN edge_constraint.is_disabled = 1 THEN
+                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    N' NOCHECK CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N';'
+                ELSE N'' END
+            FROM sys.edge_constraints AS edge_constraint
+            WHERE edge_constraint.parent_object_id = table_info.object_id
         ) AS table_statement
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
@@ -583,6 +679,7 @@ WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
   AND temporal_info.temporal_type <> 1
   AND ledger_info.ledger_type <> 1
-  AND NOT (graph_info.graph_kind IS NOT NULL AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)
+  AND external_info.is_external = 0
+  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";
 }

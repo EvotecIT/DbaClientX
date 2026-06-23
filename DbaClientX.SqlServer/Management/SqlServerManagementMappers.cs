@@ -170,6 +170,7 @@ internal static class SqlServerManagementMappers
             GeneratedAlwaysTypeDescription = GetString(record, "GeneratedAlwaysTypeDescription"),
             IsHidden = GetBoolean(record, "IsHidden"),
             IsSparse = GetBoolean(record, "IsSparse"),
+            IsColumnSet = GetBoolean(record, "IsColumnSet"),
             MaskingFunction = GetString(record, "MaskingFunction"),
             EncryptionDefinition = GetString(record, "EncryptionDefinition"),
             TemporalType = GetInt32(record, "TemporalType"),
@@ -187,6 +188,7 @@ internal static class SqlServerManagementMappers
             UniqueConstraintOrdinal = GetNullableInt32(record, "UniqueConstraintOrdinal"),
             UniqueConstraintIndexType = GetString(record, "UniqueConstraintIndexType"),
             UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending"),
+            UniqueConstraintBucketCount = GetNullableInt64(record, "UniqueConstraintBucketCount"),
             GraphTableKind = GetString(record, "GraphTableKind"),
             AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions"),
             PostCreateStatements = GetString(record, "PostCreateStatements")
