@@ -27,7 +27,7 @@ internal static class SqlServerManagementScripting
         IEnumerable<DbaIndexInfo> indexes)
     {
         var writableColumns = columns
-            .Where(column => string.IsNullOrWhiteSpace(column.ComputedDefinition))
+            .Where(IsWritableCopyColumn)
             .Select(column => new DbaColumnInfo(column.SchemaName, column.TableName, column.ColumnName, column.DataType)
             {
                 Ordinal = column.Ordinal,
@@ -112,17 +112,23 @@ internal static class SqlServerManagementScripting
 
     private static SqlServerScriptInfo BuildTableScript(IEnumerable<SqlServerTableColumnScriptInfo> group)
     {
-        var first = group.First();
+        var orderedColumns = group.OrderBy(column => column.Ordinal).ToArray();
+        var first = orderedColumns[0];
         var builder = new StringBuilder();
         builder.Append("CREATE TABLE ");
         builder.Append(QualifyName(first.SchemaName, first.TableName));
         builder.AppendLine();
         builder.AppendLine("(");
 
-        var definitions = group
-            .OrderBy(column => column.Ordinal)
+        var definitions = orderedColumns
             .Select(column => "    " + BuildColumnDefinition(column))
-            .ToArray();
+            .ToList();
+
+        string? primaryKey = BuildPrimaryKeyDefinition(orderedColumns);
+        if (!string.IsNullOrWhiteSpace(primaryKey))
+        {
+            definitions.Add("    " + primaryKey);
+        }
 
         builder.AppendLine(string.Join("," + Environment.NewLine, definitions));
         builder.Append(");");
@@ -136,6 +142,11 @@ internal static class SqlServerManagementScripting
             Script = builder.ToString()
         };
     }
+
+    private static bool IsWritableCopyColumn(SqlServerTableColumnScriptInfo column)
+        => string.IsNullOrWhiteSpace(column.ComputedDefinition) &&
+           !string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) &&
+           !string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase);
 
     private static string BuildColumnDefinition(SqlServerTableColumnScriptInfo column)
     {
@@ -174,6 +185,25 @@ internal static class SqlServerManagementScripting
         }
 
         return builder.ToString();
+    }
+
+    private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        var keyColumns = columns
+            .Where(column => !string.IsNullOrWhiteSpace(column.PrimaryKeyName) && column.PrimaryKeyOrdinal.HasValue)
+            .OrderBy(column => column.PrimaryKeyOrdinal)
+            .ToArray();
+
+        if (keyColumns.Length == 0)
+        {
+            return null;
+        }
+
+        string keyName = keyColumns[0].PrimaryKeyName ?? string.Empty;
+        string keyType = keyColumns[0].PrimaryKeyIndexType ?? string.Empty;
+        string keyword = string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
+        string keyList = string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.PrimaryKeyIsDescending == true ? " DESC" : " ASC")));
+        return $"CONSTRAINT {QuoteName(keyName)} PRIMARY KEY {keyword} ({keyList})";
     }
 
     private static string QualifyName(string schema, string name)

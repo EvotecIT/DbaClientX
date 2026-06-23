@@ -1,5 +1,6 @@
 using System;
 using System.Data;
+using System.Text.RegularExpressions;
 
 namespace DBAClientX.SqlServerManagement;
 
@@ -140,7 +141,7 @@ internal static class SqlServerManagementMappers
             SchemaName = GetString(record, "SchemaName") ?? string.Empty,
             ObjectName = GetString(record, "ObjectName") ?? string.Empty,
             ObjectType = GetString(record, "ObjectType") ?? string.Empty,
-            Script = GetString(record, "Script") ?? string.Empty
+            Script = NormalizeModuleScript(GetString(record, "Script") ?? string.Empty)
         };
 
     public static SqlServerTableColumnScriptInfo MapTableScriptColumn(IDataRecord record)
@@ -157,8 +158,15 @@ internal static class SqlServerManagementMappers
             IdentityIncrement = GetString(record, "IdentityIncrement"),
             DefaultDefinition = GetString(record, "DefaultDefinition"),
             ComputedDefinition = GetString(record, "ComputedDefinition"),
-            IsPersisted = GetBoolean(record, "IsPersisted")
+            IsPersisted = GetBoolean(record, "IsPersisted"),
+            PrimaryKeyName = GetString(record, "PrimaryKeyName"),
+            PrimaryKeyOrdinal = GetNullableInt32(record, "PrimaryKeyOrdinal"),
+            PrimaryKeyIndexType = GetString(record, "PrimaryKeyIndexType"),
+            PrimaryKeyIsDescending = GetNullableBoolean(record, "PrimaryKeyIsDescending")
         };
+
+    internal static string NormalizeModuleScript(string script)
+        => Regex.Replace(script, @"^\s*ALTER\s+", "CREATE OR ALTER ", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     internal static DateTime? ParseAgentDate(int value)
     {
@@ -226,6 +234,12 @@ internal static class SqlServerManagementMappers
     {
         int ordinal = record.GetOrdinal(name);
         return record.IsDBNull(ordinal) ? null : Convert.ToBoolean(record.GetValue(ordinal));
+    }
+
+    private static int? GetNullableInt32(IDataRecord record, string name)
+    {
+        int ordinal = record.GetOrdinal(name);
+        return record.IsDBNull(ordinal) ? null : Convert.ToInt32(record.GetValue(ordinal));
     }
 
     private static Guid? GetGuid(IDataRecord record, string name)

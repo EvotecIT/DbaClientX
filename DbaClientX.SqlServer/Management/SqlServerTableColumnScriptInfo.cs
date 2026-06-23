@@ -25,4 +25,12 @@ internal sealed class SqlServerTableColumnScriptInfo
     public string? ComputedDefinition { get; set; }
 
     public bool IsPersisted { get; set; }
+
+    public string? PrimaryKeyName { get; set; }
+
+    public int? PrimaryKeyOrdinal { get; set; }
+
+    public string? PrimaryKeyIndexType { get; set; }
+
+    public bool? PrimaryKeyIsDescending { get; set; }
 }

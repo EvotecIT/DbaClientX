@@ -88,7 +88,7 @@ SELECT
 FROM sys.server_principals AS sp
 LEFT JOIN sys.sql_logins AS sl ON sl.principal_id = sp.principal_id
 WHERE (@includeSystem = 1 OR sp.name NOT LIKE N'##MS_%##')
-  AND (@name IS NULL OR sp.name = @name)
+  AND (@name IS NULL OR sp.name COLLATE DATABASE_DEFAULT = @name)
 ORDER BY sp.type_desc, sp.name;";
 
     private const string SqlServerDatabasePrincipalsManagementQuery = @"
@@ -122,8 +122,8 @@ SELECT
 FROM sys.server_role_members AS membership
 INNER JOIN sys.server_principals AS role_principal ON role_principal.principal_id = membership.role_principal_id
 INNER JOIN sys.server_principals AS member_principal ON member_principal.principal_id = membership.member_principal_id
-WHERE (@roleName IS NULL OR role_principal.name = @roleName)
-  AND (@memberName IS NULL OR member_principal.name = @memberName)
+WHERE (@roleName IS NULL OR role_principal.name COLLATE DATABASE_DEFAULT = @roleName)
+  AND (@memberName IS NULL OR member_principal.name COLLATE DATABASE_DEFAULT = @memberName)
 UNION ALL
 SELECT
     Scope = N'Database' COLLATE DATABASE_DEFAULT,
@@ -162,7 +162,7 @@ INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission
 INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
 LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_id AND permission.class_desc = N'ENDPOINT'
 LEFT JOIN sys.server_principals AS target_principal ON target_principal.principal_id = permission.major_id AND permission.class_desc = N'SERVER_PRINCIPAL'
-WHERE (@principalName IS NULL OR grantee.name = @principalName)
+WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 UNION ALL
 SELECT
     Scope = N'Database' COLLATE DATABASE_DEFAULT,
@@ -180,6 +180,7 @@ SELECT
         WHEN permission.class_desc = N'DATABASE' THEN DB_NAME() COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'DATABASE_PRINCIPAL' THEN target_database_principal.name COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CASE
@@ -191,7 +192,8 @@ SELECT
 FROM sys.database_permissions AS permission
 INNER JOIN sys.database_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
 INNER JOIN sys.database_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
-WHERE (@principalName IS NULL OR grantee.name = @principalName)
+LEFT JOIN sys.database_principals AS target_database_principal ON target_database_principal.principal_id = permission.major_id AND permission.class_desc = N'DATABASE_PRINCIPAL'
+WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName, SecurableColumn;";
 
     private const string SqlServerInstancePropertiesManagementQuery = @"
@@ -291,6 +293,8 @@ SELECT
     Ordinal = column_info.column_id,
     DataType = CASE
         WHEN type_info.is_user_defined = 1 THEN QUOTENAME(type_schema.name) + N'.' + QUOTENAME(type_info.name)
+        WHEN type_info.name = N'xml' AND column_info.xml_collection_id <> 0 THEN N'xml(' + CASE WHEN column_info.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END + QUOTENAME(xml_schema.name) + N'.' + QUOTENAME(xml_collection.name) + N')'
+        WHEN type_info.name = N'xml' THEN N'xml'
         WHEN type_info.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length) END + N')'
         WHEN type_info.name IN (N'nvarchar', N'nchar') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length / 2) END + N')'
         WHEN type_info.name IN (N'decimal', N'numeric') THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.precision) + N',' + CONVERT(nvarchar(12), column_info.scale) + N')'
@@ -307,15 +311,23 @@ SELECT
     IdentityIncrement = CONVERT(nvarchar(40), identity_info.increment_value),
     DefaultDefinition = default_info.definition,
     ComputedDefinition = computed_info.definition,
-    IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0))
+    IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0)),
+    PrimaryKeyName = primary_key.name,
+    PrimaryKeyOrdinal = primary_key_column.key_ordinal,
+    PrimaryKeyIndexType = primary_key.type_desc,
+    PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key)
 FROM sys.tables AS table_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
 INNER JOIN sys.columns AS column_info ON column_info.object_id = table_info.object_id
 INNER JOIN sys.types AS type_info ON type_info.user_type_id = column_info.user_type_id
 INNER JOIN sys.schemas AS type_schema ON type_schema.schema_id = type_info.schema_id
+LEFT JOIN sys.xml_schema_collections AS xml_collection ON xml_collection.xml_collection_id = column_info.xml_collection_id AND column_info.xml_collection_id <> 0
+LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.schema_id
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
+LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";

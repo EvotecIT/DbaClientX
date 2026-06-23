@@ -117,6 +117,14 @@ public class SqlServerManagementTests
     }
 
     [Fact]
+    public void NormalizeModuleScript_RewritesLeadingAlter()
+    {
+        string script = SqlServerManagementMappers.NormalizeModuleScript("  ALTER PROCEDURE [dbo].[DoWork] AS SELECT 1;");
+
+        Assert.StartsWith("CREATE OR ALTER PROCEDURE", script.TrimStart(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildTableScripts_GeneratesQuotedCreateTable()
     {
         var columns = new[]
@@ -130,7 +138,11 @@ public class SqlServerManagementTests
                 DataType = "int",
                 IsIdentity = true,
                 IdentitySeed = "1",
-                IdentityIncrement = "1"
+                IdentityIncrement = "1",
+                PrimaryKeyName = "PK_UserAudit",
+                PrimaryKeyOrdinal = 1,
+                PrimaryKeyIndexType = "CLUSTERED",
+                PrimaryKeyIsDescending = false
             },
             new SqlServerTableColumnScriptInfo
             {
@@ -150,6 +162,15 @@ public class SqlServerManagementTests
                 Ordinal = 3,
                 DataType = "float(24)",
                 IsNullable = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Payload",
+                Ordinal = 4,
+                DataType = "xml(DOCUMENT [dbo].[AuditPayload])",
+                IsNullable = true
             }
         };
 
@@ -161,6 +182,8 @@ public class SqlServerManagementTests
         Assert.Contains("[Id] int IDENTITY(1,1) NOT NULL", script.Script);
         Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL DEFAULT N''", script.Script);
         Assert.Contains("[Ratio] float(24) NULL", script.Script);
+        Assert.Contains("[Payload] xml(DOCUMENT [dbo].[AuditPayload]) NULL", script.Script);
+        Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
     }
 
     [Fact]
@@ -221,6 +244,14 @@ public class SqlServerManagementTests
                 Ordinal = 3,
                 DataType = "nvarchar(128)",
                 ComputedDefinition = "lower([DisplayName])"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "RowVersion",
+                Ordinal = 4,
+                DataType = "rowversion"
             }
         };
         var indexes = new[]
@@ -237,8 +268,11 @@ public class SqlServerManagementTests
             indexes);
 
         Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "SearchName");
+        Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "RowVersion");
         Assert.DoesNotContain("[SearchName]", plan.DestinationInsertCommand);
+        Assert.DoesNotContain("[RowVersion]", plan.DestinationInsertCommand);
         Assert.DoesNotContain("[SearchName]", plan.DestinationMergeCommand ?? string.Empty);
+        Assert.DoesNotContain("[RowVersion]", plan.DestinationMergeCommand ?? string.Empty);
     }
 
     [Fact]
