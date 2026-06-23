@@ -32,9 +32,30 @@ internal static class SqlServerManagementScripting
             {
                 Ordinal = column.Ordinal,
                 IsNullable = column.IsNullable
-            });
+            })
+            .ToArray();
 
-        return BuildTableCopyPlan(sourceSchema, sourceTable, destinationSchema, destinationTable, writableColumns, indexes);
+        var plan = BuildTableCopyPlan(sourceSchema, sourceTable, destinationSchema, destinationTable, writableColumns, indexes);
+        var identityColumns = new HashSet<string>(columns
+            .Where(column => column.IsIdentity)
+            .Select(column => column.ColumnName), StringComparer.OrdinalIgnoreCase);
+
+        foreach (SqlServerTableCopyColumnInfo column in plan.Columns)
+        {
+            column.IsIdentity = identityColumns.Contains(column.SourceColumn);
+        }
+
+        if (plan.Columns.Any(column => column.IsIdentity))
+        {
+            string destinationName = QualifyName(destinationSchema, destinationTable);
+            plan.RequiresIdentityInsert = true;
+            plan.DestinationInsertCommand = WrapIdentityInsert(destinationName, plan.DestinationInsertCommand);
+            plan.DestinationMergeCommand = plan.DestinationMergeCommand == null
+                ? null
+                : WrapIdentityInsert(destinationName, plan.DestinationMergeCommand);
+        }
+
+        return plan;
     }
 
     public static SqlServerTableCopyPlan BuildTableCopyPlan(
@@ -59,6 +80,7 @@ internal static class SqlServerManagementScripting
                 DestinationColumn = column.Name,
                 DataType = column.DataType,
                 IsNullable = column.IsNullable,
+                IsIdentity = false,
                 IsKey = keyColumns.Contains(column.Name),
                 ParameterName = "@p" + index
             })
@@ -77,6 +99,7 @@ internal static class SqlServerManagementScripting
             DestinationSchema = destinationSchema,
             DestinationTable = destinationTable,
             Columns = copyColumns,
+            RequiresIdentityInsert = copyColumns.Any(column => column.IsIdentity),
             KeyColumns = keyColumns.OrderBy(name => Array.FindIndex(columnList, column => string.Equals(column.Name, name, StringComparison.OrdinalIgnoreCase))).ToArray(),
             SourceSelectCommand = $"SELECT {sourceColumns} FROM {sourceName};",
             DestinationInsertCommand = $"INSERT INTO {destinationName} ({destinationColumns}) VALUES ({parameterColumns});",
@@ -166,6 +189,9 @@ internal static class SqlServerManagementScripting
 
         return new HashSet<string>(keyColumns, StringComparer.OrdinalIgnoreCase);
     }
+
+    private static string WrapIdentityInsert(string destinationName, string command)
+        => $"SET IDENTITY_INSERT {destinationName} ON; {command} SET IDENTITY_INSERT {destinationName} OFF;";
 
     private static string? BuildMergeCommand(string destinationName, IReadOnlyList<SqlServerTableCopyColumnInfo> columns)
     {

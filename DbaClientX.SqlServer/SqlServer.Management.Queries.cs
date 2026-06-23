@@ -151,6 +151,7 @@ SELECT
     SecurableName = CASE permission.class_desc
         WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName')) COLLATE DATABASE_DEFAULT
         WHEN N'ENDPOINT' THEN endpoint.name COLLATE DATABASE_DEFAULT
+        WHEN N'SERVER_PRINCIPAL' THEN target_principal.name COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CONVERT(nvarchar(128), NULL),
@@ -160,6 +161,7 @@ FROM sys.server_permissions AS permission
 INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
 INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
 LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_id AND permission.class_desc = N'ENDPOINT'
+LEFT JOIN sys.server_principals AS target_principal ON target_principal.principal_id = permission.major_id AND permission.class_desc = N'SERVER_PRINCIPAL'
 WHERE (@principalName IS NULL OR grantee.name = @principalName)
 UNION ALL
 SELECT
@@ -292,8 +294,12 @@ SELECT
         WHEN type_info.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length) END + N')'
         WHEN type_info.name IN (N'nvarchar', N'nchar') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length / 2) END + N')'
         WHEN type_info.name IN (N'decimal', N'numeric') THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.precision) + N',' + CONVERT(nvarchar(12), column_info.scale) + N')'
+        WHEN type_info.name = N'float' THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.precision) + N')'
         WHEN type_info.name IN (N'datetime2', N'datetimeoffset', N'time') THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.scale) + N')'
         ELSE type_info.name
+    END + CASE
+        WHEN type_info.name IN (N'varchar', N'char', N'nvarchar', N'nchar') AND column_info.collation_name IS NOT NULL THEN N' COLLATE ' + column_info.collation_name
+        ELSE N''
     END,
     IsNullable = CONVERT(bit, column_info.is_nullable),
     IsIdentity = CONVERT(bit, column_info.is_identity),

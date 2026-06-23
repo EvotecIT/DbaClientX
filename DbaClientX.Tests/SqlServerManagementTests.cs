@@ -138,9 +138,18 @@ public class SqlServerManagementTests
                 TableName = "User]Audit",
                 ColumnName = "Name",
                 Ordinal = 2,
-                DataType = "nvarchar(128)",
+                DataType = "nvarchar(128) COLLATE Polish_CI_AS",
                 IsNullable = false,
                 DefaultDefinition = "N''"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Ratio",
+                Ordinal = 3,
+                DataType = "float(24)",
+                IsNullable = true
             }
         };
 
@@ -150,7 +159,8 @@ public class SqlServerManagementTests
         Assert.Equal("Table", script.ScriptType);
         Assert.Contains("CREATE TABLE [dbo].[User]]Audit]", script.Script);
         Assert.Contains("[Id] int IDENTITY(1,1) NOT NULL", script.Script);
-        Assert.Contains("[Name] nvarchar(128) NOT NULL DEFAULT N''", script.Script);
+        Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL DEFAULT N''", script.Script);
+        Assert.Contains("[Ratio] float(24) NULL", script.Script);
     }
 
     [Fact]
@@ -229,6 +239,49 @@ public class SqlServerManagementTests
         Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "SearchName");
         Assert.DoesNotContain("[SearchName]", plan.DestinationInsertCommand);
         Assert.DoesNotContain("[SearchName]", plan.DestinationMergeCommand ?? string.Empty);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_WrapsIdentityInsertCommands()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int",
+                IsIdentity = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "DisplayName",
+                Ordinal = 2,
+                DataType = "nvarchar(128)"
+            }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "Id", Ordinal = 1, IsPrimaryKey = true, IsUnique = true }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Users",
+            "archive",
+            "Users",
+            columns,
+            indexes);
+
+        Assert.True(plan.RequiresIdentityInsert);
+        Assert.True(Assert.Single(plan.Columns, column => column.SourceColumn == "Id").IsIdentity);
+        Assert.StartsWith("SET IDENTITY_INSERT [archive].[Users] ON; INSERT INTO", plan.DestinationInsertCommand);
+        Assert.EndsWith("SET IDENTITY_INSERT [archive].[Users] OFF;", plan.DestinationInsertCommand);
+        Assert.Contains("SET IDENTITY_INSERT [archive].[Users] ON; MERGE", plan.DestinationMergeCommand);
     }
 
     private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)

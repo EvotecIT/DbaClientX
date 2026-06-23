@@ -17,6 +17,9 @@ public sealed class SqlServerTableCopyColumnInfo
     /// <summary>True when the source column is nullable.</summary>
     public bool? IsNullable { get; set; }
 
+    /// <summary>True when the source column is an identity column.</summary>
+    public bool IsIdentity { get; set; }
+
     /// <summary>True when the column participates in the inferred key.</summary>
     public bool IsKey { get; set; }
 

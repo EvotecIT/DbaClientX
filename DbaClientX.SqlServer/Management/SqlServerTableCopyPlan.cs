@@ -22,6 +22,9 @@ public sealed class SqlServerTableCopyPlan
     /// <summary>Column mappings included in the plan.</summary>
     public IReadOnlyList<SqlServerTableCopyColumnInfo> Columns { get; set; } = [];
 
+    /// <summary>True when generated destination commands include explicit identity values.</summary>
+    public bool RequiresIdentityInsert { get; set; }
+
     /// <summary>Inferred key column names, normally from the primary key.</summary>
     public IReadOnlyList<string> KeyColumns { get; set; } = [];
 
