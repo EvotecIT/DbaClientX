@@ -221,7 +221,7 @@ SELECT
             CASE object_info.type
                 WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
                 WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
-                WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + function_order_info.OrderClause + clr_options.OptionClause
+                WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause + function_order_info.OrderClause
                 WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
                 ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
             END,
@@ -271,6 +271,8 @@ OUTER APPLY (
 OUTER APPLY (
     SELECT ParameterList = STUFF((
         SELECT N', ' + parameter_item.name + N' ' + CASE
+            WHEN parameter_type.name = N'xml' AND parameter_item.xml_collection_id <> 0 THEN N'xml(' + CASE WHEN parameter_item.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END + QUOTENAME(parameter_xml_schema.name) + N'.' + QUOTENAME(parameter_xml_collection.name) + N')'
+            WHEN parameter_type.name = N'xml' THEN N'xml'
             WHEN parameter_type.is_user_defined = 1 THEN QUOTENAME(parameter_type_schema.name) + N'.' + QUOTENAME(parameter_type.name)
             WHEN parameter_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length) END + N')'
             WHEN parameter_type.name IN (N'nvarchar', N'nchar') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length / 2) END + N')'
@@ -286,6 +288,8 @@ OUTER APPLY (
         FROM sys.parameters AS parameter_item
         INNER JOIN sys.types AS parameter_type ON parameter_type.user_type_id = parameter_item.user_type_id
         LEFT JOIN sys.schemas AS parameter_type_schema ON parameter_type_schema.schema_id = parameter_type.schema_id
+        LEFT JOIN sys.xml_schema_collections AS parameter_xml_collection ON parameter_xml_collection.xml_collection_id = parameter_item.xml_collection_id AND parameter_item.xml_collection_id <> 0
+        LEFT JOIN sys.schemas AS parameter_xml_schema ON parameter_xml_schema.schema_id = parameter_xml_collection.schema_id
         WHERE parameter_item.object_id = object_info.object_id
           AND parameter_item.parameter_id > 0
         ORDER BY parameter_item.parameter_id
@@ -295,8 +299,12 @@ OUTER APPLY (
 LEFT JOIN sys.parameters AS return_parameter ON return_parameter.object_id = object_info.object_id AND return_parameter.parameter_id = 0
 LEFT JOIN sys.types AS return_type ON return_type.user_type_id = return_parameter.user_type_id
 LEFT JOIN sys.schemas AS return_type_schema ON return_type_schema.schema_id = return_type.schema_id
+LEFT JOIN sys.xml_schema_collections AS return_xml_collection ON return_xml_collection.xml_collection_id = return_parameter.xml_collection_id AND return_parameter.xml_collection_id <> 0
+LEFT JOIN sys.schemas AS return_xml_schema ON return_xml_schema.schema_id = return_xml_collection.schema_id
 OUTER APPLY (
     SELECT DataType = CASE
+        WHEN return_type.name = N'xml' AND return_parameter.xml_collection_id <> 0 THEN N'xml(' + CASE WHEN return_parameter.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END + QUOTENAME(return_xml_schema.name) + N'.' + QUOTENAME(return_xml_collection.name) + N')'
+        WHEN return_type.name = N'xml' THEN N'xml'
         WHEN return_type.is_user_defined = 1 THEN QUOTENAME(return_type_schema.name) + N'.' + QUOTENAME(return_type.name)
         WHEN return_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length) END + N')'
         WHEN return_type.name IN (N'nvarchar', N'nchar') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length / 2) END + N')'
@@ -308,6 +316,8 @@ OUTER APPLY (
 OUTER APPLY (
     SELECT TableDefinition = STUFF((
         SELECT N', ' + QUOTENAME(column_item.name) + N' ' + CASE
+            WHEN column_type.name = N'xml' AND column_item.xml_collection_id <> 0 THEN N'xml(' + CASE WHEN column_item.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END + QUOTENAME(column_xml_schema.name) + N'.' + QUOTENAME(column_xml_collection.name) + N')'
+            WHEN column_type.name = N'xml' THEN N'xml'
             WHEN column_type.is_user_defined = 1 THEN QUOTENAME(column_type_schema.name) + N'.' + QUOTENAME(column_type.name)
             WHEN column_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length) END + N')'
             WHEN column_type.name IN (N'nvarchar', N'nchar') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length / 2) END + N')'
@@ -318,6 +328,8 @@ OUTER APPLY (
         FROM sys.columns AS column_item
         INNER JOIN sys.types AS column_type ON column_type.user_type_id = column_item.user_type_id
         LEFT JOIN sys.schemas AS column_type_schema ON column_type_schema.schema_id = column_type.schema_id
+        LEFT JOIN sys.xml_schema_collections AS column_xml_collection ON column_xml_collection.xml_collection_id = column_item.xml_collection_id AND column_item.xml_collection_id <> 0
+        LEFT JOIN sys.schemas AS column_xml_schema ON column_xml_schema.schema_id = column_xml_collection.schema_id
         WHERE column_item.object_id = object_info.object_id
         ORDER BY column_item.column_id
         FOR XML PATH(N''), TYPE
@@ -552,7 +564,10 @@ LEFT JOIN sys.external_languages AS target_external_language ON target_external_
                     WHERE edge_clause.object_id = edge_constraint.object_id
                     ORDER BY edge_clause.clause_number
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N');' +
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN edge_constraint.delete_referential_action_desc IS NOT NULL AND edge_constraint.delete_referential_action_desc <> N'NO_ACTION' THEN
+                    N' ON DELETE ' + REPLACE(edge_constraint.delete_referential_action_desc, N'_', N' ')
+                ELSE N'' END + N';' +
                 CASE WHEN edge_constraint.is_disabled = 1 THEN
                     CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
                     N' NOCHECK CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N';'

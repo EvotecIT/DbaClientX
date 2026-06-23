@@ -580,6 +580,10 @@ public class SqlServerManagementTests
         Assert.Contains("object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')", modulesQuery);
         Assert.Contains("FROM sys.function_order_columns AS function_order_column", modulesQuery);
         Assert.Contains("function_order_info.OrderClause", modulesQuery);
+        Assert.Contains("N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause + function_order_info.OrderClause", modulesQuery);
+        Assert.Contains("parameter_item.xml_collection_id <> 0", modulesQuery);
+        Assert.Contains("N'xml(' + CASE WHEN parameter_item.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END", modulesQuery);
+        Assert.Contains("column_item.xml_collection_id <> 0", modulesQuery);
         Assert.Contains("N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
@@ -642,6 +646,8 @@ public class SqlServerManagementTests
         Assert.Contains("/column/vector_base_type_desc", modernQuery);
         Assert.Contains("type_info.name = N'vector'", modernQuery);
         Assert.Contains("N'vector('", modernQuery);
+        Assert.Contains("edge_constraint.delete_referential_action_desc", modernQuery);
+        Assert.Contains("N' ON DELETE ' + REPLACE(edge_constraint.delete_referential_action_desc", modernQuery);
         Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
         Assert.Contains("PostCreateStatements = graph_only_post_create_info.statements", modernQuery);
         Assert.DoesNotContain("{GraphEdgeConstraintStatements}", modernQuery);
@@ -1078,7 +1084,20 @@ public class SqlServerManagementTests
                 Ordinal = 4,
                 DataType = "int",
                 GraphTableKind = "EDGE"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "Label",
+                Ordinal = 5,
+                DataType = "nvarchar(50)",
+                GraphTableKind = "EDGE"
             }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Likes", "PK_Likes") { Column = "Weight", Ordinal = 1, IsPrimaryKey = true, IsUnique = true }
         };
 
         SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
@@ -1087,11 +1106,16 @@ public class SqlServerManagementTests
             "archive",
             "Likes",
             columns,
-            Array.Empty<DbaIndexInfo>());
+            indexes);
 
-        Assert.Equal("SELECT [$from_id], [$to_id], [Weight] FROM [dbo].[Likes];", plan.SourceSelectCommand);
-        Assert.Contains("INSERT INTO [archive].[Likes] ([$from_id], [$to_id], [Weight]) VALUES (@p0, @p1, @p2);", plan.DestinationInsertCommand);
+        Assert.Equal("SELECT [$from_id], [$to_id], [Weight], [Label] FROM [dbo].[Likes];", plan.SourceSelectCommand);
+        Assert.Contains("INSERT INTO [archive].[Likes] ([$from_id], [$to_id], [Weight], [Label]) VALUES (@p0, @p1, @p2, @p3);", plan.DestinationInsertCommand);
         Assert.DoesNotContain("[$edge_id]", plan.SourceSelectCommand);
+        Assert.NotNull(plan.DestinationMergeCommand);
+        Assert.Contains("ON target.[Weight] = source.[Weight]", plan.DestinationMergeCommand);
+        Assert.Contains("UPDATE SET target.[Label] = source.[Label]", plan.DestinationMergeCommand);
+        Assert.DoesNotContain("target.[$from_id] = source.[$from_id]", plan.DestinationMergeCommand);
+        Assert.DoesNotContain("target.[$to_id] = source.[$to_id]", plan.DestinationMergeCommand);
     }
 
     [Fact]

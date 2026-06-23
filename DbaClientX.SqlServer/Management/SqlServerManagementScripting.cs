@@ -41,7 +41,8 @@ internal static class SqlServerManagementScripting
         IEnumerable<SqlServerTableColumnScriptInfo> columns,
         IEnumerable<DbaIndexInfo> indexes)
     {
-        var writableColumns = columns
+        var columnMetadata = columns.ToArray();
+        var writableColumns = columnMetadata
             .Where(IsWritableCopyColumn)
             .Select(column => new DbaColumnInfo(column.SchemaName, column.TableName, column.ColumnName, column.DataType)
             {
@@ -51,13 +52,16 @@ internal static class SqlServerManagementScripting
             .ToArray();
 
         var plan = BuildTableCopyPlan(sourceSchema, sourceTable, destinationSchema, destinationTable, writableColumns, indexes);
-        var identityColumns = new HashSet<string>(columns
+        var identityColumns = new HashSet<string>(columnMetadata
             .Where(column => column.IsIdentity)
             .Select(column => column.ColumnName), StringComparer.Ordinal);
 
         foreach (SqlServerTableCopyColumnInfo column in plan.Columns)
         {
             column.IsIdentity = identityColumns.Contains(column.SourceColumn);
+            column.GraphColumnRole = columnMetadata
+                .FirstOrDefault(metadata => string.Equals(metadata.ColumnName, column.SourceColumn, StringComparison.Ordinal))
+                ?.GraphColumnRole;
         }
 
         string destinationName = QualifyName(destinationSchema, destinationTable);
@@ -678,7 +682,7 @@ internal static class SqlServerManagementScripting
             return null;
         }
 
-        var nonKeyColumns = columns.Where(column => !column.IsKey && !column.IsIdentity).ToArray();
+        var nonKeyColumns = columns.Where(column => !column.IsKey && !column.IsIdentity && !IsGraphEdgeEndpointColumn(column)).ToArray();
         string values = string.Join(", ", columns.Select(column => column.ParameterName));
         string sourceColumns = string.Join(", ", columns.Select(column => QuoteName(column.DestinationColumn)));
         string on = string.Join(" AND ", keyColumns.Select(column => $"target.{QuoteName(column.DestinationColumn)} = source.{QuoteName(column.DestinationColumn)}"));
@@ -709,4 +713,8 @@ internal static class SqlServerManagementScripting
         builder.Append(");");
         return builder.ToString();
     }
+
+    private static bool IsGraphEdgeEndpointColumn(SqlServerTableCopyColumnInfo column)
+        => string.Equals(column.GraphColumnRole, "$from_id", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(column.GraphColumnRole, "$to_id", StringComparison.OrdinalIgnoreCase);
 }

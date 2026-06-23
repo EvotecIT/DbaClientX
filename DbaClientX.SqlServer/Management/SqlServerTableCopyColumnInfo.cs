@@ -23,6 +23,9 @@ public sealed class SqlServerTableCopyColumnInfo
     /// <summary>True when the column participates in the inferred key.</summary>
     public bool IsKey { get; set; }
 
+    /// <summary>Graph pseudo-column role for SQL Server graph edge columns.</summary>
+    public string? GraphColumnRole { get; set; }
+
     /// <summary>Parameter placeholder used by destination command templates.</summary>
     public string ParameterName { get; set; } = string.Empty;
 }

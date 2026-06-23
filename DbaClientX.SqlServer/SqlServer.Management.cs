@@ -289,7 +289,7 @@ public partial class SqlServer
         var snapshot = new SqlServerInventorySnapshot
         {
             InstanceProperties = GetSqlServerInstanceProperties(connectionString),
-            Configurations = GetSqlServerConfigurations(connectionString, includeAdvanced: includeAdvanced),
+            Configurations = GetOptionalSqlServerConfigurations(connectionString, includeAdvanced),
             Databases = GetDatabases(connectionString),
             ServerPrincipals = GetSqlServerServerPrincipals(connectionString, includeSystem: includeSystem)
         };
@@ -300,6 +300,18 @@ public partial class SqlServer
         }
 
         return snapshot;
+    }
+
+    private IReadOnlyList<SqlServerConfigurationInfo> GetOptionalSqlServerConfigurations(string connectionString, bool includeAdvanced)
+    {
+        try
+        {
+            return GetSqlServerConfigurations(connectionString, includeAdvanced: includeAdvanced);
+        }
+        catch (SqlException)
+        {
+            return Array.Empty<SqlServerConfigurationInfo>();
+        }
     }
 
     private bool SupportsAgentCatalog(string connectionString)
