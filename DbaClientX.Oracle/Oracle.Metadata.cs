@@ -18,7 +18,7 @@ FROM dual";
     private const string OracleTablesQuery = @"
 SELECT owner AS schema_name, table_name AS object_name, 'Table' AS object_kind
 FROM all_tables
-WHERE owner = COALESCE(UPPER(:schemaTables), owner)
+WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
   AND table_name NOT LIKE 'BIN$%'
   AND nested = 'NO'
   AND secondary = 'N'
@@ -27,7 +27,7 @@ UNION ALL
 SELECT owner AS schema_name, view_name AS object_name, 'View' AS object_kind
 FROM all_views
 WHERE :includeViews = 1
-  AND owner = COALESCE(UPPER(:schemaViews), owner)
+  AND (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
 ORDER BY schema_name, object_name";
 
     private const string OracleColumnsQuery = @"
@@ -80,6 +80,7 @@ LEFT JOIN all_constraints c ON c.owner = i.owner AND c.index_name = i.index_name
 WHERE (:schemaNameExact IS NULL OR i.owner = :schemaNameExact OR i.owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR i.table_name = :tableNameExact OR i.table_name = UPPER(:tableNameNormalized))
   AND i.table_name NOT LIKE 'BIN$%'
+  AND i.status = 'VALID'
 ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
 
     private const string OracleForeignKeysQuery = @"
@@ -141,9 +142,9 @@ ORDER BY object_info.owner, object_info.object_name";
     public virtual IReadOnlyList<DbaTableInfo> GetTables(string connectionString, string? schema = null, bool includeViews = true)
         => ExecuteMetadata(connectionString, OracleTablesQuery, MapTable, new Dictionary<string, object?>
         {
-            [":schemaTables"] = schema,
+            [":schemaNameExact"] = schema,
+            [":schemaNameNormalized"] = schema,
             [":includeViews"] = includeViews ? 1 : 0,
-            [":schemaViews"] = schema
         });
 
     /// <summary>Lists Oracle columns visible to the connection.</summary>

@@ -37,11 +37,12 @@ SELECT
     cls.relname AS table_name,
     att.attname AS column_name,
     CASE
+        WHEN typ.typelem <> 0 AND elemns.nspname NOT IN ('pg_catalog', 'information_schema') THEN elemns.nspname || '.' || elemtyp.typname || '[]'
         WHEN typns.nspname NOT IN ('pg_catalog', 'information_schema') THEN typns.nspname || '.' || typ.typname
         ELSE format_type(att.atttypid, att.atttypmod)
     END AS data_type,
     att.attnum AS ordinal_position,
-    NOT att.attnotnull AS is_nullable,
+    NOT (att.attnotnull OR (typ.typtype = 'd' AND typ.typnotnull)) AS is_nullable,
     CASE
         WHEN typ.typname IN ('bpchar', 'varchar') AND att.atttypmod > 4 THEN att.atttypmod - 4
         ELSE NULL
@@ -72,6 +73,8 @@ INNER JOIN pg_namespace ns ON ns.oid = cls.relnamespace
 INNER JOIN pg_attribute att ON att.attrelid = cls.oid
 INNER JOIN pg_type typ ON typ.oid = att.atttypid
 INNER JOIN pg_namespace typns ON typns.oid = typ.typnamespace
+LEFT JOIN pg_type elemtyp ON elemtyp.oid = typ.typelem
+LEFT JOIN pg_namespace elemns ON elemns.oid = elemtyp.typnamespace
 LEFT JOIN pg_attrdef def ON def.adrelid = cls.oid AND def.adnum = att.attnum
 WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
   AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
@@ -92,10 +95,10 @@ SELECT
     ix.indisprimary AS is_primary_key,
     att.attname AS column_name,
     cols.ordinality AS ordinal_position,
-    ((COALESCE(opts.indoption_value, 0) & 1) = 1) AS is_descending,
-    false AS is_included,
+    CASE WHEN cols.ordinality <= ix.indnkeyatts THEN ((COALESCE(opts.indoption_value, 0) & 1) = 1) ELSE NULL END AS is_descending,
+    cols.ordinality > ix.indnkeyatts AS is_included,
     NULL AS prefix_length,
-    CASE WHEN att.attname IS NULL THEN pg_get_indexdef(ix.indexrelid, cols.ordinality::integer, true) ELSE NULL END AS expression,
+    CASE WHEN cols.ordinality <= ix.indnkeyatts AND att.attname IS NULL THEN pg_get_indexdef(ix.indexrelid, cols.ordinality::integer, true) ELSE NULL END AS expression,
     pg_get_expr(ix.indpred, ix.indrelid) AS filter_definition
 FROM pg_index ix
 INNER JOIN pg_class tbl ON tbl.oid = ix.indrelid
@@ -110,7 +113,6 @@ WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
   AND (@schema IS NULL OR ns.nspname = @schema)
   AND (@table IS NULL OR tbl.relname = @table)
   AND ix.indisvalid
-  AND (cols.ordinality IS NULL OR cols.ordinality <= ix.indnkeyatts)
 ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
 
     private const string PostgreSqlForeignKeysQuery = @"
@@ -139,7 +141,7 @@ SELECT
         WHEN 'd' THEN 'SET DEFAULT'
         ELSE con.confdeltype::text
     END AS delete_rule,
-    true AS is_enabled,
+    COALESCE(trigger_state.is_enabled, true) AS is_enabled,
     con.convalidated AS is_trusted
 FROM pg_constraint con
 INNER JOIN pg_class tbl ON tbl.oid = con.conrelid
@@ -148,6 +150,11 @@ INNER JOIN pg_class rtbl ON rtbl.oid = con.confrelid
 INNER JOIN pg_namespace rns ON rns.oid = rtbl.relnamespace
 LEFT JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS cols(attnum, ordinality) ON true
 LEFT JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS refcols(attnum, ordinality) ON refcols.ordinality = cols.ordinality
+LEFT JOIN LATERAL (
+    SELECT bool_and(tg.tgenabled <> 'D') AS is_enabled
+    FROM pg_trigger tg
+    WHERE tg.tgconstraint = con.oid
+) trigger_state ON true
 LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = cols.attnum
 LEFT JOIN pg_attribute ratt ON ratt.attrelid = rtbl.oid AND ratt.attnum = refcols.attnum
 WHERE con.contype = 'f'

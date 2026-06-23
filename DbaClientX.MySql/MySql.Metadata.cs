@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Data;
 using DBAClientX.Metadata;
@@ -51,7 +52,34 @@ WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
 
+    private const string MySqlStatisticsExpressionSupportQuery = @"
+SELECT COUNT(*)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'information_schema'
+  AND TABLE_NAME = 'STATISTICS'
+  AND COLUMN_NAME = 'EXPRESSION';";
+
     private const string MySqlIndexesQuery = @"
+SELECT
+    TABLE_SCHEMA AS schema_name,
+    TABLE_NAME AS table_name,
+    INDEX_NAME AS index_name,
+    INDEX_TYPE AS index_type,
+    CASE WHEN NON_UNIQUE = 0 THEN 1 ELSE 0 END AS is_unique,
+    CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
+    COLUMN_NAME AS column_name,
+    SEQ_IN_INDEX AS ordinal_position,
+    CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
+    0 AS is_included,
+    SUB_PART AS prefix_length,
+    NULL AS expression,
+    NULL AS filter_definition
+FROM INFORMATION_SCHEMA.STATISTICS
+WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+  AND (@table IS NULL OR TABLE_NAME = @table)
+ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
+
+    private const string MySqlIndexesWithExpressionsQuery = @"
 SELECT
     TABLE_SCHEMA AS schema_name,
     TABLE_NAME AS table_name,
@@ -129,11 +157,29 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
 
     /// <summary>Lists MySQL indexes visible to the connection. Multi-column indexes return one row per indexed column.</summary>
     public virtual IReadOnlyList<DbaIndexInfo> GetIndexes(string connectionString, string? schema = null, string? table = null)
-        => ExecuteMetadata(connectionString, MySqlIndexesQuery, MapIndex, new Dictionary<string, object?>
+    {
+        ValidateConnectionString(connectionString);
+        MySqlConnection? connection = null;
+        MySqlTransaction? transaction = null;
+        var dispose = false;
+        try
         {
-            ["@schema"] = schema,
-            ["@table"] = table
-        });
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            string query = SupportsStatisticExpressions(connection, transaction) ? MySqlIndexesWithExpressionsQuery : MySqlIndexesQuery;
+            return ExecuteMappedQuery(connection, transaction, query, MapIndex, parameters: new Dictionary<string, object?>
+            {
+                ["@schema"] = schema,
+                ["@table"] = table
+            });
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
 
     /// <summary>Lists MySQL foreign keys visible to the connection. Multi-column keys return one row per column mapping.</summary>
     public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
@@ -172,6 +218,12 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
                 DisposeConnection(connection!);
             }
         }
+    }
+
+    private bool SupportsStatisticExpressions(MySqlConnection connection, MySqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, MySqlStatisticsExpressionSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt64(result) > 0;
     }
 
     private static DbaDatabaseInfo MapDatabase(IDataRecord record)
