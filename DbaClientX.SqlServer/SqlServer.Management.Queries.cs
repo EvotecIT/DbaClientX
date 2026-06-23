@@ -45,6 +45,29 @@ SELECT CASE
     ELSE 1
 END;";
 
+    private const string SqlServerDatabaseClrModulesSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.assembly_modules') IS NULL THEN 0
+    WHEN OBJECT_ID(N'sys.assemblies') IS NULL THEN 0
+    WHEN OBJECT_ID(N'sys.function_order_columns') IS NULL THEN 0
+    ELSE 1
+END;";
+
+    private const string SqlServerServerPermissionsSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.server_permissions') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerFullTextStoplistsSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.fulltext_stoplists') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerSearchPropertyListsSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.registered_search_property_lists') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerDatabaseScopedCredentialsSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.database_scoped_credentials') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerExternalLanguagesSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.external_languages') IS NULL THEN 0 ELSE 1 END;";
+
     private const string SqlServerAgentCatalogSupportQuery = @"
 SELECT CASE
     WHEN DB_ID(N'msdb') IS NULL THEN 0
@@ -54,7 +77,15 @@ END;";
 
     private const string SqlServerModuleScriptsServerTriggerUnionToken = "{ServerTriggerModuleScripts}";
 
+    private const string SqlServerModuleScriptsDatabaseClrUnionToken = "{DatabaseClrModuleScripts}";
+
     private const string SqlServerDependenciesServerTriggerUnionToken = "{ServerTriggerDependencies}";
+
+    private const string SqlServerPermissionsServerUnionToken = "{ServerPermissions}";
+
+    private const string SqlServerPermissionsAdvancedDatabaseSecurableCasesToken = "{AdvancedDatabasePermissionSecurableCases}";
+
+    private const string SqlServerPermissionsAdvancedDatabaseSecurableJoinsToken = "{AdvancedDatabasePermissionSecurableJoins}";
 
     private const string SqlServerDependenciesServerTriggerUnion = @"
 UNION ALL
@@ -131,6 +162,183 @@ OUTER APPLY (
 ) AS server_trigger_events
 WHERE @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
+
+    private const string SqlServerModuleScriptsDatabaseClrUnion = @"
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name,
+    ObjectType = trigger_info.type_desc,
+    Script = CONCAT(
+        N'CREATE TRIGGER ', QUOTENAME(trigger_info.name),
+        N' ON DATABASE', database_trigger_options.OptionClause,
+        N' FOR ', COALESCE(database_trigger_events.EventList, N'DDL_DATABASE_LEVEL_EVENTS'),
+        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
+        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
+FROM sys.triggers AS trigger_info
+INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
+INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
+OUTER APPLY (
+    SELECT ExecuteAsClause = CASE
+        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
+        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
+        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
+        ELSE NULL
+    END
+) AS database_execute_as_info
+OUTER APPLY (
+    SELECT OptionClause = CASE WHEN database_execute_as_info.ExecuteAsClause IS NULL THEN N'' ELSE N' WITH ' + database_execute_as_info.ExecuteAsClause END
+) AS database_trigger_options
+OUTER APPLY (
+    SELECT EventList = STUFF((
+        SELECT N', ' + event_info.type_desc
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS database_trigger_events
+WHERE trigger_info.parent_class = 0
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = schema_info.name,
+    ObjectName = object_info.name,
+    ObjectType = object_info.type_desc,
+    Script = CASE WHEN object_info.type = N'AF' THEN
+        CONCAT(
+            N'CREATE AGGREGATE ', QUOTENAME(schema_info.name), N'.', QUOTENAME(object_info.name), N'(', COALESCE(parameter_info.ParameterList, N''), N')',
+            CHAR(13), CHAR(10), N'RETURNS ', COALESCE(return_type_info.DataType, N'sql_variant'),
+            CHAR(13), CHAR(10), N'EXTERNAL NAME ',
+            QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class))
+    ELSE
+        CONCAT(
+            CASE object_info.type
+                WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
+                WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
+                WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + function_order_info.OrderClause + clr_options.OptionClause
+                WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
+                ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
+            END,
+            CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
+            QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+            CASE WHEN object_info.type = N'TA' AND clr_trigger.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + N';' ELSE N'' END)
+    END
+FROM sys.objects AS object_info
+INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
+INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = object_info.object_id
+INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+LEFT JOIN sys.triggers AS clr_trigger ON clr_trigger.object_id = object_info.object_id AND clr_trigger.parent_class = 1
+LEFT JOIN sys.objects AS clr_parent_object ON clr_parent_object.object_id = clr_trigger.parent_id
+LEFT JOIN sys.schemas AS clr_parent_schema ON clr_parent_schema.schema_id = clr_parent_object.schema_id
+LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
+OUTER APPLY (
+    SELECT ExecuteAsClause = CASE
+        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
+        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
+        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
+        ELSE NULL
+    END
+) AS execute_as_info
+OUTER APPLY (
+    SELECT OptionClause = CASE WHEN option_info.Options IS NULL THEN N'' ELSE N' WITH ' + option_info.Options END
+    FROM (
+        SELECT Options = STUFF((
+            SELECT N', ' + option_value
+            FROM (VALUES
+                (execute_as_info.ExecuteAsClause),
+                (CASE WHEN object_info.type = N'FS' AND assembly_module.null_on_null_input = 1 THEN N'RETURNS NULL ON NULL INPUT' ELSE NULL END)
+            ) AS options(option_value)
+            WHERE option_value IS NOT NULL
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS option_info
+) AS clr_options
+OUTER APPLY (
+    SELECT EventList = STUFF((
+        SELECT N', ' + event_info.type_desc
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = object_info.object_id
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS clr_trigger_events
+OUTER APPLY (
+    SELECT ParameterList = STUFF((
+        SELECT N', ' + parameter_item.name + N' ' + CASE
+            WHEN parameter_type.is_user_defined = 1 THEN QUOTENAME(parameter_type_schema.name) + N'.' + QUOTENAME(parameter_type.name)
+            WHEN parameter_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length) END + N')'
+            WHEN parameter_type.name IN (N'nvarchar', N'nchar') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length / 2) END + N')'
+            WHEN parameter_type.name IN (N'decimal', N'numeric') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.precision) + N',' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
+            WHEN parameter_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
+            ELSE parameter_type.name
+        END + CASE WHEN parameter_item.has_default_value = 1 THEN N' = ' + CASE
+            WHEN parameter_item.default_value IS NULL THEN N'NULL'
+            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'varchar', N'nvarchar', N'char', N'nchar', N'xml', N'uniqueidentifier', N'date', N'datetime', N'datetime2', N'datetimeoffset', N'time', N'smalldatetime') THEN N'N''' + REPLACE(CONVERT(nvarchar(max), parameter_item.default_value), N'''', N'''''') + N''''
+            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) = N'bit' THEN CASE WHEN CONVERT(bit, parameter_item.default_value) = 1 THEN N'1' ELSE N'0' END
+            ELSE CONVERT(nvarchar(max), parameter_item.default_value)
+        END ELSE N'' END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
+        FROM sys.parameters AS parameter_item
+        INNER JOIN sys.types AS parameter_type ON parameter_type.user_type_id = parameter_item.user_type_id
+        LEFT JOIN sys.schemas AS parameter_type_schema ON parameter_type_schema.schema_id = parameter_type.schema_id
+        WHERE parameter_item.object_id = object_info.object_id
+          AND parameter_item.parameter_id > 0
+        ORDER BY parameter_item.parameter_id
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS parameter_info
+LEFT JOIN sys.parameters AS return_parameter ON return_parameter.object_id = object_info.object_id AND return_parameter.parameter_id = 0
+LEFT JOIN sys.types AS return_type ON return_type.user_type_id = return_parameter.user_type_id
+LEFT JOIN sys.schemas AS return_type_schema ON return_type_schema.schema_id = return_type.schema_id
+OUTER APPLY (
+    SELECT DataType = CASE
+        WHEN return_type.is_user_defined = 1 THEN QUOTENAME(return_type_schema.name) + N'.' + QUOTENAME(return_type.name)
+        WHEN return_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length) END + N')'
+        WHEN return_type.name IN (N'nvarchar', N'nchar') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length / 2) END + N')'
+        WHEN return_type.name IN (N'decimal', N'numeric') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.precision) + N',' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
+        WHEN return_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
+        ELSE return_type.name
+    END
+) AS return_type_info
+OUTER APPLY (
+    SELECT TableDefinition = STUFF((
+        SELECT N', ' + QUOTENAME(column_item.name) + N' ' + CASE
+            WHEN column_type.is_user_defined = 1 THEN QUOTENAME(column_type_schema.name) + N'.' + QUOTENAME(column_type.name)
+            WHEN column_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length) END + N')'
+            WHEN column_type.name IN (N'nvarchar', N'nchar') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length / 2) END + N')'
+            WHEN column_type.name IN (N'decimal', N'numeric') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.precision) + N',' + CONVERT(nvarchar(12), column_item.scale) + N')'
+            WHEN column_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.scale) + N')'
+            ELSE column_type.name
+        END
+        FROM sys.columns AS column_item
+        INNER JOIN sys.types AS column_type ON column_type.user_type_id = column_item.user_type_id
+        LEFT JOIN sys.schemas AS column_type_schema ON column_type_schema.schema_id = column_type.schema_id
+        WHERE column_item.object_id = object_info.object_id
+        ORDER BY column_item.column_id
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS table_return_info
+OUTER APPLY (
+    SELECT OrderClause = CASE WHEN order_info.OrderList IS NULL THEN N'' ELSE CHAR(13) + CHAR(10) + N'ORDER (' + order_info.OrderList + N')' END
+    FROM (
+        SELECT OrderList = STUFF((
+            SELECT N', ' + QUOTENAME(order_column.name) + CASE WHEN function_order_column.is_descending = 1 THEN N' DESC' ELSE N' ASC' END
+            FROM sys.function_order_columns AS function_order_column
+            INNER JOIN sys.columns AS order_column ON order_column.object_id = function_order_column.object_id AND order_column.column_id = function_order_column.column_id
+            WHERE function_order_column.object_id = object_info.object_id
+            ORDER BY function_order_column.order_column_id
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS order_info
+) AS function_order_info
+WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
+  AND (@schema IS NULL OR schema_info.name = @schema)
+  AND (@name IS NULL OR object_info.name = @name)";
 
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
@@ -276,6 +484,58 @@ LEFT JOIN (
     FROM sys.availability_groups AS availability_group
     INNER JOIN sys.availability_replicas AS availability_replica ON availability_replica.group_id = availability_group.group_id
 ) AS availability_group ON availability_group.ReplicaMetadataId = permission.major_id AND permission.class_desc = N'AVAILABILITY GROUP'";
+
+    private const string SqlServerPermissionsServerUnion = @"
+SELECT
+    Scope = N'Server' COLLATE DATABASE_DEFAULT,
+    DatabaseName = CONVERT(nvarchar(128), NULL),
+    State = permission.state COLLATE DATABASE_DEFAULT,
+    StateDescription = permission.state_desc COLLATE DATABASE_DEFAULT,
+    PermissionName = permission.permission_name COLLATE DATABASE_DEFAULT,
+    ClassDescription = permission.class_desc COLLATE DATABASE_DEFAULT,
+    SecurableSchema = CONVERT(nvarchar(128), NULL),
+    SecurableName = CASE permission.class_desc
+        WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName')) COLLATE DATABASE_DEFAULT
+        WHEN N'ENDPOINT' THEN endpoint.name COLLATE DATABASE_DEFAULT
+        WHEN N'SERVER_PRINCIPAL' THEN target_principal.name COLLATE DATABASE_DEFAULT
+        WHEN N'AVAILABILITY GROUP' THEN {AvailabilityGroupName}
+        ELSE CONVERT(nvarchar(256), permission.major_id)
+    END,
+    SecurableColumn = CONVERT(nvarchar(128), NULL),
+    GranteeName = grantee.name COLLATE DATABASE_DEFAULT,
+    GrantorName = grantor.name COLLATE DATABASE_DEFAULT
+FROM sys.server_permissions AS permission
+INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
+INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
+LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_id AND permission.class_desc = N'ENDPOINT'
+LEFT JOIN sys.server_principals AS target_principal ON target_principal.principal_id = permission.major_id AND permission.class_desc = N'SERVER_PRINCIPAL'
+{AvailabilityGroupJoin}
+WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
+UNION ALL";
+
+    private const string SqlServerPermissionsFullTextStoplistCase = @"
+        WHEN permission.class_desc = N'FULLTEXT_STOPLIST' THEN target_fulltext_stoplist.name COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsSearchPropertyListCase = @"
+        WHEN permission.class_desc = N'SEARCH_PROPERTY_LIST' THEN target_search_property_list.name COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsDatabaseScopedCredentialCase = @"
+        WHEN permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL' THEN target_database_scoped_credential.name COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsExternalLanguageCase = @"
+        WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.name COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsFullTextStoplistJoin = @"
+LEFT JOIN sys.fulltext_stoplists AS target_fulltext_stoplist ON target_fulltext_stoplist.stoplist_id = permission.major_id AND permission.class_desc = N'FULLTEXT_STOPLIST'";
+
+    private const string SqlServerPermissionsSearchPropertyListJoin = @"
+LEFT JOIN sys.registered_search_property_lists AS target_search_property_list ON target_search_property_list.property_list_id = permission.major_id AND permission.class_desc = N'SEARCH_PROPERTY_LIST'";
+
+    private const string SqlServerPermissionsDatabaseScopedCredentialJoin = @"
+LEFT JOIN sys.database_scoped_credentials AS target_database_scoped_credential ON target_database_scoped_credential.credential_id = permission.major_id AND permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL'";
+
+    private const string SqlServerPermissionsExternalLanguageJoin = @"
+LEFT JOIN sys.external_languages AS target_external_language ON target_external_language.external_language_id = permission.major_id AND permission.class_desc = N'EXTERNAL_LANGUAGE'";
 
     private const string SqlServerTableScriptGraphEdgeConstraintStatements = @"
             UNION ALL
@@ -485,7 +745,29 @@ LEFT JOIN sys.sql_logins AS sl ON sl.principal_id = sp.principal_id
 WHERE (@includeSystem = 1 OR sp.name NOT LIKE N'##MS_%##')
   AND (@includeSystem = 1 OR ISNULL(sp.is_fixed_role, 0) = 0)
   AND (@name IS NULL OR sp.name COLLATE DATABASE_DEFAULT = @name)
-ORDER BY sp.type_desc, sp.name;";
+UNION ALL
+SELECT
+    Scope = N'Server',
+    DatabaseName = CONVERT(nvarchar(128), NULL),
+    Name = sl.name,
+    Type = sl.type,
+    TypeDescription = sl.type_desc,
+    Sid = CONVERT(varchar(514), sl.sid, 1),
+    DefaultDatabaseName = sl.default_database_name,
+    DefaultSchemaName = CONVERT(nvarchar(128), NULL),
+    AuthenticationType = CONVERT(nvarchar(60), NULL),
+    IsDisabled = CONVERT(bit, sl.is_disabled),
+    IsFixedRole = CONVERT(bit, 0),
+    Created = sl.create_date,
+    Modified = sl.modify_date
+FROM sys.sql_logins AS sl
+WHERE NOT EXISTS (
+      SELECT 1
+      FROM sys.server_principals AS sp
+      WHERE sp.principal_id = sl.principal_id)
+  AND (@includeSystem = 1 OR sl.name NOT LIKE N'##MS_%##')
+  AND (@name IS NULL OR sl.name COLLATE DATABASE_DEFAULT = @name)
+ORDER BY TypeDescription, Name;";
 
     private const string SqlServerDatabasePrincipalsManagementQuery = @"
 SELECT
@@ -537,32 +819,7 @@ WHERE (@roleName IS NULL OR role_principal.name = @roleName)
 ORDER BY Scope, DatabaseName, RoleName, MemberName;";
 
     private const string SqlServerPermissionsManagementQuery = @"
-SELECT
-    Scope = N'Server' COLLATE DATABASE_DEFAULT,
-    DatabaseName = CONVERT(nvarchar(128), NULL),
-    State = permission.state COLLATE DATABASE_DEFAULT,
-    StateDescription = permission.state_desc COLLATE DATABASE_DEFAULT,
-    PermissionName = permission.permission_name COLLATE DATABASE_DEFAULT,
-    ClassDescription = permission.class_desc COLLATE DATABASE_DEFAULT,
-    SecurableSchema = CONVERT(nvarchar(128), NULL),
-    SecurableName = CASE permission.class_desc
-        WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName')) COLLATE DATABASE_DEFAULT
-        WHEN N'ENDPOINT' THEN endpoint.name COLLATE DATABASE_DEFAULT
-        WHEN N'SERVER_PRINCIPAL' THEN target_principal.name COLLATE DATABASE_DEFAULT
-        WHEN N'AVAILABILITY GROUP' THEN {AvailabilityGroupName}
-        ELSE CONVERT(nvarchar(256), permission.major_id)
-    END,
-    SecurableColumn = CONVERT(nvarchar(128), NULL),
-    GranteeName = grantee.name COLLATE DATABASE_DEFAULT,
-    GrantorName = grantor.name COLLATE DATABASE_DEFAULT
-FROM sys.server_permissions AS permission
-INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
-INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
-LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_id AND permission.class_desc = N'ENDPOINT'
-LEFT JOIN sys.server_principals AS target_principal ON target_principal.principal_id = permission.major_id AND permission.class_desc = N'SERVER_PRINCIPAL'
-{AvailabilityGroupJoin}
-WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
-UNION ALL
+{ServerPermissions}
 SELECT
     Scope = N'Database' COLLATE DATABASE_DEFAULT,
     DatabaseName = DB_NAME() COLLATE DATABASE_DEFAULT,
@@ -594,6 +851,7 @@ SELECT
         WHEN permission.class_desc = N'REMOTE_SERVICE_BINDING' THEN target_remote_service_binding.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'ROUTE' THEN target_route.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'FULLTEXT_CATALOG' THEN target_fulltext_catalog.name COLLATE DATABASE_DEFAULT
+{AdvancedDatabasePermissionSecurableCases}
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CASE
@@ -620,6 +878,7 @@ LEFT JOIN sys.services AS target_service ON target_service.service_id = permissi
 LEFT JOIN sys.remote_service_bindings AS target_remote_service_binding ON target_remote_service_binding.remote_service_binding_id = permission.major_id AND permission.class_desc = N'REMOTE_SERVICE_BINDING'
 LEFT JOIN sys.routes AS target_route ON target_route.route_id = permission.major_id AND permission.class_desc = N'ROUTE'
 LEFT JOIN sys.fulltext_catalogs AS target_fulltext_catalog ON target_fulltext_catalog.fulltext_catalog_id = permission.major_id AND permission.class_desc = N'FULLTEXT_CATALOG'
+{AdvancedDatabasePermissionSecurableJoins}
 WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName, SecurableColumn;";
 
@@ -756,174 +1015,7 @@ WHERE trigger_info.parent_class = 0
   AND module_info.definition IS NOT NULL
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
-UNION ALL
-SELECT
-    ScriptType = N'Module',
-    SchemaName = CONVERT(sysname, NULL),
-    ObjectName = trigger_info.name,
-    ObjectType = trigger_info.type_desc,
-    Script = CONCAT(
-        N'CREATE TRIGGER ', QUOTENAME(trigger_info.name),
-        N' ON DATABASE', database_trigger_options.OptionClause,
-        N' FOR ', COALESCE(database_trigger_events.EventList, N'DDL_DATABASE_LEVEL_EVENTS'),
-        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
-        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
-FROM sys.triggers AS trigger_info
-INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
-INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
-LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
-OUTER APPLY (
-    SELECT ExecuteAsClause = CASE
-        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
-        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
-        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
-        ELSE NULL
-    END
-) AS database_execute_as_info
-OUTER APPLY (
-    SELECT OptionClause = CASE WHEN database_execute_as_info.ExecuteAsClause IS NULL THEN N'' ELSE N' WITH ' + database_execute_as_info.ExecuteAsClause END
-) AS database_trigger_options
-OUTER APPLY (
-    SELECT EventList = STUFF((
-        SELECT N', ' + event_info.type_desc
-        FROM sys.trigger_events AS event_info
-        WHERE event_info.object_id = trigger_info.object_id
-        ORDER BY event_info.type_desc
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-) AS database_trigger_events
-WHERE trigger_info.parent_class = 0
-  AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
-UNION ALL
-SELECT
-    ScriptType = N'Module',
-    SchemaName = schema_info.name,
-    ObjectName = object_info.name,
-    ObjectType = object_info.type_desc,
-    Script = CONCAT(
-        CASE object_info.type
-            WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
-            WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
-            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + function_order_info.OrderClause + clr_options.OptionClause
-            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
-            WHEN N'AF' THEN N'CREATE AGGREGATE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant')
-            ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
-        END,
-        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
-        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
-        CASE WHEN object_info.type = N'TA' AND clr_trigger.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + N';' ELSE N'' END)
-FROM sys.objects AS object_info
-INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
-INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = object_info.object_id
-INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
-LEFT JOIN sys.triggers AS clr_trigger ON clr_trigger.object_id = object_info.object_id AND clr_trigger.parent_class = 1
-LEFT JOIN sys.objects AS clr_parent_object ON clr_parent_object.object_id = clr_trigger.parent_id
-LEFT JOIN sys.schemas AS clr_parent_schema ON clr_parent_schema.schema_id = clr_parent_object.schema_id
-LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
-OUTER APPLY (
-    SELECT ExecuteAsClause = CASE
-        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
-        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
-        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
-        ELSE NULL
-    END
-) AS execute_as_info
-OUTER APPLY (
-    SELECT OptionClause = CASE WHEN option_info.Options IS NULL THEN N'' ELSE N' WITH ' + option_info.Options END
-    FROM (
-        SELECT Options = STUFF((
-            SELECT N', ' + option_value
-            FROM (VALUES
-                (execute_as_info.ExecuteAsClause),
-                (CASE WHEN object_info.type = N'FS' AND assembly_module.null_on_null_input = 1 THEN N'RETURNS NULL ON NULL INPUT' ELSE NULL END)
-            ) AS options(option_value)
-            WHERE option_value IS NOT NULL
-            FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-    ) AS option_info
-) AS clr_options
-OUTER APPLY (
-    SELECT EventList = STUFF((
-        SELECT N', ' + event_info.type_desc
-        FROM sys.trigger_events AS event_info
-        WHERE event_info.object_id = object_info.object_id
-        ORDER BY event_info.type_desc
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-) AS clr_trigger_events
-OUTER APPLY (
-    SELECT ParameterList = STUFF((
-        SELECT N', ' + parameter_item.name + N' ' + CASE
-            WHEN parameter_type.is_user_defined = 1 THEN QUOTENAME(parameter_type_schema.name) + N'.' + QUOTENAME(parameter_type.name)
-            WHEN parameter_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length) END + N')'
-            WHEN parameter_type.name IN (N'nvarchar', N'nchar') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length / 2) END + N')'
-            WHEN parameter_type.name IN (N'decimal', N'numeric') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.precision) + N',' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
-            WHEN parameter_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
-            ELSE parameter_type.name
-        END + CASE WHEN parameter_item.has_default_value = 1 THEN N' = ' + CASE
-            WHEN parameter_item.default_value IS NULL THEN N'NULL'
-            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'varchar', N'nvarchar', N'char', N'nchar', N'xml', N'uniqueidentifier', N'date', N'datetime', N'datetime2', N'datetimeoffset', N'time', N'smalldatetime') THEN N'N''' + REPLACE(CONVERT(nvarchar(max), parameter_item.default_value), N'''', N'''''') + N''''
-            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) = N'bit' THEN CASE WHEN CONVERT(bit, parameter_item.default_value) = 1 THEN N'1' ELSE N'0' END
-            ELSE CONVERT(nvarchar(max), parameter_item.default_value)
-        END ELSE N'' END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
-        FROM sys.parameters AS parameter_item
-        INNER JOIN sys.types AS parameter_type ON parameter_type.user_type_id = parameter_item.user_type_id
-        LEFT JOIN sys.schemas AS parameter_type_schema ON parameter_type_schema.schema_id = parameter_type.schema_id
-        WHERE parameter_item.object_id = object_info.object_id
-          AND parameter_item.parameter_id > 0
-        ORDER BY parameter_item.parameter_id
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-) AS parameter_info
-LEFT JOIN sys.parameters AS return_parameter ON return_parameter.object_id = object_info.object_id AND return_parameter.parameter_id = 0
-LEFT JOIN sys.types AS return_type ON return_type.user_type_id = return_parameter.user_type_id
-LEFT JOIN sys.schemas AS return_type_schema ON return_type_schema.schema_id = return_type.schema_id
-OUTER APPLY (
-    SELECT DataType = CASE
-        WHEN return_type.is_user_defined = 1 THEN QUOTENAME(return_type_schema.name) + N'.' + QUOTENAME(return_type.name)
-        WHEN return_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length) END + N')'
-        WHEN return_type.name IN (N'nvarchar', N'nchar') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length / 2) END + N')'
-        WHEN return_type.name IN (N'decimal', N'numeric') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.precision) + N',' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
-        WHEN return_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
-        ELSE return_type.name
-    END
-) AS return_type_info
-OUTER APPLY (
-    SELECT TableDefinition = STUFF((
-        SELECT N', ' + QUOTENAME(column_item.name) + N' ' + CASE
-            WHEN column_type.is_user_defined = 1 THEN QUOTENAME(column_type_schema.name) + N'.' + QUOTENAME(column_type.name)
-            WHEN column_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length) END + N')'
-            WHEN column_type.name IN (N'nvarchar', N'nchar') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length / 2) END + N')'
-            WHEN column_type.name IN (N'decimal', N'numeric') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.precision) + N',' + CONVERT(nvarchar(12), column_item.scale) + N')'
-            WHEN column_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.scale) + N')'
-            ELSE column_type.name
-        END
-        FROM sys.columns AS column_item
-        INNER JOIN sys.types AS column_type ON column_type.user_type_id = column_item.user_type_id
-        LEFT JOIN sys.schemas AS column_type_schema ON column_type_schema.schema_id = column_type.schema_id
-        WHERE column_item.object_id = object_info.object_id
-        ORDER BY column_item.column_id
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-) AS table_return_info
-OUTER APPLY (
-    SELECT OrderClause = CASE WHEN order_info.OrderList IS NULL THEN N'' ELSE CHAR(13) + CHAR(10) + N'ORDER (' + order_info.OrderList + N')' END
-    FROM (
-        SELECT OrderList = STUFF((
-            SELECT N', ' + QUOTENAME(order_column.name) + CASE WHEN function_order_column.is_descending = 1 THEN N' DESC' ELSE N' ASC' END
-            FROM sys.function_order_columns AS function_order_column
-            INNER JOIN sys.columns AS order_column ON order_column.object_id = function_order_column.object_id AND order_column.column_id = function_order_column.column_id
-            WHERE function_order_column.object_id = object_info.object_id
-            ORDER BY function_order_column.order_column_id
-            FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-    ) AS order_info
-) AS function_order_info
-WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
-  AND (@schema IS NULL OR schema_info.name = @schema)
-  AND (@name IS NULL OR object_info.name = @name)
+{DatabaseClrModuleScripts}
 {ServerTriggerModuleScripts}
 ORDER BY SchemaName, ObjectName;";
 

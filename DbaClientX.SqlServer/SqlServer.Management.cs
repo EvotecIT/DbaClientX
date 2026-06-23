@@ -98,7 +98,18 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             bool includeAvailabilityGroups = SupportsAvailabilityGroups(connection, transaction);
-            string query = BuildSqlServerPermissionsManagementQuery(includeAvailabilityGroups);
+            bool includeServerPermissions = SupportsServerPermissions(connection, transaction);
+            bool includeFullTextStoplists = SupportsFullTextStoplists(connection, transaction);
+            bool includeSearchPropertyLists = SupportsSearchPropertyLists(connection, transaction);
+            bool includeDatabaseScopedCredentials = SupportsDatabaseScopedCredentials(connection, transaction);
+            bool includeExternalLanguages = SupportsExternalLanguages(connection, transaction);
+            string query = BuildSqlServerPermissionsManagementQuery(
+                includeAvailabilityGroups,
+                includeServerPermissions,
+                includeFullTextStoplists,
+                includeSearchPropertyLists,
+                includeDatabaseScopedCredentials,
+                includeExternalLanguages);
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapPermission, parameters: new Dictionary<string, object?>
             {
                 ["@principalName"] = principalName
@@ -188,7 +199,9 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            string query = BuildSqlServerModuleScriptsManagementQuery(SupportsServerTriggerModules(connection, transaction));
+            string query = BuildSqlServerModuleScriptsManagementQuery(
+                SupportsServerTriggerModules(connection, transaction),
+                SupportsDatabaseClrModules(connection, transaction));
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapScript, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -204,14 +217,24 @@ public partial class SqlServer
         }
     }
 
-    private static string BuildSqlServerModuleScriptsManagementQuery(bool includeServerTriggerModules)
-        => SqlServerModuleScriptsManagementQuery.Replace(
-            SqlServerModuleScriptsServerTriggerUnionToken,
-            includeServerTriggerModules ? SqlServerModuleScriptsServerTriggerUnion : string.Empty);
+    private static string BuildSqlServerModuleScriptsManagementQuery(bool includeServerTriggerModules, bool includeDatabaseClrModules)
+        => SqlServerModuleScriptsManagementQuery
+            .Replace(
+                SqlServerModuleScriptsDatabaseClrUnionToken,
+                includeDatabaseClrModules ? SqlServerModuleScriptsDatabaseClrUnion : string.Empty)
+            .Replace(
+                SqlServerModuleScriptsServerTriggerUnionToken,
+                includeServerTriggerModules ? SqlServerModuleScriptsServerTriggerUnion : string.Empty);
 
     private bool SupportsServerTriggerModules(SqlConnection connection, SqlTransaction? transaction)
     {
         object? result = ExecuteScalar(connection, transaction, SqlServerServerTriggerModulesSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private bool SupportsDatabaseClrModules(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerDatabaseClrModulesSupportQuery);
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
@@ -378,14 +401,61 @@ public partial class SqlServer
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
-    private static string BuildSqlServerPermissionsManagementQuery(bool includeAvailabilityGroups)
+    private bool SupportsServerPermissions(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerServerPermissionsSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private bool SupportsFullTextStoplists(SqlConnection connection, SqlTransaction? transaction)
+        => SupportsCatalogView(connection, transaction, SqlServerFullTextStoplistsSupportQuery);
+
+    private bool SupportsSearchPropertyLists(SqlConnection connection, SqlTransaction? transaction)
+        => SupportsCatalogView(connection, transaction, SqlServerSearchPropertyListsSupportQuery);
+
+    private bool SupportsDatabaseScopedCredentials(SqlConnection connection, SqlTransaction? transaction)
+        => SupportsCatalogView(connection, transaction, SqlServerDatabaseScopedCredentialsSupportQuery);
+
+    private bool SupportsExternalLanguages(SqlConnection connection, SqlTransaction? transaction)
+        => SupportsCatalogView(connection, transaction, SqlServerExternalLanguagesSupportQuery);
+
+    private bool SupportsCatalogView(SqlConnection connection, SqlTransaction? transaction, string supportQuery)
+    {
+        object? result = ExecuteScalar(connection, transaction, supportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private static string BuildSqlServerPermissionsManagementQuery(
+        bool includeAvailabilityGroups,
+        bool includeServerPermissions,
+        bool includeFullTextStoplists,
+        bool includeSearchPropertyLists,
+        bool includeDatabaseScopedCredentials,
+        bool includeExternalLanguages)
         => SqlServerPermissionsManagementQuery
+            .Replace(
+                SqlServerPermissionsServerUnionToken,
+                includeServerPermissions ? SqlServerPermissionsServerUnion : string.Empty)
             .Replace(
                 SqlServerPermissionsAvailabilityGroupNameToken,
                 includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupNameProjection : SqlServerPermissionsLegacyAvailabilityGroupNameProjection)
             .Replace(
                 SqlServerPermissionsAvailabilityGroupJoinToken,
-                includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupJoin : string.Empty);
+                includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupJoin : string.Empty)
+            .Replace(
+                SqlServerPermissionsAdvancedDatabaseSecurableCasesToken,
+                string.Concat(
+                    includeFullTextStoplists ? SqlServerPermissionsFullTextStoplistCase : string.Empty,
+                    includeSearchPropertyLists ? SqlServerPermissionsSearchPropertyListCase : string.Empty,
+                    includeDatabaseScopedCredentials ? SqlServerPermissionsDatabaseScopedCredentialCase : string.Empty,
+                    includeExternalLanguages ? SqlServerPermissionsExternalLanguageCase : string.Empty))
+            .Replace(
+                SqlServerPermissionsAdvancedDatabaseSecurableJoinsToken,
+                string.Concat(
+                    includeFullTextStoplists ? SqlServerPermissionsFullTextStoplistJoin : string.Empty,
+                    includeSearchPropertyLists ? SqlServerPermissionsSearchPropertyListJoin : string.Empty,
+                    includeDatabaseScopedCredentials ? SqlServerPermissionsDatabaseScopedCredentialJoin : string.Empty,
+                    includeExternalLanguages ? SqlServerPermissionsExternalLanguageJoin : string.Empty));
 
     private static string BuildSqlServerTableScriptColumnsManagementQuery(
         bool includeMasking,
