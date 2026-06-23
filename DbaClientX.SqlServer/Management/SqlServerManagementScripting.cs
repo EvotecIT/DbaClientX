@@ -140,7 +140,16 @@ internal static class SqlServerManagementScripting
         if (IsFileTable(orderedColumns))
         {
             builder.AppendLine();
-            builder.Append("AS FILETABLE;");
+            builder.Append("AS FILETABLE");
+
+            string? fileTableOptions = BuildFileTableOptionsDefinition(orderedColumns);
+            if (!string.IsNullOrWhiteSpace(fileTableOptions))
+            {
+                builder.AppendLine();
+                builder.Append(fileTableOptions);
+            }
+
+            builder.Append(';');
             return new SqlServerScriptInfo
             {
                 ScriptType = "Table",
@@ -261,6 +270,7 @@ internal static class SqlServerManagementScripting
            string.IsNullOrWhiteSpace(column.GeneratedAlwaysTypeDescription) &&
            !string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) &&
            !string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase) &&
+           !column.IsColumnSet &&
            IsWritableGraphCopyColumn(column);
 
     private static bool IsWritableGraphCopyColumn(SqlServerTableColumnScriptInfo column)
@@ -277,8 +287,8 @@ internal static class SqlServerManagementScripting
         }
 
         return string.Equals(column.GraphTableKind, "EDGE", StringComparison.OrdinalIgnoreCase) &&
-               (string.Equals(column.ColumnName, "$from_id", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(column.ColumnName, "$to_id", StringComparison.OrdinalIgnoreCase));
+               (string.Equals(column.GraphColumnRole, "$from_id", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(column.GraphColumnRole, "$to_id", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string BuildColumnDefinition(SqlServerTableColumnScriptInfo column)
@@ -481,6 +491,11 @@ internal static class SqlServerManagementScripting
 
     private static bool IsFileTable(IEnumerable<SqlServerTableColumnScriptInfo> columns)
         => columns.Any(column => string.Equals(column.GraphTableKind, "FILETABLE", StringComparison.OrdinalIgnoreCase));
+
+    private static string? BuildFileTableOptionsDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+        => columns
+            .Select(column => column.FileTableOptions)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {

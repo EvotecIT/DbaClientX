@@ -289,11 +289,13 @@ public partial class SqlServer
             bool includeEncryption = SupportsColumnEncryption(connection, transaction);
             bool includeGraphEdgeConstraints = SupportsGraphEdgeConstraints(connection, transaction);
             bool includeHashIndexes = SupportsHashIndexes(connection, transaction);
+            bool includeFileTables = SupportsFileTables(connection, transaction);
             string query = BuildSqlServerTableScriptColumnsManagementQuery(
                 includeMasking,
                 includeEncryption,
                 includeGraphEdgeConstraints,
                 includeHashIndexes,
+                includeFileTables,
                 includeGraphHiddenColumns,
                 includeGraphTableOnlyRows);
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapTableScriptColumn, parameters: new Dictionary<string, object?>
@@ -341,6 +343,12 @@ public partial class SqlServer
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
+    private bool SupportsFileTables(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerFileTablesSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
     private static string BuildSqlServerPermissionsManagementQuery(bool includeAvailabilityGroups)
         => SqlServerPermissionsManagementQuery
             .Replace(
@@ -355,6 +363,7 @@ public partial class SqlServer
         bool includeEncryption,
         bool includeGraphEdgeConstraints,
         bool includeHashIndexes,
+        bool includeFileTables,
         bool includeGraphHiddenColumns,
         bool includeGraphTableOnlyRows)
         => SqlServerTableScriptColumnsManagementQuery
@@ -391,6 +400,12 @@ public partial class SqlServer
             .Replace(
                 SqlServerTableScriptMemoryHashBucketCountToken,
                 includeHashIndexes ? SqlServerTableScriptMemoryHashBucketCount : "N''")
+            .Replace(
+                SqlServerTableScriptFileTableOptionsToken,
+                includeFileTables ? SqlServerTableScriptFileTableOptionsProjection : SqlServerTableScriptLegacyFileTableOptionsProjection)
+            .Replace(
+                SqlServerTableScriptFileTableJoinToken,
+                includeFileTables ? SqlServerTableScriptFileTableJoin : string.Empty)
             .Replace(
                 SqlServerTableScriptGraphHiddenColumnFilterToken,
                 includeGraphHiddenColumns ? SqlServerTableScriptGraphCopyColumnFilter : SqlServerTableScriptGraphHiddenColumnFilter)

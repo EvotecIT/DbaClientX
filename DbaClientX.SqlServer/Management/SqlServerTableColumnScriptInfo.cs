@@ -40,6 +40,8 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public bool IsColumnSet { get; set; }
 
+    public string? GraphColumnRole { get; set; }
+
     public string? MaskingFunction { get; set; }
 
     public string? EncryptionDefinition { get; set; }
@@ -77,6 +79,8 @@ internal sealed class SqlServerTableColumnScriptInfo
     public long? UniqueConstraintBucketCount { get; set; }
 
     public string? GraphTableKind { get; set; }
+
+    public string? FileTableOptions { get; set; }
 
     public string? AdditionalConstraintDefinitions { get; set; }
 

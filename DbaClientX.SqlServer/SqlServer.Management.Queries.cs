@@ -28,6 +28,12 @@ END;";
     private const string SqlServerHashIndexesSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.hash_indexes') IS NULL THEN 0 ELSE 1 END;";
 
+    private const string SqlServerFileTablesSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.filetables') IS NULL THEN 0
+    ELSE 1
+END;";
+
     private const string SqlServerServerTriggersSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.server_triggers') IS NULL THEN 0 ELSE 1 END;";
 
@@ -73,7 +79,7 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition,
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
 FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
 WHERE module_info.definition IS NOT NULL
@@ -110,6 +116,10 @@ WHERE module_info.definition IS NOT NULL
 
     private const string SqlServerTableScriptGraphTableOnlyRowsToken = "{GraphTableOnlyRows}";
 
+    private const string SqlServerTableScriptFileTableOptionsToken = "{FileTableOptions}";
+
+    private const string SqlServerTableScriptFileTableJoinToken = "{FileTableJoin}";
+
     private const string SqlServerTableScriptLegacyMaskingFunctionProjection = "CONVERT(nvarchar(4000), NULL)";
 
     private const string SqlServerTableScriptMaskingFunctionProjection = "masking_info.masking_function";
@@ -136,9 +146,77 @@ WHERE module_info.definition IS NOT NULL
 
     private const string SqlServerTableScriptMemoryHashBucketCount = "CASE WHEN memory_index.type_desc LIKE N'%HASH%' AND memory_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), memory_hash.bucket_count) + N')' ELSE N'' END";
 
-    private const string SqlServerTableScriptGraphHiddenColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)";
+    private const string SqlServerTableScriptGraphCopyColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND graph_column_info.graph_type IS NOT NULL AND graph_column_info.graph_type NOT IN (5, 8))";
 
-    private const string SqlServerTableScriptGraphCopyColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1 AND column_info.name NOT IN (N'$from_id', N'$to_id'))";
+    private const string SqlServerTableScriptGraphHiddenColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND graph_column_info.graph_type IS NOT NULL)";
+
+    private const string SqlServerTableScriptLegacyFileTableOptionsProjection = "CONVERT(nvarchar(max), NULL)";
+
+    private const string SqlServerTableScriptFileTableOptionsProjection = "filetable_info.options";
+
+    private const string SqlServerTableScriptFileTableJoin = @"
+OUTER APPLY (
+    SELECT TOP (1) primary_key_name = key_info.name
+    FROM sys.key_constraints AS key_info
+    INNER JOIN sys.index_columns AS key_column ON key_column.object_id = key_info.parent_object_id AND key_column.index_id = key_info.unique_index_id
+    INNER JOIN sys.columns AS key_column_info ON key_column_info.object_id = key_column.object_id AND key_column_info.column_id = key_column.column_id
+    WHERE key_info.parent_object_id = table_info.object_id
+      AND key_info.type = N'PK'
+      AND key_column_info.name = N'path_locator'
+    ORDER BY key_info.name
+) AS filetable_primary_key
+OUTER APPLY (
+    SELECT TOP (1) stream_unique_name = index_info.name
+    FROM sys.indexes AS index_info
+    INNER JOIN sys.index_columns AS key_column ON key_column.object_id = index_info.object_id AND key_column.index_id = index_info.index_id
+    INNER JOIN sys.columns AS key_column_info ON key_column_info.object_id = key_column.object_id AND key_column_info.column_id = key_column.column_id
+    WHERE index_info.object_id = table_info.object_id
+      AND index_info.is_unique = 1
+      AND key_column_info.name = N'stream_id'
+    ORDER BY index_info.name
+) AS filetable_stream_unique
+OUTER APPLY (
+    SELECT TOP (1) fullpath_unique_name = index_info.name
+    FROM sys.indexes AS index_info
+    WHERE index_info.object_id = table_info.object_id
+      AND index_info.is_unique = 1
+      AND EXISTS (
+          SELECT 1
+          FROM sys.index_columns AS key_column
+          INNER JOIN sys.columns AS key_column_info ON key_column_info.object_id = key_column.object_id AND key_column_info.column_id = key_column.column_id
+          WHERE key_column.object_id = index_info.object_id
+            AND key_column.index_id = index_info.index_id
+            AND key_column_info.name = N'parent_path_locator'
+      )
+      AND EXISTS (
+          SELECT 1
+          FROM sys.index_columns AS key_column
+          INNER JOIN sys.columns AS key_column_info ON key_column_info.object_id = key_column.object_id AND key_column_info.column_id = key_column.column_id
+          WHERE key_column.object_id = index_info.object_id
+            AND key_column.index_id = index_info.index_id
+            AND key_column_info.name = N'name'
+      )
+    ORDER BY index_info.name
+) AS filetable_fullpath_unique
+OUTER APPLY (
+    SELECT options = CASE WHEN option_info.Options IS NULL THEN NULL ELSE N'WITH (' + option_info.Options + N')' END
+    FROM sys.filetables AS filetable_source
+    OUTER APPLY (
+        SELECT Options = STUFF((
+            SELECT N', ' + option_value
+            FROM (VALUES
+                (CASE WHEN filetable_source.directory_name IS NOT NULL THEN N'FILETABLE_DIRECTORY = N''' + REPLACE(filetable_source.directory_name, N'''', N'''''') + N'''' ELSE NULL END),
+                (CASE WHEN filetable_source.filename_collation_name IS NOT NULL THEN N'FILETABLE_COLLATE_FILENAME = ' + filetable_source.filename_collation_name ELSE NULL END),
+                (CASE WHEN filetable_primary_key.primary_key_name IS NOT NULL THEN N'FILETABLE_PRIMARY_KEY_CONSTRAINT_NAME = ' + QUOTENAME(filetable_primary_key.primary_key_name) ELSE NULL END),
+                (CASE WHEN filetable_stream_unique.stream_unique_name IS NOT NULL THEN N'FILETABLE_STREAMID_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_stream_unique.stream_unique_name) ELSE NULL END),
+                (CASE WHEN filetable_fullpath_unique.fullpath_unique_name IS NOT NULL THEN N'FILETABLE_FULLPATH_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_fullpath_unique.fullpath_unique_name) ELSE NULL END)
+            ) AS filetable_options(option_value)
+            WHERE option_value IS NOT NULL
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS option_info
+    WHERE filetable_source.object_id = table_info.object_id
+) AS filetable_info";
 
     private const string SqlServerPermissionsLegacyAvailabilityGroupNameProjection = "CONVERT(nvarchar(128), permission.major_id) COLLATE DATABASE_DEFAULT";
 
@@ -198,6 +276,7 @@ SELECT
     IsHidden = CONVERT(bit, 0),
     IsSparse = CONVERT(bit, 0),
     IsColumnSet = CONVERT(bit, 0),
+    GraphColumnRole = CONVERT(nvarchar(60), NULL),
     MaskingFunction = CONVERT(nvarchar(4000), NULL),
     EncryptionDefinition = CONVERT(nvarchar(4000), NULL),
     TemporalType = CONVERT(int, 0),
@@ -217,6 +296,7 @@ SELECT
     UniqueConstraintIsDescending = CONVERT(bit, NULL),
     UniqueConstraintBucketCount = CONVERT(bigint, NULL),
     GraphTableKind = graph_info.graph_kind,
+    FileTableOptions = CONVERT(nvarchar(max), NULL),
     AdditionalConstraintDefinitions = CONVERT(nvarchar(max), NULL),
     PostCreateStatements = CONVERT(nvarchar(max), NULL)
 FROM sys.tables AS table_info
@@ -235,8 +315,15 @@ WHERE graph_info.graph_kind IN (N'NODE', N'EDGE')
   AND NOT EXISTS (
       SELECT 1
       FROM sys.columns AS visible_column
+      OUTER APPLY (
+          SELECT graph_type = CASE
+              WHEN visible_column_metadata.data.exist(N'/column/graph_type') = 1 THEN visible_column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int')
+              ELSE NULL
+          END
+          FROM (SELECT data = (SELECT visible_column.* FOR XML PATH(N'column'), TYPE)) AS visible_column_metadata
+      ) AS visible_graph_column_info
       WHERE visible_column.object_id = table_info.object_id
-        AND ISNULL(COLUMNPROPERTY(visible_column.object_id, visible_column.name, N'IsHidden'), 0) = 0
+        AND visible_graph_column_info.graph_type IS NULL
   )";
 
     private const string SqlServerAgentJobsManagementQuery = @"
@@ -574,7 +661,7 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition,
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(parent_schema.name) + N'.' + QUOTENAME(parent_object.name) + N';' ELSE N'' END)
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(parent_schema.name) + N'.' + QUOTENAME(parent_object.name) + N';' ELSE N'' END)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info.object_id
@@ -595,7 +682,7 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition,
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
 FROM sys.triggers AS trigger_info
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
 WHERE trigger_info.parent_class = 0
@@ -610,9 +697,10 @@ SELECT
     ObjectType = object_info.type_desc,
     Script = CONCAT(
         CASE object_info.type
-            WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END
-            WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant')
-            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')'
+            WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
+            WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
+            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause
+            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + N' FOR ' + COALESCE(clr_trigger_events.EventList, N'INSERT')
             ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
         END,
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
@@ -621,6 +709,41 @@ FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = object_info.object_id
 INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+LEFT JOIN sys.triggers AS clr_trigger ON clr_trigger.object_id = object_info.object_id AND clr_trigger.parent_class = 1
+LEFT JOIN sys.objects AS clr_parent_object ON clr_parent_object.object_id = clr_trigger.parent_id
+LEFT JOIN sys.schemas AS clr_parent_schema ON clr_parent_schema.schema_id = clr_parent_object.schema_id
+LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
+OUTER APPLY (
+    SELECT ExecuteAsClause = CASE
+        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
+        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
+        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
+        ELSE NULL
+    END
+) AS execute_as_info
+OUTER APPLY (
+    SELECT OptionClause = CASE WHEN option_info.Options IS NULL THEN N'' ELSE N' WITH ' + option_info.Options END
+    FROM (
+        SELECT Options = STUFF((
+            SELECT N', ' + option_value
+            FROM (VALUES
+                (execute_as_info.ExecuteAsClause),
+                (CASE WHEN object_info.type = N'FS' AND assembly_module.null_on_null_input = 1 THEN N'RETURNS NULL ON NULL INPUT' ELSE NULL END)
+            ) AS options(option_value)
+            WHERE option_value IS NOT NULL
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS option_info
+) AS clr_options
+OUTER APPLY (
+    SELECT EventList = STUFF((
+        SELECT N', ' + event_info.type_desc
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = object_info.object_id
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS clr_trigger_events
 OUTER APPLY (
     SELECT ParameterList = STUFF((
         SELECT N', ' + parameter_item.name + N' ' + CASE
@@ -630,7 +753,12 @@ OUTER APPLY (
             WHEN parameter_type.name IN (N'decimal', N'numeric') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.precision) + N',' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
             WHEN parameter_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
             ELSE parameter_type.name
-        END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
+        END + CASE WHEN parameter_item.has_default_value = 1 THEN N' = ' + CASE
+            WHEN parameter_item.default_value IS NULL THEN N'NULL'
+            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'varchar', N'nvarchar', N'char', N'nchar', N'xml', N'uniqueidentifier', N'date', N'datetime', N'datetime2', N'datetimeoffset', N'time', N'smalldatetime') THEN N'N''' + REPLACE(CONVERT(nvarchar(max), parameter_item.default_value), N'''', N'''''') + N''''
+            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) = N'bit' THEN CASE WHEN CONVERT(bit, parameter_item.default_value) = 1 THEN N'1' ELSE N'0' END
+            ELSE CONVERT(nvarchar(max), parameter_item.default_value)
+        END ELSE N'' END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
         FROM sys.parameters AS parameter_item
         INNER JOIN sys.types AS parameter_type ON parameter_type.user_type_id = parameter_item.user_type_id
         LEFT JOIN sys.schemas AS parameter_type_schema ON parameter_type_schema.schema_id = parameter_type.schema_id
@@ -671,7 +799,7 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS table_return_info
-WHERE object_info.type IN ('PC', 'FS', 'FT')
+WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA')
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)
 {ServerTriggerModuleScripts}
@@ -681,7 +809,10 @@ ORDER BY SchemaName, ObjectName;";
 SELECT
     SchemaName = schema_info.name,
     TableName = table_info.name,
-    ColumnName = column_info.name,
+    ColumnName = CASE
+        WHEN graph_column_info.graph_column_role IN (N'$from_id', N'$to_id') THEN graph_column_info.graph_column_role
+        ELSE column_info.name
+    END,
     Ordinal = column_info.column_id,
     DataType = CASE
         WHEN type_info.name = N'vector' AND vector_info.vector_dimensions IS NOT NULL THEN N'vector(' + CONVERT(nvarchar(12), vector_info.vector_dimensions) + CASE WHEN vector_info.vector_base_type_desc IS NOT NULL AND vector_info.vector_base_type_desc <> N'FLOAT32' THEN N', ' + LOWER(vector_info.vector_base_type_desc) ELSE N'' END + N')'
@@ -723,6 +854,7 @@ SELECT
     IsHidden = CONVERT(bit, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0)),
     IsSparse = CONVERT(bit, column_info.is_sparse),
     IsColumnSet = CONVERT(bit, column_info.is_column_set),
+    GraphColumnRole = graph_column_info.graph_column_role,
     MaskingFunction = {MaskingFunction},
     EncryptionDefinition = {EncryptionDefinition},
     TemporalType = temporal_info.temporal_type,
@@ -742,6 +874,7 @@ SELECT
     UniqueConstraintIsDescending = CONVERT(bit, NULL),
     UniqueConstraintBucketCount = CONVERT(bigint, NULL),
     GraphTableKind = graph_info.graph_kind,
+    FileTableOptions = {FileTableOptions},
     AdditionalConstraintDefinitions = constraint_info.definitions,
     PostCreateStatements = post_create_info.statements
 FROM sys.tables AS table_info
@@ -813,6 +946,23 @@ OUTER APPLY (
     END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS graph_info
+OUTER APPLY (
+    SELECT
+        graph_type = CASE
+            WHEN column_metadata.data.exist(N'/column/graph_type') = 1 THEN column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int')
+            ELSE NULL
+        END,
+        graph_column_role = CASE
+            WHEN column_metadata.data.exist(N'/column/graph_type') = 0 THEN NULL
+            WHEN column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int') = 5 THEN N'$from_id'
+            WHEN column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int') = 8 THEN N'$to_id'
+            WHEN column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int') = 2 AND graph_info.graph_kind = N'NODE' THEN N'$node_id'
+            WHEN column_metadata.data.value(N'(/column/graph_type/text())[1]', N'int') = 2 AND graph_info.graph_kind = N'EDGE' THEN N'$edge_id'
+            ELSE NULL
+        END
+    FROM (SELECT data = (SELECT column_info.* FOR XML PATH(N'column'), TYPE)) AS column_metadata
+) AS graph_column_info
+{FileTableJoin}
 OUTER APPLY (
     SELECT is_external = CASE
         WHEN table_metadata.data.exist(N'/table/is_external') = 1 THEN table_metadata.data.value(N'(/table/is_external/text())[1]', N'bit')
