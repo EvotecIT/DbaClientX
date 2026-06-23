@@ -204,7 +204,8 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             bool includeMasking = SupportsMaskedColumns(connection, transaction);
-            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking);
+            bool includeEncryption = SupportsColumnEncryption(connection, transaction);
+            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking, includeEncryption);
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapTableScriptColumn, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -226,12 +227,24 @@ public partial class SqlServer
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
-    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking)
+    private bool SupportsColumnEncryption(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerColumnEncryptionSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking, bool includeEncryption)
         => SqlServerTableScriptColumnsManagementQuery
             .Replace(
                 SqlServerTableScriptMaskingFunctionToken,
                 includeMasking ? SqlServerTableScriptMaskingFunctionProjection : SqlServerTableScriptLegacyMaskingFunctionProjection)
             .Replace(
                 SqlServerTableScriptMaskingJoinToken,
-                includeMasking ? SqlServerTableScriptMaskingJoin : string.Empty);
+                includeMasking ? SqlServerTableScriptMaskingJoin : string.Empty)
+            .Replace(
+                SqlServerTableScriptEncryptionDefinitionToken,
+                includeEncryption ? SqlServerTableScriptEncryptionDefinitionProjection : SqlServerTableScriptLegacyEncryptionDefinitionProjection)
+            .Replace(
+                SqlServerTableScriptEncryptionJoinToken,
+                includeEncryption ? SqlServerTableScriptEncryptionJoin : string.Empty);
 }

@@ -5,15 +5,32 @@ public partial class SqlServer
     private const string SqlServerMaskedColumnsSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.masked_columns') IS NULL THEN 0 ELSE 1 END;";
 
+    private const string SqlServerColumnEncryptionSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.column_encryption_keys') IS NULL OR COL_LENGTH(N'sys.columns', N'encryption_type_desc') IS NULL THEN 0
+    ELSE 1
+END;";
+
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
     private const string SqlServerTableScriptMaskingJoinToken = "{MaskingJoin}";
+
+    private const string SqlServerTableScriptEncryptionDefinitionToken = "{EncryptionDefinition}";
+
+    private const string SqlServerTableScriptEncryptionJoinToken = "{EncryptionJoin}";
 
     private const string SqlServerTableScriptLegacyMaskingFunctionProjection = "CONVERT(nvarchar(4000), NULL)";
 
     private const string SqlServerTableScriptMaskingFunctionProjection = "masking_info.masking_function";
 
     private const string SqlServerTableScriptMaskingJoin = "LEFT JOIN sys.masked_columns AS masking_info ON masking_info.object_id = column_info.object_id AND masking_info.column_id = column_info.column_id";
+
+    private const string SqlServerTableScriptLegacyEncryptionDefinitionProjection = "CONVERT(nvarchar(4000), NULL)";
+
+    private const string SqlServerTableScriptEncryptionDefinitionProjection = "CASE WHEN column_info.encryption_type_desc IS NULL THEN NULL ELSE N'ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = ' + QUOTENAME(encryption_key.name) + N', ENCRYPTION_TYPE = ' + column_info.encryption_type_desc + N', ALGORITHM = ''' + column_info.encryption_algorithm_name + N''')' END";
+
+    private const string SqlServerTableScriptEncryptionJoin = "LEFT JOIN sys.column_encryption_keys AS encryption_key ON encryption_key.column_encryption_key_id = column_info.column_encryption_key_id";
+
 
     private const string SqlServerAgentJobsManagementQuery = @"
 SELECT
@@ -309,7 +326,23 @@ WHERE object_info.type IN ('P', 'PC', 'X', 'V', 'TR', 'FN', 'IF', 'TF', 'FS', 'F
   AND module_info.definition IS NOT NULL
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)
-ORDER BY schema_info.name, object_info.name;";
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name,
+    ObjectType = trigger_info.type_desc,
+    Script = CONCAT(
+        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        module_info.definition)
+FROM sys.triggers AS trigger_info
+INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
+WHERE trigger_info.parent_class = 0
+  AND module_info.definition IS NOT NULL
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)
+ORDER BY SchemaName, ObjectName;";
 
     private const string SqlServerTableScriptColumnsManagementQuery = @"
 SELECT
@@ -356,8 +389,11 @@ SELECT
     IsHidden = CONVERT(bit, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0)),
     IsSparse = CONVERT(bit, column_info.is_sparse),
     MaskingFunction = {MaskingFunction},
+    EncryptionDefinition = {EncryptionDefinition},
     TemporalType = temporal_info.temporal_type,
     LedgerType = ledger_info.ledger_type,
+    IsMemoryOptimized = memory_info.is_memory_optimized,
+    DurabilityDescription = memory_info.durability_desc,
     HistoryTableSchema = history_schema.name,
     HistoryTableName = history_table.name,
     PrimaryKeyName = primary_key.name,
@@ -381,6 +417,7 @@ LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = col
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
 {MaskingJoin}
+{EncryptionJoin}
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
 OUTER APPLY (
@@ -404,6 +441,18 @@ OUTER APPLY (
     END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS ledger_info
+OUTER APPLY (
+    SELECT
+        is_memory_optimized = CASE
+            WHEN table_metadata.data.exist(N'/table/is_memory_optimized') = 1 THEN table_metadata.data.value(N'(/table/is_memory_optimized/text())[1]', N'bit')
+            ELSE CONVERT(bit, 0)
+        END,
+        durability_desc = CASE
+            WHEN table_metadata.data.exist(N'/table/durability_desc') = 1 THEN table_metadata.data.value(N'(/table/durability_desc/text())[1]', N'nvarchar(60)')
+            ELSE NULL
+        END
+    FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
+) AS memory_info
 OUTER APPLY (
     SELECT definitions = STUFF((
         SELECT CHAR(30) + definition

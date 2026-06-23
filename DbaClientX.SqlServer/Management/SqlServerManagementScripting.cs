@@ -61,7 +61,7 @@ internal static class SqlServerManagementScripting
         }
 
         string destinationName = QualifyName(destinationSchema, destinationTable);
-        plan.DestinationMergeCommand = CanBuildMerge(new HashSet<string>(plan.KeyColumns, StringComparer.OrdinalIgnoreCase), plan.Columns)
+        plan.DestinationMergeCommand = CanBuildMerge(new HashSet<string>(plan.KeyColumns, StringComparer.Ordinal), plan.Columns)
             ? BuildMergeCommand(destinationName, plan.Columns)
             : null;
 
@@ -119,7 +119,7 @@ internal static class SqlServerManagementScripting
             DestinationTable = destinationTable,
             Columns = copyColumns,
             RequiresIdentityInsert = copyColumns.Any(column => column.IsIdentity),
-            KeyColumns = keyColumns.OrderBy(name => Array.FindIndex(columnList, column => string.Equals(column.Name, name, StringComparison.OrdinalIgnoreCase))).ToArray(),
+            KeyColumns = keyColumns.OrderBy(name => Array.FindIndex(columnList, column => string.Equals(column.Name, name, StringComparison.Ordinal))).ToArray(),
             SourceSelectCommand = $"SELECT {sourceColumns} FROM {sourceName};",
             DestinationInsertCommand = $"INSERT INTO {destinationName} ({destinationColumns}) VALUES ({parameterColumns});",
             DestinationMergeCommand = CanBuildMerge(keyColumns, copyColumns) ? BuildMergeCommand(destinationName, copyColumns) : null
@@ -242,6 +242,12 @@ internal static class SqlServerManagementScripting
             builder.Append(" SPARSE");
         }
 
+        if (!string.IsNullOrWhiteSpace(column.EncryptionDefinition))
+        {
+            builder.Append(' ');
+            builder.Append(column.EncryptionDefinition);
+        }
+
         if (column.IsRowGuidColumn)
         {
             builder.Append(" ROWGUIDCOL");
@@ -338,6 +344,12 @@ internal static class SqlServerManagementScripting
             options.Add(ledger!);
         }
 
+        string? memoryOptimized = BuildMemoryOptimizedOption(columns);
+        if (!string.IsNullOrWhiteSpace(memoryOptimized))
+        {
+            options.Add(memoryOptimized!);
+        }
+
         return options.Count == 0
             ? null
             : "WITH (" + string.Join(", ", options) + ")";
@@ -366,6 +378,20 @@ internal static class SqlServerManagementScripting
         return ledgerType == 3
             ? "LEDGER = ON (APPEND_ONLY = ON)"
             : "LEDGER = ON";
+    }
+
+    private static string? BuildMemoryOptimizedOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        SqlServerTableColumnScriptInfo? memoryOptimizedTable = columns.FirstOrDefault(column => column.IsMemoryOptimized);
+        if (memoryOptimizedTable == null)
+        {
+            return null;
+        }
+
+        string? durability = memoryOptimizedTable.DurabilityDescription;
+        return string.IsNullOrWhiteSpace(durability)
+            ? "MEMORY_OPTIMIZED = ON"
+            : "MEMORY_OPTIMIZED = ON, DURABILITY = " + durability!;
     }
 
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
@@ -446,7 +472,7 @@ internal static class SqlServerManagementScripting
             .Select(index => index.Column!)
             .ToArray();
 
-        return new HashSet<string>(keyColumns, StringComparer.OrdinalIgnoreCase);
+        return new HashSet<string>(keyColumns, StringComparer.Ordinal);
     }
 
     private static bool CanBuildMerge(ICollection<string> keyColumns, IReadOnlyList<SqlServerTableCopyColumnInfo> columns)
@@ -456,7 +482,7 @@ internal static class SqlServerManagementScripting
             return false;
         }
 
-        var copyColumnNames = new HashSet<string>(columns.Select(column => column.SourceColumn), StringComparer.OrdinalIgnoreCase);
+        var copyColumnNames = new HashSet<string>(columns.Select(column => column.SourceColumn), StringComparer.Ordinal);
         return keyColumns.All(copyColumnNames.Contains);
     }
 

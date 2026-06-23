@@ -40,9 +40,15 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public string? MaskingFunction { get; set; }
 
+    public string? EncryptionDefinition { get; set; }
+
     public int TemporalType { get; set; }
 
     public int LedgerType { get; set; }
+
+    public bool IsMemoryOptimized { get; set; }
+
+    public string? DurabilityDescription { get; set; }
 
     public string? HistoryTableSchema { get; set; }
 

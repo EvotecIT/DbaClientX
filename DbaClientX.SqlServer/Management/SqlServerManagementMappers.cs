@@ -171,8 +171,11 @@ internal static class SqlServerManagementMappers
             IsHidden = GetBoolean(record, "IsHidden"),
             IsSparse = GetBoolean(record, "IsSparse"),
             MaskingFunction = GetString(record, "MaskingFunction"),
+            EncryptionDefinition = GetString(record, "EncryptionDefinition"),
             TemporalType = GetInt32(record, "TemporalType"),
             LedgerType = GetInt32(record, "LedgerType"),
+            IsMemoryOptimized = GetBoolean(record, "IsMemoryOptimized"),
+            DurabilityDescription = GetString(record, "DurabilityDescription"),
             HistoryTableSchema = GetString(record, "HistoryTableSchema"),
             HistoryTableName = GetString(record, "HistoryTableName"),
             PrimaryKeyName = GetString(record, "PrimaryKeyName"),
@@ -191,8 +194,8 @@ internal static class SqlServerManagementMappers
     {
         Match match = Regex.Match(
             script,
-            @"\A(?<prefix>(?:\s*SET\s+(?:ANSI_NULLS|QUOTED_IDENTIFIER)\s+(?:ON|OFF)\s*;\s*(?:GO\s*)?)*)\s*ALTER\s+",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            @"\A(?<prefix>(?:(?:\s*SET\s+(?:ANSI_NULLS|QUOTED_IDENTIFIER)\s+(?:ON|OFF)\s*;\s*(?:GO\s*)?)|(?:\s*(?:--[^\r\n]*(?:\r?\n|$)|/\*.*?\*/)\s*))*)\s*ALTER\s+",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
 
         return match.Success
             ? script.Remove(match.Index, match.Length).Insert(match.Index, match.Groups["prefix"].Value + "CREATE OR ALTER ")
