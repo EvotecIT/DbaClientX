@@ -31,7 +31,10 @@ SELECT
     owner AS schema_name,
     table_name,
     column_name,
-    data_type,
+    CASE
+        WHEN data_type_owner IS NOT NULL THEN data_type_owner || '.' || data_type
+        ELSE data_type
+    END AS data_type,
     column_id AS ordinal_position,
     CASE WHEN nullable = 'Y' THEN 1 ELSE 0 END AS is_nullable,
     CASE
@@ -56,7 +59,8 @@ SELECT
     CASE WHEN c.constraint_type = 'P' THEN 1 ELSE 0 END AS is_primary_key,
     ic.column_name,
     ic.column_position AS ordinal_position,
-    CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending
+    CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending,
+    NULL AS filter_definition
 FROM all_indexes i
 INNER JOIN all_ind_columns ic ON ic.index_owner = i.owner AND ic.index_name = i.index_name AND ic.table_name = i.table_name
 LEFT JOIN all_constraints c ON c.owner = i.owner AND c.index_name = i.index_name AND c.table_name = i.table_name AND c.constraint_type = 'P'
@@ -215,7 +219,8 @@ ORDER BY owner, object_name";
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
-            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
+            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)

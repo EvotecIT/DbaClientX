@@ -56,7 +56,8 @@ SELECT
     CAST(i.is_primary_key AS bit) AS is_primary_key,
     c.name AS column_name,
     CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END AS ordinal_position,
-    CAST(ic.is_descending_key AS bit) AS is_descending
+    CAST(ic.is_descending_key AS bit) AS is_descending,
+    i.filter_definition
 FROM sys.indexes i
 INNER JOIN sys.objects o ON o.object_id = i.object_id AND o.type IN ('U', 'V')
 INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
@@ -232,7 +233,8 @@ ORDER BY s.name, o.name;";
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
-            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
+            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)

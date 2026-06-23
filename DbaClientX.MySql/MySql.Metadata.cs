@@ -52,7 +52,8 @@ SELECT
     CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
     COLUMN_NAME AS column_name,
     SEQ_IN_INDEX AS ordinal_position,
-    CASE WHEN COLLATION = 'D' THEN 1 ELSE 0 END AS is_descending
+    CASE WHEN COLLATION = 'D' THEN 1 ELSE 0 END AS is_descending,
+    NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
 WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
   AND (@table IS NULL OR TABLE_NAME = @table)
@@ -200,7 +201,8 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
-            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
+            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)

@@ -22,4 +22,7 @@ public sealed record DbaIndexInfo(string Schema, string Table, string Name)
 
     /// <summary>Indicates descending sort order when the provider exposes it.</summary>
     public bool? IsDescending { get; init; }
+
+    /// <summary>Provider-specific filter or partial-index predicate when available.</summary>
+    public string? FilterDefinition { get; init; }
 }
