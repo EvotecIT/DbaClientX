@@ -49,9 +49,11 @@ END;";
 SELECT CASE
     WHEN OBJECT_ID(N'sys.assembly_modules') IS NULL THEN 0
     WHEN OBJECT_ID(N'sys.assemblies') IS NULL THEN 0
-    WHEN OBJECT_ID(N'sys.function_order_columns') IS NULL THEN 0
     ELSE 1
 END;";
+
+    private const string SqlServerDatabaseClrFunctionOrderingSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.function_order_columns') IS NULL THEN 0 ELSE 1 END;";
 
     private const string SqlServerServerPermissionsSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.server_permissions') IS NULL THEN 0 ELSE 1 END;";
@@ -79,6 +81,27 @@ END;";
 
     private const string SqlServerModuleScriptsDatabaseClrUnionToken = "{DatabaseClrModuleScripts}";
 
+    private const string SqlServerModuleScriptsDatabaseClrFunctionOrderClauseToken = "{DatabaseClrFunctionOrderClause}";
+
+    private const string SqlServerModuleScriptsDatabaseClrFunctionOrderApplyToken = "{DatabaseClrFunctionOrderApply}";
+
+    private const string SqlServerModuleScriptsDatabaseClrFunctionOrderClause = " + function_order_info.OrderClause";
+
+    private const string SqlServerModuleScriptsDatabaseClrFunctionOrderApply = @"
+OUTER APPLY (
+    SELECT OrderClause = CASE WHEN order_info.OrderList IS NULL THEN N'' ELSE CHAR(13) + CHAR(10) + N'ORDER (' + order_info.OrderList + N')' END
+    FROM (
+        SELECT OrderList = STUFF((
+            SELECT N', ' + QUOTENAME(order_column.name) + CASE WHEN function_order_column.is_descending = 1 THEN N' DESC' ELSE N' ASC' END
+            FROM sys.function_order_columns AS function_order_column
+            INNER JOIN sys.columns AS order_column ON order_column.object_id = function_order_column.object_id AND order_column.column_id = function_order_column.column_id
+            WHERE function_order_column.object_id = object_info.object_id
+            ORDER BY function_order_column.order_column_id
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS order_info
+) AS function_order_info";
+
     private const string SqlServerDependenciesServerTriggerUnionToken = "{ServerTriggerDependencies}";
 
     private const string SqlServerPermissionsServerUnionToken = "{ServerPermissions}";
@@ -101,8 +124,8 @@ SELECT
     ReferencedClassDescription = dependency.referenced_class_desc COLLATE DATABASE_DEFAULT,
     IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
     IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
-FROM sys.sql_expression_dependencies AS dependency
-INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
+FROM master.sys.sql_expression_dependencies AS dependency
+INNER JOIN master.sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
 WHERE dependency.referencing_class = 13
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
@@ -118,9 +141,24 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition COLLATE DATABASE_DEFAULT,
+        CASE WHEN server_trigger_order_info.OrderStatements IS NULL THEN N'' ELSE server_trigger_order_info.OrderStatements END,
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER;' ELSE N'' END)
 FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc COLLATE DATABASE_DEFAULT, N'''', N'''''') +
+            N''', @namespace = N''SERVER'';'
+        FROM sys.server_trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS server_trigger_order_info
 WHERE module_info.definition IS NOT NULL
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
@@ -135,6 +173,7 @@ SELECT
         N' ON ALL SERVER', server_trigger_options.OptionClause, N' FOR ', COALESCE(server_trigger_events.EventList, N'LOGON'),
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
         QUOTENAME(assembly_info.name COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_class COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_method COLLATE DATABASE_DEFAULT),
+        CASE WHEN server_trigger_order_info.OrderStatements IS NULL THEN N'' ELSE server_trigger_order_info.OrderStatements END,
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER;' ELSE N'' END)
 FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
@@ -160,6 +199,20 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS server_trigger_events
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc COLLATE DATABASE_DEFAULT, N'''', N'''''') +
+            N''', @namespace = N''SERVER'';'
+        FROM sys.server_trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS server_trigger_order_info
 WHERE @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
 
@@ -176,6 +229,7 @@ SELECT
         N' FOR ', COALESCE(database_trigger_events.EventList, N'DDL_DATABASE_LEVEL_EVENTS'),
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
         QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+        CASE WHEN database_trigger_order_info.OrderStatements IS NULL THEN N'' ELSE database_trigger_order_info.OrderStatements END,
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
 FROM sys.triggers AS trigger_info
 INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
@@ -201,6 +255,20 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS database_trigger_events
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(trigger_info.name), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc, N'''', N'''''') +
+            N''', @namespace = N''DATABASE'';'
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS database_trigger_order_info
 WHERE trigger_info.parent_class = 0
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
@@ -221,12 +289,13 @@ SELECT
             CASE object_info.type
                 WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
                 WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
-                WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause + function_order_info.OrderClause
+                WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause{DatabaseClrFunctionOrderClause}
                 WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
                 ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
             END,
             CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
             QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+            CASE WHEN clr_trigger_order_info.OrderStatements IS NULL THEN N'' ELSE clr_trigger_order_info.OrderStatements END,
             CASE WHEN object_info.type = N'TA' AND clr_trigger.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + N';' ELSE N'' END)
     END
 FROM sys.objects AS object_info
@@ -268,6 +337,19 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS clr_trigger_events
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc, N'''', N'''''') + N''';'
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = object_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS clr_trigger_order_info
 OUTER APPLY (
     SELECT ParameterList = STUFF((
         SELECT N', ' + parameter_item.name + N' ' + CASE
@@ -335,19 +417,7 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS table_return_info
-OUTER APPLY (
-    SELECT OrderClause = CASE WHEN order_info.OrderList IS NULL THEN N'' ELSE CHAR(13) + CHAR(10) + N'ORDER (' + order_info.OrderList + N')' END
-    FROM (
-        SELECT OrderList = STUFF((
-            SELECT N', ' + QUOTENAME(order_column.name) + CASE WHEN function_order_column.is_descending = 1 THEN N' DESC' ELSE N' ASC' END
-            FROM sys.function_order_columns AS function_order_column
-            INNER JOIN sys.columns AS order_column ON order_column.object_id = function_order_column.object_id AND order_column.column_id = function_order_column.column_id
-            WHERE function_order_column.object_id = object_info.object_id
-            ORDER BY function_order_column.order_column_id
-            FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
-    ) AS order_info
-) AS function_order_info
+{DatabaseClrFunctionOrderApply}
 WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)";
@@ -1012,6 +1082,7 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition,
+        CASE WHEN trigger_order_info.OrderStatements IS NULL THEN N'' ELSE trigger_order_info.OrderStatements END,
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(parent_schema.name) + N'.' + QUOTENAME(parent_object.name) + N';' ELSE N'' END)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
@@ -1019,6 +1090,19 @@ INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info
 LEFT JOIN sys.triggers AS trigger_info ON trigger_info.object_id = object_info.object_id AND trigger_info.parent_class = 1
 LEFT JOIN sys.objects AS parent_object ON parent_object.object_id = trigger_info.parent_id
 LEFT JOIN sys.schemas AS parent_schema ON parent_schema.schema_id = parent_object.schema_id
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc, N'''', N'''''') + N''';'
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = object_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS trigger_order_info
 WHERE object_info.type IN ('P', 'X', 'V', 'TR', 'FN', 'IF', 'TF')
   AND module_info.definition IS NOT NULL
   AND (@schema IS NULL OR schema_info.name = @schema)
@@ -1033,9 +1117,24 @@ SELECT
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition,
+        CASE WHEN database_trigger_order_info.OrderStatements IS NULL THEN N'' ELSE database_trigger_order_info.OrderStatements END,
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
 FROM sys.triggers AS trigger_info
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
+OUTER APPLY (
+    SELECT OrderStatements = (
+        SELECT CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) +
+            N'EXEC sys.sp_settriggerorder @triggername = N''' + REPLACE(QUOTENAME(trigger_info.name), N'''', N'''''') +
+            N''', @order = N''' + CASE WHEN event_info.is_first = 1 THEN N'First' ELSE N'Last' END +
+            N''', @stmttype = N''' + REPLACE(event_info.type_desc, N'''', N'''''') +
+            N''', @namespace = N''DATABASE'';'
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+          AND (event_info.is_first = 1 OR event_info.is_last = 1)
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)')
+) AS database_trigger_order_info
 WHERE trigger_info.parent_class = 0
   AND module_info.definition IS NOT NULL
   AND @schema IS NULL

@@ -201,7 +201,8 @@ public partial class SqlServer
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             string query = BuildSqlServerModuleScriptsManagementQuery(
                 SupportsServerTriggerModules(connection, transaction),
-                SupportsDatabaseClrModules(connection, transaction));
+                SupportsDatabaseClrModules(connection, transaction),
+                SupportsDatabaseClrFunctionOrdering(connection, transaction));
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapScript, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -217,11 +218,17 @@ public partial class SqlServer
         }
     }
 
-    private static string BuildSqlServerModuleScriptsManagementQuery(bool includeServerTriggerModules, bool includeDatabaseClrModules)
+    private static string BuildSqlServerModuleScriptsManagementQuery(bool includeServerTriggerModules, bool includeDatabaseClrModules, bool includeDatabaseClrFunctionOrdering)
         => SqlServerModuleScriptsManagementQuery
             .Replace(
                 SqlServerModuleScriptsDatabaseClrUnionToken,
                 includeDatabaseClrModules ? SqlServerModuleScriptsDatabaseClrUnion : string.Empty)
+            .Replace(
+                SqlServerModuleScriptsDatabaseClrFunctionOrderClauseToken,
+                includeDatabaseClrModules && includeDatabaseClrFunctionOrdering ? SqlServerModuleScriptsDatabaseClrFunctionOrderClause : string.Empty)
+            .Replace(
+                SqlServerModuleScriptsDatabaseClrFunctionOrderApplyToken,
+                includeDatabaseClrModules && includeDatabaseClrFunctionOrdering ? SqlServerModuleScriptsDatabaseClrFunctionOrderApply : string.Empty)
             .Replace(
                 SqlServerModuleScriptsServerTriggerUnionToken,
                 includeServerTriggerModules ? SqlServerModuleScriptsServerTriggerUnion : string.Empty);
@@ -235,6 +242,12 @@ public partial class SqlServer
     private bool SupportsDatabaseClrModules(SqlConnection connection, SqlTransaction? transaction)
     {
         object? result = ExecuteScalar(connection, transaction, SqlServerDatabaseClrModulesSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private bool SupportsDatabaseClrFunctionOrdering(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerDatabaseClrFunctionOrderingSupportQuery);
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
