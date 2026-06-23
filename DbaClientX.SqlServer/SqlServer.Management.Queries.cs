@@ -123,6 +123,7 @@ SELECT
 FROM sys.server_principals AS sp
 LEFT JOIN sys.sql_logins AS sl ON sl.principal_id = sp.principal_id
 WHERE (@includeSystem = 1 OR sp.name NOT LIKE N'##MS_%##')
+  AND (@includeSystem = 1 OR ISNULL(sp.is_fixed_role, 0) = 0)
   AND (@name IS NULL OR sp.name COLLATE DATABASE_DEFAULT = @name)
 ORDER BY sp.type_desc, sp.name;";
 
@@ -143,6 +144,7 @@ SELECT
     Modified = dp.modify_date
 FROM sys.database_principals AS dp
 WHERE (@includeSystem = 1 OR dp.name NOT IN (N'dbo', N'guest', N'INFORMATION_SCHEMA', N'sys'))
+  AND (@includeSystem = 1 OR ISNULL(dp.is_fixed_role, 0) = 0)
   AND (@name IS NULL OR dp.name = @name)
 ORDER BY dp.type_desc, dp.name;";
 
@@ -210,6 +212,7 @@ SELECT
         WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'TYPE' THEN target_type_schema.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_schema.name COLLATE DATABASE_DEFAULT
         ELSE NULL
     END,
     SecurableName = CASE
@@ -218,6 +221,17 @@ SELECT
         WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'DATABASE_PRINCIPAL' THEN target_database_principal.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'TYPE' THEN target_type.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'CERTIFICATE' THEN target_certificate.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'ASYMMETRIC_KEY' THEN target_asymmetric_key.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SYMMETRIC_KEY' THEN target_symmetric_key.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'ASSEMBLY' THEN target_assembly.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_collection.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'MESSAGE_TYPE' THEN target_message_type.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SERVICE_CONTRACT' THEN target_service_contract.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SERVICE' THEN target_service.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'REMOTE_SERVICE_BINDING' THEN target_remote_service_binding.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'ROUTE' THEN target_route.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'FULLTEXT_CATALOG' THEN target_fulltext_catalog.name COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CASE
@@ -232,6 +246,18 @@ INNER JOIN sys.database_principals AS grantor ON grantor.principal_id = permissi
 LEFT JOIN sys.database_principals AS target_database_principal ON target_database_principal.principal_id = permission.major_id AND permission.class_desc = N'DATABASE_PRINCIPAL'
 LEFT JOIN sys.types AS target_type ON target_type.user_type_id = permission.major_id AND permission.class_desc = N'TYPE'
 LEFT JOIN sys.schemas AS target_type_schema ON target_type_schema.schema_id = target_type.schema_id
+LEFT JOIN sys.certificates AS target_certificate ON target_certificate.certificate_id = permission.major_id AND permission.class_desc = N'CERTIFICATE'
+LEFT JOIN sys.asymmetric_keys AS target_asymmetric_key ON target_asymmetric_key.asymmetric_key_id = permission.major_id AND permission.class_desc = N'ASYMMETRIC_KEY'
+LEFT JOIN sys.symmetric_keys AS target_symmetric_key ON target_symmetric_key.symmetric_key_id = permission.major_id AND permission.class_desc = N'SYMMETRIC_KEY'
+LEFT JOIN sys.assemblies AS target_assembly ON target_assembly.assembly_id = permission.major_id AND permission.class_desc = N'ASSEMBLY'
+LEFT JOIN sys.xml_schema_collections AS target_xml_collection ON target_xml_collection.xml_collection_id = permission.major_id AND permission.class_desc = N'XML_SCHEMA_COLLECTION'
+LEFT JOIN sys.schemas AS target_xml_schema ON target_xml_schema.schema_id = target_xml_collection.schema_id
+LEFT JOIN sys.service_message_types AS target_message_type ON target_message_type.message_type_id = permission.major_id AND permission.class_desc = N'MESSAGE_TYPE'
+LEFT JOIN sys.service_contracts AS target_service_contract ON target_service_contract.service_contract_id = permission.major_id AND permission.class_desc = N'SERVICE_CONTRACT'
+LEFT JOIN sys.services AS target_service ON target_service.service_id = permission.major_id AND permission.class_desc = N'SERVICE'
+LEFT JOIN sys.remote_service_bindings AS target_remote_service_binding ON target_remote_service_binding.remote_service_binding_id = permission.major_id AND permission.class_desc = N'REMOTE_SERVICE_BINDING'
+LEFT JOIN sys.routes AS target_route ON target_route.route_id = permission.major_id AND permission.class_desc = N'ROUTE'
+LEFT JOIN sys.fulltext_catalogs AS target_fulltext_catalog ON target_fulltext_catalog.fulltext_catalog_id = permission.major_id AND permission.class_desc = N'FULLTEXT_CATALOG'
 WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName, SecurableColumn;";
 
@@ -400,10 +426,12 @@ SELECT
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
     PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key),
+    PrimaryKeyBucketCount = primary_key_hash.bucket_count,
     UniqueConstraintName = CONVERT(sysname, NULL),
     UniqueConstraintOrdinal = CONVERT(int, NULL),
     UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
     UniqueConstraintIsDescending = CONVERT(bit, NULL),
+    GraphTableKind = graph_info.graph_kind,
     AdditionalConstraintDefinitions = constraint_info.definitions,
     PostCreateStatements = post_create_info.statements
 FROM sys.tables AS table_info
@@ -420,6 +448,7 @@ LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = col
 {EncryptionJoin}
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
+LEFT JOIN sys.hash_indexes AS primary_key_hash ON primary_key_hash.object_id = primary_key.object_id AND primary_key_hash.index_id = primary_key.index_id
 OUTER APPLY (
     SELECT
         temporal_type = CASE
@@ -453,6 +482,14 @@ OUTER APPLY (
         END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS memory_info
+OUTER APPLY (
+    SELECT graph_kind = CASE
+        WHEN table_metadata.data.exist(N'/table/is_node') = 1 AND table_metadata.data.value(N'(/table/is_node/text())[1]', N'bit') = 1 THEN N'NODE'
+        WHEN table_metadata.data.exist(N'/table/is_edge') = 1 AND table_metadata.data.value(N'(/table/is_edge/text())[1]', N'bit') = 1 THEN N'EDGE'
+        ELSE NULL
+    END
+    FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
+) AS graph_info
 OUTER APPLY (
     SELECT definitions = STUFF((
         SELECT CHAR(30) + definition
@@ -545,5 +582,7 @@ OUTER APPLY (
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
   AND temporal_info.temporal_type <> 1
+  AND ledger_info.ledger_type <> 1
+  AND NOT (graph_info.graph_kind IS NOT NULL AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";
 }

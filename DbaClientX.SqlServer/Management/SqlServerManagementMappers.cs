@@ -182,10 +182,12 @@ internal static class SqlServerManagementMappers
             PrimaryKeyOrdinal = GetNullableInt32(record, "PrimaryKeyOrdinal"),
             PrimaryKeyIndexType = GetString(record, "PrimaryKeyIndexType"),
             PrimaryKeyIsDescending = GetNullableBoolean(record, "PrimaryKeyIsDescending"),
+            PrimaryKeyBucketCount = GetNullableInt64(record, "PrimaryKeyBucketCount"),
             UniqueConstraintName = GetString(record, "UniqueConstraintName"),
             UniqueConstraintOrdinal = GetNullableInt32(record, "UniqueConstraintOrdinal"),
             UniqueConstraintIndexType = GetString(record, "UniqueConstraintIndexType"),
             UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending"),
+            GraphTableKind = GetString(record, "GraphTableKind"),
             AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions"),
             PostCreateStatements = GetString(record, "PostCreateStatements")
         };
@@ -198,7 +200,7 @@ internal static class SqlServerManagementMappers
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
 
         return match.Success
-            ? script.Remove(match.Index, match.Length).Insert(match.Index, match.Groups["prefix"].Value + "CREATE OR ALTER ")
+            ? script.Remove(match.Index, match.Length).Insert(match.Index, match.Groups["prefix"].Value + "CREATE ")
             : script;
     }
 
@@ -274,6 +276,12 @@ internal static class SqlServerManagementMappers
     {
         int ordinal = record.GetOrdinal(name);
         return record.IsDBNull(ordinal) ? null : Convert.ToInt32(record.GetValue(ordinal));
+    }
+
+    private static long? GetNullableInt64(IDataRecord record, string name)
+    {
+        int ordinal = record.GetOrdinal(name);
+        return record.IsDBNull(ordinal) ? null : Convert.ToInt64(record.GetValue(ordinal));
     }
 
     private static Guid? GetGuid(IDataRecord record, string name)

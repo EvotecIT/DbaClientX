@@ -62,6 +62,8 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public bool? PrimaryKeyIsDescending { get; set; }
 
+    public long? PrimaryKeyBucketCount { get; set; }
+
     public string? UniqueConstraintName { get; set; }
 
     public int? UniqueConstraintOrdinal { get; set; }
@@ -69,6 +71,8 @@ internal sealed class SqlServerTableColumnScriptInfo
     public string? UniqueConstraintIndexType { get; set; }
 
     public bool? UniqueConstraintIsDescending { get; set; }
+
+    public string? GraphTableKind { get; set; }
 
     public string? AdditionalConstraintDefinitions { get; set; }
 

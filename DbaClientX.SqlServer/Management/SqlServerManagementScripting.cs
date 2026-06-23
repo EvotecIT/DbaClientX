@@ -53,7 +53,7 @@ internal static class SqlServerManagementScripting
         var plan = BuildTableCopyPlan(sourceSchema, sourceTable, destinationSchema, destinationTable, writableColumns, indexes);
         var identityColumns = new HashSet<string>(columns
             .Where(column => column.IsIdentity)
-            .Select(column => column.ColumnName), StringComparer.OrdinalIgnoreCase);
+            .Select(column => column.ColumnName), StringComparer.Ordinal);
 
         foreach (SqlServerTableCopyColumnInfo column in plan.Columns)
         {
@@ -167,6 +167,13 @@ internal static class SqlServerManagementScripting
 
         builder.AppendLine(string.Join("," + Environment.NewLine, definitions));
         builder.Append(')');
+
+        string? graph = BuildGraphTableOption(orderedColumns);
+        if (!string.IsNullOrWhiteSpace(graph))
+        {
+            builder.AppendLine();
+            builder.Append(graph);
+        }
 
         string? tableOptions = BuildTableOptionsDefinition(orderedColumns);
         if (!string.IsNullOrWhiteSpace(tableOptions))
@@ -394,6 +401,17 @@ internal static class SqlServerManagementScripting
             : "MEMORY_OPTIMIZED = ON, DURABILITY = " + durability!;
     }
 
+    private static string? BuildGraphTableOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        string? graphKind = columns.Select(column => column.GraphTableKind).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        return graphKind?.ToUpperInvariant() switch
+        {
+            "NODE" => "AS NODE",
+            "EDGE" => "AS EDGE",
+            _ => null
+        };
+    }
+
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         var keyColumns = columns
@@ -406,11 +424,21 @@ internal static class SqlServerManagementScripting
             return null;
         }
 
-        string keyName = keyColumns[0].PrimaryKeyName ?? string.Empty;
-        string keyType = keyColumns[0].PrimaryKeyIndexType ?? string.Empty;
-        string keyword = string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
-        string keyList = string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.PrimaryKeyIsDescending == true ? " DESC" : " ASC")));
-        return $"CONSTRAINT {QuoteName(keyName)} PRIMARY KEY {keyword} ({keyList})";
+        SqlServerTableColumnScriptInfo firstKeyColumn = keyColumns[0];
+        string keyName = firstKeyColumn.PrimaryKeyName ?? string.Empty;
+        string keyType = firstKeyColumn.PrimaryKeyIndexType ?? string.Empty;
+        bool isHash = keyType.IndexOf("HASH", StringComparison.OrdinalIgnoreCase) >= 0;
+        string keyword = isHash
+            ? "NONCLUSTERED HASH"
+            : string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
+        string keyList = isHash
+            ? string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName)))
+            : string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.PrimaryKeyIsDescending == true ? " DESC" : " ASC")));
+        long? primaryKeyBucketCount = firstKeyColumn.PrimaryKeyBucketCount;
+        string bucketCount = isHash && primaryKeyBucketCount.HasValue
+            ? " WITH (BUCKET_COUNT = " + primaryKeyBucketCount.GetValueOrDefault() + ")"
+            : string.Empty;
+        return $"CONSTRAINT {QuoteName(keyName)} PRIMARY KEY {keyword} ({keyList}){bucketCount}";
     }
 
     private static IEnumerable<string> BuildUniqueConstraintDefinitions(IEnumerable<SqlServerTableColumnScriptInfo> columns)
