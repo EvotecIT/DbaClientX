@@ -409,9 +409,6 @@ public partial class SqlServer
                 SqlServerTableScriptEncryptionJoinToken,
                 includeEncryption ? SqlServerTableScriptEncryptionJoin : string.Empty)
             .Replace(
-                SqlServerTableScriptGraphEdgeConstraintStatementsToken,
-                includeGraphEdgeConstraints ? SqlServerTableScriptGraphEdgeConstraintStatements : string.Empty)
-            .Replace(
                 SqlServerTableScriptPrimaryKeyBucketCountToken,
                 includeHashIndexes ? SqlServerTableScriptPrimaryKeyBucketCountProjection : SqlServerTableScriptLegacyPrimaryKeyBucketCountProjection)
             .Replace(
@@ -440,5 +437,8 @@ public partial class SqlServer
                 includeGraphHiddenColumns ? SqlServerTableScriptGraphCopyColumnFilter : SqlServerTableScriptGraphHiddenColumnFilter)
             .Replace(
                 SqlServerTableScriptGraphTableOnlyRowsToken,
-                includeGraphTableOnlyRows ? SqlServerTableScriptGraphTableOnlyRows : string.Empty);
+                includeGraphTableOnlyRows ? SqlServerTableScriptGraphTableOnlyRows : string.Empty)
+            .Replace(
+                SqlServerTableScriptGraphEdgeConstraintStatementsToken,
+                includeGraphEdgeConstraints ? SqlServerTableScriptGraphEdgeConstraintStatements : string.Empty);
 }

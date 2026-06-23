@@ -169,6 +169,7 @@ public class SqlServerManagementTests
         Assert.Contains("COL_LENGTH(N'sys.availability_replicas', N'replica_metadata_id')", availabilityGroupsSupportQuery);
         Assert.Contains("LEFT JOIN sys.certificates AS target_certificate", permissions);
         Assert.Contains("LEFT JOIN sys.assemblies AS target_assembly", permissions);
+        Assert.Contains("LEFT JOIN sys.symmetric_keys AS target_symmetric_key", permissions);
         Assert.Contains("LEFT JOIN sys.xml_schema_collections AS target_xml_collection", permissions);
         Assert.Contains("LEFT JOIN sys.service_contracts AS target_service_contract", permissions);
         Assert.Contains("LEFT JOIN sys.services AS target_service", permissions);
@@ -178,6 +179,9 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("sys.availability_groups", legacyPermissions);
         Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN CONVERT(nvarchar(128), permission.major_id)", legacyPermissions);
         Assert.Contains("WHEN permission.class_desc = N'CERTIFICATE' THEN target_certificate.name", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'SYMMETRIC_KEYS' THEN target_symmetric_key.name", permissions);
+        Assert.Contains("permission.class_desc = N'SYMMETRIC_KEYS'", permissions);
+        Assert.DoesNotContain("permission.class_desc = N'SYMMETRIC_KEY'", permissions);
         Assert.Contains("WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_collection.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'SERVICE_CONTRACT' THEN target_service_contract.name", permissions);
     }
@@ -512,11 +516,20 @@ public class SqlServerManagementTests
         Assert.Contains("INNER JOIN sys.server_sql_modules AS module_info", modulesQuery);
         Assert.Contains("INNER JOIN sys.server_assembly_modules AS assembly_module", modulesQuery);
         Assert.Contains("FROM sys.server_trigger_events AS event_info", modulesQuery);
+        Assert.Contains("INNER JOIN master.sys.assemblies AS assembly_info", modulesQuery);
+        Assert.Contains("LEFT JOIN sys.server_principals AS execute_as_principal", modulesQuery);
+        Assert.Contains("assembly_module.execute_as_principal_id", modulesQuery);
+        Assert.Contains("server_trigger_options.OptionClause", modulesQuery);
         Assert.Contains("ObjectName = trigger_info.name COLLATE DATABASE_DEFAULT", modulesQuery);
         Assert.Contains("ObjectType = trigger_info.type_desc COLLATE DATABASE_DEFAULT", modulesQuery);
         Assert.Contains("module_info.definition COLLATE DATABASE_DEFAULT", modulesQuery);
         Assert.Contains("AS EXTERNAL NAME", modulesQuery);
-        Assert.Contains("ON ALL SERVER FOR", modulesQuery);
+        Assert.Contains("N' ON ALL SERVER', server_trigger_options.OptionClause, N' FOR '", modulesQuery);
+        Assert.Contains("N'CREATE TRIGGER ', QUOTENAME(trigger_info.name)", modulesQuery);
+        Assert.Contains("N' ON DATABASE', database_trigger_options.OptionClause", modulesQuery);
+        Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id", modulesQuery);
+        Assert.Contains("clr_trigger.is_not_for_replication", modulesQuery);
+        Assert.Contains("object_info.type = N'TA' AND clr_trigger.is_disabled = 1", modulesQuery);
         Assert.DoesNotContain("sys.server_triggers", legacyModulesQuery);
         Assert.DoesNotContain("sys.server_sql_modules", legacyModulesQuery);
         Assert.DoesNotContain("sys.server_assembly_modules", legacyModulesQuery);
@@ -577,6 +590,7 @@ public class SqlServerManagementTests
         Assert.Contains("N'vector('", modernQuery);
         Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
         Assert.Contains("PostCreateStatements = graph_only_post_create_info.statements", modernQuery);
+        Assert.DoesNotContain("{GraphEdgeConstraintStatements}", modernQuery);
         Assert.DoesNotContain("ColumnName = CONVERT(sysname, N'')", copyQuery);
         Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND graph_column_info.graph_type IS NOT NULL)", modernQuery);
         Assert.Contains("graph_column_info.graph_type NOT IN (5, 8)", copyQuery);
@@ -602,6 +616,8 @@ public class SqlServerManagementTests
         Assert.Contains("trigger_info.parent_class = 0", dependenciesQuery);
         Assert.Contains("INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
         Assert.Contains("dependency.referencing_class = 13", dependenciesQuery);
+        Assert.Contains("ReferencingName = trigger_info.name COLLATE DATABASE_DEFAULT", dependenciesQuery);
+        Assert.Contains("ReferencedClassDescription = dependency.referenced_class_desc COLLATE DATABASE_DEFAULT", dependenciesQuery);
         Assert.DoesNotContain("sys.server_triggers", legacyDependenciesQuery);
         Assert.DoesNotContain("dependency.referencing_class = 13", legacyDependenciesQuery);
     }

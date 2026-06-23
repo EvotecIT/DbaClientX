@@ -61,20 +61,20 @@ UNION ALL
 SELECT
     DependencyType = N'SqlExpression',
     ReferencingSchema = CONVERT(sysname, NULL),
-    ReferencingName = trigger_info.name,
-    ReferencingType = trigger_info.type_desc,
-    ReferencedServerName = dependency.referenced_server_name,
-    ReferencedDatabaseName = dependency.referenced_database_name,
-    ReferencedSchemaName = dependency.referenced_schema_name,
-    ReferencedEntityName = dependency.referenced_entity_name,
-    ReferencedClassDescription = dependency.referenced_class_desc,
+    ReferencingName = trigger_info.name COLLATE DATABASE_DEFAULT,
+    ReferencingType = trigger_info.type_desc COLLATE DATABASE_DEFAULT,
+    ReferencedServerName = dependency.referenced_server_name COLLATE DATABASE_DEFAULT,
+    ReferencedDatabaseName = dependency.referenced_database_name COLLATE DATABASE_DEFAULT,
+    ReferencedSchemaName = dependency.referenced_schema_name COLLATE DATABASE_DEFAULT,
+    ReferencedEntityName = dependency.referenced_entity_name COLLATE DATABASE_DEFAULT,
+    ReferencedClassDescription = dependency.referenced_class_desc COLLATE DATABASE_DEFAULT,
     IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
     IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
 FROM sys.sql_expression_dependencies AS dependency
 INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
 WHERE dependency.referencing_class = 13
   AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)";
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
 
     private const string SqlServerModuleScriptsServerTriggerUnion = @"
 UNION ALL
@@ -92,7 +92,7 @@ FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
 WHERE module_info.definition IS NOT NULL
   AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
 UNION ALL
 SELECT
     ScriptType = N'Module',
@@ -101,13 +101,25 @@ SELECT
     ObjectType = trigger_info.type_desc COLLATE DATABASE_DEFAULT,
     Script = CONCAT(
         N'CREATE TRIGGER ', QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT),
-        N' ON ALL SERVER FOR ', COALESCE(server_trigger_events.EventList, N'LOGON'),
+        N' ON ALL SERVER', server_trigger_options.OptionClause, N' FOR ', COALESCE(server_trigger_events.EventList, N'LOGON'),
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
         QUOTENAME(assembly_info.name COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_class COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_method COLLATE DATABASE_DEFAULT),
         CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER;' ELSE N'' END)
 FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
-INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+INNER JOIN master.sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+LEFT JOIN sys.server_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
+OUTER APPLY (
+    SELECT ExecuteAsClause = CASE
+        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
+        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
+        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS ''' + REPLACE(execute_as_principal.name COLLATE DATABASE_DEFAULT, N'''', N'''''') + N''''
+        ELSE NULL
+    END
+) AS server_execute_as_info
+OUTER APPLY (
+    SELECT OptionClause = CASE WHEN server_execute_as_info.ExecuteAsClause IS NULL THEN N'' ELSE N' WITH ' + server_execute_as_info.ExecuteAsClause END
+) AS server_trigger_options
 OUTER APPLY (
     SELECT EventList = STUFF((
         SELECT N', ' + event_info.type_desc COLLATE DATABASE_DEFAULT
@@ -118,7 +130,7 @@ OUTER APPLY (
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS server_trigger_events
 WHERE @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)";
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
 
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
@@ -565,7 +577,7 @@ SELECT
         WHEN permission.class_desc = N'TYPE' THEN target_type.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'CERTIFICATE' THEN target_certificate.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'ASYMMETRIC_KEY' THEN target_asymmetric_key.name COLLATE DATABASE_DEFAULT
-        WHEN permission.class_desc = N'SYMMETRIC_KEY' THEN target_symmetric_key.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SYMMETRIC_KEYS' THEN target_symmetric_key.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'ASSEMBLY' THEN target_assembly.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_collection.name COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'MESSAGE_TYPE' THEN target_message_type.name COLLATE DATABASE_DEFAULT
@@ -590,7 +602,7 @@ LEFT JOIN sys.types AS target_type ON target_type.user_type_id = permission.majo
 LEFT JOIN sys.schemas AS target_type_schema ON target_type_schema.schema_id = target_type.schema_id
 LEFT JOIN sys.certificates AS target_certificate ON target_certificate.certificate_id = permission.major_id AND permission.class_desc = N'CERTIFICATE'
 LEFT JOIN sys.asymmetric_keys AS target_asymmetric_key ON target_asymmetric_key.asymmetric_key_id = permission.major_id AND permission.class_desc = N'ASYMMETRIC_KEY'
-LEFT JOIN sys.symmetric_keys AS target_symmetric_key ON target_symmetric_key.symmetric_key_id = permission.major_id AND permission.class_desc = N'SYMMETRIC_KEY'
+LEFT JOIN sys.symmetric_keys AS target_symmetric_key ON target_symmetric_key.symmetric_key_id = permission.major_id AND permission.class_desc = N'SYMMETRIC_KEYS'
 LEFT JOIN sys.assemblies AS target_assembly ON target_assembly.assembly_id = permission.major_id AND permission.class_desc = N'ASSEMBLY'
 LEFT JOIN sys.xml_schema_collections AS target_xml_collection ON target_xml_collection.xml_collection_id = permission.major_id AND permission.class_desc = N'XML_SCHEMA_COLLECTION'
 LEFT JOIN sys.schemas AS target_xml_schema ON target_xml_schema.schema_id = target_xml_collection.schema_id
@@ -674,7 +686,7 @@ INNER JOIN sys.triggers AS trigger_info ON trigger_info.object_id = dependency.r
 WHERE dependency.referencing_class = 12
   AND trigger_info.parent_class = 0
   AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
 {ServerTriggerDependencies}
 UNION ALL
 SELECT
@@ -735,7 +747,47 @@ INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = trigger_inf
 WHERE trigger_info.parent_class = 0
   AND module_info.definition IS NOT NULL
   AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name,
+    ObjectType = trigger_info.type_desc,
+    Script = CONCAT(
+        N'CREATE TRIGGER ', QUOTENAME(trigger_info.name),
+        N' ON DATABASE', database_trigger_options.OptionClause,
+        N' FOR ', COALESCE(database_trigger_events.EventList, N'DDL_DATABASE_LEVEL_EVENTS'),
+        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
+        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
+FROM sys.triggers AS trigger_info
+INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
+INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+LEFT JOIN sys.database_principals AS execute_as_principal ON execute_as_principal.principal_id = assembly_module.execute_as_principal_id
+OUTER APPLY (
+    SELECT ExecuteAsClause = CASE
+        WHEN assembly_module.execute_as_principal_id IS NULL THEN NULL
+        WHEN assembly_module.execute_as_principal_id = -2 THEN N'EXECUTE AS OWNER'
+        WHEN execute_as_principal.name IS NOT NULL THEN N'EXECUTE AS N''' + REPLACE(execute_as_principal.name, N'''', N'''''') + N''''
+        ELSE NULL
+    END
+) AS database_execute_as_info
+OUTER APPLY (
+    SELECT OptionClause = CASE WHEN database_execute_as_info.ExecuteAsClause IS NULL THEN N'' ELSE N' WITH ' + database_execute_as_info.ExecuteAsClause END
+) AS database_trigger_options
+OUTER APPLY (
+    SELECT EventList = STUFF((
+        SELECT N', ' + event_info.type_desc
+        FROM sys.trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS database_trigger_events
+WHERE trigger_info.parent_class = 0
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)
 UNION ALL
 SELECT
     ScriptType = N'Module',
@@ -747,11 +799,12 @@ SELECT
             WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
             WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
             WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause
-            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT')
+            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
             ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
         END,
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
-        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method))
+        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method),
+        CASE WHEN object_info.type = N'TA' AND clr_trigger.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + N';' ELSE N'' END)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = object_info.object_id
