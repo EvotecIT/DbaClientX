@@ -304,6 +304,9 @@ SELECT
     END + CASE
         WHEN type_info.name IN (N'varchar', N'char', N'nvarchar', N'nchar') AND column_info.collation_name IS NOT NULL THEN N' COLLATE ' + column_info.collation_name
         ELSE N''
+    END + CASE
+        WHEN column_info.is_filestream = 1 THEN N' FILESTREAM'
+        ELSE N''
     END,
     IsNullable = CONVERT(bit, column_info.is_nullable),
     IsIdentity = CONVERT(bit, column_info.is_identity),
@@ -312,6 +315,10 @@ SELECT
     DefaultDefinition = default_info.definition,
     ComputedDefinition = computed_info.definition,
     IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0)),
+    GeneratedAlwaysTypeDescription = column_info.generated_always_type_desc,
+    TemporalType = table_info.temporal_type,
+    HistoryTableSchema = history_schema.name,
+    HistoryTableName = history_table.name,
     PrimaryKeyName = primary_key.name,
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
@@ -326,6 +333,8 @@ LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.sch
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+LEFT JOIN sys.tables AS history_table ON history_table.object_id = table_info.history_table_id
+LEFT JOIN sys.schemas AS history_schema ON history_schema.schema_id = history_table.schema_id
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
 WHERE (@schema IS NULL OR schema_info.name = @schema)

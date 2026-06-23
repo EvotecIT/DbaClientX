@@ -171,6 +171,41 @@ public class SqlServerManagementTests
                 Ordinal = 4,
                 DataType = "xml(DOCUMENT [dbo].[AuditPayload])",
                 IsNullable = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Blob",
+                Ordinal = 5,
+                DataType = "varbinary(max) FILESTREAM",
+                IsNullable = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "ValidFrom",
+                Ordinal = 6,
+                DataType = "datetime2(7)",
+                IsNullable = false,
+                GeneratedAlwaysTypeDescription = "AS_ROW_START",
+                TemporalType = 2,
+                HistoryTableSchema = "history",
+                HistoryTableName = "UserAuditHistory"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "ValidTo",
+                Ordinal = 7,
+                DataType = "datetime2(7)",
+                IsNullable = false,
+                GeneratedAlwaysTypeDescription = "AS_ROW_END",
+                TemporalType = 2,
+                HistoryTableSchema = "history",
+                HistoryTableName = "UserAuditHistory"
             }
         };
 
@@ -183,7 +218,12 @@ public class SqlServerManagementTests
         Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL DEFAULT N''", script.Script);
         Assert.Contains("[Ratio] float(24) NULL", script.Script);
         Assert.Contains("[Payload] xml(DOCUMENT [dbo].[AuditPayload]) NULL", script.Script);
+        Assert.Contains("[Blob] varbinary(max) FILESTREAM NULL", script.Script);
+        Assert.Contains("[ValidFrom] datetime2(7) GENERATED ALWAYS AS ROW START NOT NULL", script.Script);
+        Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END NOT NULL", script.Script);
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
+        Assert.Contains("PERIOD FOR SYSTEM_TIME ([ValidFrom], [ValidTo])", script.Script);
+        Assert.Contains("WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [history].[UserAuditHistory]));", script.Script);
     }
 
     [Fact]
@@ -316,6 +356,56 @@ public class SqlServerManagementTests
         Assert.StartsWith("SET IDENTITY_INSERT [archive].[Users] ON; INSERT INTO", plan.DestinationInsertCommand);
         Assert.EndsWith("SET IDENTITY_INSERT [archive].[Users] OFF;", plan.DestinationInsertCommand);
         Assert.Contains("SET IDENTITY_INSERT [archive].[Users] ON; MERGE", plan.DestinationMergeCommand);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_DoesNotUpdateNonKeyIdentityColumns()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int",
+                IsIdentity = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "ExternalId",
+                Ordinal = 2,
+                DataType = "uniqueidentifier"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "DisplayName",
+                Ordinal = 3,
+                DataType = "nvarchar(128)"
+            }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "ExternalId", Ordinal = 1, IsPrimaryKey = true, IsUnique = true }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Users",
+            "archive",
+            "Users",
+            columns,
+            indexes);
+
+        Assert.True(plan.RequiresIdentityInsert);
+        Assert.Contains("ON target.[ExternalId] = source.[ExternalId]", plan.DestinationMergeCommand);
+        Assert.Contains("UPDATE SET target.[DisplayName] = source.[DisplayName]", plan.DestinationMergeCommand);
+        Assert.DoesNotContain("target.[Id] = source.[Id]", plan.DestinationMergeCommand);
     }
 
     private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)

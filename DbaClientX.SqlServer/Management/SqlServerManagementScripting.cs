@@ -45,9 +45,11 @@ internal static class SqlServerManagementScripting
             column.IsIdentity = identityColumns.Contains(column.SourceColumn);
         }
 
+        string destinationName = QualifyName(destinationSchema, destinationTable);
+        plan.DestinationMergeCommand = BuildMergeCommand(destinationName, plan.Columns);
+
         if (plan.Columns.Any(column => column.IsIdentity))
         {
-            string destinationName = QualifyName(destinationSchema, destinationTable);
             plan.RequiresIdentityInsert = true;
             plan.DestinationInsertCommand = WrapIdentityInsert(destinationName, plan.DestinationInsertCommand);
             plan.DestinationMergeCommand = plan.DestinationMergeCommand == null
@@ -130,8 +132,23 @@ internal static class SqlServerManagementScripting
             definitions.Add("    " + primaryKey);
         }
 
+        string? period = BuildSystemTimePeriodDefinition(orderedColumns);
+        if (!string.IsNullOrWhiteSpace(period))
+        {
+            definitions.Add("    " + period);
+        }
+
         builder.AppendLine(string.Join("," + Environment.NewLine, definitions));
-        builder.Append(");");
+        builder.Append(')');
+
+        string? systemVersioning = BuildSystemVersioningDefinition(orderedColumns);
+        if (!string.IsNullOrWhiteSpace(systemVersioning))
+        {
+            builder.AppendLine();
+            builder.Append(systemVersioning);
+        }
+
+        builder.Append(';');
 
         return new SqlServerScriptInfo
         {
@@ -167,6 +184,13 @@ internal static class SqlServerManagementScripting
         }
 
         builder.Append(column.DataType);
+        string? generatedAlways = FormatGeneratedAlways(column.GeneratedAlwaysTypeDescription);
+        if (!string.IsNullOrWhiteSpace(generatedAlways))
+        {
+            builder.Append(' ');
+            builder.Append(generatedAlways);
+        }
+
         if (column.IsIdentity)
         {
             builder.Append(" IDENTITY(");
@@ -185,6 +209,39 @@ internal static class SqlServerManagementScripting
         }
 
         return builder.ToString();
+    }
+
+    private static string? FormatGeneratedAlways(string? value)
+        => value?.ToUpperInvariant() switch
+        {
+            "AS_ROW_START" => "GENERATED ALWAYS AS ROW START",
+            "AS_ROW_END" => "GENERATED ALWAYS AS ROW END",
+            _ => null
+        };
+
+    private static string? BuildSystemTimePeriodDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        string? startColumn = columns.FirstOrDefault(column => string.Equals(column.GeneratedAlwaysTypeDescription, "AS_ROW_START", StringComparison.OrdinalIgnoreCase))?.ColumnName;
+        string? endColumn = columns.FirstOrDefault(column => string.Equals(column.GeneratedAlwaysTypeDescription, "AS_ROW_END", StringComparison.OrdinalIgnoreCase))?.ColumnName;
+
+        if (string.IsNullOrWhiteSpace(startColumn) || string.IsNullOrWhiteSpace(endColumn))
+        {
+            return null;
+        }
+
+        return $"PERIOD FOR SYSTEM_TIME ({QuoteName(startColumn!)}, {QuoteName(endColumn!)})";
+    }
+
+    private static string? BuildSystemVersioningDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        SqlServerTableColumnScriptInfo? temporalTable = columns.FirstOrDefault(column =>
+            column.TemporalType == 2 &&
+            !string.IsNullOrWhiteSpace(column.HistoryTableSchema) &&
+            !string.IsNullOrWhiteSpace(column.HistoryTableName));
+
+        return temporalTable == null
+            ? null
+            : $"WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = {QualifyName(temporalTable.HistoryTableSchema!, temporalTable.HistoryTableName!)}))";
     }
 
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
@@ -231,7 +288,7 @@ internal static class SqlServerManagementScripting
             return null;
         }
 
-        var nonKeyColumns = columns.Where(column => !column.IsKey).ToArray();
+        var nonKeyColumns = columns.Where(column => !column.IsKey && !column.IsIdentity).ToArray();
         string values = string.Join(", ", columns.Select(column => column.ParameterName));
         string sourceColumns = string.Join(", ", columns.Select(column => QuoteName(column.DestinationColumn)));
         string on = string.Join(" AND ", keyColumns.Select(column => $"target.{QuoteName(column.DestinationColumn)} = source.{QuoteName(column.DestinationColumn)}"));

@@ -26,6 +26,14 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public bool IsPersisted { get; set; }
 
+    public string? GeneratedAlwaysTypeDescription { get; set; }
+
+    public int TemporalType { get; set; }
+
+    public string? HistoryTableSchema { get; set; }
+
+    public string? HistoryTableName { get; set; }
+
     public string? PrimaryKeyName { get; set; }
 
     public int? PrimaryKeyOrdinal { get; set; }
