@@ -226,11 +226,11 @@ internal static class SqlServerManagementScripting
             if (column.IsPersisted)
             {
                 builder.Append(" PERSISTED");
-            }
 
-            if (!column.IsNullable)
-            {
-                builder.Append(" NOT NULL");
+                if (!column.IsNullable)
+                {
+                    builder.Append(" NOT NULL");
+                }
             }
 
             return builder.ToString();
@@ -419,8 +419,7 @@ internal static class SqlServerManagementScripting
             .Select(column => column.PostCreateStatements)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .SelectMany(SplitMetadataList)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(value => value, StringComparer.Ordinal);
+            .Distinct(StringComparer.Ordinal);
     }
 
     private static IEnumerable<string> SplitMetadataList(string? value)

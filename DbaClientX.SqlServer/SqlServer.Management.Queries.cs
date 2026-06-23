@@ -2,6 +2,19 @@ namespace DBAClientX;
 
 public partial class SqlServer
 {
+    private const string SqlServerMaskedColumnsSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.masked_columns') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
+
+    private const string SqlServerTableScriptMaskingJoinToken = "{MaskingJoin}";
+
+    private const string SqlServerTableScriptLegacyMaskingFunctionProjection = "CONVERT(nvarchar(4000), NULL)";
+
+    private const string SqlServerTableScriptMaskingFunctionProjection = "masking_info.masking_function";
+
+    private const string SqlServerTableScriptMaskingJoin = "LEFT JOIN sys.masked_columns AS masking_info ON masking_info.object_id = column_info.object_id AND masking_info.column_id = column_info.column_id";
+
     private const string SqlServerAgentJobsManagementQuery = @"
 SELECT
     JobId = j.job_id,
@@ -342,11 +355,11 @@ SELECT
     END,
     IsHidden = CONVERT(bit, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0)),
     IsSparse = CONVERT(bit, column_info.is_sparse),
-    MaskingFunction = CONVERT(nvarchar(4000), NULL),
-    TemporalType = CONVERT(int, ISNULL(OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalType'), 0)),
+    MaskingFunction = {MaskingFunction},
+    TemporalType = temporal_info.temporal_type,
     LedgerType = ledger_info.ledger_type,
-    HistoryTableSchema = OBJECT_SCHEMA_NAME(CONVERT(int, OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalHistoryTableId'))),
-    HistoryTableName = OBJECT_NAME(CONVERT(int, OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalHistoryTableId'))),
+    HistoryTableSchema = history_schema.name,
+    HistoryTableName = history_table.name,
     PrimaryKeyName = primary_key.name,
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
@@ -367,8 +380,23 @@ LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.sch
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+{MaskingJoin}
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
+OUTER APPLY (
+    SELECT
+        temporal_type = CASE
+            WHEN table_metadata.data.exist(N'/table/temporal_type') = 1 THEN table_metadata.data.value(N'(/table/temporal_type/text())[1]', N'int')
+            ELSE 0
+        END,
+        history_table_id = CASE
+            WHEN table_metadata.data.exist(N'/table/history_table_id') = 1 THEN table_metadata.data.value(N'(/table/history_table_id/text())[1]', N'int')
+            ELSE NULL
+        END
+    FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
+) AS temporal_info
+LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id
+LEFT JOIN sys.schemas AS history_schema ON history_schema.schema_id = history_table.schema_id
 OUTER APPLY (
     SELECT ledger_type = CASE
         WHEN table_metadata.data.exist(N'/table/ledger_type') = 1 THEN table_metadata.data.value(N'(/table/ledger_type/text())[1]', N'int')
@@ -467,6 +495,6 @@ OUTER APPLY (
 ) AS post_create_info
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
-  AND CONVERT(int, ISNULL(OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalType'), 0)) <> 1
+  AND temporal_info.temporal_type <> 1
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";
 }

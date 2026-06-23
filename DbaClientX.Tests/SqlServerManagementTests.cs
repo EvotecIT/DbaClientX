@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Reflection;
+using DBAClientX;
 using DBAClientX.Metadata;
 using DBAClientX.SqlServerManagement;
 using Xunit;
@@ -361,6 +363,52 @@ public class SqlServerManagementTests
         Assert.Contains("ALTER TABLE [dbo].[User]]Audit] ADD CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) ON DELETE CASCADE NOT FOR REPLICATION;", postCreateScript.Script);
         Assert.Contains("ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);", postCreateScript.Script);
         Assert.Contains("ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];", postCreateScript.Script);
+        Assert.True(
+            postCreateScript.Script.IndexOf("WITH NOCHECK ADD CONSTRAINT [CK_Disabled]", StringComparison.Ordinal) <
+            postCreateScript.Script.IndexOf("NOCHECK CONSTRAINT [CK_Disabled]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildTableScripts_DoesNotEmitNotNullForNonPersistedComputedColumns()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "NameLength",
+                Ordinal = 1,
+                DataType = "int",
+                IsNullable = false,
+                ComputedDefinition = "(len([Name]))",
+                IsPersisted = false
+            }
+        };
+
+        SqlServerScriptInfo script = Assert.Single(SqlServerManagementScripting.BuildTableScripts(columns));
+
+        Assert.Contains("[NameLength] AS (len([Name]))", script.Script);
+        Assert.DoesNotContain("[NameLength] AS (len([Name])) NOT NULL", script.Script);
+    }
+
+    [Fact]
+    public void TableScriptColumnQuery_PreservesMaskingAndTemporalHistoryMetadata()
+    {
+        string supportQuery = GetPrivateStaticString<SqlServer>("SqlServerMaskedColumnsSupportQuery");
+        string template = GetPrivateStaticString<SqlServer>("SqlServerTableScriptColumnsManagementQuery");
+        string maskingQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true);
+        string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false);
+
+        Assert.Contains("OBJECT_ID(N'sys.masked_columns')", supportQuery);
+        Assert.Contains("MaskingFunction = {MaskingFunction}", template);
+        Assert.Contains("LEFT JOIN sys.masked_columns AS masking_info", maskingQuery);
+        Assert.Contains("MaskingFunction = masking_info.masking_function", maskingQuery);
+        Assert.DoesNotContain("sys.masked_columns", legacyQuery);
+        Assert.Contains("MaskingFunction = CONVERT(nvarchar(4000), NULL)", legacyQuery);
+        Assert.Contains("/table/history_table_id", maskingQuery);
+        Assert.Contains("LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id", maskingQuery);
+        Assert.DoesNotContain("TableTemporalHistoryTableId", maskingQuery);
     }
 
     [Fact]
@@ -713,5 +761,19 @@ public class SqlServerManagementTests
         DataTableReader reader = table.CreateDataReader();
         Assert.True(reader.Read());
         return reader;
+    }
+
+    private static string GetPrivateStaticString<T>(string fieldName)
+    {
+        FieldInfo? field = typeof(T).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        return Assert.IsType<string>(field!.GetRawConstantValue());
+    }
+
+    private static string InvokePrivateStaticString<T>(string methodName, bool argument)
+    {
+        MethodInfo? method = typeof(T).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        return Assert.IsType<string>(method!.Invoke(null, new object[] { argument }));
     }
 }

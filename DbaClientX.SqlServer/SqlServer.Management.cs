@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using DBAClientX.SqlServerManagement;
+using Microsoft.Data.SqlClient;
 
 namespace DBAClientX;
 
@@ -150,16 +152,7 @@ public partial class SqlServer
         string? schema = null,
         string? name = null)
     {
-        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = ExecuteMetadata(
-            connectionString,
-            SqlServerTableScriptColumnsManagementQuery,
-            SqlServerManagementMappers.MapTableScriptColumn,
-            new Dictionary<string, object?>
-            {
-                ["@schema"] = schema,
-                ["@name"] = name
-            });
-
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(connectionString, schema, name);
         return SqlServerManagementScripting.BuildTableScripts(columns);
     }
 
@@ -173,15 +166,7 @@ public partial class SqlServer
         string? destinationSchema = null,
         string? destinationTable = null)
     {
-        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = ExecuteMetadata(
-            sourceConnectionString,
-            SqlServerTableScriptColumnsManagementQuery,
-            SqlServerManagementMappers.MapTableScriptColumn,
-            new Dictionary<string, object?>
-            {
-                ["@schema"] = sourceSchema,
-                ["@name"] = sourceTable
-            });
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(sourceConnectionString, sourceSchema, sourceTable);
         IReadOnlyList<Metadata.DbaIndexInfo> indexes = GetIndexes(sourceConnectionString, sourceSchema, sourceTable);
         return SqlServerManagementScripting.BuildTableCopyPlan(
             sourceSchema,
@@ -208,4 +193,45 @@ public partial class SqlServer
             AgentJobs = GetSqlServerAgentJobs(connectionString, includeDisabled: includeDisabledAgent),
             ServerPrincipals = GetSqlServerServerPrincipals(connectionString, includeSystem: includeSystem)
         };
+
+    private IReadOnlyList<SqlServerTableColumnScriptInfo> GetSqlServerTableScriptColumns(string connectionString, string? schema, string? name)
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            bool includeMasking = SupportsMaskedColumns(connection, transaction);
+            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking);
+            return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapTableScriptColumn, parameters: new Dictionary<string, object?>
+            {
+                ["@schema"] = schema,
+                ["@name"] = name
+            });
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
+
+    private bool SupportsMaskedColumns(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerMaskedColumnsSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking)
+        => SqlServerTableScriptColumnsManagementQuery
+            .Replace(
+                SqlServerTableScriptMaskingFunctionToken,
+                includeMasking ? SqlServerTableScriptMaskingFunctionProjection : SqlServerTableScriptLegacyMaskingFunctionProjection)
+            .Replace(
+                SqlServerTableScriptMaskingJoinToken,
+                includeMasking ? SqlServerTableScriptMaskingJoin : string.Empty);
 }
