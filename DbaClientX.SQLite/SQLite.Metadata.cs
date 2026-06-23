@@ -53,14 +53,18 @@ SELECT
     il.origin AS index_type,
     il.""unique"" AS is_unique,
     CASE WHEN il.origin = 'pk' THEN 1 ELSE 0 END AS is_primary_key,
-    ii.name AS column_name,
+    CASE WHEN ii.cid >= 0 THEN ii.name ELSE NULL END AS column_name,
     ii.seqno + 1 AS ordinal_position,
     CASE WHEN ii.""desc"" = 1 THEN 1 ELSE 0 END AS is_descending,
-    NULL AS filter_definition
+    0 AS is_included,
+    NULL AS prefix_length,
+    CASE WHEN ii.cid = -2 THEN im.sql ELSE NULL END AS expression,
+    CASE WHEN instr(lower(im.sql), ' where ') > 0 THEN substr(im.sql, instr(lower(im.sql), ' where ') + 7) ELSE NULL END AS filter_definition
 FROM pragma_table_list tl
 INNER JOIN sqlite_master m ON m.name = tl.name AND m.type = 'table'
 INNER JOIN pragma_index_list(m.name) il
 INNER JOIN pragma_index_xinfo(il.name) ii
+LEFT JOIN sqlite_master im ON im.name = il.name AND im.type = 'index'
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
@@ -78,6 +82,9 @@ SELECT
     ti.name AS column_name,
     ti.pk AS ordinal_position,
     0 AS is_descending,
+    0 AS is_included,
+    NULL AS prefix_length,
+    NULL AS expression,
     NULL AS filter_definition
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
@@ -227,8 +234,11 @@ WHERE 1 = 0;";
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
+            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
@@ -256,6 +266,8 @@ WHERE 1 = 0;";
             ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
         {
             DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            SpecificName = null,
+            Signature = null,
             Definition = DbaMetadataReader.GetNullableString(record, "definition"),
             IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
         };

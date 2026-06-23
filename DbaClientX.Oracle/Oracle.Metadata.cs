@@ -19,6 +19,7 @@ FROM dual";
 SELECT owner AS schema_name, table_name AS object_name, 'Table' AS object_kind
 FROM all_tables
 WHERE owner = COALESCE(UPPER(:schemaTables), owner)
+  AND table_name NOT LIKE 'BIN$%'
 UNION ALL
 SELECT owner AS schema_name, view_name AS object_name, 'View' AS object_kind
 FROM all_views
@@ -47,6 +48,7 @@ SELECT
 FROM all_tab_columns
 WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR table_name = :tableNameExact OR table_name = UPPER(:tableNameNormalized))
+  AND table_name NOT LIKE 'BIN$%'
 ORDER BY owner, table_name, column_id";
 
     private const string OracleIndexesQuery = @"
@@ -60,12 +62,16 @@ SELECT
     ic.column_name,
     ic.column_position AS ordinal_position,
     CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending,
+    0 AS is_included,
+    NULL AS prefix_length,
+    NULL AS expression,
     NULL AS filter_definition
 FROM all_indexes i
 INNER JOIN all_ind_columns ic ON ic.index_owner = i.owner AND ic.index_name = i.index_name AND ic.table_name = i.table_name
 LEFT JOIN all_constraints c ON c.owner = i.owner AND c.index_name = i.index_name AND c.table_name = i.table_name AND c.constraint_type = 'P'
-WHERE i.owner = COALESCE(UPPER(:schemaName), i.owner)
-  AND i.table_name = COALESCE(UPPER(:tableName), i.table_name)
+WHERE (:schemaNameExact IS NULL OR i.owner = :schemaNameExact OR i.owner = UPPER(:schemaNameNormalized))
+  AND (:tableNameExact IS NULL OR i.table_name = :tableNameExact OR i.table_name = UPPER(:tableNameNormalized))
+  AND i.table_name NOT LIKE 'BIN$%'
 ORDER BY i.owner, i.table_name, i.index_name, ic.column_position";
 
     private const string OracleForeignKeysQuery = @"
@@ -136,8 +142,10 @@ ORDER BY owner, object_name";
     public virtual IReadOnlyList<DbaIndexInfo> GetIndexes(string connectionString, string? schema = null, string? table = null)
         => ExecuteMetadata(connectionString, OracleIndexesQuery, MapIndex, new Dictionary<string, object?>
         {
-            [":schemaName"] = schema,
-            [":tableName"] = table
+            [":schemaNameExact"] = schema,
+            [":schemaNameNormalized"] = schema,
+            [":tableNameExact"] = table,
+            [":tableNameNormalized"] = table
         });
 
     /// <summary>Lists Oracle foreign keys visible to the connection. Multi-column keys return one row per column mapping.</summary>
@@ -218,8 +226,11 @@ ORDER BY owner, object_name";
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
+            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
@@ -247,6 +258,8 @@ ORDER BY owner, object_name";
             ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
         {
             DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            SpecificName = null,
+            Signature = null,
             Definition = DbaMetadataReader.GetNullableString(record, "definition"),
             IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
         };

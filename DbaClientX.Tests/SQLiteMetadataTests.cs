@@ -21,6 +21,7 @@ public class SQLiteMetadataTests
             sqlite.ExecuteNonQuery(path, "CREATE TABLE ImplicitChildren(ParentId INTEGER NOT NULL REFERENCES ImplicitParents);");
             sqlite.ExecuteNonQuery(path, "CREATE TABLE sqliteX(Id INTEGER PRIMARY KEY);");
             sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_Name ON Users(Name DESC);");
+            sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_LowerName ON Users(lower(Name)) WHERE Name IS NOT NULL;");
             sqlite.ExecuteNonQuery(path, "CREATE VIEW ActiveUsers AS SELECT Id, Name FROM Users;");
             sqlite.ExecuteNonQuery(path, "CREATE VIRTUAL TABLE Docs USING fts5(Body);");
 
@@ -59,6 +60,7 @@ public class SQLiteMetadataTests
             Assert.Contains(columns, column => column.Name == "Slug");
             Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
             Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
+            Assert.Contains(indexes, index => index.Name == "IX_Users_LowerName" && index.Column is null && index.Expression != null && index.Expression.Contains("lower(Name)", StringComparison.OrdinalIgnoreCase) && index.FilterDefinition == "Name IS NOT NULL");
             Assert.Contains(indexes, index => index.Name == "pk_Users" && index.Column == "Id" && index.IsPrimaryKey);
             Assert.Empty(tempIndexes);
             Assert.Contains(foreignKeys, foreignKey =>

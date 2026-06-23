@@ -52,7 +52,10 @@ SELECT
     CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
     COLUMN_NAME AS column_name,
     SEQ_IN_INDEX AS ordinal_position,
-    CASE WHEN COLLATION = 'D' THEN 1 ELSE 0 END AS is_descending,
+    CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
+    0 AS is_included,
+    SUB_PART AS prefix_length,
+    NULL AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
 WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
@@ -200,8 +203,11 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
+            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
@@ -229,6 +235,8 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
             ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
         {
             DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            SpecificName = null,
+            Signature = null,
             Definition = DbaMetadataReader.GetNullableString(record, "definition"),
             IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
         };
