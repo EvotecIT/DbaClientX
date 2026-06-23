@@ -54,7 +54,19 @@ SELECT
         WHEN typ.typname = 'numeric' AND att.atttypmod > 4 THEN (att.atttypmod - 4) & 65535
         ELSE NULL
     END AS numeric_scale,
-    pg_get_expr(def.adbin, def.adrelid) AS default_expression
+    CASE WHEN att.attgenerated = '' THEN pg_get_expr(def.adbin, def.adrelid) ELSE NULL END AS default_expression,
+    att.attidentity <> '' AS is_identity,
+    CASE att.attidentity
+        WHEN 'a' THEN 'ALWAYS'
+        WHEN 'd' THEN 'BY DEFAULT'
+        ELSE NULL
+    END AS identity_generation,
+    CASE WHEN att.attgenerated <> '' THEN pg_get_expr(def.adbin, def.adrelid) ELSE NULL END AS generated_expression,
+    CASE att.attgenerated
+        WHEN 's' THEN 'STORED'
+        WHEN 'v' THEN 'VIRTUAL'
+        ELSE NULL
+    END AS generated_kind
 FROM pg_class cls
 INNER JOIN pg_namespace ns ON ns.oid = cls.relnamespace
 INNER JOIN pg_attribute att ON att.attrelid = cls.oid
@@ -97,6 +109,7 @@ WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
   AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
   AND (@schema IS NULL OR ns.nspname = @schema)
   AND (@table IS NULL OR tbl.relname = @table)
+  AND ix.indisvalid
   AND (cols.ordinality IS NULL OR cols.ordinality <= ix.indnkeyatts)
 ORDER BY ns.nspname, tbl.relname, idx.relname, cols.ordinality;";
 
@@ -254,7 +267,11 @@ ORDER BY ns.nspname, proc.proname, pg_get_function_identity_arguments(proc.oid);
             MaxLength = DbaMetadataReader.GetNullableInt64(record, "max_length"),
             Precision = DbaMetadataReader.GetNullableInt32(record, "numeric_precision"),
             Scale = DbaMetadataReader.GetNullableInt32(record, "numeric_scale"),
-            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression")
+            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression"),
+            IsIdentity = DbaMetadataReader.GetNullableBoolean(record, "is_identity"),
+            IdentityGeneration = DbaMetadataReader.GetNullableString(record, "identity_generation"),
+            GeneratedExpression = DbaMetadataReader.GetNullableString(record, "generated_expression"),
+            GeneratedKind = DbaMetadataReader.GetNullableString(record, "generated_kind")
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)

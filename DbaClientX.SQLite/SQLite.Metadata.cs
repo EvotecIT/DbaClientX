@@ -35,7 +35,11 @@ SELECT
     NULL AS max_length,
     NULL AS numeric_precision,
     NULL AS numeric_scale,
-    ti.dflt_value AS default_expression
+    ti.dflt_value AS default_expression,
+    NULL AS is_identity,
+    NULL AS identity_generation,
+    NULL AS generated_expression,
+    NULL AS generated_kind
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'
@@ -221,7 +225,11 @@ WHERE 1 = 0;";
             MaxLength = DbaMetadataReader.GetNullableInt64(record, "max_length"),
             Precision = DbaMetadataReader.GetNullableInt32(record, "numeric_precision"),
             Scale = DbaMetadataReader.GetNullableInt32(record, "numeric_scale"),
-            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression")
+            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression"),
+            IsIdentity = DbaMetadataReader.GetNullableBoolean(record, "is_identity"),
+            IdentityGeneration = DbaMetadataReader.GetNullableString(record, "identity_generation"),
+            GeneratedExpression = DbaMetadataReader.GetNullableString(record, "generated_expression"),
+            GeneratedKind = DbaMetadataReader.GetNullableString(record, "generated_kind")
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)

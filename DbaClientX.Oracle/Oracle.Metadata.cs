@@ -20,6 +20,9 @@ SELECT owner AS schema_name, table_name AS object_name, 'Table' AS object_kind
 FROM all_tables
 WHERE owner = COALESCE(UPPER(:schemaTables), owner)
   AND table_name NOT LIKE 'BIN$%'
+  AND nested = 'NO'
+  AND secondary = 'N'
+  AND (iot_type IS NULL OR iot_type <> 'IOT_OVERFLOW')
 UNION ALL
 SELECT owner AS schema_name, view_name AS object_name, 'View' AS object_kind
 FROM all_views
@@ -44,7 +47,11 @@ SELECT
     END AS max_length,
     data_precision AS numeric_precision,
     data_scale AS numeric_scale,
-    data_default AS default_expression
+    data_default AS default_expression,
+    CASE WHEN identity_column = 'YES' THEN 1 ELSE 0 END AS is_identity,
+    CASE WHEN identity_column = 'YES' THEN 'IDENTITY' ELSE NULL END AS identity_generation,
+    NULL AS generated_expression,
+    NULL AS generated_kind
 FROM all_tab_columns
 WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR table_name = :tableNameExact OR table_name = UPPER(:tableNameNormalized))
@@ -59,15 +66,16 @@ SELECT
     i.index_type,
     CASE WHEN i.uniqueness = 'UNIQUE' THEN 1 ELSE 0 END AS is_unique,
     CASE WHEN c.constraint_type = 'P' THEN 1 ELSE 0 END AS is_primary_key,
-    ic.column_name,
+    CASE WHEN ie.column_expression IS NULL THEN ic.column_name ELSE NULL END AS column_name,
     ic.column_position AS ordinal_position,
     CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending,
     0 AS is_included,
     NULL AS prefix_length,
-    NULL AS expression,
+    ie.column_expression AS expression,
     NULL AS filter_definition
 FROM all_indexes i
 INNER JOIN all_ind_columns ic ON ic.index_owner = i.owner AND ic.index_name = i.index_name AND ic.table_name = i.table_name
+LEFT JOIN all_ind_expressions ie ON ie.index_owner = ic.index_owner AND ie.index_name = ic.index_name AND ie.table_name = ic.table_name AND ie.column_position = ic.column_position
 LEFT JOIN all_constraints c ON c.owner = i.owner AND c.index_name = i.index_name AND c.table_name = i.table_name AND c.constraint_type = 'P'
 WHERE (:schemaNameExact IS NULL OR i.owner = :schemaNameExact OR i.owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR i.table_name = :tableNameExact OR i.table_name = UPPER(:tableNameNormalized))
@@ -93,27 +101,37 @@ INNER JOIN all_cons_columns fkc ON fkc.owner = fk.owner AND fkc.constraint_name 
 INNER JOIN all_constraints pk ON pk.owner = fk.r_owner AND pk.constraint_name = fk.r_constraint_name
 INNER JOIN all_cons_columns pkc ON pkc.owner = pk.owner AND pkc.constraint_name = pk.constraint_name AND pkc.position = fkc.position
 WHERE fk.constraint_type = 'R'
-  AND fk.owner = COALESCE(UPPER(:schemaName), fk.owner)
-  AND fk.table_name = COALESCE(UPPER(:tableName), fk.table_name)
+  AND (:schemaNameExact IS NULL OR fk.owner = :schemaNameExact OR fk.owner = UPPER(:schemaNameNormalized))
+  AND (:tableNameExact IS NULL OR fk.table_name = :tableNameExact OR fk.table_name = UPPER(:tableNameNormalized))
 ORDER BY fk.owner, fk.table_name, fk.constraint_name, fkc.position";
 
     private const string OracleRoutinesQuery = @"
 SELECT
-    owner AS schema_name,
-    object_name AS routine_name,
-    CASE object_type
+    object_info.owner AS schema_name,
+    object_info.object_name AS routine_name,
+    CASE object_info.object_type
         WHEN 'PROCEDURE' THEN 'Procedure'
         WHEN 'FUNCTION' THEN 'Function'
         WHEN 'PACKAGE' THEN 'Package'
         ELSE 'Unknown'
     END AS routine_kind,
-    NULL AS data_type,
+    CASE
+        WHEN object_info.object_type = 'FUNCTION' AND result_argument.type_owner IS NOT NULL THEN result_argument.type_owner || '.' || result_argument.type_name
+        WHEN object_info.object_type = 'FUNCTION' AND result_argument.type_name IS NOT NULL THEN result_argument.type_name
+        WHEN object_info.object_type = 'FUNCTION' THEN result_argument.data_type
+        ELSE NULL
+    END AS data_type,
     NULL AS definition,
-    CASE WHEN owner IN ('SYS', 'SYSTEM') THEN 1 ELSE 0 END AS is_system
-FROM all_objects
-WHERE object_type IN ('PROCEDURE', 'FUNCTION', 'PACKAGE')
-  AND owner = COALESCE(UPPER(:schemaName), owner)
-ORDER BY owner, object_name";
+    CASE WHEN object_info.owner IN ('SYS', 'SYSTEM') THEN 1 ELSE 0 END AS is_system
+FROM all_objects object_info
+LEFT JOIN all_arguments result_argument
+    ON result_argument.owner = object_info.owner
+    AND result_argument.object_name = object_info.object_name
+    AND result_argument.package_name IS NULL
+    AND result_argument.position = 0
+WHERE object_info.object_type IN ('PROCEDURE', 'FUNCTION', 'PACKAGE')
+  AND object_info.owner = COALESCE(UPPER(:schemaName), object_info.owner)
+ORDER BY object_info.owner, object_info.object_name";
 
     /// <summary>Returns the current Oracle database context visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string connectionString)
@@ -152,8 +170,10 @@ ORDER BY owner, object_name";
     public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeys(string connectionString, string? schema = null, string? table = null)
         => ExecuteMetadata(connectionString, OracleForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
         {
-            [":schemaName"] = schema,
-            [":tableName"] = table
+            [":schemaNameExact"] = schema,
+            [":schemaNameNormalized"] = schema,
+            [":tableNameExact"] = table,
+            [":tableNameNormalized"] = table
         });
 
     /// <summary>Lists Oracle procedures, functions, and packages visible to the connection.</summary>
@@ -213,7 +233,11 @@ ORDER BY owner, object_name";
             MaxLength = DbaMetadataReader.GetNullableInt64(record, "max_length"),
             Precision = DbaMetadataReader.GetNullableInt32(record, "numeric_precision"),
             Scale = DbaMetadataReader.GetNullableInt32(record, "numeric_scale"),
-            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression")
+            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression"),
+            IsIdentity = DbaMetadataReader.GetNullableBoolean(record, "is_identity"),
+            IdentityGeneration = DbaMetadataReader.GetNullableString(record, "identity_generation"),
+            GeneratedExpression = DbaMetadataReader.GetNullableString(record, "generated_expression"),
+            GeneratedKind = DbaMetadataReader.GetNullableString(record, "generated_kind")
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)

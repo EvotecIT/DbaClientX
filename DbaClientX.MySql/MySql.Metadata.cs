@@ -36,7 +36,16 @@ SELECT
     CHARACTER_MAXIMUM_LENGTH AS max_length,
     NUMERIC_PRECISION AS numeric_precision,
     NUMERIC_SCALE AS numeric_scale,
-    COLUMN_DEFAULT AS default_expression
+    COLUMN_DEFAULT AS default_expression,
+    CASE WHEN EXTRA LIKE '%auto_increment%' THEN 1 ELSE 0 END AS is_identity,
+    CASE WHEN EXTRA LIKE '%auto_increment%' THEN 'AUTO_INCREMENT' ELSE NULL END AS identity_generation,
+    NULLIF(GENERATION_EXPRESSION, '') AS generated_expression,
+    CASE
+        WHEN EXTRA LIKE '%STORED GENERATED%' THEN 'STORED'
+        WHEN EXTRA LIKE '%VIRTUAL GENERATED%' THEN 'VIRTUAL'
+        WHEN NULLIF(GENERATION_EXPRESSION, '') IS NOT NULL THEN 'GENERATED'
+        ELSE NULL
+    END AS generated_kind
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
   AND (@table IS NULL OR TABLE_NAME = @table)
@@ -50,12 +59,12 @@ SELECT
     INDEX_TYPE AS index_type,
     CASE WHEN NON_UNIQUE = 0 THEN 1 ELSE 0 END AS is_unique,
     CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
-    COLUMN_NAME AS column_name,
+    CASE WHEN EXPRESSION IS NULL THEN COLUMN_NAME ELSE NULL END AS column_name,
     SEQ_IN_INDEX AS ordinal_position,
     CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
     0 AS is_included,
     SUB_PART AS prefix_length,
-    NULL AS expression,
+    EXPRESSION AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
 WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
@@ -91,7 +100,7 @@ SELECT
     ROUTINE_SCHEMA AS schema_name,
     ROUTINE_NAME AS routine_name,
     CASE WHEN ROUTINE_TYPE = 'PROCEDURE' THEN 'Procedure' WHEN ROUTINE_TYPE = 'FUNCTION' THEN 'Function' ELSE 'Unknown' END AS routine_kind,
-    DTD_IDENTIFIER AS data_type,
+    CASE WHEN ROUTINE_TYPE = 'FUNCTION' THEN NULLIF(DTD_IDENTIFIER, '') ELSE NULL END AS data_type,
     ROUTINE_DEFINITION AS definition,
     CASE WHEN ROUTINE_SCHEMA IN ('information_schema', 'mysql', 'performance_schema', 'sys') THEN 1 ELSE 0 END AS is_system
 FROM INFORMATION_SCHEMA.ROUTINES
@@ -190,7 +199,11 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
             MaxLength = DbaMetadataReader.GetNullableInt64(record, "max_length"),
             Precision = DbaMetadataReader.GetNullableInt32(record, "numeric_precision"),
             Scale = DbaMetadataReader.GetNullableInt32(record, "numeric_scale"),
-            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression")
+            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression"),
+            IsIdentity = DbaMetadataReader.GetNullableBoolean(record, "is_identity"),
+            IdentityGeneration = DbaMetadataReader.GetNullableString(record, "identity_generation"),
+            GeneratedExpression = DbaMetadataReader.GetNullableString(record, "generated_expression"),
+            GeneratedKind = DbaMetadataReader.GetNullableString(record, "generated_kind")
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)

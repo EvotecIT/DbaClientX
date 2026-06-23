@@ -28,23 +28,37 @@ ORDER BY TABLE_SCHEMA, TABLE_NAME;";
 
     private const string SqlServerColumnsQuery = @"
 SELECT
-    TABLE_SCHEMA AS schema_name,
-    TABLE_NAME AS table_name,
-    COLUMN_NAME AS column_name,
+    columns_info.TABLE_SCHEMA AS schema_name,
+    columns_info.TABLE_NAME AS table_name,
+    columns_info.COLUMN_NAME AS column_name,
     CASE
-        WHEN DOMAIN_NAME IS NOT NULL THEN CONCAT(COALESCE(DOMAIN_SCHEMA, TABLE_SCHEMA), '.', DOMAIN_NAME)
-        ELSE DATA_TYPE
+        WHEN columns_info.DOMAIN_NAME IS NOT NULL THEN CONCAT(COALESCE(columns_info.DOMAIN_SCHEMA, columns_info.TABLE_SCHEMA), '.', columns_info.DOMAIN_NAME)
+        ELSE columns_info.DATA_TYPE
     END AS data_type,
-    ORDINAL_POSITION AS ordinal_position,
-    CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS is_nullable,
-    CHARACTER_MAXIMUM_LENGTH AS max_length,
-    NUMERIC_PRECISION AS numeric_precision,
-    NUMERIC_SCALE AS numeric_scale,
-    COLUMN_DEFAULT AS default_expression
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE (@schema IS NULL OR TABLE_SCHEMA = @schema)
-  AND (@table IS NULL OR TABLE_NAME = @table)
-ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
+    columns_info.ORDINAL_POSITION AS ordinal_position,
+    CASE WHEN columns_info.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS is_nullable,
+    columns_info.CHARACTER_MAXIMUM_LENGTH AS max_length,
+    columns_info.NUMERIC_PRECISION AS numeric_precision,
+    columns_info.NUMERIC_SCALE AS numeric_scale,
+    columns_info.COLUMN_DEFAULT AS default_expression,
+    CAST(sys_column.is_identity AS bit) AS is_identity,
+    CASE WHEN sys_column.is_identity = 1 THEN N'IDENTITY' ELSE NULL END AS identity_generation,
+    computed_column.definition AS generated_expression,
+    CASE
+        WHEN computed_column.definition IS NULL THEN NULL
+        WHEN computed_column.is_persisted = 1 THEN N'COMPUTED_PERSISTED'
+        ELSE N'COMPUTED'
+    END AS generated_kind
+FROM INFORMATION_SCHEMA.COLUMNS AS columns_info
+LEFT JOIN sys.columns AS sys_column
+    ON sys_column.object_id = OBJECT_ID(QUOTENAME(columns_info.TABLE_SCHEMA) + N'.' + QUOTENAME(columns_info.TABLE_NAME))
+    AND sys_column.name = columns_info.COLUMN_NAME
+LEFT JOIN sys.computed_columns AS computed_column
+    ON computed_column.object_id = sys_column.object_id
+    AND computed_column.column_id = sys_column.column_id
+WHERE (@schema IS NULL OR columns_info.TABLE_SCHEMA = @schema)
+  AND (@table IS NULL OR columns_info.TABLE_NAME = @table)
+ORDER BY columns_info.TABLE_SCHEMA, columns_info.TABLE_NAME, columns_info.ORDINAL_POSITION;";
 
     private const string SqlServerIndexesQuery = @"
 SELECT
@@ -69,6 +83,7 @@ LEFT JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.colum
 WHERE i.index_id > 0
   AND i.name IS NOT NULL
   AND i.is_hypothetical = 0
+  AND i.is_disabled = 0
   AND (@schema IS NULL OR s.name = @schema)
   AND (@table IS NULL OR o.name = @table)
 ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END;";
@@ -234,7 +249,11 @@ ORDER BY s.name, o.name;";
             MaxLength = DbaMetadataReader.GetNullableInt64(record, "max_length"),
             Precision = DbaMetadataReader.GetNullableInt32(record, "numeric_precision"),
             Scale = DbaMetadataReader.GetNullableInt32(record, "numeric_scale"),
-            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression")
+            DefaultExpression = DbaMetadataReader.GetNullableString(record, "default_expression"),
+            IsIdentity = DbaMetadataReader.GetNullableBoolean(record, "is_identity"),
+            IdentityGeneration = DbaMetadataReader.GetNullableString(record, "identity_generation"),
+            GeneratedExpression = DbaMetadataReader.GetNullableString(record, "generated_expression"),
+            GeneratedKind = DbaMetadataReader.GetNullableString(record, "generated_kind")
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)
