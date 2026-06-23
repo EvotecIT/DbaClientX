@@ -171,7 +171,7 @@ public partial class SqlServer
         string? schema = null,
         string? name = null)
     {
-        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(connectionString, schema, name);
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(connectionString, schema, name, includeGraphHiddenColumns: false, includeGraphTableOnlyRows: true);
         return SqlServerManagementScripting.BuildTableScripts(columns);
     }
 
@@ -185,7 +185,7 @@ public partial class SqlServer
         string? destinationSchema = null,
         string? destinationTable = null)
     {
-        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(sourceConnectionString, sourceSchema, sourceTable);
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = GetSqlServerTableScriptColumns(sourceConnectionString, sourceSchema, sourceTable, includeGraphHiddenColumns: true, includeGraphTableOnlyRows: false);
         IReadOnlyList<Metadata.DbaIndexInfo> indexes = GetIndexes(sourceConnectionString, sourceSchema, sourceTable);
         return SqlServerManagementScripting.BuildTableCopyPlan(
             sourceSchema,
@@ -213,7 +213,12 @@ public partial class SqlServer
             ServerPrincipals = GetSqlServerServerPrincipals(connectionString, includeSystem: includeSystem)
         };
 
-    private IReadOnlyList<SqlServerTableColumnScriptInfo> GetSqlServerTableScriptColumns(string connectionString, string? schema, string? name)
+    private IReadOnlyList<SqlServerTableColumnScriptInfo> GetSqlServerTableScriptColumns(
+        string connectionString,
+        string? schema,
+        string? name,
+        bool includeGraphHiddenColumns = false,
+        bool includeGraphTableOnlyRows = true)
     {
         ValidateConnectionString(connectionString);
         SqlConnection? connection = null;
@@ -225,7 +230,14 @@ public partial class SqlServer
             bool includeMasking = SupportsMaskedColumns(connection, transaction);
             bool includeEncryption = SupportsColumnEncryption(connection, transaction);
             bool includeGraphEdgeConstraints = SupportsGraphEdgeConstraints(connection, transaction);
-            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking, includeEncryption, includeGraphEdgeConstraints);
+            bool includeHashIndexes = SupportsHashIndexes(connection, transaction);
+            string query = BuildSqlServerTableScriptColumnsManagementQuery(
+                includeMasking,
+                includeEncryption,
+                includeGraphEdgeConstraints,
+                includeHashIndexes,
+                includeGraphHiddenColumns,
+                includeGraphTableOnlyRows);
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapTableScriptColumn, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -265,6 +277,12 @@ public partial class SqlServer
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
+    private bool SupportsHashIndexes(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerHashIndexesSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
     private static string BuildSqlServerPermissionsManagementQuery(bool includeAvailabilityGroups)
         => SqlServerPermissionsManagementQuery
             .Replace(
@@ -274,7 +292,13 @@ public partial class SqlServer
                 SqlServerPermissionsAvailabilityGroupJoinToken,
                 includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupJoin : string.Empty);
 
-    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking, bool includeEncryption, bool includeGraphEdgeConstraints)
+    private static string BuildSqlServerTableScriptColumnsManagementQuery(
+        bool includeMasking,
+        bool includeEncryption,
+        bool includeGraphEdgeConstraints,
+        bool includeHashIndexes,
+        bool includeGraphHiddenColumns,
+        bool includeGraphTableOnlyRows)
         => SqlServerTableScriptColumnsManagementQuery
             .Replace(
                 SqlServerTableScriptMaskingFunctionToken,
@@ -290,5 +314,29 @@ public partial class SqlServer
                 includeEncryption ? SqlServerTableScriptEncryptionJoin : string.Empty)
             .Replace(
                 SqlServerTableScriptGraphEdgeConstraintStatementsToken,
-                includeGraphEdgeConstraints ? SqlServerTableScriptGraphEdgeConstraintStatements : string.Empty);
+                includeGraphEdgeConstraints ? SqlServerTableScriptGraphEdgeConstraintStatements : string.Empty)
+            .Replace(
+                SqlServerTableScriptPrimaryKeyBucketCountToken,
+                includeHashIndexes ? SqlServerTableScriptPrimaryKeyBucketCountProjection : SqlServerTableScriptLegacyPrimaryKeyBucketCountProjection)
+            .Replace(
+                SqlServerTableScriptPrimaryKeyHashJoinToken,
+                includeHashIndexes ? SqlServerTableScriptPrimaryKeyHashJoin : string.Empty)
+            .Replace(
+                SqlServerTableScriptUniqueHashJoinToken,
+                includeHashIndexes ? SqlServerTableScriptUniqueHashJoin : string.Empty)
+            .Replace(
+                SqlServerTableScriptUniqueHashBucketCountToken,
+                includeHashIndexes ? SqlServerTableScriptUniqueHashBucketCount : "N''")
+            .Replace(
+                SqlServerTableScriptMemoryHashJoinToken,
+                includeHashIndexes ? SqlServerTableScriptMemoryHashJoin : string.Empty)
+            .Replace(
+                SqlServerTableScriptMemoryHashBucketCountToken,
+                includeHashIndexes ? SqlServerTableScriptMemoryHashBucketCount : "N''")
+            .Replace(
+                SqlServerTableScriptGraphHiddenColumnFilterToken,
+                includeGraphHiddenColumns ? string.Empty : SqlServerTableScriptGraphHiddenColumnFilter)
+            .Replace(
+                SqlServerTableScriptGraphTableOnlyRowsToken,
+                includeGraphTableOnlyRows ? SqlServerTableScriptGraphTableOnlyRows : string.Empty);
 }

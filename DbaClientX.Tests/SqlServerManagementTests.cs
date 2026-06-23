@@ -391,6 +391,15 @@ public class SqlServerManagementTests
                 IsNullable = false,
                 IsMemoryOptimized = true,
                 DurabilityDescription = "SCHEMA_ONLY"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Embedding",
+                Ordinal = 14,
+                DataType = "vector(3, float16)",
+                IsNullable = true
             }
         };
 
@@ -415,6 +424,7 @@ public class SqlServerManagementTests
         Assert.Contains("[ValidFrom] datetime2(7) GENERATED ALWAYS AS ROW START HIDDEN NOT NULL", script.Script);
         Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL", script.Script);
         Assert.Contains("[MemoryCode] int NOT NULL", script.Script);
+        Assert.Contains("[Embedding] vector(3, float16) NULL", script.Script);
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [UQ_UserAudit_Name] UNIQUE NONCLUSTERED ([Name] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')", script.Script);
@@ -461,24 +471,32 @@ public class SqlServerManagementTests
         string supportQuery = GetPrivateStaticString<SqlServer>("SqlServerMaskedColumnsSupportQuery");
         string encryptionSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerColumnEncryptionSupportQuery");
         string graphEdgeSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerGraphEdgeConstraintsSupportQuery");
+        string hashSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerHashIndexesSupportQuery");
         string modulesQuery = GetPrivateStaticString<SqlServer>("SqlServerModuleScriptsManagementQuery");
         string template = GetPrivateStaticString<SqlServer>("SqlServerTableScriptColumnsManagementQuery");
-        string modernQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true, true, true);
-        string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false, false);
+        string modernQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true, true, true, true, false, true);
+        string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false, false, false, false, true);
+        string copyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false, false, false, true, false);
 
         Assert.Contains("OBJECT_ID(N'sys.masked_columns')", supportQuery);
         Assert.Contains("OBJECT_ID(N'sys.column_encryption_keys')", encryptionSupportQuery);
         Assert.Contains("COL_LENGTH(N'sys.columns', N'encryption_type_desc')", encryptionSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.edge_constraints')", graphEdgeSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.edge_constraint_clauses')", graphEdgeSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.hash_indexes')", hashSupportQuery);
         Assert.Contains("FROM sys.triggers AS trigger_info", modulesQuery);
         Assert.Contains("trigger_info.parent_class = 0", modulesQuery);
+        Assert.Contains("FROM sys.server_triggers AS trigger_info", modulesQuery);
+        Assert.Contains("INNER JOIN sys.server_sql_modules AS module_info", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
+        Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER", modulesQuery);
         Assert.Contains("ORDER BY SchemaName, ObjectName", modulesQuery);
         Assert.Contains("MaskingFunction = {MaskingFunction}", template);
         Assert.Contains("EncryptionDefinition = {EncryptionDefinition}", template);
         Assert.Contains("{GraphEdgeConstraintStatements}", template);
+        Assert.Contains("{GraphTableOnlyRows}", template);
+        Assert.Contains("{GraphHiddenColumnFilter}", template);
         Assert.Contains("LEFT JOIN sys.masked_columns AS masking_info", modernQuery);
         Assert.Contains("MaskingFunction = masking_info.masking_function", modernQuery);
         Assert.Contains("LEFT JOIN sys.column_encryption_keys AS encryption_key", modernQuery);
@@ -492,6 +510,8 @@ public class SqlServerManagementTests
         Assert.Contains("/table/durability_desc", modernQuery);
         Assert.Contains("LEFT JOIN sys.hash_indexes AS primary_key_hash", modernQuery);
         Assert.Contains("PrimaryKeyBucketCount = primary_key_hash.bucket_count", modernQuery);
+        Assert.DoesNotContain("sys.hash_indexes", legacyQuery);
+        Assert.Contains("PrimaryKeyBucketCount = CONVERT(bigint, NULL)", legacyQuery);
         Assert.Contains("IsColumnSet = CONVERT(bit, column_info.is_column_set)", modernQuery);
         Assert.Contains("GraphTableKind = graph_info.graph_kind", modernQuery);
         Assert.Contains("/table/is_filetable", modernQuery);
@@ -507,9 +527,17 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("sys.edge_constraints", legacyQuery);
         Assert.DoesNotContain("sys.edge_constraint_clauses", legacyQuery);
         Assert.Contains("ledger_info.ledger_type <> 1", modernQuery);
+        Assert.Contains("/column/vector_dimensions", modernQuery);
+        Assert.Contains("/column/vector_base_type_desc", modernQuery);
+        Assert.Contains("type_info.name = N'vector'", modernQuery);
+        Assert.Contains("N'vector('", modernQuery);
+        Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
+        Assert.DoesNotContain("ColumnName = CONVERT(sysname, N'')", copyQuery);
         Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)", modernQuery);
+        Assert.DoesNotContain("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE')", copyQuery);
         Assert.Contains("LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id", modernQuery);
         Assert.DoesNotContain("TableTemporalHistoryTableId", modernQuery);
+        Assert.Contains("ORDER BY SchemaName, TableName, Ordinal", modernQuery);
     }
 
     [Fact]
@@ -675,6 +703,17 @@ public class SqlServerManagementTests
                 PostCreateStatements = "ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);"
             }
         };
+        var graphOnlyColumns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "",
+                Ordinal = 0,
+                GraphTableKind = "EDGE"
+            }
+        };
         var fileTableColumns = new[]
         {
             new SqlServerTableColumnScriptInfo
@@ -694,6 +733,7 @@ public class SqlServerManagementTests
         IReadOnlyList<SqlServerScriptInfo> edgeScripts = SqlServerManagementScripting.BuildTableScripts(edgeColumns);
         SqlServerScriptInfo edgeScript = Assert.Single(edgeScripts, item => item.ScriptType == "Table");
         SqlServerScriptInfo edgePostCreateScript = Assert.Single(edgeScripts, item => item.ScriptType == "TablePostCreate");
+        SqlServerScriptInfo graphOnlyScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(graphOnlyColumns));
         SqlServerScriptInfo fileTableScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(fileTableColumns));
 
         Assert.Contains("CONSTRAINT [PK_MemoryUsers] PRIMARY KEY NONCLUSTERED HASH ([Id]) WITH (BUCKET_COUNT = 1024)", hashScript.Script);
@@ -703,6 +743,7 @@ public class SqlServerManagementTests
         Assert.Contains("AS NODE;", graphScript.Script);
         Assert.Contains("AS EDGE;", edgeScript.Script);
         Assert.Contains("ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);", edgePostCreateScript.Script);
+        Assert.Equal("CREATE TABLE [dbo].[Likes]" + Environment.NewLine + "AS EDGE;", graphOnlyScript.Script);
         Assert.Equal("CREATE TABLE [dbo].[Documents]" + Environment.NewLine + "AS FILETABLE;", fileTableScript.Script);
     }
 
@@ -835,6 +876,56 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("[SearchName]", plan.DestinationMergeCommand ?? string.Empty);
         Assert.DoesNotContain("[RowVersion]", plan.DestinationMergeCommand ?? string.Empty);
         Assert.DoesNotContain("[ValidFrom]", plan.DestinationMergeCommand ?? string.Empty);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_IncludesGraphEdgeEndpointColumns()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "$from_id",
+                Ordinal = 1,
+                DataType = "varbinary(1000)",
+                IsNullable = false,
+                IsHidden = true,
+                GraphTableKind = "EDGE"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "$to_id",
+                Ordinal = 2,
+                DataType = "varbinary(1000)",
+                IsNullable = false,
+                IsHidden = true,
+                GraphTableKind = "EDGE"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "Weight",
+                Ordinal = 3,
+                DataType = "int",
+                GraphTableKind = "EDGE"
+            }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Likes",
+            "archive",
+            "Likes",
+            columns,
+            Array.Empty<DbaIndexInfo>());
+
+        Assert.Equal("SELECT [$from_id], [$to_id], [Weight] FROM [dbo].[Likes];", plan.SourceSelectCommand);
+        Assert.Contains("INSERT INTO [archive].[Likes] ([$from_id], [$to_id], [Weight]) VALUES (@p0, @p1, @p2);", plan.DestinationInsertCommand);
     }
 
     [Fact]

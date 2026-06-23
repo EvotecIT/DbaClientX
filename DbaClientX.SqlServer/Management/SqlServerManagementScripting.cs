@@ -151,10 +151,38 @@ internal static class SqlServerManagementScripting
             };
         }
 
+        string? graph = BuildGraphTableOption(orderedColumns);
+        var scriptColumns = orderedColumns
+            .Where(column => !string.IsNullOrWhiteSpace(column.ColumnName))
+            .ToArray();
+
+        if (scriptColumns.Length == 0 && !string.IsNullOrWhiteSpace(graph))
+        {
+            builder.AppendLine();
+            builder.Append(graph);
+
+            string? graphTableOptions = BuildTableOptionsDefinition(orderedColumns);
+            if (!string.IsNullOrWhiteSpace(graphTableOptions))
+            {
+                builder.AppendLine();
+                builder.Append(graphTableOptions);
+            }
+
+            builder.Append(';');
+            return new SqlServerScriptInfo
+            {
+                ScriptType = "Table",
+                SchemaName = first.SchemaName,
+                ObjectName = first.TableName,
+                ObjectType = "USER_TABLE",
+                Script = builder.ToString()
+            };
+        }
+
         builder.AppendLine();
         builder.AppendLine("(");
 
-        var definitions = orderedColumns
+        var definitions = scriptColumns
             .Select(column => "    " + BuildColumnDefinition(column))
             .ToList();
 
@@ -183,7 +211,6 @@ internal static class SqlServerManagementScripting
         builder.AppendLine(string.Join("," + Environment.NewLine, definitions));
         builder.Append(')');
 
-        string? graph = BuildGraphTableOption(orderedColumns);
         if (!string.IsNullOrWhiteSpace(graph))
         {
             builder.AppendLine();

@@ -25,6 +25,9 @@ SELECT CASE
     ELSE 1
 END;";
 
+    private const string SqlServerHashIndexesSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.hash_indexes') IS NULL THEN 0 ELSE 1 END;";
+
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
     private const string SqlServerTableScriptMaskingJoinToken = "{MaskingJoin}";
@@ -39,6 +42,22 @@ END;";
 
     private const string SqlServerTableScriptGraphEdgeConstraintStatementsToken = "{GraphEdgeConstraintStatements}";
 
+    private const string SqlServerTableScriptPrimaryKeyBucketCountToken = "{PrimaryKeyBucketCount}";
+
+    private const string SqlServerTableScriptPrimaryKeyHashJoinToken = "{PrimaryKeyHashJoin}";
+
+    private const string SqlServerTableScriptUniqueHashJoinToken = "{UniqueHashJoin}";
+
+    private const string SqlServerTableScriptUniqueHashBucketCountToken = "{UniqueHashBucketCount}";
+
+    private const string SqlServerTableScriptMemoryHashJoinToken = "{MemoryHashJoin}";
+
+    private const string SqlServerTableScriptMemoryHashBucketCountToken = "{MemoryHashBucketCount}";
+
+    private const string SqlServerTableScriptGraphHiddenColumnFilterToken = "{GraphHiddenColumnFilter}";
+
+    private const string SqlServerTableScriptGraphTableOnlyRowsToken = "{GraphTableOnlyRows}";
+
     private const string SqlServerTableScriptLegacyMaskingFunctionProjection = "CONVERT(nvarchar(4000), NULL)";
 
     private const string SqlServerTableScriptMaskingFunctionProjection = "masking_info.masking_function";
@@ -50,6 +69,22 @@ END;";
     private const string SqlServerTableScriptEncryptionDefinitionProjection = "CASE WHEN column_info.encryption_type_desc IS NULL THEN NULL ELSE N'ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = ' + QUOTENAME(encryption_key.name) + N', ENCRYPTION_TYPE = ' + column_info.encryption_type_desc + N', ALGORITHM = ''' + column_info.encryption_algorithm_name + N''')' END";
 
     private const string SqlServerTableScriptEncryptionJoin = "LEFT JOIN sys.column_encryption_keys AS encryption_key ON encryption_key.column_encryption_key_id = column_info.column_encryption_key_id";
+
+    private const string SqlServerTableScriptPrimaryKeyBucketCountProjection = "primary_key_hash.bucket_count";
+
+    private const string SqlServerTableScriptLegacyPrimaryKeyBucketCountProjection = "CONVERT(bigint, NULL)";
+
+    private const string SqlServerTableScriptPrimaryKeyHashJoin = "LEFT JOIN sys.hash_indexes AS primary_key_hash ON primary_key_hash.object_id = primary_key.object_id AND primary_key_hash.index_id = primary_key.index_id";
+
+    private const string SqlServerTableScriptUniqueHashJoin = "LEFT JOIN sys.hash_indexes AS unique_hash ON unique_hash.object_id = unique_index.object_id AND unique_hash.index_id = unique_index.index_id";
+
+    private const string SqlServerTableScriptUniqueHashBucketCount = "CASE WHEN unique_index.type_desc LIKE N'%HASH%' AND unique_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), unique_hash.bucket_count) + N')' ELSE N'' END";
+
+    private const string SqlServerTableScriptMemoryHashJoin = "LEFT JOIN sys.hash_indexes AS memory_hash ON memory_hash.object_id = memory_index.object_id AND memory_hash.index_id = memory_index.index_id";
+
+    private const string SqlServerTableScriptMemoryHashBucketCount = "CASE WHEN memory_index.type_desc LIKE N'%HASH%' AND memory_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), memory_hash.bucket_count) + N')' ELSE N'' END";
+
+    private const string SqlServerTableScriptGraphHiddenColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)";
 
     private const string SqlServerPermissionsLegacyAvailabilityGroupNameProjection = "CONVERT(nvarchar(128), permission.major_id) COLLATE DATABASE_DEFAULT";
 
@@ -86,6 +121,69 @@ LEFT JOIN (
                 ELSE N'' END
             FROM sys.edge_constraints AS edge_constraint
             WHERE edge_constraint.parent_object_id = table_info.object_id";
+
+    private const string SqlServerTableScriptGraphTableOnlyRows = @"
+UNION ALL
+SELECT
+    SchemaName = schema_info.name,
+    TableName = table_info.name,
+    ColumnName = CONVERT(sysname, N''),
+    Ordinal = CONVERT(int, 0),
+    DataType = CONVERT(nvarchar(4000), N''),
+    IsNullable = CONVERT(bit, 1),
+    IsIdentity = CONVERT(bit, 0),
+    IdentitySeed = CONVERT(nvarchar(40), NULL),
+    IdentityIncrement = CONVERT(nvarchar(40), NULL),
+    IdentityNotForReplication = CONVERT(bit, 0),
+    IsRowGuidColumn = CONVERT(bit, 0),
+    DefaultConstraintName = CONVERT(sysname, NULL),
+    DefaultDefinition = CONVERT(nvarchar(max), NULL),
+    ComputedDefinition = CONVERT(nvarchar(max), NULL),
+    IsPersisted = CONVERT(bit, 0),
+    GeneratedAlwaysTypeDescription = CONVERT(nvarchar(60), NULL),
+    IsHidden = CONVERT(bit, 0),
+    IsSparse = CONVERT(bit, 0),
+    IsColumnSet = CONVERT(bit, 0),
+    MaskingFunction = CONVERT(nvarchar(4000), NULL),
+    EncryptionDefinition = CONVERT(nvarchar(4000), NULL),
+    TemporalType = CONVERT(int, 0),
+    LedgerType = CONVERT(int, 0),
+    IsMemoryOptimized = CONVERT(bit, 0),
+    DurabilityDescription = CONVERT(nvarchar(60), NULL),
+    HistoryTableSchema = CONVERT(sysname, NULL),
+    HistoryTableName = CONVERT(sysname, NULL),
+    PrimaryKeyName = CONVERT(sysname, NULL),
+    PrimaryKeyOrdinal = CONVERT(int, NULL),
+    PrimaryKeyIndexType = CONVERT(nvarchar(60), NULL),
+    PrimaryKeyIsDescending = CONVERT(bit, NULL),
+    PrimaryKeyBucketCount = CONVERT(bigint, NULL),
+    UniqueConstraintName = CONVERT(sysname, NULL),
+    UniqueConstraintOrdinal = CONVERT(int, NULL),
+    UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
+    UniqueConstraintIsDescending = CONVERT(bit, NULL),
+    UniqueConstraintBucketCount = CONVERT(bigint, NULL),
+    GraphTableKind = graph_info.graph_kind,
+    AdditionalConstraintDefinitions = CONVERT(nvarchar(max), NULL),
+    PostCreateStatements = CONVERT(nvarchar(max), NULL)
+FROM sys.tables AS table_info
+INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
+OUTER APPLY (
+    SELECT graph_kind = CASE
+        WHEN table_metadata.data.exist(N'/table/is_node') = 1 AND table_metadata.data.value(N'(/table/is_node/text())[1]', N'bit') = 1 THEN N'NODE'
+        WHEN table_metadata.data.exist(N'/table/is_edge') = 1 AND table_metadata.data.value(N'(/table/is_edge/text())[1]', N'bit') = 1 THEN N'EDGE'
+        ELSE NULL
+    END
+    FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
+) AS graph_info
+WHERE graph_info.graph_kind IN (N'NODE', N'EDGE')
+  AND (@schema IS NULL OR schema_info.name = @schema)
+  AND (@name IS NULL OR table_info.name = @name)
+  AND NOT EXISTS (
+      SELECT 1
+      FROM sys.columns AS visible_column
+      WHERE visible_column.object_id = table_info.object_id
+        AND ISNULL(COLUMNPROPERTY(visible_column.object_id, visible_column.name, N'IsHidden'), 0) = 0
+  )";
 
     private const string SqlServerAgentJobsManagementQuery = @"
 SELECT
@@ -467,6 +565,22 @@ WHERE trigger_info.parent_class = 0
   AND module_info.definition IS NOT NULL
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name = @name)
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name,
+    ObjectType = trigger_info.type_desc,
+    Script = CONCAT(
+        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        module_info.definition,
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
+FROM sys.server_triggers AS trigger_info
+INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
+WHERE module_info.definition IS NOT NULL
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)
 ORDER BY SchemaName, ObjectName;";
 
     private const string SqlServerTableScriptColumnsManagementQuery = @"
@@ -476,6 +590,7 @@ SELECT
     ColumnName = column_info.name,
     Ordinal = column_info.column_id,
     DataType = CASE
+        WHEN type_info.name = N'vector' AND vector_info.vector_dimensions IS NOT NULL THEN N'vector(' + CONVERT(nvarchar(12), vector_info.vector_dimensions) + CASE WHEN vector_info.vector_base_type_desc IS NOT NULL AND vector_info.vector_base_type_desc <> N'FLOAT32' THEN N', ' + LOWER(vector_info.vector_base_type_desc) ELSE N'' END + N')'
         WHEN type_info.is_user_defined = 1 THEN QUOTENAME(type_schema.name) + N'.' + QUOTENAME(type_info.name)
         WHEN type_info.name = N'xml' AND column_info.xml_collection_id <> 0 THEN N'xml(' + CASE WHEN column_info.is_xml_document = 1 THEN N'DOCUMENT ' ELSE N'CONTENT ' END + QUOTENAME(xml_schema.name) + N'.' + QUOTENAME(xml_collection.name) + N')'
         WHEN type_info.name = N'xml' THEN N'xml'
@@ -526,7 +641,7 @@ SELECT
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
     PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key),
-    PrimaryKeyBucketCount = primary_key_hash.bucket_count,
+    PrimaryKeyBucketCount = {PrimaryKeyBucketCount},
     UniqueConstraintName = CONVERT(sysname, NULL),
     UniqueConstraintOrdinal = CONVERT(int, NULL),
     UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
@@ -545,11 +660,23 @@ LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.sch
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+OUTER APPLY (
+    SELECT
+        vector_dimensions = CASE
+            WHEN column_metadata.data.exist(N'/column/vector_dimensions') = 1 THEN column_metadata.data.value(N'(/column/vector_dimensions/text())[1]', N'int')
+            ELSE NULL
+        END,
+        vector_base_type_desc = CASE
+            WHEN column_metadata.data.exist(N'/column/vector_base_type_desc') = 1 THEN column_metadata.data.value(N'(/column/vector_base_type_desc/text())[1]', N'nvarchar(60)')
+            ELSE NULL
+        END
+    FROM (SELECT data = (SELECT column_info.* FOR XML PATH(N'column'), TYPE)) AS column_metadata
+) AS vector_info
 {MaskingJoin}
 {EncryptionJoin}
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
-LEFT JOIN sys.hash_indexes AS primary_key_hash ON primary_key_hash.object_id = primary_key.object_id AND primary_key_hash.index_id = primary_key.index_id
+{PrimaryKeyHashJoin}
 OUTER APPLY (
     SELECT
         temporal_type = CASE
@@ -617,9 +744,9 @@ OUTER APPLY (
                     ORDER BY unique_index_column.key_ordinal
                     FOR XML PATH(N''), TYPE
                 ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
-                CASE WHEN unique_index.type_desc LIKE N'%HASH%' AND unique_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), unique_hash.bucket_count) + N')' ELSE N'' END
+                {UniqueHashBucketCount}
             FROM sys.indexes AS unique_index
-            LEFT JOIN sys.hash_indexes AS unique_hash ON unique_hash.object_id = unique_index.object_id AND unique_hash.index_id = unique_index.index_id
+            {UniqueHashJoin}
             WHERE unique_index.object_id = table_info.object_id
               AND unique_index.is_unique_constraint = 1
             UNION ALL
@@ -638,9 +765,9 @@ OUTER APPLY (
                     ORDER BY memory_index_column.key_ordinal
                     FOR XML PATH(N''), TYPE
                 ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
-                CASE WHEN memory_index.type_desc LIKE N'%HASH%' AND memory_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), memory_hash.bucket_count) + N')' ELSE N'' END
+                {MemoryHashBucketCount}
             FROM sys.indexes AS memory_index
-            LEFT JOIN sys.hash_indexes AS memory_hash ON memory_hash.object_id = memory_index.object_id AND memory_hash.index_id = memory_index.index_id
+            {MemoryHashJoin}
             WHERE memory_index.object_id = table_info.object_id
               AND memory_info.is_memory_optimized = 1
               AND memory_index.index_id > 0
@@ -722,6 +849,7 @@ WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND temporal_info.temporal_type <> 1
   AND ledger_info.ledger_type <> 1
   AND external_info.is_external = 0
-  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)
-ORDER BY schema_info.name, table_info.name, column_info.column_id;";
+{GraphHiddenColumnFilter}
+{GraphTableOnlyRows}
+ORDER BY SchemaName, TableName, Ordinal;";
 }
