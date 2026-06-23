@@ -97,6 +97,7 @@ SELECT
     cols.ordinality AS ordinal_position,
     CASE WHEN cols.ordinality <= ix.indnkeyatts THEN ((COALESCE(opts.indoption_value, 0) & 1) = 1) ELSE NULL END AS is_descending,
     cols.ordinality > ix.indnkeyatts AS is_included,
+    true AS is_visible,
     NULL AS prefix_length,
     CASE WHEN cols.ordinality <= ix.indnkeyatts AND att.attname IS NULL THEN pg_get_indexdef(ix.indexrelid, cols.ordinality::integer, true) ELSE NULL END AS expression,
     pg_get_expr(ix.indpred, ix.indrelid) AS filter_definition
@@ -295,6 +296,7 @@ ORDER BY ns.nspname, proc.proname, pg_get_function_identity_arguments(proc.oid);
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            IsVisible = DbaMetadataReader.GetNullableBoolean(record, "is_visible"),
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };

@@ -59,6 +59,13 @@ WHERE TABLE_SCHEMA = 'information_schema'
   AND TABLE_NAME = 'STATISTICS'
   AND COLUMN_NAME = 'EXPRESSION';";
 
+    private const string MySqlStatisticsVisibilitySupportQuery = @"
+SELECT COUNT(*)
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = 'information_schema'
+  AND TABLE_NAME = 'STATISTICS'
+  AND COLUMN_NAME = 'IS_VISIBLE';";
+
     private const string MySqlIndexesQuery = @"
 SELECT
     TABLE_SCHEMA AS schema_name,
@@ -71,6 +78,7 @@ SELECT
     SEQ_IN_INDEX AS ordinal_position,
     CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
     0 AS is_included,
+    NULL AS is_visible,
     SUB_PART AS prefix_length,
     NULL AS expression,
     NULL AS filter_definition
@@ -91,6 +99,49 @@ SELECT
     SEQ_IN_INDEX AS ordinal_position,
     CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
     0 AS is_included,
+    NULL AS is_visible,
+    SUB_PART AS prefix_length,
+    EXPRESSION AS expression,
+    NULL AS filter_definition
+FROM INFORMATION_SCHEMA.STATISTICS
+WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+  AND (@table IS NULL OR TABLE_NAME = @table)
+ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
+
+    private const string MySqlIndexesWithVisibilityQuery = @"
+SELECT
+    TABLE_SCHEMA AS schema_name,
+    TABLE_NAME AS table_name,
+    INDEX_NAME AS index_name,
+    INDEX_TYPE AS index_type,
+    CASE WHEN NON_UNIQUE = 0 THEN 1 ELSE 0 END AS is_unique,
+    CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
+    COLUMN_NAME AS column_name,
+    SEQ_IN_INDEX AS ordinal_position,
+    CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
+    0 AS is_included,
+    CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible,
+    SUB_PART AS prefix_length,
+    NULL AS expression,
+    NULL AS filter_definition
+FROM INFORMATION_SCHEMA.STATISTICS
+WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+  AND (@table IS NULL OR TABLE_NAME = @table)
+ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
+
+    private const string MySqlIndexesWithExpressionsAndVisibilityQuery = @"
+SELECT
+    TABLE_SCHEMA AS schema_name,
+    TABLE_NAME AS table_name,
+    INDEX_NAME AS index_name,
+    INDEX_TYPE AS index_type,
+    CASE WHEN NON_UNIQUE = 0 THEN 1 ELSE 0 END AS is_unique,
+    CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary_key,
+    CASE WHEN EXPRESSION IS NULL THEN COLUMN_NAME ELSE NULL END AS column_name,
+    SEQ_IN_INDEX AS ordinal_position,
+    CASE WHEN COLLATION = 'D' THEN 1 WHEN COLLATION = 'A' THEN 0 ELSE NULL END AS is_descending,
+    0 AS is_included,
+    CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible,
     SUB_PART AS prefix_length,
     EXPRESSION AS expression,
     NULL AS filter_definition
@@ -165,7 +216,9 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            string query = SupportsStatisticExpressions(connection, transaction) ? MySqlIndexesWithExpressionsQuery : MySqlIndexesQuery;
+            bool supportsExpressions = SupportsStatisticExpressions(connection, transaction);
+            bool supportsVisibility = SupportsStatisticVisibility(connection, transaction);
+            string query = SelectIndexesQuery(supportsExpressions, supportsVisibility);
             return ExecuteMappedQuery(connection, transaction, query, MapIndex, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -226,6 +279,21 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
         return result is not null && result is not DBNull && Convert.ToInt64(result) > 0;
     }
 
+    private bool SupportsStatisticVisibility(MySqlConnection connection, MySqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, MySqlStatisticsVisibilitySupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt64(result) > 0;
+    }
+
+    private static string SelectIndexesQuery(bool supportsExpressions, bool supportsVisibility)
+        => (supportsExpressions, supportsVisibility) switch
+        {
+            (true, true) => MySqlIndexesWithExpressionsAndVisibilityQuery,
+            (true, false) => MySqlIndexesWithExpressionsQuery,
+            (false, true) => MySqlIndexesWithVisibilityQuery,
+            _ => MySqlIndexesQuery
+        };
+
     private static DbaDatabaseInfo MapDatabase(IDataRecord record)
         => new(DbaMetadataReader.GetString(record, "database_name"))
         {
@@ -272,6 +340,7 @@ ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            IsVisible = DbaMetadataReader.GetNullableBoolean(record, "is_visible"),
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };

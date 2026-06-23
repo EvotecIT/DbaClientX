@@ -24,6 +24,17 @@ public class ProviderMetadataQueryTests
     }
 
     [Fact]
+    public void DbaIndexInfo_ExposesVisibilityMetadata()
+    {
+        var index = new DbaIndexInfo("dbo", "Users", "IX_Users_Name")
+        {
+            IsVisible = false
+        };
+
+        Assert.False(index.IsVisible);
+    }
+
+    [Fact]
     public void ProviderColumnQueries_ProjectGenerationMetadata()
     {
         string[] queries =
@@ -59,14 +70,22 @@ public class ProviderMetadataQueryTests
     {
         string indexes = GetQuery<DBAClientX.MySql>("MySqlIndexesQuery");
         string indexesWithExpressions = GetQuery<DBAClientX.MySql>("MySqlIndexesWithExpressionsQuery");
+        string indexesWithVisibility = GetQuery<DBAClientX.MySql>("MySqlIndexesWithVisibilityQuery");
+        string indexesWithExpressionsAndVisibility = GetQuery<DBAClientX.MySql>("MySqlIndexesWithExpressionsAndVisibilityQuery");
         string expressionSupport = GetQuery<DBAClientX.MySql>("MySqlStatisticsExpressionSupportQuery");
+        string visibilitySupport = GetQuery<DBAClientX.MySql>("MySqlStatisticsVisibilitySupportQuery");
         string routines = GetQuery<DBAClientX.MySql>("MySqlRoutinesQuery");
 
+        Assert.Contains("NULL AS is_visible", indexes);
         Assert.Contains("NULL AS expression", indexes);
         Assert.Contains("INFORMATION_SCHEMA.COLUMNS", expressionSupport);
         Assert.Contains("COLUMN_NAME = 'EXPRESSION'", expressionSupport);
+        Assert.Contains("COLUMN_NAME = 'IS_VISIBLE'", visibilitySupport);
         Assert.Contains("EXPRESSION AS expression", indexesWithExpressions);
         Assert.Contains("CASE WHEN EXPRESSION IS NULL THEN COLUMN_NAME ELSE NULL END AS column_name", indexesWithExpressions);
+        Assert.Contains("CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible", indexesWithVisibility);
+        Assert.Contains("EXPRESSION AS expression", indexesWithExpressionsAndVisibility);
+        Assert.Contains("CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible", indexesWithExpressionsAndVisibility);
         Assert.Contains("CASE WHEN ROUTINE_TYPE = 'FUNCTION' THEN NULLIF(DTD_IDENTIFIER, '') ELSE NULL END AS data_type", routines);
     }
 
@@ -82,12 +101,25 @@ public class ProviderMetadataQueryTests
         Assert.Contains("secondary = 'N'", tables);
         Assert.Contains("iot_type <> 'IOT_OVERFLOW'", tables);
         Assert.Contains(":schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized)", tables);
+        Assert.Contains("FROM all_mviews", tables);
         Assert.Contains("all_ind_expressions", indexes);
         Assert.Contains("ie.column_expression AS expression", indexes);
         Assert.Contains("i.status = 'VALID'", indexes);
+        Assert.Contains("i.visibility = 'VISIBLE'", indexes);
         Assert.Contains(":tableNameExact IS NULL OR fk.table_name = :tableNameExact OR fk.table_name = UPPER(:tableNameNormalized)", foreignKeys);
+        Assert.Contains(":schemaNameExact IS NULL OR object_info.owner = :schemaNameExact OR object_info.owner = UPPER(:schemaNameNormalized)", routines);
         Assert.Contains("result_argument.position = 0", routines);
         Assert.Contains("result_argument.data_type", routines);
+    }
+
+    [Fact]
+    public void SQLiteColumns_FilterHiddenVirtualTableColumns()
+    {
+        string columns = GetQuery<DBAClientX.SQLite>("SQLiteColumnsQuery");
+        string indexes = GetQuery<DBAClientX.SQLite>("SQLiteIndexesQuery");
+
+        Assert.Contains("ti.hidden <> 1", columns);
+        Assert.Contains("NULL AS is_visible", indexes);
     }
 
     [Fact]

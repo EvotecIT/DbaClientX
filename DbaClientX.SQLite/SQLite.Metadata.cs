@@ -46,6 +46,7 @@ WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'view', 'virtual')
   AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
+  AND ti.hidden <> 1
   AND (@table IS NULL OR tl.name = @table)
 ORDER BY tl.name, ti.cid;";
 
@@ -61,6 +62,7 @@ SELECT
     ii.seqno + 1 AS ordinal_position,
     CASE WHEN ii.""desc"" = 1 THEN 1 ELSE 0 END AS is_descending,
     0 AS is_included,
+    NULL AS is_visible,
     NULL AS prefix_length,
     CASE WHEN ii.cid = -2 THEN im.sql ELSE NULL END AS expression,
     CASE WHEN instr(lower(im.sql), ' where ') > 0 THEN substr(im.sql, instr(lower(im.sql), ' where ') + 7) ELSE NULL END AS filter_definition
@@ -87,6 +89,7 @@ SELECT
     ti.pk AS ordinal_position,
     0 AS is_descending,
     0 AS is_included,
+    NULL AS is_visible,
     NULL AS prefix_length,
     NULL AS expression,
     NULL AS filter_definition
@@ -246,6 +249,7 @@ WHERE 1 = 0;";
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            IsVisible = DbaMetadataReader.GetNullableBoolean(record, "is_visible"),
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };

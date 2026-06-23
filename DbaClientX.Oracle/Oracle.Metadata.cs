@@ -28,6 +28,11 @@ SELECT owner AS schema_name, view_name AS object_name, 'View' AS object_kind
 FROM all_views
 WHERE :includeViews = 1
   AND (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
+UNION ALL
+SELECT owner AS schema_name, mview_name AS object_name, 'View' AS object_kind
+FROM all_mviews
+WHERE :includeViews = 1
+  AND (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
 ORDER BY schema_name, object_name";
 
     private const string OracleColumnsQuery = @"
@@ -70,6 +75,7 @@ SELECT
     ic.column_position AS ordinal_position,
     CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending,
     0 AS is_included,
+    CASE WHEN i.visibility = 'VISIBLE' THEN 1 WHEN i.visibility = 'INVISIBLE' THEN 0 ELSE NULL END AS is_visible,
     NULL AS prefix_length,
     ie.column_expression AS expression,
     NULL AS filter_definition
@@ -131,7 +137,7 @@ LEFT JOIN all_arguments result_argument
     AND result_argument.package_name IS NULL
     AND result_argument.position = 0
 WHERE object_info.object_type IN ('PROCEDURE', 'FUNCTION', 'PACKAGE')
-  AND object_info.owner = COALESCE(UPPER(:schemaName), object_info.owner)
+  AND (:schemaNameExact IS NULL OR object_info.owner = :schemaNameExact OR object_info.owner = UPPER(:schemaNameNormalized))
 ORDER BY object_info.owner, object_info.object_name";
 
     /// <summary>Returns the current Oracle database context visible to the connection.</summary>
@@ -181,7 +187,8 @@ ORDER BY object_info.owner, object_info.object_name";
     public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string connectionString, string? schema = null)
         => ExecuteMetadata(connectionString, OracleRoutinesQuery, MapRoutine, new Dictionary<string, object?>
         {
-            [":schemaName"] = schema
+            [":schemaNameExact"] = schema,
+            [":schemaNameNormalized"] = schema
         });
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
@@ -255,6 +262,7 @@ ORDER BY object_info.owner, object_info.object_name";
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            IsVisible = DbaMetadataReader.GetNullableBoolean(record, "is_visible"),
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };

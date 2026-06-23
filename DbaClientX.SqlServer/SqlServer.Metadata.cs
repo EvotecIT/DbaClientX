@@ -72,6 +72,7 @@ SELECT
     CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END AS ordinal_position,
     CASE WHEN ic.key_ordinal > 0 THEN CAST(ic.is_descending_key AS bit) ELSE NULL END AS is_descending,
     CAST(ic.is_included_column AS bit) AS is_included,
+    CAST(1 AS bit) AS is_visible,
     NULL AS prefix_length,
     NULL AS expression,
     i.filter_definition
@@ -270,6 +271,7 @@ ORDER BY s.name, o.name;";
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            IsVisible = DbaMetadataReader.GetNullableBoolean(record, "is_visible"),
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };

@@ -29,6 +29,9 @@ public sealed record DbaIndexInfo(string Schema, string Table, string Name)
     /// <summary>Indicates whether the column is included but not part of the index key.</summary>
     public bool? IsIncluded { get; init; }
 
+    /// <summary>Indicates whether the provider reports the index as visible to query optimization.</summary>
+    public bool? IsVisible { get; init; }
+
     /// <summary>Provider-specific prefix length for partial-width index keys.</summary>
     public int? PrefixLength { get; init; }
 
