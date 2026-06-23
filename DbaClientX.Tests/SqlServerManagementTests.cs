@@ -472,7 +472,10 @@ public class SqlServerManagementTests
         string encryptionSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerColumnEncryptionSupportQuery");
         string graphEdgeSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerGraphEdgeConstraintsSupportQuery");
         string hashSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerHashIndexesSupportQuery");
-        string modulesQuery = GetPrivateStaticString<SqlServer>("SqlServerModuleScriptsManagementQuery");
+        string serverTriggerSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerServerTriggerModulesSupportQuery");
+        string modulesTemplate = GetPrivateStaticString<SqlServer>("SqlServerModuleScriptsManagementQuery");
+        string modulesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerModuleScriptsManagementQuery", true);
+        string legacyModulesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerModuleScriptsManagementQuery", false);
         string template = GetPrivateStaticString<SqlServer>("SqlServerTableScriptColumnsManagementQuery");
         string modernQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true, true, true, true, false, true);
         string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false, false, false, false, true);
@@ -484,10 +487,19 @@ public class SqlServerManagementTests
         Assert.Contains("OBJECT_ID(N'sys.edge_constraints')", graphEdgeSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.edge_constraint_clauses')", graphEdgeSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.hash_indexes')", hashSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.server_triggers')", serverTriggerSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.server_sql_modules')", serverTriggerSupportQuery);
+        Assert.Contains("{ServerTriggerModuleScripts}", modulesTemplate);
         Assert.Contains("FROM sys.triggers AS trigger_info", modulesQuery);
         Assert.Contains("trigger_info.parent_class = 0", modulesQuery);
+        Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module", modulesQuery);
+        Assert.Contains("AS EXTERNAL NAME", modulesQuery);
+        Assert.Contains("WHERE object_info.type IN ('PC', 'FS', 'FT')", modulesQuery);
         Assert.Contains("FROM sys.server_triggers AS trigger_info", modulesQuery);
         Assert.Contains("INNER JOIN sys.server_sql_modules AS module_info", modulesQuery);
+        Assert.DoesNotContain("sys.server_triggers", legacyModulesQuery);
+        Assert.DoesNotContain("sys.server_sql_modules", legacyModulesQuery);
+        Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module", legacyModulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER", modulesQuery);
@@ -534,7 +546,7 @@ public class SqlServerManagementTests
         Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
         Assert.DoesNotContain("ColumnName = CONVERT(sysname, N'')", copyQuery);
         Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)", modernQuery);
-        Assert.DoesNotContain("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE')", copyQuery);
+        Assert.Contains("column_info.name NOT IN (N'$from_id', N'$to_id')", copyQuery);
         Assert.Contains("LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id", modernQuery);
         Assert.DoesNotContain("TableTemporalHistoryTableId", modernQuery);
         Assert.Contains("ORDER BY SchemaName, TableName, Ordinal", modernQuery);
@@ -543,13 +555,20 @@ public class SqlServerManagementTests
     [Fact]
     public void DependencyQuery_IncludesDdlTriggerDependencies()
     {
-        string dependenciesQuery = GetPrivateStaticString<SqlServer>("SqlServerDependenciesManagementQuery");
+        string serverTriggerSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerServerTriggersSupportQuery");
+        string dependenciesTemplate = GetPrivateStaticString<SqlServer>("SqlServerDependenciesManagementQuery");
+        string dependenciesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerDependenciesManagementQuery", true);
+        string legacyDependenciesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerDependenciesManagementQuery", false);
 
+        Assert.Contains("OBJECT_ID(N'sys.server_triggers')", serverTriggerSupportQuery);
+        Assert.Contains("{ServerTriggerDependencies}", dependenciesTemplate);
         Assert.Contains("INNER JOIN sys.triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
         Assert.Contains("dependency.referencing_class = 12", dependenciesQuery);
         Assert.Contains("trigger_info.parent_class = 0", dependenciesQuery);
         Assert.Contains("INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
         Assert.Contains("dependency.referencing_class = 13", dependenciesQuery);
+        Assert.DoesNotContain("sys.server_triggers", legacyDependenciesQuery);
+        Assert.DoesNotContain("dependency.referencing_class = 13", legacyDependenciesQuery);
     }
 
     [Fact]
@@ -887,7 +906,7 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "Likes",
-                ColumnName = "$from_id",
+                ColumnName = "$edge_id",
                 Ordinal = 1,
                 DataType = "varbinary(1000)",
                 IsNullable = false,
@@ -898,7 +917,7 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "Likes",
-                ColumnName = "$to_id",
+                ColumnName = "$from_id",
                 Ordinal = 2,
                 DataType = "varbinary(1000)",
                 IsNullable = false,
@@ -909,8 +928,19 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "Likes",
-                ColumnName = "Weight",
+                ColumnName = "$to_id",
                 Ordinal = 3,
+                DataType = "varbinary(1000)",
+                IsNullable = false,
+                IsHidden = true,
+                GraphTableKind = "EDGE"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Likes",
+                ColumnName = "Weight",
+                Ordinal = 4,
                 DataType = "int",
                 GraphTableKind = "EDGE"
             }
@@ -926,6 +956,7 @@ public class SqlServerManagementTests
 
         Assert.Equal("SELECT [$from_id], [$to_id], [Weight] FROM [dbo].[Likes];", plan.SourceSelectCommand);
         Assert.Contains("INSERT INTO [archive].[Likes] ([$from_id], [$to_id], [Weight]) VALUES (@p0, @p1, @p2);", plan.DestinationInsertCommand);
+        Assert.DoesNotContain("[$edge_id]", plan.SourceSelectCommand);
     }
 
     [Fact]

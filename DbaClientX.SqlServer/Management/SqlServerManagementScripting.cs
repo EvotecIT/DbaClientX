@@ -260,7 +260,26 @@ internal static class SqlServerManagementScripting
         => string.IsNullOrWhiteSpace(column.ComputedDefinition) &&
            string.IsNullOrWhiteSpace(column.GeneratedAlwaysTypeDescription) &&
            !string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) &&
-           !string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase);
+           !string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase) &&
+           IsWritableGraphCopyColumn(column);
+
+    private static bool IsWritableGraphCopyColumn(SqlServerTableColumnScriptInfo column)
+    {
+        if (!string.Equals(column.GraphTableKind, "NODE", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(column.GraphTableKind, "EDGE", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!column.IsHidden)
+        {
+            return true;
+        }
+
+        return string.Equals(column.GraphTableKind, "EDGE", StringComparison.OrdinalIgnoreCase) &&
+               (string.Equals(column.ColumnName, "$from_id", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(column.ColumnName, "$to_id", StringComparison.OrdinalIgnoreCase));
+    }
 
     private static string BuildColumnDefinition(SqlServerTableColumnScriptInfo column)
     {

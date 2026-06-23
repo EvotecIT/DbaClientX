@@ -28,6 +28,58 @@ END;";
     private const string SqlServerHashIndexesSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.hash_indexes') IS NULL THEN 0 ELSE 1 END;";
 
+    private const string SqlServerServerTriggersSupportQuery = @"
+SELECT CASE WHEN OBJECT_ID(N'sys.server_triggers') IS NULL THEN 0 ELSE 1 END;";
+
+    private const string SqlServerServerTriggerModulesSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.server_triggers') IS NULL THEN 0
+    WHEN OBJECT_ID(N'sys.server_sql_modules') IS NULL THEN 0
+    ELSE 1
+END;";
+
+    private const string SqlServerModuleScriptsServerTriggerUnionToken = "{ServerTriggerModuleScripts}";
+
+    private const string SqlServerDependenciesServerTriggerUnionToken = "{ServerTriggerDependencies}";
+
+    private const string SqlServerDependenciesServerTriggerUnion = @"
+UNION ALL
+SELECT
+    DependencyType = N'SqlExpression',
+    ReferencingSchema = CONVERT(sysname, NULL),
+    ReferencingName = trigger_info.name,
+    ReferencingType = trigger_info.type_desc,
+    ReferencedServerName = dependency.referenced_server_name,
+    ReferencedDatabaseName = dependency.referenced_database_name,
+    ReferencedSchemaName = dependency.referenced_schema_name,
+    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedClassDescription = dependency.referenced_class_desc,
+    IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
+    IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
+FROM sys.sql_expression_dependencies AS dependency
+INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
+WHERE dependency.referencing_class = 13
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)";
+
+    private const string SqlServerModuleScriptsServerTriggerUnion = @"
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name,
+    ObjectType = trigger_info.type_desc,
+    Script = CONCAT(
+        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        module_info.definition,
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
+FROM sys.server_triggers AS trigger_info
+INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
+WHERE module_info.definition IS NOT NULL
+  AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)";
+
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
     private const string SqlServerTableScriptMaskingJoinToken = "{MaskingJoin}";
@@ -85,6 +137,8 @@ SELECT CASE WHEN OBJECT_ID(N'sys.hash_indexes') IS NULL THEN 0 ELSE 1 END;";
     private const string SqlServerTableScriptMemoryHashBucketCount = "CASE WHEN memory_index.type_desc LIKE N'%HASH%' AND memory_hash.bucket_count IS NOT NULL THEN N' WITH (BUCKET_COUNT = ' + CONVERT(nvarchar(20), memory_hash.bucket_count) + N')' ELSE N'' END";
 
     private const string SqlServerTableScriptGraphHiddenColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)";
+
+    private const string SqlServerTableScriptGraphCopyColumnFilter = "  AND NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1 AND column_info.name NOT IN (N'$from_id', N'$to_id'))";
 
     private const string SqlServerPermissionsLegacyAvailabilityGroupNameProjection = "CONVERT(nvarchar(128), permission.major_id) COLLATE DATABASE_DEFAULT";
 
@@ -487,24 +541,7 @@ WHERE dependency.referencing_class = 12
   AND trigger_info.parent_class = 0
   AND @schema IS NULL
   AND (@name IS NULL OR trigger_info.name = @name)
-UNION ALL
-SELECT
-    DependencyType = N'SqlExpression',
-    ReferencingSchema = CONVERT(sysname, NULL),
-    ReferencingName = trigger_info.name,
-    ReferencingType = trigger_info.type_desc,
-    ReferencedServerName = dependency.referenced_server_name,
-    ReferencedDatabaseName = dependency.referenced_database_name,
-    ReferencedSchemaName = dependency.referenced_schema_name,
-    ReferencedEntityName = dependency.referenced_entity_name,
-    ReferencedClassDescription = dependency.referenced_class_desc,
-    IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
-    IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
-FROM sys.sql_expression_dependencies AS dependency
-INNER JOIN sys.server_triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id
-WHERE dependency.referencing_class = 13
-  AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)
+{ServerTriggerDependencies}
 UNION ALL
 SELECT
     DependencyType = N'ForeignKey',
@@ -544,7 +581,7 @@ INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info
 LEFT JOIN sys.triggers AS trigger_info ON trigger_info.object_id = object_info.object_id AND trigger_info.parent_class = 1
 LEFT JOIN sys.objects AS parent_object ON parent_object.object_id = trigger_info.parent_id
 LEFT JOIN sys.schemas AS parent_schema ON parent_schema.schema_id = parent_object.schema_id
-WHERE object_info.type IN ('P', 'PC', 'X', 'V', 'TR', 'FN', 'IF', 'TF', 'FS', 'FT')
+WHERE object_info.type IN ('P', 'X', 'V', 'TR', 'FN', 'IF', 'TF')
   AND module_info.definition IS NOT NULL
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)
@@ -568,19 +605,76 @@ WHERE trigger_info.parent_class = 0
 UNION ALL
 SELECT
     ScriptType = N'Module',
-    SchemaName = CONVERT(sysname, NULL),
-    ObjectName = trigger_info.name,
-    ObjectType = trigger_info.type_desc,
+    SchemaName = schema_info.name,
+    ObjectName = object_info.name,
+    ObjectType = object_info.type_desc,
     Script = CONCAT(
-        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
-        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
-        module_info.definition,
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
-FROM sys.server_triggers AS trigger_info
-INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
-WHERE module_info.definition IS NOT NULL
-  AND @schema IS NULL
-  AND (@name IS NULL OR trigger_info.name = @name)
+        CASE object_info.type
+            WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END
+            WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant')
+            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')'
+            ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
+        END,
+        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
+        QUOTENAME(assembly_info.name), N'.', QUOTENAME(assembly_module.assembly_class), N'.', QUOTENAME(assembly_module.assembly_method))
+FROM sys.objects AS object_info
+INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
+INNER JOIN sys.assembly_modules AS assembly_module ON assembly_module.object_id = object_info.object_id
+INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+OUTER APPLY (
+    SELECT ParameterList = STUFF((
+        SELECT N', ' + parameter_item.name + N' ' + CASE
+            WHEN parameter_type.is_user_defined = 1 THEN QUOTENAME(parameter_type_schema.name) + N'.' + QUOTENAME(parameter_type.name)
+            WHEN parameter_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length) END + N')'
+            WHEN parameter_type.name IN (N'nvarchar', N'nchar') THEN parameter_type.name + N'(' + CASE WHEN parameter_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), parameter_item.max_length / 2) END + N')'
+            WHEN parameter_type.name IN (N'decimal', N'numeric') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.precision) + N',' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
+            WHEN parameter_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN parameter_type.name + N'(' + CONVERT(nvarchar(12), parameter_item.scale) + N')'
+            ELSE parameter_type.name
+        END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
+        FROM sys.parameters AS parameter_item
+        INNER JOIN sys.types AS parameter_type ON parameter_type.user_type_id = parameter_item.user_type_id
+        LEFT JOIN sys.schemas AS parameter_type_schema ON parameter_type_schema.schema_id = parameter_type.schema_id
+        WHERE parameter_item.object_id = object_info.object_id
+          AND parameter_item.parameter_id > 0
+        ORDER BY parameter_item.parameter_id
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS parameter_info
+LEFT JOIN sys.parameters AS return_parameter ON return_parameter.object_id = object_info.object_id AND return_parameter.parameter_id = 0
+LEFT JOIN sys.types AS return_type ON return_type.user_type_id = return_parameter.user_type_id
+LEFT JOIN sys.schemas AS return_type_schema ON return_type_schema.schema_id = return_type.schema_id
+OUTER APPLY (
+    SELECT DataType = CASE
+        WHEN return_type.is_user_defined = 1 THEN QUOTENAME(return_type_schema.name) + N'.' + QUOTENAME(return_type.name)
+        WHEN return_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length) END + N')'
+        WHEN return_type.name IN (N'nvarchar', N'nchar') THEN return_type.name + N'(' + CASE WHEN return_parameter.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), return_parameter.max_length / 2) END + N')'
+        WHEN return_type.name IN (N'decimal', N'numeric') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.precision) + N',' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
+        WHEN return_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN return_type.name + N'(' + CONVERT(nvarchar(12), return_parameter.scale) + N')'
+        ELSE return_type.name
+    END
+) AS return_type_info
+OUTER APPLY (
+    SELECT TableDefinition = STUFF((
+        SELECT N', ' + QUOTENAME(column_item.name) + N' ' + CASE
+            WHEN column_type.is_user_defined = 1 THEN QUOTENAME(column_type_schema.name) + N'.' + QUOTENAME(column_type.name)
+            WHEN column_type.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length) END + N')'
+            WHEN column_type.name IN (N'nvarchar', N'nchar') THEN column_type.name + N'(' + CASE WHEN column_item.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_item.max_length / 2) END + N')'
+            WHEN column_type.name IN (N'decimal', N'numeric') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.precision) + N',' + CONVERT(nvarchar(12), column_item.scale) + N')'
+            WHEN column_type.name IN (N'datetime2', N'datetimeoffset', N'time') THEN column_type.name + N'(' + CONVERT(nvarchar(12), column_item.scale) + N')'
+            ELSE column_type.name
+        END
+        FROM sys.columns AS column_item
+        INNER JOIN sys.types AS column_type ON column_type.user_type_id = column_item.user_type_id
+        LEFT JOIN sys.schemas AS column_type_schema ON column_type_schema.schema_id = column_type.schema_id
+        WHERE column_item.object_id = object_info.object_id
+        ORDER BY column_item.column_id
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS table_return_info
+WHERE object_info.type IN ('PC', 'FS', 'FT')
+  AND (@schema IS NULL OR schema_info.name = @schema)
+  AND (@name IS NULL OR object_info.name = @name)
+{ServerTriggerModuleScripts}
 ORDER BY SchemaName, ObjectName;";
 
     private const string SqlServerTableScriptColumnsManagementQuery = @"

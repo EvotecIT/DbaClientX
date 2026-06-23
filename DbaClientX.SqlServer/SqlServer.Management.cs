@@ -144,11 +144,34 @@ public partial class SqlServer
         string connectionString,
         string? schema = null,
         string? name = null)
-        => ExecuteMetadata(connectionString, SqlServerDependenciesManagementQuery, SqlServerManagementMappers.MapDependency, new Dictionary<string, object?>
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
         {
-            ["@schema"] = schema,
-            ["@name"] = name
-        });
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            string query = BuildSqlServerDependenciesManagementQuery(SupportsServerTriggers(connection, transaction));
+            return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapDependency, parameters: new Dictionary<string, object?>
+            {
+                ["@schema"] = schema,
+                ["@name"] = name
+            });
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
+
+    private static string BuildSqlServerDependenciesManagementQuery(bool includeServerTriggers)
+        => SqlServerDependenciesManagementQuery.Replace(
+            SqlServerDependenciesServerTriggerUnionToken,
+            includeServerTriggers ? SqlServerDependenciesServerTriggerUnion : string.Empty);
 
     /// <summary>
     /// Lists SQL Server module definitions for procedures, functions, views, and triggers.
@@ -157,11 +180,46 @@ public partial class SqlServer
         string connectionString,
         string? schema = null,
         string? name = null)
-        => ExecuteMetadata(connectionString, SqlServerModuleScriptsManagementQuery, SqlServerManagementMappers.MapScript, new Dictionary<string, object?>
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
         {
-            ["@schema"] = schema,
-            ["@name"] = name
-        });
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            string query = BuildSqlServerModuleScriptsManagementQuery(SupportsServerTriggerModules(connection, transaction));
+            return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapScript, parameters: new Dictionary<string, object?>
+            {
+                ["@schema"] = schema,
+                ["@name"] = name
+            });
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
+
+    private static string BuildSqlServerModuleScriptsManagementQuery(bool includeServerTriggerModules)
+        => SqlServerModuleScriptsManagementQuery.Replace(
+            SqlServerModuleScriptsServerTriggerUnionToken,
+            includeServerTriggerModules ? SqlServerModuleScriptsServerTriggerUnion : string.Empty);
+
+    private bool SupportsServerTriggerModules(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerServerTriggerModulesSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private bool SupportsServerTriggers(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerServerTriggersSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
 
     /// <summary>
     /// Generates basic SQL Server CREATE TABLE scripts from catalog metadata.
@@ -335,7 +393,7 @@ public partial class SqlServer
                 includeHashIndexes ? SqlServerTableScriptMemoryHashBucketCount : "N''")
             .Replace(
                 SqlServerTableScriptGraphHiddenColumnFilterToken,
-                includeGraphHiddenColumns ? string.Empty : SqlServerTableScriptGraphHiddenColumnFilter)
+                includeGraphHiddenColumns ? SqlServerTableScriptGraphCopyColumnFilter : SqlServerTableScriptGraphHiddenColumnFilter)
             .Replace(
                 SqlServerTableScriptGraphTableOnlyRowsToken,
                 includeGraphTableOnlyRows ? SqlServerTableScriptGraphTableOnlyRows : string.Empty);
