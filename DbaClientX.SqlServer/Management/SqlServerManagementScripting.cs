@@ -23,6 +23,25 @@ internal static class SqlServerManagementScripting
         string sourceTable,
         string destinationSchema,
         string destinationTable,
+        IEnumerable<SqlServerTableColumnScriptInfo> columns,
+        IEnumerable<DbaIndexInfo> indexes)
+    {
+        var writableColumns = columns
+            .Where(column => string.IsNullOrWhiteSpace(column.ComputedDefinition))
+            .Select(column => new DbaColumnInfo(column.SchemaName, column.TableName, column.ColumnName, column.DataType)
+            {
+                Ordinal = column.Ordinal,
+                IsNullable = column.IsNullable
+            });
+
+        return BuildTableCopyPlan(sourceSchema, sourceTable, destinationSchema, destinationTable, writableColumns, indexes);
+    }
+
+    public static SqlServerTableCopyPlan BuildTableCopyPlan(
+        string sourceSchema,
+        string sourceTable,
+        string destinationSchema,
+        string destinationTable,
         IEnumerable<DbaColumnInfo> columns,
         IEnumerable<DbaIndexInfo> indexes)
     {
@@ -66,7 +85,7 @@ internal static class SqlServerManagementScripting
     }
 
     public static string QuoteName(string value)
-        => "[" + value.Replace("]", "]]", StringComparison.Ordinal) + "]";
+        => "[" + value.Replace("]", "]]") + "]";
 
     private static SqlServerScriptInfo BuildTableScript(IEnumerable<SqlServerTableColumnScriptInfo> group)
     {

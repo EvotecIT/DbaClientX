@@ -173,7 +173,15 @@ public partial class SqlServer
         string? destinationSchema = null,
         string? destinationTable = null)
     {
-        IReadOnlyList<Metadata.DbaColumnInfo> columns = GetColumns(sourceConnectionString, sourceSchema, sourceTable);
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = ExecuteMetadata(
+            sourceConnectionString,
+            SqlServerTableScriptColumnsManagementQuery,
+            SqlServerManagementMappers.MapTableScriptColumn,
+            new Dictionary<string, object?>
+            {
+                ["@schema"] = sourceSchema,
+                ["@name"] = sourceTable
+            });
         IReadOnlyList<Metadata.DbaIndexInfo> indexes = GetIndexes(sourceConnectionString, sourceSchema, sourceTable);
         return SqlServerManagementScripting.BuildTableCopyPlan(
             sourceSchema,

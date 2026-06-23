@@ -92,6 +92,7 @@ internal static class SqlServerManagementMappers
             ClassDescription = GetString(record, "ClassDescription") ?? string.Empty,
             SecurableSchema = GetString(record, "SecurableSchema"),
             SecurableName = GetString(record, "SecurableName"),
+            SecurableColumn = GetString(record, "SecurableColumn"),
             GranteeName = GetString(record, "GranteeName") ?? string.Empty,
             GrantorName = GetString(record, "GrantorName") ?? string.Empty
         };

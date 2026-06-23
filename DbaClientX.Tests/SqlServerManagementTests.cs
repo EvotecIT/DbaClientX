@@ -78,6 +78,7 @@ public class SqlServerManagementTests
             ("ClassDescription", typeof(string), "OBJECT_OR_COLUMN"),
             ("SecurableSchema", typeof(string), "dbo"),
             ("SecurableName", typeof(string), "Users"),
+            ("SecurableColumn", typeof(string), "DisplayName"),
             ("GranteeName", typeof(string), "app_role"),
             ("GrantorName", typeof(string), "dbo"));
 
@@ -87,6 +88,7 @@ public class SqlServerManagementTests
         Assert.Equal("SELECT", permission.PermissionName);
         Assert.Equal("dbo", permission.SecurableSchema);
         Assert.Equal("Users", permission.SecurableName);
+        Assert.Equal("DisplayName", permission.SecurableColumn);
         Assert.Equal("app_role", permission.GranteeName);
     }
 
@@ -178,6 +180,55 @@ public class SqlServerManagementTests
         Assert.NotNull(plan.DestinationMergeCommand);
         Assert.Contains("ON target.[Id] = source.[Id]", plan.DestinationMergeCommand);
         Assert.Contains("UPDATE SET target.[DisplayName] = source.[DisplayName]", plan.DestinationMergeCommand);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_SkipsComputedColumns()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "DisplayName",
+                Ordinal = 2,
+                DataType = "nvarchar(128)"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "SearchName",
+                Ordinal = 3,
+                DataType = "nvarchar(128)",
+                ComputedDefinition = "lower([DisplayName])"
+            }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "Id", Ordinal = 1, IsPrimaryKey = true, IsUnique = true }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Users",
+            "dbo",
+            "Users",
+            columns,
+            indexes);
+
+        Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "SearchName");
+        Assert.DoesNotContain("[SearchName]", plan.DestinationInsertCommand);
+        Assert.DoesNotContain("[SearchName]", plan.DestinationMergeCommand ?? string.Empty);
     }
 
     private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)

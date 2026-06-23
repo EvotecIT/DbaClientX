@@ -113,12 +113,12 @@ ORDER BY dp.type_desc, dp.name;";
 
     private const string SqlServerRoleMembershipsManagementQuery = @"
 SELECT
-    Scope = N'Server',
+    Scope = N'Server' COLLATE DATABASE_DEFAULT,
     DatabaseName = CONVERT(nvarchar(128), NULL),
-    RoleName = role_principal.name,
-    RoleTypeDescription = role_principal.type_desc,
-    MemberName = member_principal.name,
-    MemberTypeDescription = member_principal.type_desc
+    RoleName = role_principal.name COLLATE DATABASE_DEFAULT,
+    RoleTypeDescription = role_principal.type_desc COLLATE DATABASE_DEFAULT,
+    MemberName = member_principal.name COLLATE DATABASE_DEFAULT,
+    MemberTypeDescription = member_principal.type_desc COLLATE DATABASE_DEFAULT
 FROM sys.server_role_members AS membership
 INNER JOIN sys.server_principals AS role_principal ON role_principal.principal_id = membership.role_principal_id
 INNER JOIN sys.server_principals AS member_principal ON member_principal.principal_id = membership.member_principal_id
@@ -126,12 +126,12 @@ WHERE (@roleName IS NULL OR role_principal.name = @roleName)
   AND (@memberName IS NULL OR member_principal.name = @memberName)
 UNION ALL
 SELECT
-    Scope = N'Database',
-    DatabaseName = DB_NAME(),
-    RoleName = role_principal.name,
-    RoleTypeDescription = role_principal.type_desc,
-    MemberName = member_principal.name,
-    MemberTypeDescription = member_principal.type_desc
+    Scope = N'Database' COLLATE DATABASE_DEFAULT,
+    DatabaseName = DB_NAME() COLLATE DATABASE_DEFAULT,
+    RoleName = role_principal.name COLLATE DATABASE_DEFAULT,
+    RoleTypeDescription = role_principal.type_desc COLLATE DATABASE_DEFAULT,
+    MemberName = member_principal.name COLLATE DATABASE_DEFAULT,
+    MemberTypeDescription = member_principal.type_desc COLLATE DATABASE_DEFAULT
 FROM sys.database_role_members AS membership
 INNER JOIN sys.database_principals AS role_principal ON role_principal.principal_id = membership.role_principal_id
 INNER JOIN sys.database_principals AS member_principal ON member_principal.principal_id = membership.member_principal_id
@@ -141,20 +141,21 @@ ORDER BY Scope, DatabaseName, RoleName, MemberName;";
 
     private const string SqlServerPermissionsManagementQuery = @"
 SELECT
-    Scope = N'Server',
+    Scope = N'Server' COLLATE DATABASE_DEFAULT,
     DatabaseName = CONVERT(nvarchar(128), NULL),
-    State = permission.state,
-    StateDescription = permission.state_desc,
-    PermissionName = permission.permission_name,
-    ClassDescription = permission.class_desc,
+    State = permission.state COLLATE DATABASE_DEFAULT,
+    StateDescription = permission.state_desc COLLATE DATABASE_DEFAULT,
+    PermissionName = permission.permission_name COLLATE DATABASE_DEFAULT,
+    ClassDescription = permission.class_desc COLLATE DATABASE_DEFAULT,
     SecurableSchema = CONVERT(nvarchar(128), NULL),
     SecurableName = CASE permission.class_desc
-        WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName'))
-        WHEN N'ENDPOINT' THEN endpoint.name
+        WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName')) COLLATE DATABASE_DEFAULT
+        WHEN N'ENDPOINT' THEN endpoint.name COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
-    GranteeName = grantee.name,
-    GrantorName = grantor.name
+    SecurableColumn = CONVERT(nvarchar(128), NULL),
+    GranteeName = grantee.name COLLATE DATABASE_DEFAULT,
+    GrantorName = grantor.name COLLATE DATABASE_DEFAULT
 FROM sys.server_permissions AS permission
 INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
 INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
@@ -162,30 +163,34 @@ LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_i
 WHERE (@principalName IS NULL OR grantee.name = @principalName)
 UNION ALL
 SELECT
-    Scope = N'Database',
-    DatabaseName = DB_NAME(),
-    State = permission.state,
-    StateDescription = permission.state_desc,
-    PermissionName = permission.permission_name,
-    ClassDescription = permission.class_desc,
+    Scope = N'Database' COLLATE DATABASE_DEFAULT,
+    DatabaseName = DB_NAME() COLLATE DATABASE_DEFAULT,
+    State = permission.state COLLATE DATABASE_DEFAULT,
+    StateDescription = permission.state_desc COLLATE DATABASE_DEFAULT,
+    PermissionName = permission.permission_name COLLATE DATABASE_DEFAULT,
+    ClassDescription = permission.class_desc COLLATE DATABASE_DEFAULT,
     SecurableSchema = CASE
-        WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_SCHEMA_NAME(permission.major_id)
-        WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id)
+        WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         ELSE NULL
     END,
     SecurableName = CASE
-        WHEN permission.class_desc = N'DATABASE' THEN DB_NAME()
-        WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_NAME(permission.major_id)
-        WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id)
+        WHEN permission.class_desc = N'DATABASE' THEN DB_NAME() COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
-    GranteeName = grantee.name,
-    GrantorName = grantor.name
+    SecurableColumn = CASE
+        WHEN permission.class_desc = N'OBJECT_OR_COLUMN' AND permission.minor_id > 0 THEN COL_NAME(permission.major_id, permission.minor_id) COLLATE DATABASE_DEFAULT
+        ELSE NULL
+    END,
+    GranteeName = grantee.name COLLATE DATABASE_DEFAULT,
+    GrantorName = grantor.name COLLATE DATABASE_DEFAULT
 FROM sys.database_permissions AS permission
 INNER JOIN sys.database_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
 INNER JOIN sys.database_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
 WHERE (@principalName IS NULL OR grantee.name = @principalName)
-ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName;";
+ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName, SecurableColumn;";
 
     private const string SqlServerInstancePropertiesManagementQuery = @"
 SELECT Name, Value

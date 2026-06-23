@@ -29,6 +29,9 @@ public sealed class SqlServerPermissionInfo
     /// <summary>Securable name where SQL Server exposes it.</summary>
     public string? SecurableName { get; set; }
 
+    /// <summary>Column name for column-level permissions when SQL Server exposes one.</summary>
+    public string? SecurableColumn { get; set; }
+
     /// <summary>Grantee principal name.</summary>
     public string GranteeName { get; set; } = string.Empty;
 
