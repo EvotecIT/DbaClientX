@@ -19,7 +19,7 @@ FROM pragma_table_list tl
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'view', 'virtual')
-  AND tl.name NOT LIKE 'sqlite_%'
+  AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
   AND (@table IS NULL OR tl.name = @table)
   AND (@includeViews = 1 OR tl.type <> 'view')
 ORDER BY tl.name;";
@@ -41,7 +41,7 @@ INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'view', 'virtual')
-  AND tl.name NOT LIKE 'sqlite_%'
+  AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
   AND (@table IS NULL OR tl.name = @table)
 ORDER BY tl.name, ti.cid;";
 
@@ -55,7 +55,8 @@ SELECT
     CASE WHEN il.origin = 'pk' THEN 1 ELSE 0 END AS is_primary_key,
     ii.name AS column_name,
     ii.seqno + 1 AS ordinal_position,
-    CASE WHEN ii.""desc"" = 1 THEN 1 ELSE 0 END AS is_descending
+    CASE WHEN ii.""desc"" = 1 THEN 1 ELSE 0 END AS is_descending,
+    NULL AS filter_definition
 FROM pragma_table_list tl
 INNER JOIN sqlite_master m ON m.name = tl.name AND m.type = 'table'
 INNER JOIN pragma_index_list(m.name) il
@@ -63,7 +64,7 @@ INNER JOIN pragma_index_xinfo(il.name) ii
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
-  AND tl.name NOT LIKE 'sqlite_%'
+  AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
   AND ii.""key"" = 1
   AND (@table IS NULL OR m.name = @table)
 UNION ALL
@@ -76,13 +77,14 @@ SELECT
     1 AS is_primary_key,
     ti.name AS column_name,
     ti.pk AS ordinal_position,
-    0 AS is_descending
+    0 AS is_descending,
+    NULL AS filter_definition
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
-  AND tl.name NOT LIKE 'sqlite_%'
+  AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
   AND ti.pk > 0
   AND (@table IS NULL OR tl.name = @table)
   AND NOT EXISTS (
@@ -112,7 +114,7 @@ LEFT JOIN pragma_table_xinfo(fk.""table"") refpk ON refpk.pk = fk.seq + 1
 WHERE tl.schema = 'main'
   AND (@schema IS NULL OR tl.schema = @schema)
   AND tl.type IN ('table', 'virtual')
-  AND tl.name NOT LIKE 'sqlite_%'
+  AND tl.name NOT LIKE 'sqlite\_%' ESCAPE '\'
   AND (@table IS NULL OR tl.name = @table)
 ORDER BY tl.name, fk.id, fk.seq;";
 
@@ -226,7 +228,8 @@ WHERE 1 = 0;";
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
-            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
+            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)

@@ -19,14 +19,17 @@ ORDER BY datname;";
 
     private const string PostgreSqlTablesQuery = @"
 SELECT
-    table_schema AS schema_name,
-    table_name AS object_name,
-    CASE WHEN table_type = 'VIEW' THEN 'View' ELSE 'Table' END AS object_kind
-FROM information_schema.tables
-WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-  AND (@schema IS NULL OR table_schema = @schema)
-  AND (@includeViews = true OR table_type = 'BASE TABLE')
-ORDER BY table_schema, table_name;";
+    ns.nspname AS schema_name,
+    cls.relname AS object_name,
+    CASE WHEN cls.relkind IN ('v', 'm') THEN 'View' ELSE 'Table' END AS object_kind
+FROM pg_class cls
+INNER JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
+  AND cls.relkind IN ('r', 'p', 'f', 'v', 'm')
+  AND (@schema IS NULL OR ns.nspname = @schema)
+  AND (@includeViews = true OR cls.relkind IN ('r', 'p', 'f'))
+ORDER BY ns.nspname, cls.relname;";
 
     private const string PostgreSqlColumnsQuery = @"
 SELECT
@@ -59,7 +62,8 @@ SELECT
     ix.indisprimary AS is_primary_key,
     att.attname AS column_name,
     cols.ordinality AS ordinal_position,
-    ((COALESCE(opts.indoption_value, 0) & 1) = 1) AS is_descending
+    ((COALESCE(opts.indoption_value, 0) & 1) = 1) AS is_descending,
+    pg_get_expr(ix.indpred, ix.indrelid) AS filter_definition
 FROM pg_index ix
 INNER JOIN pg_class tbl ON tbl.oid = ix.indrelid
 INNER JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
@@ -238,7 +242,8 @@ ORDER BY routine_schema, routine_name;";
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
-            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending")
+            IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)

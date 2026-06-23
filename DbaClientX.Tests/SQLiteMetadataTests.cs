@@ -19,6 +19,7 @@ public class SQLiteMetadataTests
             sqlite.ExecuteNonQuery(path, "CREATE TABLE UserRoles(UserId INTEGER NOT NULL, RoleId INTEGER NOT NULL, CONSTRAINT FK_UserRoles_Users FOREIGN KEY(UserId) REFERENCES Users(Id) ON DELETE CASCADE, FOREIGN KEY(RoleId) REFERENCES Roles(Id));");
             sqlite.ExecuteNonQuery(path, "CREATE TABLE ImplicitParents(Id INTEGER PRIMARY KEY, Name TEXT NOT NULL);");
             sqlite.ExecuteNonQuery(path, "CREATE TABLE ImplicitChildren(ParentId INTEGER NOT NULL REFERENCES ImplicitParents);");
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE sqliteX(Id INTEGER PRIMARY KEY);");
             sqlite.ExecuteNonQuery(path, "CREATE INDEX IX_Users_Name ON Users(Name DESC);");
             sqlite.ExecuteNonQuery(path, "CREATE VIEW ActiveUsers AS SELECT Id, Name FROM Users;");
             sqlite.ExecuteNonQuery(path, "CREATE VIRTUAL TABLE Docs USING fts5(Body);");
@@ -41,6 +42,7 @@ public class SQLiteMetadataTests
                 Path.GetFileName(database.Name) == Path.GetFileName(path));
 
             Assert.Contains(tables, table => table.Name == "Users" && table.Kind == DbaTableKind.Table);
+            Assert.Contains(tables, table => table.Name == "sqliteX" && table.Kind == DbaTableKind.Table);
             Assert.Contains(tables, table => table.Name == "ActiveUsers" && table.Kind == DbaTableKind.View);
             Assert.DoesNotContain(tablesOnly, table => table.Kind == DbaTableKind.View);
             Assert.Empty(tempTables);
