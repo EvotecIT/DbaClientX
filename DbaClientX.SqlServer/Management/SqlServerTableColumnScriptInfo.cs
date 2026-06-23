@@ -42,6 +42,8 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public int TemporalType { get; set; }
 
+    public int LedgerType { get; set; }
+
     public string? HistoryTableSchema { get; set; }
 
     public string? HistoryTableName { get; set; }

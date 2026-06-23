@@ -207,9 +207,11 @@ public class SqlServerManagementTests
                 AdditionalConstraintDefinitions = string.Join(
                     separator,
                     "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')",
-                    "CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) NOT FOR REPLICATION"),
+                    "CONSTRAINT [CK_UserAudit_Code] CHECK ([Code] <> N'')",
+                    "CONSTRAINT [CK_UserAudit_code] CHECK ([code] <> N'')"),
                 PostCreateStatements = string.Join(
                     separator,
+                    "ALTER TABLE [dbo].[User]]Audit] ADD CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) ON DELETE CASCADE NOT FOR REPLICATION;",
                     "ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);",
                     "ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];"),
                 PrimaryKeyName = "PK_UserAudit",
@@ -332,7 +334,9 @@ public class SqlServerManagementTests
 
         IReadOnlyList<SqlServerScriptInfo> scripts = SqlServerManagementScripting.BuildTableScripts(columns);
 
-        SqlServerScriptInfo script = Assert.Single(scripts);
+        Assert.Equal(2, scripts.Count);
+        SqlServerScriptInfo script = Assert.Single(scripts, item => item.ScriptType == "Table");
+        SqlServerScriptInfo postCreateScript = Assert.Single(scripts, item => item.ScriptType == "TablePostCreate");
         Assert.Equal("Table", script.ScriptType);
         Assert.Contains("CREATE TABLE [dbo].[User]]Audit]", script.Script);
         Assert.Contains("[Id] int IDENTITY(1,1) NOT FOR REPLICATION NOT NULL", script.Script);
@@ -349,11 +353,101 @@ public class SqlServerManagementTests
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [UQ_UserAudit_Name] UNIQUE NONCLUSTERED ([Name] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')", script.Script);
-        Assert.Contains("CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) NOT FOR REPLICATION", script.Script);
+        Assert.Contains("CONSTRAINT [CK_UserAudit_Code] CHECK ([Code] <> N'')", script.Script);
+        Assert.Contains("CONSTRAINT [CK_UserAudit_code] CHECK ([code] <> N'')", script.Script);
+        Assert.DoesNotContain("FOREIGN KEY", script.Script);
         Assert.Contains("PERIOD FOR SYSTEM_TIME ([ValidFrom], [ValidTo])", script.Script);
         Assert.Contains("WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [history].[UserAuditHistory]));", script.Script);
-        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);", script.Script);
-        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];", script.Script);
+        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] ADD CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) ON DELETE CASCADE NOT FOR REPLICATION;", postCreateScript.Script);
+        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);", postCreateScript.Script);
+        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];", postCreateScript.Script);
+    }
+
+    [Fact]
+    public void BuildTableScripts_EmitsPostCreateScriptsAfterAllTables()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Child",
+                ColumnName = "ParentId",
+                Ordinal = 1,
+                DataType = "int",
+                IsNullable = false,
+                PostCreateStatements = "ALTER TABLE [dbo].[Child] ADD CONSTRAINT [FK_Child_Parent] FOREIGN KEY ([ParentId]) REFERENCES [dbo].[Parent] ([Id]);"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Parent",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int",
+                IsNullable = false
+            }
+        };
+
+        IReadOnlyList<SqlServerScriptInfo> scripts = SqlServerManagementScripting.BuildTableScripts(columns);
+
+        Assert.Collection(
+            scripts,
+            script => Assert.Equal("Table", script.ScriptType),
+            script => Assert.Equal("Table", script.ScriptType),
+            script =>
+            {
+                Assert.Equal("TablePostCreate", script.ScriptType);
+                Assert.Contains("ALTER TABLE [dbo].[Child] ADD CONSTRAINT [FK_Child_Parent]", script.Script);
+            });
+    }
+
+    [Fact]
+    public void BuildTableScripts_GeneratesLedgerColumnsAndOptions()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "LedgerAudit",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int",
+                IsNullable = false,
+                LedgerType = 3
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "LedgerAudit",
+                ColumnName = "LedgerTransactionIdStart",
+                Ordinal = 2,
+                DataType = "bigint",
+                IsNullable = false,
+                GeneratedAlwaysTypeDescription = "AS_TRANSACTION_ID_START",
+                IsHidden = true,
+                LedgerType = 3
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "LedgerAudit",
+                ColumnName = "LedgerSequenceNumberStart",
+                Ordinal = 3,
+                DataType = "bigint",
+                IsNullable = false,
+                GeneratedAlwaysTypeDescription = "AS_SEQUENCE_NUMBER_START",
+                IsHidden = true,
+                LedgerType = 3
+            }
+        };
+
+        SqlServerScriptInfo script = Assert.Single(SqlServerManagementScripting.BuildTableScripts(columns));
+
+        Assert.Contains("[LedgerTransactionIdStart] bigint GENERATED ALWAYS AS TRANSACTION_ID START HIDDEN NOT NULL", script.Script);
+        Assert.Contains("[LedgerSequenceNumberStart] bigint GENERATED ALWAYS AS SEQUENCE_NUMBER START HIDDEN NOT NULL", script.Script);
+        Assert.Contains("WITH (LEDGER = ON (APPEND_ONLY = ON));", script.Script);
     }
 
     [Fact]

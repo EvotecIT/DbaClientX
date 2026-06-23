@@ -12,12 +12,25 @@ internal static class SqlServerManagementScripting
 
     public static IReadOnlyList<SqlServerScriptInfo> BuildTableScripts(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
-        return columns
+        var tableGroups = columns
             .GroupBy(column => new { column.SchemaName, column.TableName })
             .OrderBy(group => group.Key.SchemaName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.Key.TableName, StringComparer.OrdinalIgnoreCase)
-            .Select(BuildTableScript)
             .ToArray();
+
+        var scripts = tableGroups
+            .Select(BuildTableScript)
+            .ToList();
+
+        foreach (SqlServerScriptInfo? postCreateScript in tableGroups.Select(BuildTablePostCreateScript))
+        {
+            if (postCreateScript != null)
+            {
+                scripts.Add(postCreateScript);
+            }
+        }
+
+        return scripts;
     }
 
     public static SqlServerTableCopyPlan BuildTableCopyPlan(
@@ -155,20 +168,14 @@ internal static class SqlServerManagementScripting
         builder.AppendLine(string.Join("," + Environment.NewLine, definitions));
         builder.Append(')');
 
-        string? systemVersioning = BuildSystemVersioningDefinition(orderedColumns);
-        if (!string.IsNullOrWhiteSpace(systemVersioning))
+        string? tableOptions = BuildTableOptionsDefinition(orderedColumns);
+        if (!string.IsNullOrWhiteSpace(tableOptions))
         {
             builder.AppendLine();
-            builder.Append(systemVersioning);
+            builder.Append(tableOptions);
         }
 
         builder.Append(';');
-
-        foreach (string statement in BuildPostCreateStatements(orderedColumns))
-        {
-            builder.AppendLine();
-            builder.Append(statement);
-        }
 
         return new SqlServerScriptInfo
         {
@@ -177,6 +184,26 @@ internal static class SqlServerManagementScripting
             ObjectName = first.TableName,
             ObjectType = "USER_TABLE",
             Script = builder.ToString()
+        };
+    }
+
+    private static SqlServerScriptInfo? BuildTablePostCreateScript(IEnumerable<SqlServerTableColumnScriptInfo> group)
+    {
+        var orderedColumns = group.OrderBy(column => column.Ordinal).ToArray();
+        var first = orderedColumns[0];
+        string[] statements = BuildPostCreateStatements(orderedColumns).ToArray();
+        if (statements.Length == 0)
+        {
+            return null;
+        }
+
+        return new SqlServerScriptInfo
+        {
+            ScriptType = "TablePostCreate",
+            SchemaName = first.SchemaName,
+            ObjectName = first.TableName,
+            ObjectType = "USER_TABLE",
+            Script = string.Join(Environment.NewLine, statements)
         };
     }
 
@@ -276,6 +303,10 @@ internal static class SqlServerManagementScripting
         {
             "AS_ROW_START" => "GENERATED ALWAYS AS ROW START",
             "AS_ROW_END" => "GENERATED ALWAYS AS ROW END",
+            "AS_TRANSACTION_ID_START" => "GENERATED ALWAYS AS TRANSACTION_ID START",
+            "AS_TRANSACTION_ID_END" => "GENERATED ALWAYS AS TRANSACTION_ID END",
+            "AS_SEQUENCE_NUMBER_START" => "GENERATED ALWAYS AS SEQUENCE_NUMBER START",
+            "AS_SEQUENCE_NUMBER_END" => "GENERATED ALWAYS AS SEQUENCE_NUMBER END",
             _ => null
         };
 
@@ -292,7 +323,27 @@ internal static class SqlServerManagementScripting
         return $"PERIOD FOR SYSTEM_TIME ({QuoteName(startColumn!)}, {QuoteName(endColumn!)})";
     }
 
-    private static string? BuildSystemVersioningDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    private static string? BuildTableOptionsDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        var options = new List<string>();
+        string? systemVersioning = BuildSystemVersioningOption(columns);
+        if (!string.IsNullOrWhiteSpace(systemVersioning))
+        {
+            options.Add(systemVersioning!);
+        }
+
+        string? ledger = BuildLedgerOption(columns);
+        if (!string.IsNullOrWhiteSpace(ledger))
+        {
+            options.Add(ledger!);
+        }
+
+        return options.Count == 0
+            ? null
+            : "WITH (" + string.Join(", ", options) + ")";
+    }
+
+    private static string? BuildSystemVersioningOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         SqlServerTableColumnScriptInfo? temporalTable = columns.FirstOrDefault(column =>
             column.TemporalType == 2 &&
@@ -301,7 +352,20 @@ internal static class SqlServerManagementScripting
 
         return temporalTable == null
             ? null
-            : $"WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = {QualifyName(temporalTable.HistoryTableSchema!, temporalTable.HistoryTableName!)}))";
+            : $"SYSTEM_VERSIONING = ON (HISTORY_TABLE = {QualifyName(temporalTable.HistoryTableSchema!, temporalTable.HistoryTableName!)})";
+    }
+
+    private static string? BuildLedgerOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        int ledgerType = columns.Select(column => column.LedgerType).FirstOrDefault(value => value > 1);
+        if (ledgerType == 0)
+        {
+            return null;
+        }
+
+        return ledgerType == 3
+            ? "LEDGER = ON (APPEND_ONLY = ON)"
+            : "LEDGER = ON";
     }
 
     private static string? BuildPrimaryKeyDefinition(IEnumerable<SqlServerTableColumnScriptInfo> columns)
@@ -327,8 +391,8 @@ internal static class SqlServerManagementScripting
     {
         return columns
             .Where(column => !string.IsNullOrWhiteSpace(column.UniqueConstraintName) && column.UniqueConstraintOrdinal.HasValue)
-            .GroupBy(column => column.UniqueConstraintName!, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(column => column.UniqueConstraintName!, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
             .Select(group =>
             {
                 var keyColumns = group.OrderBy(column => column.UniqueConstraintOrdinal).ToArray();
@@ -345,8 +409,8 @@ internal static class SqlServerManagementScripting
             .Select(column => column.AdditionalConstraintDefinitions)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .SelectMany(SplitMetadataList)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal);
     }
 
     private static IEnumerable<string> BuildPostCreateStatements(IEnumerable<SqlServerTableColumnScriptInfo> columns)
@@ -355,8 +419,8 @@ internal static class SqlServerManagementScripting
             .Select(column => column.PostCreateStatements)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .SelectMany(SplitMetadataList)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal);
     }
 
     private static IEnumerable<string> SplitMetadataList(string? value)

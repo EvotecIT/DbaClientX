@@ -172,6 +172,7 @@ internal static class SqlServerManagementMappers
             IsSparse = GetBoolean(record, "IsSparse"),
             MaskingFunction = GetString(record, "MaskingFunction"),
             TemporalType = GetInt32(record, "TemporalType"),
+            LedgerType = GetInt32(record, "LedgerType"),
             HistoryTableSchema = GetString(record, "HistoryTableSchema"),
             HistoryTableName = GetString(record, "HistoryTableName"),
             PrimaryKeyName = GetString(record, "PrimaryKeyName"),
