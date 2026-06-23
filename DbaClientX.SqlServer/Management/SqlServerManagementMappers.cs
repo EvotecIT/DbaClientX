@@ -178,12 +178,21 @@ internal static class SqlServerManagementMappers
             UniqueConstraintName = GetString(record, "UniqueConstraintName"),
             UniqueConstraintOrdinal = GetNullableInt32(record, "UniqueConstraintOrdinal"),
             UniqueConstraintIndexType = GetString(record, "UniqueConstraintIndexType"),
-            UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending")
+            UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending"),
+            AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions")
         };
 
     internal static string NormalizeModuleScript(string script)
-        => new Regex(@"^(\s*)ALTER\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline)
-            .Replace(script, "$1CREATE OR ALTER ", 1);
+    {
+        Match match = Regex.Match(
+            script,
+            @"\A(?<prefix>(?:\s*SET\s+(?:ANSI_NULLS|QUOTED_IDENTIFIER)\s+(?:ON|OFF)\s*;\s*(?:GO\s*)?)*)\s*ALTER\s+",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        return match.Success
+            ? script.Remove(match.Index, match.Length).Insert(match.Index, match.Groups["prefix"].Value + "CREATE OR ALTER ")
+            : script;
+    }
 
     internal static DateTime? ParseAgentDate(int value)
     {

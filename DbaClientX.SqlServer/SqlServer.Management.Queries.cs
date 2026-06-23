@@ -286,13 +286,14 @@ SELECT
     ObjectName = object_info.name,
     ObjectType = object_info.type_desc,
     Script = CONCAT(
-        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10),
-        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10),
+        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
+        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         module_info.definition)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info.object_id
 WHERE object_info.type IN ('P', 'PC', 'X', 'V', 'TR', 'FN', 'IF', 'TF', 'FS', 'FT')
+  AND module_info.definition IS NOT NULL
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)
 ORDER BY schema_info.name, object_info.name;";
@@ -327,21 +328,26 @@ SELECT
     DefaultDefinition = default_info.definition,
     ComputedDefinition = computed_info.definition,
     IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0)),
-    GeneratedAlwaysTypeDescription = column_info.generated_always_type_desc,
-    IsHidden = CONVERT(bit, column_info.is_hidden),
+    GeneratedAlwaysTypeDescription = CASE CONVERT(int, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'GeneratedAlwaysType'), 0))
+        WHEN 1 THEN N'AS_ROW_START'
+        WHEN 2 THEN N'AS_ROW_END'
+        ELSE NULL
+    END,
+    IsHidden = CONVERT(bit, ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0)),
     IsSparse = CONVERT(bit, column_info.is_sparse),
-    MaskingFunction = masked_column.masking_function,
-    TemporalType = table_info.temporal_type,
-    HistoryTableSchema = history_schema.name,
-    HistoryTableName = history_table.name,
+    MaskingFunction = CONVERT(nvarchar(4000), NULL),
+    TemporalType = CONVERT(int, ISNULL(OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalType'), 0)),
+    HistoryTableSchema = OBJECT_SCHEMA_NAME(CONVERT(int, OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalHistoryTableId'))),
+    HistoryTableName = OBJECT_NAME(CONVERT(int, OBJECTPROPERTYEX(table_info.object_id, N'TableTemporalHistoryTableId'))),
     PrimaryKeyName = primary_key.name,
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
     PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key),
-    UniqueConstraintName = unique_constraint.name,
-    UniqueConstraintOrdinal = unique_constraint_column.key_ordinal,
-    UniqueConstraintIndexType = unique_constraint.type_desc,
-    UniqueConstraintIsDescending = CONVERT(bit, unique_constraint_column.is_descending_key)
+    UniqueConstraintName = CONVERT(sysname, NULL),
+    UniqueConstraintOrdinal = CONVERT(int, NULL),
+    UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
+    UniqueConstraintIsDescending = CONVERT(bit, NULL),
+    AdditionalConstraintDefinitions = constraint_info.definitions
 FROM sys.tables AS table_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
 INNER JOIN sys.columns AS column_info ON column_info.object_id = table_info.object_id
@@ -352,13 +358,63 @@ LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.sch
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
-LEFT JOIN sys.masked_columns AS masked_column ON masked_column.object_id = column_info.object_id AND masked_column.column_id = column_info.column_id
-LEFT JOIN sys.tables AS history_table ON history_table.object_id = table_info.history_table_id
-LEFT JOIN sys.schemas AS history_schema ON history_schema.schema_id = history_table.schema_id
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
-LEFT JOIN sys.index_columns AS unique_constraint_column ON unique_constraint_column.object_id = table_info.object_id AND unique_constraint_column.column_id = column_info.column_id
-LEFT JOIN sys.indexes AS unique_constraint ON unique_constraint.object_id = unique_constraint_column.object_id AND unique_constraint.index_id = unique_constraint_column.index_id AND unique_constraint.is_unique_constraint = 1
+OUTER APPLY (
+    SELECT definitions = STUFF((
+        SELECT CHAR(10) + definition
+        FROM (
+            SELECT definition =
+                N'CONSTRAINT ' + QUOTENAME(unique_index.name) + N' UNIQUE ' +
+                CASE WHEN unique_index.type_desc = N'NONCLUSTERED' THEN N'NONCLUSTERED' ELSE N'CLUSTERED' END +
+                N' (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(unique_column.name) + CASE WHEN unique_index_column.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+                    FROM sys.index_columns AS unique_index_column
+                    INNER JOIN sys.columns AS unique_column ON unique_column.object_id = unique_index_column.object_id AND unique_column.column_id = unique_index_column.column_id
+                    WHERE unique_index_column.object_id = unique_index.object_id
+                      AND unique_index_column.index_id = unique_index.index_id
+                      AND unique_index_column.key_ordinal > 0
+                    ORDER BY unique_index_column.key_ordinal
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')'
+            FROM sys.indexes AS unique_index
+            WHERE unique_index.object_id = table_info.object_id
+              AND unique_index.is_unique_constraint = 1
+            UNION ALL
+            SELECT definition = N'CONSTRAINT ' + QUOTENAME(check_info.name) + N' CHECK ' + check_info.definition
+            FROM sys.check_constraints AS check_info
+            WHERE check_info.parent_object_id = table_info.object_id
+            UNION ALL
+            SELECT definition =
+                N'CONSTRAINT ' + QUOTENAME(foreign_key.name) + N' FOREIGN KEY (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(parent_column.name)
+                    FROM sys.foreign_key_columns AS foreign_key_column
+                    INNER JOIN sys.columns AS parent_column ON parent_column.object_id = foreign_key_column.parent_object_id AND parent_column.column_id = foreign_key_column.parent_column_id
+                    WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
+                    ORDER BY foreign_key_column.constraint_column_id
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N') REFERENCES ' +
+                QUOTENAME(referenced_schema.name) + N'.' + QUOTENAME(referenced_table.name) + N' (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(referenced_column.name)
+                    FROM sys.foreign_key_columns AS foreign_key_column
+                    INNER JOIN sys.columns AS referenced_column ON referenced_column.object_id = foreign_key_column.referenced_object_id AND referenced_column.column_id = foreign_key_column.referenced_column_id
+                    WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
+                    ORDER BY foreign_key_column.constraint_column_id
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN foreign_key.delete_referential_action_desc <> N'NO_ACTION' THEN N' ON DELETE ' + REPLACE(foreign_key.delete_referential_action_desc, N'_', N' ') ELSE N'' END +
+                CASE WHEN foreign_key.update_referential_action_desc <> N'NO_ACTION' THEN N' ON UPDATE ' + REPLACE(foreign_key.update_referential_action_desc, N'_', N' ') ELSE N'' END
+            FROM sys.foreign_keys AS foreign_key
+            INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
+            INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
+            WHERE foreign_key.parent_object_id = table_info.object_id
+        ) AS table_constraint
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+) AS constraint_info
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";

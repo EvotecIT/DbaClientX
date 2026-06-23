@@ -46,7 +46,9 @@ internal static class SqlServerManagementScripting
         }
 
         string destinationName = QualifyName(destinationSchema, destinationTable);
-        plan.DestinationMergeCommand = BuildMergeCommand(destinationName, plan.Columns);
+        plan.DestinationMergeCommand = CanBuildMerge(new HashSet<string>(plan.KeyColumns, StringComparer.OrdinalIgnoreCase), plan.Columns)
+            ? BuildMergeCommand(destinationName, plan.Columns)
+            : null;
 
         if (plan.Columns.Any(column => column.IsIdentity))
         {
@@ -105,7 +107,7 @@ internal static class SqlServerManagementScripting
             KeyColumns = keyColumns.OrderBy(name => Array.FindIndex(columnList, column => string.Equals(column.Name, name, StringComparison.OrdinalIgnoreCase))).ToArray(),
             SourceSelectCommand = $"SELECT {sourceColumns} FROM {sourceName};",
             DestinationInsertCommand = $"INSERT INTO {destinationName} ({destinationColumns}) VALUES ({parameterColumns});",
-            DestinationMergeCommand = BuildMergeCommand(destinationName, copyColumns)
+            DestinationMergeCommand = CanBuildMerge(keyColumns, copyColumns) ? BuildMergeCommand(destinationName, copyColumns) : null
         };
     }
 
@@ -135,6 +137,11 @@ internal static class SqlServerManagementScripting
         foreach (string uniqueConstraint in BuildUniqueConstraintDefinitions(orderedColumns))
         {
             definitions.Add("    " + uniqueConstraint);
+        }
+
+        foreach (string additionalConstraint in BuildAdditionalConstraintDefinitions(orderedColumns))
+        {
+            definitions.Add("    " + additionalConstraint);
         }
 
         string? period = BuildSystemTimePeriodDefinition(orderedColumns);
@@ -302,6 +309,16 @@ internal static class SqlServerManagementScripting
             });
     }
 
+    private static IEnumerable<string> BuildAdditionalConstraintDefinitions(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        return columns
+            .Select(column => column.AdditionalConstraintDefinitions)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .SelectMany(value => value!.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+    }
+
     private static string QualifyName(string schema, string name)
         => QuoteName(schema) + "." + QuoteName(name);
 
@@ -314,6 +331,17 @@ internal static class SqlServerManagementScripting
             .ToArray();
 
         return new HashSet<string>(keyColumns, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool CanBuildMerge(ICollection<string> keyColumns, IReadOnlyList<SqlServerTableCopyColumnInfo> columns)
+    {
+        if (keyColumns.Count == 0)
+        {
+            return false;
+        }
+
+        var copyColumnNames = new HashSet<string>(columns.Select(column => column.SourceColumn), StringComparer.OrdinalIgnoreCase);
+        return keyColumns.All(copyColumnNames.Contains);
     }
 
     private static string WrapIdentityInsert(string destinationName, string command)

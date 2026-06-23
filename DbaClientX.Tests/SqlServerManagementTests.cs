@@ -179,10 +179,12 @@ public class SqlServerManagementTests
     [Fact]
     public void NormalizeModuleScript_RewritesLeadingAlter()
     {
-        string script = SqlServerManagementMappers.NormalizeModuleScript("SET ANSI_NULLS ON;\r\nSET QUOTED_IDENTIFIER ON;\r\n  ALTER PROCEDURE [dbo].[DoWork] AS SELECT 1;");
+        string script = SqlServerManagementMappers.NormalizeModuleScript("SET ANSI_NULLS ON;\r\nGO\r\nSET QUOTED_IDENTIFIER ON;\r\nGO\r\n  ALTER PROCEDURE [dbo].[DoWork] AS BEGIN ALTER TABLE [dbo].[T] ADD [X] int; END;");
 
         Assert.Contains("SET ANSI_NULLS ON;", script);
+        Assert.Contains("GO\r\nSET QUOTED_IDENTIFIER ON;", script);
         Assert.Contains("CREATE OR ALTER PROCEDURE [dbo].[DoWork]", script);
+        Assert.Contains("ALTER TABLE [dbo].[T]", script);
     }
 
     [Fact]
@@ -200,6 +202,7 @@ public class SqlServerManagementTests
                 IsIdentity = true,
                 IdentitySeed = "1",
                 IdentityIncrement = "1",
+                AdditionalConstraintDefinitions = "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name] <> N'')\nCONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id])",
                 PrimaryKeyName = "PK_UserAudit",
                 PrimaryKeyOrdinal = 1,
                 PrimaryKeyIndexType = "CLUSTERED",
@@ -312,6 +315,8 @@ public class SqlServerManagementTests
         Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL", script.Script);
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [UQ_UserAudit_Name] UNIQUE NONCLUSTERED ([Name] ASC)", script.Script);
+        Assert.Contains("CONSTRAINT [CK_UserAudit_Name] CHECK ([Name] <> N'')", script.Script);
+        Assert.Contains("CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id])", script.Script);
         Assert.Contains("PERIOD FOR SYSTEM_TIME ([ValidFrom], [ValidTo])", script.Script);
         Assert.Contains("WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [history].[UserAuditHistory]));", script.Script);
     }
@@ -458,6 +463,57 @@ public class SqlServerManagementTests
         Assert.StartsWith("SET IDENTITY_INSERT [archive].[Users] ON; INSERT INTO", plan.DestinationInsertCommand);
         Assert.EndsWith("SET IDENTITY_INSERT [archive].[Users] OFF;", plan.DestinationInsertCommand);
         Assert.Contains("SET IDENTITY_INSERT [archive].[Users] ON; MERGE", plan.DestinationMergeCommand);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_DisablesMergeWhenKeyColumnIsNotWritable()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "ComputedKey",
+                Ordinal = 2,
+                DataType = "int",
+                ComputedDefinition = "[Id] + 1"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "DisplayName",
+                Ordinal = 3,
+                DataType = "nvarchar(128)"
+            }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "Id", Ordinal = 1, IsPrimaryKey = true, IsUnique = true },
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "ComputedKey", Ordinal = 2, IsPrimaryKey = true, IsUnique = true }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Users",
+            "archive",
+            "Users",
+            columns,
+            indexes);
+
+        Assert.Contains("Id", plan.KeyColumns);
+        Assert.Contains("ComputedKey", plan.KeyColumns);
+        Assert.Null(plan.DestinationMergeCommand);
+        Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "ComputedKey");
     }
 
     [Fact]

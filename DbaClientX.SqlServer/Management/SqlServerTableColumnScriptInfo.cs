@@ -55,4 +55,6 @@ internal sealed class SqlServerTableColumnScriptInfo
     public string? UniqueConstraintIndexType { get; set; }
 
     public bool? UniqueConstraintIsDescending { get; set; }
+
+    public string? AdditionalConstraintDefinitions { get; set; }
 }
