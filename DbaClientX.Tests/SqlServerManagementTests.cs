@@ -206,10 +206,14 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("permission.class_desc = N'SYMMETRIC_KEY'", permissions);
         Assert.Contains("WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_collection.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'SERVICE_CONTRACT' THEN target_service_contract.name", permissions);
-        Assert.Contains("WHEN permission.class_desc = N'FULLTEXT_STOPLIST' THEN target_fulltext_stoplist.name", permissions);
-        Assert.Contains("WHEN permission.class_desc = N'SEARCH_PROPERTY_LIST' THEN target_search_property_list.name", permissions);
-        Assert.Contains("WHEN permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL' THEN target_database_scoped_credential.name", permissions);
-        Assert.Contains("WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.language", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'FULLTEXT STOPLIST' THEN target_fulltext_stoplist.name", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'SEARCH PROPERTY LIST' THEN target_search_property_list.name", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'DATABASE SCOPED CREDENTIAL' THEN target_database_scoped_credential.name", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'EXTERNAL LANGUAGE' THEN target_external_language.language", permissions);
+        Assert.DoesNotContain("permission.class_desc = N'FULLTEXT_STOPLIST'", permissions);
+        Assert.DoesNotContain("permission.class_desc = N'SEARCH_PROPERTY_LIST'", permissions);
+        Assert.DoesNotContain("permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL'", permissions);
+        Assert.DoesNotContain("permission.class_desc = N'EXTERNAL_LANGUAGE'", permissions);
         Assert.Contains("LEFT JOIN sys.external_languages AS target_external_language", permissions);
         Assert.Contains("target_fulltext_stoplist", partialAdvancedPermissions);
         Assert.Contains("target_database_scoped_credential", partialAdvancedPermissions);
@@ -549,6 +553,8 @@ public class SqlServerManagementTests
         Assert.Contains("RETURNS NULL ON NULL INPUT", modulesQuery);
         Assert.Contains("parameter_item.has_default_value", modulesQuery);
         Assert.Contains("parameter_item.default_value", modulesQuery);
+        Assert.Contains("SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'binary', N'varbinary')", modulesQuery);
+        Assert.Contains("CONVERT(nvarchar(max), CONVERT(varbinary(max), parameter_item.default_value), 1)", modulesQuery);
         Assert.Contains("FROM sys.trigger_events AS event_info", modulesQuery);
         Assert.Contains("clr_trigger.is_instead_of_trigger", modulesQuery);
         Assert.Contains("N' INSTEAD OF '", modulesQuery);
@@ -658,6 +664,8 @@ public class SqlServerManagementTests
         Assert.Contains("N'vector('", modernQuery);
         Assert.Contains("edge_constraint.delete_referential_action_desc", modernQuery);
         Assert.Contains("N' ON DELETE ' + REPLACE(edge_constraint.delete_referential_action_desc", modernQuery);
+        Assert.Contains("edge_constraint.is_not_trusted = 1 OR edge_constraint.is_disabled = 1", modernQuery);
+        Assert.Contains("N' WITH NOCHECK' ELSE N' WITH CHECK' END +", modernQuery);
         Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
         Assert.Contains("PostCreateStatements = graph_only_post_create_info.statements", modernQuery);
         Assert.DoesNotContain("{GraphEdgeConstraintStatements}", modernQuery);

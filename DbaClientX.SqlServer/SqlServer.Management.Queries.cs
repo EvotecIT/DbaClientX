@@ -365,6 +365,7 @@ OUTER APPLY (
             WHEN parameter_item.default_value IS NULL THEN N'NULL'
             WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'varchar', N'nvarchar', N'char', N'nchar', N'xml', N'uniqueidentifier', N'date', N'datetime', N'datetime2', N'datetimeoffset', N'time', N'smalldatetime') THEN N'N''' + REPLACE(CONVERT(nvarchar(max), parameter_item.default_value), N'''', N'''''') + N''''
             WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) = N'bit' THEN CASE WHEN CONVERT(bit, parameter_item.default_value) = 1 THEN N'1' ELSE N'0' END
+            WHEN CONVERT(nvarchar(128), SQL_VARIANT_PROPERTY(parameter_item.default_value, N'BaseType')) IN (N'binary', N'varbinary') THEN CONVERT(nvarchar(max), CONVERT(varbinary(max), parameter_item.default_value), 1)
             ELSE CONVERT(nvarchar(max), parameter_item.default_value)
         END ELSE N'' END + CASE WHEN parameter_item.is_output = 1 THEN N' OUTPUT' ELSE N'' END
         FROM sys.parameters AS parameter_item
@@ -596,33 +597,34 @@ WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @princi
 UNION ALL";
 
     private const string SqlServerPermissionsFullTextStoplistCase = @"
-        WHEN permission.class_desc = N'FULLTEXT_STOPLIST' THEN target_fulltext_stoplist.name COLLATE DATABASE_DEFAULT";
+        WHEN permission.class_desc = N'FULLTEXT STOPLIST' THEN target_fulltext_stoplist.name COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsSearchPropertyListCase = @"
-        WHEN permission.class_desc = N'SEARCH_PROPERTY_LIST' THEN target_search_property_list.name COLLATE DATABASE_DEFAULT";
+        WHEN permission.class_desc = N'SEARCH PROPERTY LIST' THEN target_search_property_list.name COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsDatabaseScopedCredentialCase = @"
-        WHEN permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL' THEN target_database_scoped_credential.name COLLATE DATABASE_DEFAULT";
+        WHEN permission.class_desc = N'DATABASE SCOPED CREDENTIAL' THEN target_database_scoped_credential.name COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsExternalLanguageCase = @"
-        WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.language COLLATE DATABASE_DEFAULT";
+        WHEN permission.class_desc = N'EXTERNAL LANGUAGE' THEN target_external_language.language COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsFullTextStoplistJoin = @"
-LEFT JOIN sys.fulltext_stoplists AS target_fulltext_stoplist ON target_fulltext_stoplist.stoplist_id = permission.major_id AND permission.class_desc = N'FULLTEXT_STOPLIST'";
+LEFT JOIN sys.fulltext_stoplists AS target_fulltext_stoplist ON target_fulltext_stoplist.stoplist_id = permission.major_id AND permission.class_desc = N'FULLTEXT STOPLIST'";
 
     private const string SqlServerPermissionsSearchPropertyListJoin = @"
-LEFT JOIN sys.registered_search_property_lists AS target_search_property_list ON target_search_property_list.property_list_id = permission.major_id AND permission.class_desc = N'SEARCH_PROPERTY_LIST'";
+LEFT JOIN sys.registered_search_property_lists AS target_search_property_list ON target_search_property_list.property_list_id = permission.major_id AND permission.class_desc = N'SEARCH PROPERTY LIST'";
 
     private const string SqlServerPermissionsDatabaseScopedCredentialJoin = @"
-LEFT JOIN sys.database_scoped_credentials AS target_database_scoped_credential ON target_database_scoped_credential.credential_id = permission.major_id AND permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL'";
+LEFT JOIN sys.database_scoped_credentials AS target_database_scoped_credential ON target_database_scoped_credential.credential_id = permission.major_id AND permission.class_desc = N'DATABASE SCOPED CREDENTIAL'";
 
     private const string SqlServerPermissionsExternalLanguageJoin = @"
-LEFT JOIN sys.external_languages AS target_external_language ON target_external_language.external_language_id = permission.major_id AND permission.class_desc = N'EXTERNAL_LANGUAGE'";
+LEFT JOIN sys.external_languages AS target_external_language ON target_external_language.external_language_id = permission.major_id AND permission.class_desc = N'EXTERNAL LANGUAGE'";
 
     private const string SqlServerTableScriptGraphEdgeConstraintStatements = @"
             UNION ALL
             SELECT statement =
                 N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                CASE WHEN edge_constraint.is_not_trusted = 1 OR edge_constraint.is_disabled = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END +
                 N' ADD CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N' CONNECTION (' +
                 STUFF((
                     SELECT N', ' + QUOTENAME(from_schema.name) + N'.' + QUOTENAME(from_table.name) + N' TO ' + QUOTENAME(to_schema.name) + N'.' + QUOTENAME(to_table.name)
