@@ -159,6 +159,7 @@ public class SqlServerManagementTests
     {
         string serverPrincipals = GetPrivateStaticString<SqlServer>("SqlServerServerPrincipalsManagementQuery");
         string databasePrincipals = GetPrivateStaticString<SqlServer>("SqlServerDatabasePrincipalsManagementQuery");
+        string roleMemberships = GetPrivateStaticString<SqlServer>("SqlServerRoleMembershipsManagementQuery");
         string availabilityGroupsSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerAvailabilityGroupsSupportQuery");
         string serverPermissionsSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerServerPermissionsSupportQuery");
         string fullTextStoplistsSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerFullTextStoplistsSupportQuery");
@@ -175,6 +176,9 @@ public class SqlServerManagementTests
         Assert.Contains("FROM sys.sql_logins AS sl", serverPrincipals);
         Assert.Contains("WHERE NOT EXISTS", serverPrincipals);
         Assert.Contains("ORDER BY TypeDescription, Name", serverPrincipals);
+        Assert.Contains("FROM sys.sql_logins AS sql_login", roleMemberships);
+        Assert.Contains("WHERE server_principal.principal_id = sql_login.principal_id", roleMemberships);
+        Assert.Contains("member_principal.principal_id = membership.member_principal_id", roleMemberships);
         Assert.Contains("ISNULL(dp.is_fixed_role, 0) = 0", databasePrincipals);
         Assert.Contains("OBJECT_ID(N'sys.availability_groups')", availabilityGroupsSupportQuery);
         Assert.Contains("COL_LENGTH(N'sys.availability_replicas', N'replica_metadata_id')", availabilityGroupsSupportQuery);
@@ -205,7 +209,7 @@ public class SqlServerManagementTests
         Assert.Contains("WHEN permission.class_desc = N'FULLTEXT_STOPLIST' THEN target_fulltext_stoplist.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'SEARCH_PROPERTY_LIST' THEN target_search_property_list.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL' THEN target_database_scoped_credential.name", permissions);
-        Assert.Contains("WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.name", permissions);
+        Assert.Contains("WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.language", permissions);
         Assert.Contains("LEFT JOIN sys.external_languages AS target_external_language", permissions);
         Assert.Contains("target_fulltext_stoplist", partialAdvancedPermissions);
         Assert.Contains("target_database_scoped_credential", partialAdvancedPermissions);

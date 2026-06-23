@@ -523,7 +523,7 @@ UNION ALL";
         WHEN permission.class_desc = N'DATABASE_SCOPED_CREDENTIAL' THEN target_database_scoped_credential.name COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsExternalLanguageCase = @"
-        WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.name COLLATE DATABASE_DEFAULT";
+        WHEN permission.class_desc = N'EXTERNAL_LANGUAGE' THEN target_external_language.language COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsFullTextStoplistJoin = @"
 LEFT JOIN sys.fulltext_stoplists AS target_fulltext_stoplist ON target_fulltext_stoplist.stoplist_id = permission.major_id AND permission.class_desc = N'FULLTEXT_STOPLIST'";
@@ -800,7 +800,17 @@ SELECT
     MemberTypeDescription = member_principal.type_desc COLLATE DATABASE_DEFAULT
 FROM sys.server_role_members AS membership
 INNER JOIN sys.server_principals AS role_principal ON role_principal.principal_id = membership.role_principal_id
-INNER JOIN sys.server_principals AS member_principal ON member_principal.principal_id = membership.member_principal_id
+INNER JOIN (
+    SELECT principal_id, name, type_desc
+    FROM sys.server_principals
+    UNION ALL
+    SELECT sql_login.principal_id, sql_login.name, sql_login.type_desc
+    FROM sys.sql_logins AS sql_login
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM sys.server_principals AS server_principal
+        WHERE server_principal.principal_id = sql_login.principal_id)
+) AS member_principal ON member_principal.principal_id = membership.member_principal_id
 WHERE (@roleName IS NULL OR role_principal.name COLLATE DATABASE_DEFAULT = @roleName)
   AND (@memberName IS NULL OR member_principal.name COLLATE DATABASE_DEFAULT = @memberName)
 UNION ALL
