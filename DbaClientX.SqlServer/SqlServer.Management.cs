@@ -89,10 +89,29 @@ public partial class SqlServer
     public virtual IReadOnlyList<SqlServerPermissionInfo> GetSqlServerPermissions(
         string connectionString,
         string? principalName = null)
-        => ExecuteMetadata(connectionString, SqlServerPermissionsManagementQuery, SqlServerManagementMappers.MapPermission, new Dictionary<string, object?>
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
         {
-            ["@principalName"] = principalName
-        });
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            bool includeAvailabilityGroups = SupportsAvailabilityGroups(connection, transaction);
+            string query = BuildSqlServerPermissionsManagementQuery(includeAvailabilityGroups);
+            return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapPermission, parameters: new Dictionary<string, object?>
+            {
+                ["@principalName"] = principalName
+            });
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
 
     /// <summary>
     /// Lists selected SQL Server instance properties from SERVERPROPERTY.
@@ -205,7 +224,8 @@ public partial class SqlServer
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             bool includeMasking = SupportsMaskedColumns(connection, transaction);
             bool includeEncryption = SupportsColumnEncryption(connection, transaction);
-            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking, includeEncryption);
+            bool includeGraphEdgeConstraints = SupportsGraphEdgeConstraints(connection, transaction);
+            string query = BuildSqlServerTableScriptColumnsManagementQuery(includeMasking, includeEncryption, includeGraphEdgeConstraints);
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapTableScriptColumn, parameters: new Dictionary<string, object?>
             {
                 ["@schema"] = schema,
@@ -233,7 +253,28 @@ public partial class SqlServer
         return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
     }
 
-    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking, bool includeEncryption)
+    private bool SupportsAvailabilityGroups(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerAvailabilityGroupsSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private bool SupportsGraphEdgeConstraints(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerGraphEdgeConstraintsSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private static string BuildSqlServerPermissionsManagementQuery(bool includeAvailabilityGroups)
+        => SqlServerPermissionsManagementQuery
+            .Replace(
+                SqlServerPermissionsAvailabilityGroupNameToken,
+                includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupNameProjection : SqlServerPermissionsLegacyAvailabilityGroupNameProjection)
+            .Replace(
+                SqlServerPermissionsAvailabilityGroupJoinToken,
+                includeAvailabilityGroups ? SqlServerPermissionsAvailabilityGroupJoin : string.Empty);
+
+    private static string BuildSqlServerTableScriptColumnsManagementQuery(bool includeMasking, bool includeEncryption, bool includeGraphEdgeConstraints)
         => SqlServerTableScriptColumnsManagementQuery
             .Replace(
                 SqlServerTableScriptMaskingFunctionToken,
@@ -246,5 +287,8 @@ public partial class SqlServer
                 includeEncryption ? SqlServerTableScriptEncryptionDefinitionProjection : SqlServerTableScriptLegacyEncryptionDefinitionProjection)
             .Replace(
                 SqlServerTableScriptEncryptionJoinToken,
-                includeEncryption ? SqlServerTableScriptEncryptionJoin : string.Empty);
+                includeEncryption ? SqlServerTableScriptEncryptionJoin : string.Empty)
+            .Replace(
+                SqlServerTableScriptGraphEdgeConstraintStatementsToken,
+                includeGraphEdgeConstraints ? SqlServerTableScriptGraphEdgeConstraintStatements : string.Empty);
 }

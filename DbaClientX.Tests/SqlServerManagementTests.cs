@@ -159,15 +159,24 @@ public class SqlServerManagementTests
     {
         string serverPrincipals = GetPrivateStaticString<SqlServer>("SqlServerServerPrincipalsManagementQuery");
         string databasePrincipals = GetPrivateStaticString<SqlServer>("SqlServerDatabasePrincipalsManagementQuery");
-        string permissions = GetPrivateStaticString<SqlServer>("SqlServerPermissionsManagementQuery");
+        string availabilityGroupsSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerAvailabilityGroupsSupportQuery");
+        string permissions = InvokePrivateStaticString<SqlServer>("BuildSqlServerPermissionsManagementQuery", true);
+        string legacyPermissions = InvokePrivateStaticString<SqlServer>("BuildSqlServerPermissionsManagementQuery", false);
 
         Assert.Contains("ISNULL(sp.is_fixed_role, 0) = 0", serverPrincipals);
         Assert.Contains("ISNULL(dp.is_fixed_role, 0) = 0", databasePrincipals);
+        Assert.Contains("OBJECT_ID(N'sys.availability_groups')", availabilityGroupsSupportQuery);
+        Assert.Contains("COL_LENGTH(N'sys.availability_replicas', N'replica_metadata_id')", availabilityGroupsSupportQuery);
         Assert.Contains("LEFT JOIN sys.certificates AS target_certificate", permissions);
         Assert.Contains("LEFT JOIN sys.assemblies AS target_assembly", permissions);
         Assert.Contains("LEFT JOIN sys.xml_schema_collections AS target_xml_collection", permissions);
         Assert.Contains("LEFT JOIN sys.service_contracts AS target_service_contract", permissions);
         Assert.Contains("LEFT JOIN sys.services AS target_service", permissions);
+        Assert.Contains("FROM sys.availability_groups AS availability_group", permissions);
+        Assert.Contains("availability_replica.replica_metadata_id", permissions);
+        Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN COALESCE(availability_group.name", permissions);
+        Assert.DoesNotContain("sys.availability_groups", legacyPermissions);
+        Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN CONVERT(nvarchar(128), permission.major_id)", legacyPermissions);
         Assert.Contains("WHEN permission.class_desc = N'CERTIFICATE' THEN target_certificate.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'XML_SCHEMA_COLLECTION' THEN target_xml_collection.name", permissions);
         Assert.Contains("WHEN permission.class_desc = N'SERVICE_CONTRACT' THEN target_service_contract.name", permissions);
@@ -451,19 +460,25 @@ public class SqlServerManagementTests
     {
         string supportQuery = GetPrivateStaticString<SqlServer>("SqlServerMaskedColumnsSupportQuery");
         string encryptionSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerColumnEncryptionSupportQuery");
+        string graphEdgeSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerGraphEdgeConstraintsSupportQuery");
         string modulesQuery = GetPrivateStaticString<SqlServer>("SqlServerModuleScriptsManagementQuery");
         string template = GetPrivateStaticString<SqlServer>("SqlServerTableScriptColumnsManagementQuery");
-        string modernQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true, true);
-        string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false);
+        string modernQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", true, true, true);
+        string legacyQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerTableScriptColumnsManagementQuery", false, false, false);
 
         Assert.Contains("OBJECT_ID(N'sys.masked_columns')", supportQuery);
         Assert.Contains("OBJECT_ID(N'sys.column_encryption_keys')", encryptionSupportQuery);
         Assert.Contains("COL_LENGTH(N'sys.columns', N'encryption_type_desc')", encryptionSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.edge_constraints')", graphEdgeSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.edge_constraint_clauses')", graphEdgeSupportQuery);
         Assert.Contains("FROM sys.triggers AS trigger_info", modulesQuery);
         Assert.Contains("trigger_info.parent_class = 0", modulesQuery);
+        Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
+        Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
         Assert.Contains("ORDER BY SchemaName, ObjectName", modulesQuery);
         Assert.Contains("MaskingFunction = {MaskingFunction}", template);
         Assert.Contains("EncryptionDefinition = {EncryptionDefinition}", template);
+        Assert.Contains("{GraphEdgeConstraintStatements}", template);
         Assert.Contains("LEFT JOIN sys.masked_columns AS masking_info", modernQuery);
         Assert.Contains("MaskingFunction = masking_info.masking_function", modernQuery);
         Assert.Contains("LEFT JOIN sys.column_encryption_keys AS encryption_key", modernQuery);
@@ -489,6 +504,8 @@ public class SqlServerManagementTests
         Assert.Contains("INDEX ' + QUOTENAME(memory_index.name)", modernQuery);
         Assert.Contains("FROM sys.edge_constraints AS edge_constraint", modernQuery);
         Assert.Contains("FROM sys.edge_constraint_clauses AS edge_clause", modernQuery);
+        Assert.DoesNotContain("sys.edge_constraints", legacyQuery);
+        Assert.DoesNotContain("sys.edge_constraint_clauses", legacyQuery);
         Assert.Contains("ledger_info.ledger_type <> 1", modernQuery);
         Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND ISNULL(COLUMNPROPERTY(column_info.object_id, column_info.name, N'IsHidden'), 0) = 1)", modernQuery);
         Assert.Contains("LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id", modernQuery);

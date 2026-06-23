@@ -11,6 +11,20 @@ SELECT CASE
     ELSE 1
 END;";
 
+    private const string SqlServerAvailabilityGroupsSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.availability_groups') IS NULL
+      OR OBJECT_ID(N'sys.availability_replicas') IS NULL
+      OR COL_LENGTH(N'sys.availability_replicas', N'replica_metadata_id') IS NULL THEN 0
+    ELSE 1
+END;";
+
+    private const string SqlServerGraphEdgeConstraintsSupportQuery = @"
+SELECT CASE
+    WHEN OBJECT_ID(N'sys.edge_constraints') IS NULL OR OBJECT_ID(N'sys.edge_constraint_clauses') IS NULL THEN 0
+    ELSE 1
+END;";
+
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
 
     private const string SqlServerTableScriptMaskingJoinToken = "{MaskingJoin}";
@@ -18,6 +32,12 @@ END;";
     private const string SqlServerTableScriptEncryptionDefinitionToken = "{EncryptionDefinition}";
 
     private const string SqlServerTableScriptEncryptionJoinToken = "{EncryptionJoin}";
+
+    private const string SqlServerPermissionsAvailabilityGroupNameToken = "{AvailabilityGroupName}";
+
+    private const string SqlServerPermissionsAvailabilityGroupJoinToken = "{AvailabilityGroupJoin}";
+
+    private const string SqlServerTableScriptGraphEdgeConstraintStatementsToken = "{GraphEdgeConstraintStatements}";
 
     private const string SqlServerTableScriptLegacyMaskingFunctionProjection = "CONVERT(nvarchar(4000), NULL)";
 
@@ -31,6 +51,41 @@ END;";
 
     private const string SqlServerTableScriptEncryptionJoin = "LEFT JOIN sys.column_encryption_keys AS encryption_key ON encryption_key.column_encryption_key_id = column_info.column_encryption_key_id";
 
+    private const string SqlServerPermissionsLegacyAvailabilityGroupNameProjection = "CONVERT(nvarchar(128), permission.major_id) COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsAvailabilityGroupNameProjection = "COALESCE(availability_group.name, CONVERT(nvarchar(128), permission.major_id)) COLLATE DATABASE_DEFAULT";
+
+    private const string SqlServerPermissionsAvailabilityGroupJoin = @"
+LEFT JOIN (
+    SELECT
+        ReplicaMetadataId = availability_replica.replica_metadata_id,
+        Name = availability_group.name
+    FROM sys.availability_groups AS availability_group
+    INNER JOIN sys.availability_replicas AS availability_replica ON availability_replica.group_id = availability_group.group_id
+) AS availability_group ON availability_group.ReplicaMetadataId = permission.major_id AND permission.class_desc = N'AVAILABILITY GROUP'";
+
+    private const string SqlServerTableScriptGraphEdgeConstraintStatements = @"
+            UNION ALL
+            SELECT statement =
+                N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                N' ADD CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N' CONNECTION (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(from_schema.name) + N'.' + QUOTENAME(from_table.name) + N' TO ' + QUOTENAME(to_schema.name) + N'.' + QUOTENAME(to_table.name)
+                    FROM sys.edge_constraint_clauses AS edge_clause
+                    INNER JOIN sys.tables AS from_table ON from_table.object_id = edge_clause.from_object_id
+                    INNER JOIN sys.schemas AS from_schema ON from_schema.schema_id = from_table.schema_id
+                    INNER JOIN sys.tables AS to_table ON to_table.object_id = edge_clause.to_object_id
+                    INNER JOIN sys.schemas AS to_schema ON to_schema.schema_id = to_table.schema_id
+                    WHERE edge_clause.object_id = edge_constraint.object_id
+                    ORDER BY edge_clause.clause_number
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N');' +
+                CASE WHEN edge_constraint.is_disabled = 1 THEN
+                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    N' NOCHECK CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N';'
+                ELSE N'' END
+            FROM sys.edge_constraints AS edge_constraint
+            WHERE edge_constraint.parent_object_id = table_info.object_id";
 
     private const string SqlServerAgentJobsManagementQuery = @"
 SELECT
@@ -189,6 +244,7 @@ SELECT
         WHEN N'SERVER' THEN CONVERT(nvarchar(128), SERVERPROPERTY(N'ServerName')) COLLATE DATABASE_DEFAULT
         WHEN N'ENDPOINT' THEN endpoint.name COLLATE DATABASE_DEFAULT
         WHEN N'SERVER_PRINCIPAL' THEN target_principal.name COLLATE DATABASE_DEFAULT
+        WHEN N'AVAILABILITY GROUP' THEN {AvailabilityGroupName}
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CONVERT(nvarchar(128), NULL),
@@ -199,6 +255,7 @@ INNER JOIN sys.server_principals AS grantee ON grantee.principal_id = permission
 INNER JOIN sys.server_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
 LEFT JOIN sys.endpoints AS endpoint ON endpoint.endpoint_id = permission.major_id AND permission.class_desc = N'ENDPOINT'
 LEFT JOIN sys.server_principals AS target_principal ON target_principal.principal_id = permission.major_id AND permission.class_desc = N'SERVER_PRINCIPAL'
+{AvailabilityGroupJoin}
 WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 UNION ALL
 SELECT
@@ -381,10 +438,14 @@ SELECT
     Script = CONCAT(
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
-        module_info.definition)
+        module_info.definition,
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(parent_schema.name) + N'.' + QUOTENAME(parent_object.name) + N';' ELSE N'' END)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info.object_id
+LEFT JOIN sys.triggers AS trigger_info ON trigger_info.object_id = object_info.object_id AND trigger_info.parent_class = 1
+LEFT JOIN sys.objects AS parent_object ON parent_object.object_id = trigger_info.parent_id
+LEFT JOIN sys.schemas AS parent_schema ON parent_schema.schema_id = parent_object.schema_id
 WHERE object_info.type IN ('P', 'PC', 'X', 'V', 'TR', 'FN', 'IF', 'TF', 'FS', 'FT')
   AND module_info.definition IS NOT NULL
   AND (@schema IS NULL OR schema_info.name = @schema)
@@ -398,7 +459,8 @@ SELECT
     Script = CONCAT(
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
-        module_info.definition)
+        module_info.definition,
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE;' ELSE N'' END)
 FROM sys.triggers AS trigger_info
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
 WHERE trigger_info.parent_class = 0
@@ -650,27 +712,7 @@ OUTER APPLY (
             INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
             INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
             WHERE foreign_key.parent_object_id = table_info.object_id
-            UNION ALL
-            SELECT statement =
-                N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
-                N' ADD CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N' CONNECTION (' +
-                STUFF((
-                    SELECT N', ' + QUOTENAME(from_schema.name) + N'.' + QUOTENAME(from_table.name) + N' TO ' + QUOTENAME(to_schema.name) + N'.' + QUOTENAME(to_table.name)
-                    FROM sys.edge_constraint_clauses AS edge_clause
-                    INNER JOIN sys.tables AS from_table ON from_table.object_id = edge_clause.from_object_id
-                    INNER JOIN sys.schemas AS from_schema ON from_schema.schema_id = from_table.schema_id
-                    INNER JOIN sys.tables AS to_table ON to_table.object_id = edge_clause.to_object_id
-                    INNER JOIN sys.schemas AS to_schema ON to_schema.schema_id = to_table.schema_id
-                    WHERE edge_clause.object_id = edge_constraint.object_id
-                    ORDER BY edge_clause.clause_number
-                    FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N');' +
-                CASE WHEN edge_constraint.is_disabled = 1 THEN
-                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
-                    N' NOCHECK CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N';'
-                ELSE N'' END
-            FROM sys.edge_constraints AS edge_constraint
-            WHERE edge_constraint.parent_object_id = table_info.object_id
+{GraphEdgeConstraintStatements}
         ) AS table_statement
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
