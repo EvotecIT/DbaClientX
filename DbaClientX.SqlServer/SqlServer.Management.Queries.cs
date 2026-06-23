@@ -331,6 +331,14 @@ SELECT
     DurabilityDescription = CONVERT(nvarchar(60), NULL),
     HistoryTableSchema = CONVERT(sysname, NULL),
     HistoryTableName = CONVERT(sysname, NULL),
+    HistoryRetentionPeriod = CONVERT(int, NULL),
+    HistoryRetentionPeriodUnit = CONVERT(nvarchar(10), NULL),
+    LedgerViewSchema = CONVERT(sysname, NULL),
+    LedgerViewName = CONVERT(sysname, NULL),
+    LedgerTransactionIdColumnName = CONVERT(sysname, NULL),
+    LedgerSequenceNumberColumnName = CONVERT(sysname, NULL),
+    LedgerOperationTypeColumnName = CONVERT(sysname, NULL),
+    LedgerOperationTypeDescriptionColumnName = CONVERT(sysname, NULL),
     PrimaryKeyName = CONVERT(sysname, NULL),
     PrimaryKeyOrdinal = CONVERT(int, NULL),
     PrimaryKeyIndexType = CONVERT(nvarchar(60), NULL),
@@ -798,8 +806,9 @@ SELECT
         CASE object_info.type
             WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
             WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
-            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause
+            WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + function_order_info.OrderClause + clr_options.OptionClause
             WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT') + CASE WHEN clr_trigger.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END
+            WHEN N'AF' THEN N'CREATE AGGREGATE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant')
             ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
         END,
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
@@ -899,7 +908,20 @@ OUTER APPLY (
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
 ) AS table_return_info
-WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA')
+OUTER APPLY (
+    SELECT OrderClause = CASE WHEN order_info.OrderList IS NULL THEN N'' ELSE CHAR(13) + CHAR(10) + N'ORDER (' + order_info.OrderList + N')' END
+    FROM (
+        SELECT OrderList = STUFF((
+            SELECT N', ' + QUOTENAME(order_column.name) + CASE WHEN function_order_column.is_descending = 1 THEN N' DESC' ELSE N' ASC' END
+            FROM sys.function_order_columns AS function_order_column
+            INNER JOIN sys.columns AS order_column ON order_column.object_id = function_order_column.object_id AND order_column.column_id = function_order_column.column_id
+            WHERE function_order_column.object_id = object_info.object_id
+            ORDER BY function_order_column.order_column_id
+            FOR XML PATH(N''), TYPE
+        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ) AS order_info
+) AS function_order_info
+WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR object_info.name = @name)
 {ServerTriggerModuleScripts}
@@ -963,6 +985,14 @@ SELECT
     DurabilityDescription = memory_info.durability_desc,
     HistoryTableSchema = history_schema.name,
     HistoryTableName = history_table.name,
+    HistoryRetentionPeriod = temporal_info.history_retention_period,
+    HistoryRetentionPeriodUnit = temporal_info.history_retention_period_unit_desc,
+    LedgerViewSchema = ledger_view_schema.name,
+    LedgerViewName = ledger_view.name,
+    LedgerTransactionIdColumnName = ledger_view_column_info.transaction_id_column_name,
+    LedgerSequenceNumberColumnName = ledger_view_column_info.sequence_number_column_name,
+    LedgerOperationTypeColumnName = ledger_view_column_info.operation_type_column_name,
+    LedgerOperationTypeDescriptionColumnName = ledger_view_column_info.operation_type_description_column_name,
     PrimaryKeyName = primary_key.name,
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
@@ -1013,18 +1043,52 @@ OUTER APPLY (
         history_table_id = CASE
             WHEN table_metadata.data.exist(N'/table/history_table_id') = 1 THEN table_metadata.data.value(N'(/table/history_table_id/text())[1]', N'int')
             ELSE NULL
+        END,
+        history_retention_period = CASE
+            WHEN table_metadata.data.exist(N'/table/history_retention_period') = 1 THEN table_metadata.data.value(N'(/table/history_retention_period/text())[1]', N'int')
+            ELSE NULL
+        END,
+        history_retention_period_unit_desc = CASE
+            WHEN table_metadata.data.exist(N'/table/history_retention_period_unit_desc') = 1 THEN table_metadata.data.value(N'(/table/history_retention_period_unit_desc/text())[1]', N'nvarchar(10)')
+            ELSE NULL
         END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS temporal_info
 LEFT JOIN sys.tables AS history_table ON history_table.object_id = temporal_info.history_table_id
 LEFT JOIN sys.schemas AS history_schema ON history_schema.schema_id = history_table.schema_id
 OUTER APPLY (
-    SELECT ledger_type = CASE
-        WHEN table_metadata.data.exist(N'/table/ledger_type') = 1 THEN table_metadata.data.value(N'(/table/ledger_type/text())[1]', N'int')
-        ELSE 0
-    END
+    SELECT
+        ledger_type = CASE
+            WHEN table_metadata.data.exist(N'/table/ledger_type') = 1 THEN table_metadata.data.value(N'(/table/ledger_type/text())[1]', N'int')
+            ELSE 0
+        END,
+        ledger_view_id = CASE
+            WHEN table_metadata.data.exist(N'/table/ledger_view_id') = 1 THEN table_metadata.data.value(N'(/table/ledger_view_id/text())[1]', N'int')
+            ELSE NULL
+        END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS ledger_info
+LEFT JOIN sys.views AS ledger_view ON ledger_view.object_id = ledger_info.ledger_view_id
+LEFT JOIN sys.schemas AS ledger_view_schema ON ledger_view_schema.schema_id = ledger_view.schema_id
+OUTER APPLY (
+    SELECT
+        transaction_id_column_name = MAX(CASE WHEN ledger_view_column.extra_ordinal = 1 THEN ledger_view_column.name END),
+        sequence_number_column_name = MAX(CASE WHEN ledger_view_column.extra_ordinal = 2 THEN ledger_view_column.name END),
+        operation_type_column_name = MAX(CASE WHEN ledger_view_column.extra_ordinal = 3 THEN ledger_view_column.name END),
+        operation_type_description_column_name = MAX(CASE WHEN ledger_view_column.extra_ordinal = 4 THEN ledger_view_column.name END)
+    FROM (
+        SELECT
+            view_column.name,
+            extra_ordinal = ROW_NUMBER() OVER (ORDER BY view_column.column_id)
+        FROM sys.columns AS view_column
+        WHERE view_column.object_id = ledger_info.ledger_view_id
+          AND NOT EXISTS (
+              SELECT 1
+              FROM sys.columns AS table_column
+              WHERE table_column.object_id = table_info.object_id
+                AND table_column.name = view_column.name COLLATE DATABASE_DEFAULT)
+    ) AS ledger_view_column
+) AS ledger_view_column_info
 OUTER APPLY (
     SELECT
         is_memory_optimized = CASE

@@ -446,22 +446,81 @@ internal static class SqlServerManagementScripting
             !string.IsNullOrWhiteSpace(column.HistoryTableSchema) &&
             !string.IsNullOrWhiteSpace(column.HistoryTableName));
 
-        return temporalTable == null
-            ? null
-            : $"SYSTEM_VERSIONING = ON (HISTORY_TABLE = {QualifyName(temporalTable.HistoryTableSchema!, temporalTable.HistoryTableName!)})";
+        if (temporalTable == null)
+        {
+            return null;
+        }
+
+        var options = new List<string>
+        {
+            "HISTORY_TABLE = " + QualifyName(temporalTable.HistoryTableSchema!, temporalTable.HistoryTableName!)
+        };
+
+        if (temporalTable.HistoryRetentionPeriod is >= 0 &&
+            !string.IsNullOrWhiteSpace(temporalTable.HistoryRetentionPeriodUnit) &&
+            !string.Equals(temporalTable.HistoryRetentionPeriodUnit, "INFINITE", StringComparison.OrdinalIgnoreCase))
+        {
+            options.Add("HISTORY_RETENTION_PERIOD = " + temporalTable.HistoryRetentionPeriod.GetValueOrDefault() + " " + temporalTable.HistoryRetentionPeriodUnit);
+        }
+
+        return "SYSTEM_VERSIONING = ON (" + string.Join(", ", options) + ")";
     }
 
     private static string? BuildLedgerOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
-        int ledgerType = columns.Select(column => column.LedgerType).FirstOrDefault(value => value > 1);
+        SqlServerTableColumnScriptInfo[] tableColumns = columns.ToArray();
+        int ledgerType = tableColumns.Select(column => column.LedgerType).FirstOrDefault(value => value > 1);
         if (ledgerType == 0)
         {
             return null;
         }
 
-        return ledgerType == 3
-            ? "LEDGER = ON (APPEND_ONLY = ON)"
-            : "LEDGER = ON";
+        var options = new List<string>();
+        string? ledgerView = BuildLedgerViewOption(tableColumns);
+        if (!string.IsNullOrWhiteSpace(ledgerView))
+        {
+            options.Add(ledgerView!);
+        }
+
+        if (ledgerType == 3)
+        {
+            options.Add("APPEND_ONLY = ON");
+        }
+
+        return options.Count == 0
+            ? "LEDGER = ON"
+            : "LEDGER = ON (" + string.Join(", ", options) + ")";
+    }
+
+    private static string? BuildLedgerViewOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        SqlServerTableColumnScriptInfo? ledgerTable = columns.FirstOrDefault(column =>
+            !string.IsNullOrWhiteSpace(column.LedgerViewSchema) &&
+            !string.IsNullOrWhiteSpace(column.LedgerViewName));
+
+        if (ledgerTable == null)
+        {
+            return null;
+        }
+
+        var ledgerViewColumnOptions = new List<string>();
+        AddLedgerViewColumnOption(ledgerViewColumnOptions, "TRANSACTION_ID_COLUMN_NAME", ledgerTable.LedgerTransactionIdColumnName);
+        AddLedgerViewColumnOption(ledgerViewColumnOptions, "SEQUENCE_NUMBER_COLUMN_NAME", ledgerTable.LedgerSequenceNumberColumnName);
+        AddLedgerViewColumnOption(ledgerViewColumnOptions, "OPERATION_TYPE_COLUMN_NAME", ledgerTable.LedgerOperationTypeColumnName);
+        AddLedgerViewColumnOption(ledgerViewColumnOptions, "OPERATION_TYPE_DESC_COLUMN_NAME", ledgerTable.LedgerOperationTypeDescriptionColumnName);
+
+        string ledgerViewName = "LEDGER_VIEW = " + QualifyName(ledgerTable.LedgerViewSchema!, ledgerTable.LedgerViewName!);
+        return ledgerViewColumnOptions.Count == 0
+            ? ledgerViewName
+            : ledgerViewName + " (" + string.Join(", ", ledgerViewColumnOptions) + ")";
+    }
+
+    private static void AddLedgerViewColumnOption(ICollection<string> options, string optionName, string? columnName)
+    {
+        if (!string.IsNullOrWhiteSpace(columnName))
+        {
+            options.Add(optionName + " = " + QuoteName(columnName!));
+        }
     }
 
     private static string? BuildMemoryOptimizedOption(IEnumerable<SqlServerTableColumnScriptInfo> columns)

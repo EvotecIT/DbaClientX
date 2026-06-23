@@ -58,6 +58,22 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public string? HistoryTableName { get; set; }
 
+    public int? HistoryRetentionPeriod { get; set; }
+
+    public string? HistoryRetentionPeriodUnit { get; set; }
+
+    public string? LedgerViewSchema { get; set; }
+
+    public string? LedgerViewName { get; set; }
+
+    public string? LedgerTransactionIdColumnName { get; set; }
+
+    public string? LedgerSequenceNumberColumnName { get; set; }
+
+    public string? LedgerOperationTypeColumnName { get; set; }
+
+    public string? LedgerOperationTypeDescriptionColumnName { get; set; }
+
     public string? PrimaryKeyName { get; set; }
 
     public int? PrimaryKeyOrdinal { get; set; }

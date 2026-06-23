@@ -504,7 +504,7 @@ public class SqlServerManagementTests
         Assert.Contains("trigger_info.parent_class = 0", modulesQuery);
         Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module", modulesQuery);
         Assert.Contains("AS EXTERNAL NAME", modulesQuery);
-        Assert.Contains("WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA')", modulesQuery);
+        Assert.Contains("WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')", modulesQuery);
         Assert.Contains("assembly_module.execute_as_principal_id", modulesQuery);
         Assert.Contains("RETURNS NULL ON NULL INPUT", modulesQuery);
         Assert.Contains("parameter_item.has_default_value", modulesQuery);
@@ -534,6 +534,10 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("sys.server_sql_modules", legacyModulesQuery);
         Assert.DoesNotContain("sys.server_assembly_modules", legacyModulesQuery);
         Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module", legacyModulesQuery);
+        Assert.Contains("WHEN N'AF' THEN N'CREATE AGGREGATE '", modulesQuery);
+        Assert.Contains("object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')", modulesQuery);
+        Assert.Contains("FROM sys.function_order_columns AS function_order_column", modulesQuery);
+        Assert.Contains("function_order_info.OrderClause", modulesQuery);
         Assert.Contains("N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
@@ -561,6 +565,10 @@ public class SqlServerManagementTests
         Assert.Contains("EncryptionDefinition = CONVERT(nvarchar(4000), NULL)", legacyQuery);
         Assert.Contains("FileTableOptions = CONVERT(nvarchar(max), NULL)", legacyQuery);
         Assert.Contains("/table/history_table_id", modernQuery);
+        Assert.Contains("/table/history_retention_period", modernQuery);
+        Assert.Contains("/table/history_retention_period_unit_desc", modernQuery);
+        Assert.Contains("HistoryRetentionPeriod = temporal_info.history_retention_period", modernQuery);
+        Assert.Contains("HistoryRetentionPeriodUnit = temporal_info.history_retention_period_unit_desc", modernQuery);
         Assert.Contains("/table/is_memory_optimized", modernQuery);
         Assert.Contains("/table/durability_desc", modernQuery);
         Assert.Contains("LEFT JOIN sys.hash_indexes AS primary_key_hash", modernQuery);
@@ -584,6 +592,10 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("sys.edge_constraints", legacyQuery);
         Assert.DoesNotContain("sys.edge_constraint_clauses", legacyQuery);
         Assert.Contains("ledger_info.ledger_type <> 1", modernQuery);
+        Assert.Contains("/table/ledger_view_id", modernQuery);
+        Assert.Contains("LEFT JOIN sys.views AS ledger_view ON ledger_view.object_id = ledger_info.ledger_view_id", modernQuery);
+        Assert.Contains("LedgerViewName = ledger_view.name", modernQuery);
+        Assert.Contains("LedgerTransactionIdColumnName = ledger_view_column_info.transaction_id_column_name", modernQuery);
         Assert.Contains("/column/vector_dimensions", modernQuery);
         Assert.Contains("/column/vector_base_type_desc", modernQuery);
         Assert.Contains("type_info.name = N'vector'", modernQuery);
@@ -674,7 +686,13 @@ public class SqlServerManagementTests
                 Ordinal = 1,
                 DataType = "int",
                 IsNullable = false,
-                LedgerType = 3
+                LedgerType = 3,
+                LedgerViewSchema = "audit",
+                LedgerViewName = "LedgerAuditView",
+                LedgerTransactionIdColumnName = "TxnId",
+                LedgerSequenceNumberColumnName = "SeqNo",
+                LedgerOperationTypeColumnName = "OperationId",
+                LedgerOperationTypeDescriptionColumnName = "OperationDescription"
             },
             new SqlServerTableColumnScriptInfo
             {
@@ -706,7 +724,7 @@ public class SqlServerManagementTests
 
         Assert.Contains("[LedgerTransactionIdStart] bigint GENERATED ALWAYS AS TRANSACTION_ID START HIDDEN NOT NULL", script.Script);
         Assert.Contains("[LedgerSequenceNumberStart] bigint GENERATED ALWAYS AS SEQUENCE_NUMBER START HIDDEN NOT NULL", script.Script);
-        Assert.Contains("WITH (LEDGER = ON (APPEND_ONLY = ON));", script.Script);
+        Assert.Contains("WITH (LEDGER = ON (LEDGER_VIEW = [audit].[LedgerAuditView] (TRANSACTION_ID_COLUMN_NAME = [TxnId], SEQUENCE_NUMBER_COLUMN_NAME = [SeqNo], OPERATION_TYPE_COLUMN_NAME = [OperationId], OPERATION_TYPE_DESC_COLUMN_NAME = [OperationDescription]), APPEND_ONLY = ON));", script.Script);
     }
 
     [Fact]
