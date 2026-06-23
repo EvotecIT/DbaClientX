@@ -474,6 +474,7 @@ public class SqlServerManagementTests
         string hashSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerHashIndexesSupportQuery");
         string fileTableSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerFileTablesSupportQuery");
         string serverTriggerSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerServerTriggerModulesSupportQuery");
+        string agentCatalogSupportQuery = GetPrivateStaticString<SqlServer>("SqlServerAgentCatalogSupportQuery");
         string modulesTemplate = GetPrivateStaticString<SqlServer>("SqlServerModuleScriptsManagementQuery");
         string modulesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerModuleScriptsManagementQuery", true);
         string legacyModulesQuery = InvokePrivateStaticString<SqlServer>("BuildSqlServerModuleScriptsManagementQuery", false);
@@ -491,6 +492,9 @@ public class SqlServerManagementTests
         Assert.Contains("OBJECT_ID(N'sys.filetables')", fileTableSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.server_triggers')", serverTriggerSupportQuery);
         Assert.Contains("OBJECT_ID(N'sys.server_sql_modules')", serverTriggerSupportQuery);
+        Assert.Contains("OBJECT_ID(N'sys.server_assembly_modules')", serverTriggerSupportQuery);
+        Assert.Contains("DB_ID(N'msdb')", agentCatalogSupportQuery);
+        Assert.Contains("OBJECT_ID(N'msdb.dbo.sysjobs')", agentCatalogSupportQuery);
         Assert.Contains("{ServerTriggerModuleScripts}", modulesTemplate);
         Assert.Contains("FROM sys.triggers AS trigger_info", modulesQuery);
         Assert.Contains("trigger_info.parent_class = 0", modulesQuery);
@@ -502,15 +506,25 @@ public class SqlServerManagementTests
         Assert.Contains("parameter_item.has_default_value", modulesQuery);
         Assert.Contains("parameter_item.default_value", modulesQuery);
         Assert.Contains("FROM sys.trigger_events AS event_info", modulesQuery);
+        Assert.Contains("clr_trigger.is_instead_of_trigger", modulesQuery);
+        Assert.Contains("N' INSTEAD OF '", modulesQuery);
         Assert.Contains("FROM sys.server_triggers AS trigger_info", modulesQuery);
         Assert.Contains("INNER JOIN sys.server_sql_modules AS module_info", modulesQuery);
+        Assert.Contains("INNER JOIN sys.server_assembly_modules AS assembly_module", modulesQuery);
+        Assert.Contains("FROM sys.server_trigger_events AS event_info", modulesQuery);
+        Assert.Contains("ObjectName = trigger_info.name COLLATE DATABASE_DEFAULT", modulesQuery);
+        Assert.Contains("ObjectType = trigger_info.type_desc COLLATE DATABASE_DEFAULT", modulesQuery);
+        Assert.Contains("module_info.definition COLLATE DATABASE_DEFAULT", modulesQuery);
+        Assert.Contains("AS EXTERNAL NAME", modulesQuery);
+        Assert.Contains("ON ALL SERVER FOR", modulesQuery);
         Assert.DoesNotContain("sys.server_triggers", legacyModulesQuery);
         Assert.DoesNotContain("sys.server_sql_modules", legacyModulesQuery);
+        Assert.DoesNotContain("sys.server_assembly_modules", legacyModulesQuery);
         Assert.Contains("INNER JOIN sys.assembly_modules AS assembly_module", legacyModulesQuery);
         Assert.Contains("N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)", modulesQuery);
         Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON DATABASE", modulesQuery);
-        Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER", modulesQuery);
+        Assert.Contains("DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER", modulesQuery);
         Assert.Contains("ORDER BY SchemaName, ObjectName", modulesQuery);
         Assert.Contains("MaskingFunction = {MaskingFunction}", template);
         Assert.Contains("EncryptionDefinition = {EncryptionDefinition}", template);
@@ -562,6 +576,7 @@ public class SqlServerManagementTests
         Assert.Contains("type_info.name = N'vector'", modernQuery);
         Assert.Contains("N'vector('", modernQuery);
         Assert.Contains("ColumnName = CONVERT(sysname, N'')", modernQuery);
+        Assert.Contains("PostCreateStatements = graph_only_post_create_info.statements", modernQuery);
         Assert.DoesNotContain("ColumnName = CONVERT(sysname, N'')", copyQuery);
         Assert.Contains("NOT (graph_info.graph_kind IN (N'NODE', N'EDGE') AND graph_column_info.graph_type IS NOT NULL)", modernQuery);
         Assert.Contains("graph_column_info.graph_type NOT IN (5, 8)", copyQuery);
@@ -581,6 +596,7 @@ public class SqlServerManagementTests
 
         Assert.Contains("OBJECT_ID(N'sys.server_triggers')", serverTriggerSupportQuery);
         Assert.Contains("{ServerTriggerDependencies}", dependenciesTemplate);
+        Assert.Contains("dependency.referencing_class = 1", dependenciesQuery);
         Assert.Contains("INNER JOIN sys.triggers AS trigger_info ON trigger_info.object_id = dependency.referencing_id", dependenciesQuery);
         Assert.Contains("dependency.referencing_class = 12", dependenciesQuery);
         Assert.Contains("trigger_info.parent_class = 0", dependenciesQuery);
@@ -749,7 +765,8 @@ public class SqlServerManagementTests
                 TableName = "Likes",
                 ColumnName = "",
                 Ordinal = 0,
-                GraphTableKind = "EDGE"
+                GraphTableKind = "EDGE",
+                PostCreateStatements = "ALTER TABLE [dbo].[Likes] ADD CONSTRAINT [EC_Likes] CONNECTION ([dbo].[Person] TO [dbo].[Post]);"
             }
         };
         var fileTableColumns = new[]
@@ -772,7 +789,9 @@ public class SqlServerManagementTests
         IReadOnlyList<SqlServerScriptInfo> edgeScripts = SqlServerManagementScripting.BuildTableScripts(edgeColumns);
         SqlServerScriptInfo edgeScript = Assert.Single(edgeScripts, item => item.ScriptType == "Table");
         SqlServerScriptInfo edgePostCreateScript = Assert.Single(edgeScripts, item => item.ScriptType == "TablePostCreate");
-        SqlServerScriptInfo graphOnlyScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(graphOnlyColumns));
+        IReadOnlyList<SqlServerScriptInfo> graphOnlyScripts = SqlServerManagementScripting.BuildTableScripts(graphOnlyColumns);
+        SqlServerScriptInfo graphOnlyScript = Assert.Single(graphOnlyScripts, item => item.ScriptType == "Table");
+        SqlServerScriptInfo graphOnlyPostCreateScript = Assert.Single(graphOnlyScripts, item => item.ScriptType == "TablePostCreate");
         SqlServerScriptInfo fileTableScript = Assert.Single(SqlServerManagementScripting.BuildTableScripts(fileTableColumns));
 
         Assert.Contains("CONSTRAINT [PK_MemoryUsers] PRIMARY KEY NONCLUSTERED HASH ([Id]) WITH (BUCKET_COUNT = 1024)", hashScript.Script);
@@ -783,6 +802,7 @@ public class SqlServerManagementTests
         Assert.Contains("AS EDGE;", edgeScript.Script);
         Assert.Contains("ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);", edgePostCreateScript.Script);
         Assert.Equal("CREATE TABLE [dbo].[Likes]" + Environment.NewLine + "AS EDGE;", graphOnlyScript.Script);
+        Assert.Contains("ALTER TABLE [dbo].[Likes] ADD CONSTRAINT [EC_Likes] CONNECTION ([dbo].[Person] TO [dbo].[Post]);", graphOnlyPostCreateScript.Script);
         Assert.Equal(
             "CREATE TABLE [dbo].[Documents]" + Environment.NewLine +
             "AS FILETABLE" + Environment.NewLine +

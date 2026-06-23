@@ -262,14 +262,43 @@ public partial class SqlServer
         bool includeSystem = false,
         bool includeAdvanced = false,
         bool includeDisabledAgent = true)
-        => new()
+    {
+        var snapshot = new SqlServerInventorySnapshot
         {
             InstanceProperties = GetSqlServerInstanceProperties(connectionString),
             Configurations = GetSqlServerConfigurations(connectionString, includeAdvanced: includeAdvanced),
             Databases = GetDatabases(connectionString),
-            AgentJobs = GetSqlServerAgentJobs(connectionString, includeDisabled: includeDisabledAgent),
             ServerPrincipals = GetSqlServerServerPrincipals(connectionString, includeSystem: includeSystem)
         };
+
+        if (SupportsAgentCatalog(connectionString))
+        {
+            snapshot.AgentJobs = GetSqlServerAgentJobs(connectionString, includeDisabled: includeDisabledAgent);
+        }
+
+        return snapshot;
+    }
+
+    private bool SupportsAgentCatalog(string connectionString)
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            object? result = ExecuteScalar(connection, transaction, SqlServerAgentCatalogSupportQuery);
+            return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
 
     private IReadOnlyList<SqlServerTableColumnScriptInfo> GetSqlServerTableScriptColumns(
         string connectionString,

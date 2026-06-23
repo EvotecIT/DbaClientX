@@ -41,6 +41,14 @@ SELECT CASE WHEN OBJECT_ID(N'sys.server_triggers') IS NULL THEN 0 ELSE 1 END;";
 SELECT CASE
     WHEN OBJECT_ID(N'sys.server_triggers') IS NULL THEN 0
     WHEN OBJECT_ID(N'sys.server_sql_modules') IS NULL THEN 0
+    WHEN OBJECT_ID(N'sys.server_assembly_modules') IS NULL THEN 0
+    ELSE 1
+END;";
+
+    private const string SqlServerAgentCatalogSupportQuery = @"
+SELECT CASE
+    WHEN DB_ID(N'msdb') IS NULL THEN 0
+    WHEN OBJECT_ID(N'msdb.dbo.sysjobs') IS NULL THEN 0
     ELSE 1
 END;";
 
@@ -73,17 +81,43 @@ UNION ALL
 SELECT
     ScriptType = N'Module',
     SchemaName = CONVERT(sysname, NULL),
-    ObjectName = trigger_info.name,
-    ObjectType = trigger_info.type_desc,
+    ObjectName = trigger_info.name COLLATE DATABASE_DEFAULT,
+    ObjectType = trigger_info.type_desc COLLATE DATABASE_DEFAULT,
     Script = CONCAT(
         N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
         N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10), N'GO', CHAR(13), CHAR(10),
-        module_info.definition,
-        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name) + N' ON ALL SERVER;' ELSE N'' END)
+        module_info.definition COLLATE DATABASE_DEFAULT,
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER;' ELSE N'' END)
 FROM sys.server_triggers AS trigger_info
 INNER JOIN sys.server_sql_modules AS module_info ON module_info.object_id = trigger_info.object_id
 WHERE module_info.definition IS NOT NULL
   AND @schema IS NULL
+  AND (@name IS NULL OR trigger_info.name = @name)
+UNION ALL
+SELECT
+    ScriptType = N'Module',
+    SchemaName = CONVERT(sysname, NULL),
+    ObjectName = trigger_info.name COLLATE DATABASE_DEFAULT,
+    ObjectType = trigger_info.type_desc COLLATE DATABASE_DEFAULT,
+    Script = CONCAT(
+        N'CREATE TRIGGER ', QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT),
+        N' ON ALL SERVER FOR ', COALESCE(server_trigger_events.EventList, N'LOGON'),
+        CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
+        QUOTENAME(assembly_info.name COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_class COLLATE DATABASE_DEFAULT), N'.', QUOTENAME(assembly_module.assembly_method COLLATE DATABASE_DEFAULT),
+        CASE WHEN trigger_info.is_disabled = 1 THEN CHAR(13) + CHAR(10) + N'GO' + CHAR(13) + CHAR(10) + N'DISABLE TRIGGER ' + QUOTENAME(trigger_info.name COLLATE DATABASE_DEFAULT) + N' ON ALL SERVER;' ELSE N'' END)
+FROM sys.server_triggers AS trigger_info
+INNER JOIN sys.server_assembly_modules AS assembly_module ON assembly_module.object_id = trigger_info.object_id
+INNER JOIN sys.assemblies AS assembly_info ON assembly_info.assembly_id = assembly_module.assembly_id
+OUTER APPLY (
+    SELECT EventList = STUFF((
+        SELECT N', ' + event_info.type_desc COLLATE DATABASE_DEFAULT
+        FROM sys.server_trigger_events AS event_info
+        WHERE event_info.object_id = trigger_info.object_id
+        ORDER BY event_info.type_desc
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+) AS server_trigger_events
+WHERE @schema IS NULL
   AND (@name IS NULL OR trigger_info.name = @name)";
 
     private const string SqlServerTableScriptMaskingFunctionToken = "{MaskingFunction}";
@@ -298,7 +332,7 @@ SELECT
     GraphTableKind = graph_info.graph_kind,
     FileTableOptions = CONVERT(nvarchar(max), NULL),
     AdditionalConstraintDefinitions = CONVERT(nvarchar(max), NULL),
-    PostCreateStatements = CONVERT(nvarchar(max), NULL)
+    PostCreateStatements = graph_only_post_create_info.statements
 FROM sys.tables AS table_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
 OUTER APPLY (
@@ -309,6 +343,18 @@ OUTER APPLY (
     END
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS graph_info
+OUTER APPLY (
+    SELECT statements = STUFF((
+        SELECT CHAR(30) + statement
+        FROM (
+            SELECT statement = CONVERT(nvarchar(max), NULL)
+            WHERE 1 = 0
+{GraphEdgeConstraintStatements}
+        ) AS table_statement
+        WHERE statement IS NOT NULL
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+) AS graph_only_post_create_info
 WHERE graph_info.graph_kind IN (N'NODE', N'EDGE')
   AND (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
@@ -607,7 +653,8 @@ SELECT
 FROM sys.sql_expression_dependencies AS dependency
 INNER JOIN sys.objects AS referencing_object ON referencing_object.object_id = dependency.referencing_id
 INNER JOIN sys.schemas AS referencing_schema ON referencing_schema.schema_id = referencing_object.schema_id
-WHERE (@schema IS NULL OR referencing_schema.name = @schema)
+WHERE dependency.referencing_class = 1
+  AND (@schema IS NULL OR referencing_schema.name = @schema)
   AND (@name IS NULL OR referencing_object.name = @name)
 UNION ALL
 SELECT
@@ -700,7 +747,7 @@ SELECT
             WHEN N'PC' THEN N'CREATE PROCEDURE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + CASE WHEN parameter_info.ParameterList IS NULL THEN N'' ELSE N' ' + parameter_info.ParameterList END + clr_options.OptionClause
             WHEN N'FS' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS ' + COALESCE(return_type_info.DataType, N'sql_variant') + clr_options.OptionClause
             WHEN N'FT' THEN N'CREATE FUNCTION ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N'(' + COALESCE(parameter_info.ParameterList, N'') + N')' + CHAR(13) + CHAR(10) + N'RETURNS TABLE (' + COALESCE(table_return_info.TableDefinition, N'') + N')' + clr_options.OptionClause
-            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + N' FOR ' + COALESCE(clr_trigger_events.EventList, N'INSERT')
+            WHEN N'TA' THEN N'CREATE TRIGGER ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name) + N' ON ' + QUOTENAME(clr_parent_schema.name) + N'.' + QUOTENAME(clr_parent_object.name) + clr_options.OptionClause + CASE WHEN clr_trigger.is_instead_of_trigger = 1 THEN N' INSTEAD OF ' ELSE N' FOR ' END + COALESCE(clr_trigger_events.EventList, N'INSERT')
             ELSE N'CREATE ' + object_info.type_desc + N' ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(object_info.name)
         END,
         CHAR(13), CHAR(10), N'AS EXTERNAL NAME ',
