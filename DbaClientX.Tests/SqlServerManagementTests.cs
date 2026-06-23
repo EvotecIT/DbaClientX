@@ -28,6 +28,7 @@ public class SqlServerManagementTests
             ("OwnerLoginName", typeof(string), "sa"),
             ("Description", typeof(string), "Backs up user databases."),
             ("Enabled", typeof(bool), true),
+            ("StartStepId", typeof(int), 2),
             ("Created", typeof(DateTime), new DateTime(2026, 1, 2)),
             ("Modified", typeof(DateTime), new DateTime(2026, 1, 3)));
 
@@ -37,7 +38,66 @@ public class SqlServerManagementTests
         Assert.Equal("Nightly backup", job.Name);
         Assert.Equal("Database Maintenance", job.Category);
         Assert.True(job.Enabled);
+        Assert.Equal(2, job.StartStepId);
         Assert.Equal(new DateTime(2026, 1, 3), job.Modified);
+    }
+
+    [Fact]
+    public void MapAgentJobStep_MapsGotoStepTargets()
+    {
+        Guid jobId = Guid.NewGuid();
+        using var reader = ReadSingleRow(
+            ("JobId", typeof(Guid), jobId),
+            ("JobName", typeof(string), "Nightly backup"),
+            ("StepId", typeof(int), 1),
+            ("StepName", typeof(string), "Run task"),
+            ("Subsystem", typeof(string), "TSQL"),
+            ("Command", typeof(string), "SELECT 1"),
+            ("DatabaseName", typeof(string), "master"),
+            ("OnSuccessAction", typeof(string), "GoToStep"),
+            ("OnSuccessStepId", typeof(int), 3),
+            ("OnFailAction", typeof(string), "GoToStep"),
+            ("OnFailStepId", typeof(int), 4),
+            ("RetryAttempts", typeof(int), 2),
+            ("RetryInterval", typeof(int), 5));
+
+        SqlServerAgentJobStepInfo step = SqlServerManagementMappers.MapAgentJobStep(reader);
+
+        Assert.Equal(jobId, step.JobId);
+        Assert.Equal("GoToStep", step.OnSuccessAction);
+        Assert.Equal(3, step.OnSuccessStepId);
+        Assert.Equal("GoToStep", step.OnFailAction);
+        Assert.Equal(4, step.OnFailStepId);
+    }
+
+    [Fact]
+    public void MapAgentSchedule_MapsRecurrenceFields()
+    {
+        Guid jobId = Guid.NewGuid();
+        using var reader = ReadSingleRow(
+            ("JobId", typeof(Guid), jobId),
+            ("JobName", typeof(string), "Nightly backup"),
+            ("ScheduleId", typeof(int), 7),
+            ("Name", typeof(string), "Every other Tuesday"),
+            ("Enabled", typeof(bool), true),
+            ("FrequencyType", typeof(int), 32),
+            ("FrequencyInterval", typeof(int), 3),
+            ("FrequencyRelativeInterval", typeof(int), 2),
+            ("FrequencySubdayType", typeof(int), 4),
+            ("FrequencySubdayInterval", typeof(int), 15),
+            ("FrequencyRecurrenceFactor", typeof(int), 2),
+            ("ActiveStartDate", typeof(int), 20260623),
+            ("ActiveEndDate", typeof(int), 0),
+            ("ActiveStartTime", typeof(int), 130000),
+            ("ActiveEndTime", typeof(int), 235959));
+
+        SqlServerAgentScheduleInfo schedule = SqlServerManagementMappers.MapAgentSchedule(reader);
+
+        Assert.Equal(jobId, schedule.JobId);
+        Assert.Equal(2, schedule.FrequencyRelativeInterval);
+        Assert.Equal(2, schedule.FrequencyRecurrenceFactor);
+        Assert.Equal(new DateTime(2026, 6, 23), schedule.ActiveStartDate);
+        Assert.Null(schedule.ActiveEndDate);
     }
 
     [Fact]
@@ -75,10 +135,10 @@ public class SqlServerManagementTests
             ("State", typeof(string), "G"),
             ("StateDescription", typeof(string), "GRANT"),
             ("PermissionName", typeof(string), "SELECT"),
-            ("ClassDescription", typeof(string), "OBJECT_OR_COLUMN"),
+            ("ClassDescription", typeof(string), "TYPE"),
             ("SecurableSchema", typeof(string), "dbo"),
-            ("SecurableName", typeof(string), "Users"),
-            ("SecurableColumn", typeof(string), "DisplayName"),
+            ("SecurableName", typeof(string), "PhoneNumber"),
+            ("SecurableColumn", typeof(string), DBNull.Value),
             ("GranteeName", typeof(string), "app_role"),
             ("GrantorName", typeof(string), "dbo"));
 
@@ -87,8 +147,8 @@ public class SqlServerManagementTests
         Assert.Equal("Database", permission.Scope);
         Assert.Equal("SELECT", permission.PermissionName);
         Assert.Equal("dbo", permission.SecurableSchema);
-        Assert.Equal("Users", permission.SecurableName);
-        Assert.Equal("DisplayName", permission.SecurableColumn);
+        Assert.Equal("PhoneNumber", permission.SecurableName);
+        Assert.Null(permission.SecurableColumn);
         Assert.Equal("app_role", permission.GranteeName);
     }
 
@@ -119,9 +179,10 @@ public class SqlServerManagementTests
     [Fact]
     public void NormalizeModuleScript_RewritesLeadingAlter()
     {
-        string script = SqlServerManagementMappers.NormalizeModuleScript("  ALTER PROCEDURE [dbo].[DoWork] AS SELECT 1;");
+        string script = SqlServerManagementMappers.NormalizeModuleScript("SET ANSI_NULLS ON;\r\nSET QUOTED_IDENTIFIER ON;\r\n  ALTER PROCEDURE [dbo].[DoWork] AS SELECT 1;");
 
-        Assert.StartsWith("CREATE OR ALTER PROCEDURE", script.TrimStart(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SET ANSI_NULLS ON;", script);
+        Assert.Contains("CREATE OR ALTER PROCEDURE [dbo].[DoWork]", script);
     }
 
     [Fact]
@@ -152,7 +213,11 @@ public class SqlServerManagementTests
                 Ordinal = 2,
                 DataType = "nvarchar(128) COLLATE Polish_CI_AS",
                 IsNullable = false,
-                DefaultDefinition = "N''"
+                DefaultDefinition = "N''",
+                UniqueConstraintName = "UQ_UserAudit_Name",
+                UniqueConstraintOrdinal = 1,
+                UniqueConstraintIndexType = "NONCLUSTERED",
+                UniqueConstraintIsDescending = false
             },
             new SqlServerTableColumnScriptInfo
             {
@@ -185,11 +250,32 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "User]Audit",
-                ColumnName = "ValidFrom",
+                ColumnName = "SparseCode",
                 Ordinal = 6,
+                DataType = "int",
+                IsNullable = true,
+                IsSparse = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Email",
+                Ordinal = 7,
+                DataType = "nvarchar(256)",
+                IsNullable = true,
+                MaskingFunction = "email()"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "ValidFrom",
+                Ordinal = 8,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_START",
+                IsHidden = true,
                 TemporalType = 2,
                 HistoryTableSchema = "history",
                 HistoryTableName = "UserAuditHistory"
@@ -199,10 +285,11 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "ValidTo",
-                Ordinal = 7,
+                Ordinal = 9,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_END",
+                IsHidden = true,
                 TemporalType = 2,
                 HistoryTableSchema = "history",
                 HistoryTableName = "UserAuditHistory"
@@ -219,9 +306,12 @@ public class SqlServerManagementTests
         Assert.Contains("[Ratio] float(24) NULL", script.Script);
         Assert.Contains("[Payload] xml(DOCUMENT [dbo].[AuditPayload]) NULL", script.Script);
         Assert.Contains("[Blob] varbinary(max) FILESTREAM NULL", script.Script);
-        Assert.Contains("[ValidFrom] datetime2(7) GENERATED ALWAYS AS ROW START NOT NULL", script.Script);
-        Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END NOT NULL", script.Script);
+        Assert.Contains("[SparseCode] int SPARSE NULL", script.Script);
+        Assert.Contains("[Email] nvarchar(256) MASKED WITH (FUNCTION = N'email()') NULL", script.Script);
+        Assert.Contains("[ValidFrom] datetime2(7) GENERATED ALWAYS AS ROW START HIDDEN NOT NULL", script.Script);
+        Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL", script.Script);
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
+        Assert.Contains("CONSTRAINT [UQ_UserAudit_Name] UNIQUE NONCLUSTERED ([Name] ASC)", script.Script);
         Assert.Contains("PERIOD FOR SYSTEM_TIME ([ValidFrom], [ValidTo])", script.Script);
         Assert.Contains("WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [history].[UserAuditHistory]));", script.Script);
     }
@@ -292,6 +382,15 @@ public class SqlServerManagementTests
                 ColumnName = "RowVersion",
                 Ordinal = 4,
                 DataType = "rowversion"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "Users",
+                ColumnName = "ValidFrom",
+                Ordinal = 5,
+                DataType = "datetime2(7)",
+                GeneratedAlwaysTypeDescription = "AS_ROW_START"
             }
         };
         var indexes = new[]
@@ -309,10 +408,13 @@ public class SqlServerManagementTests
 
         Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "SearchName");
         Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "RowVersion");
+        Assert.DoesNotContain(plan.Columns, column => column.SourceColumn == "ValidFrom");
         Assert.DoesNotContain("[SearchName]", plan.DestinationInsertCommand);
         Assert.DoesNotContain("[RowVersion]", plan.DestinationInsertCommand);
+        Assert.DoesNotContain("[ValidFrom]", plan.DestinationInsertCommand);
         Assert.DoesNotContain("[SearchName]", plan.DestinationMergeCommand ?? string.Empty);
         Assert.DoesNotContain("[RowVersion]", plan.DestinationMergeCommand ?? string.Empty);
+        Assert.DoesNotContain("[ValidFrom]", plan.DestinationMergeCommand ?? string.Empty);
     }
 
     [Fact]

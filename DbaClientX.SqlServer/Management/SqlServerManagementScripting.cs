@@ -132,6 +132,11 @@ internal static class SqlServerManagementScripting
             definitions.Add("    " + primaryKey);
         }
 
+        foreach (string uniqueConstraint in BuildUniqueConstraintDefinitions(orderedColumns))
+        {
+            definitions.Add("    " + uniqueConstraint);
+        }
+
         string? period = BuildSystemTimePeriodDefinition(orderedColumns);
         if (!string.IsNullOrWhiteSpace(period))
         {
@@ -162,6 +167,7 @@ internal static class SqlServerManagementScripting
 
     private static bool IsWritableCopyColumn(SqlServerTableColumnScriptInfo column)
         => string.IsNullOrWhiteSpace(column.ComputedDefinition) &&
+           string.IsNullOrWhiteSpace(column.GeneratedAlwaysTypeDescription) &&
            !string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) &&
            !string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase);
 
@@ -184,11 +190,28 @@ internal static class SqlServerManagementScripting
         }
 
         builder.Append(column.DataType);
+        if (column.IsSparse)
+        {
+            builder.Append(" SPARSE");
+        }
+
         string? generatedAlways = FormatGeneratedAlways(column.GeneratedAlwaysTypeDescription);
         if (!string.IsNullOrWhiteSpace(generatedAlways))
         {
             builder.Append(' ');
             builder.Append(generatedAlways);
+        }
+
+        if (column.IsHidden)
+        {
+            builder.Append(" HIDDEN");
+        }
+
+        if (!string.IsNullOrWhiteSpace(column.MaskingFunction))
+        {
+            builder.Append(" MASKED WITH (FUNCTION = N'");
+            builder.Append(column.MaskingFunction!.Replace("'", "''"));
+            builder.Append("')");
         }
 
         if (column.IsIdentity)
@@ -261,6 +284,22 @@ internal static class SqlServerManagementScripting
         string keyword = string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
         string keyList = string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.PrimaryKeyIsDescending == true ? " DESC" : " ASC")));
         return $"CONSTRAINT {QuoteName(keyName)} PRIMARY KEY {keyword} ({keyList})";
+    }
+
+    private static IEnumerable<string> BuildUniqueConstraintDefinitions(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        return columns
+            .Where(column => !string.IsNullOrWhiteSpace(column.UniqueConstraintName) && column.UniqueConstraintOrdinal.HasValue)
+            .GroupBy(column => column.UniqueConstraintName!, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var keyColumns = group.OrderBy(column => column.UniqueConstraintOrdinal).ToArray();
+                string keyType = keyColumns[0].UniqueConstraintIndexType ?? string.Empty;
+                string keyword = string.Equals(keyType, "NONCLUSTERED", StringComparison.OrdinalIgnoreCase) ? "NONCLUSTERED" : "CLUSTERED";
+                string keyList = string.Join(", ", keyColumns.Select(column => QuoteName(column.ColumnName) + (column.UniqueConstraintIsDescending == true ? " DESC" : " ASC")));
+                return $"CONSTRAINT {QuoteName(group.Key)} UNIQUE {keyword} ({keyList})";
+            });
     }
 
     private static string QualifyName(string schema, string name)

@@ -28,6 +28,12 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public string? GeneratedAlwaysTypeDescription { get; set; }
 
+    public bool IsHidden { get; set; }
+
+    public bool IsSparse { get; set; }
+
+    public string? MaskingFunction { get; set; }
+
     public int TemporalType { get; set; }
 
     public string? HistoryTableSchema { get; set; }
@@ -41,4 +47,12 @@ internal sealed class SqlServerTableColumnScriptInfo
     public string? PrimaryKeyIndexType { get; set; }
 
     public bool? PrimaryKeyIsDescending { get; set; }
+
+    public string? UniqueConstraintName { get; set; }
+
+    public int? UniqueConstraintOrdinal { get; set; }
+
+    public string? UniqueConstraintIndexType { get; set; }
+
+    public bool? UniqueConstraintIsDescending { get; set; }
 }

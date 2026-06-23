@@ -10,6 +10,7 @@ SELECT
     OwnerLoginName = SUSER_SNAME(j.owner_sid),
     Description = j.description,
     Enabled = CONVERT(bit, j.enabled),
+    StartStepId = j.start_step_id,
     Created = j.date_created,
     Modified = j.date_modified
 FROM msdb.dbo.sysjobs AS j
@@ -34,6 +35,7 @@ SELECT
         WHEN 4 THEN N'GoToStep'
         ELSE CONVERT(nvarchar(32), s.on_success_action)
     END,
+    OnSuccessStepId = s.on_success_step_id,
     OnFailAction = CASE s.on_fail_action
         WHEN 1 THEN N'QuitWithSuccess'
         WHEN 2 THEN N'QuitWithFailure'
@@ -41,6 +43,7 @@ SELECT
         WHEN 4 THEN N'GoToStep'
         ELSE CONVERT(nvarchar(32), s.on_fail_action)
     END,
+    OnFailStepId = s.on_fail_step_id,
     RetryAttempts = s.retry_attempts,
     RetryInterval = s.retry_interval
 FROM msdb.dbo.sysjobsteps AS s
@@ -57,8 +60,10 @@ SELECT
     Enabled = CONVERT(bit, s.enabled),
     FrequencyType = s.freq_type,
     FrequencyInterval = s.freq_interval,
+    FrequencyRelativeInterval = s.freq_relative_interval,
     FrequencySubdayType = s.freq_subday_type,
     FrequencySubdayInterval = s.freq_subday_interval,
+    FrequencyRecurrenceFactor = s.freq_recurrence_factor,
     ActiveStartDate = s.active_start_date,
     ActiveEndDate = s.active_end_date,
     ActiveStartTime = s.active_start_time,
@@ -174,6 +179,7 @@ SELECT
     SecurableSchema = CASE
         WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'TYPE' THEN target_type_schema.name COLLATE DATABASE_DEFAULT
         ELSE NULL
     END,
     SecurableName = CASE
@@ -181,6 +187,7 @@ SELECT
         WHEN permission.class_desc = N'OBJECT_OR_COLUMN' THEN OBJECT_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'SCHEMA' THEN SCHEMA_NAME(permission.major_id) COLLATE DATABASE_DEFAULT
         WHEN permission.class_desc = N'DATABASE_PRINCIPAL' THEN target_database_principal.name COLLATE DATABASE_DEFAULT
+        WHEN permission.class_desc = N'TYPE' THEN target_type.name COLLATE DATABASE_DEFAULT
         ELSE CONVERT(nvarchar(256), permission.major_id)
     END,
     SecurableColumn = CASE
@@ -193,6 +200,8 @@ FROM sys.database_permissions AS permission
 INNER JOIN sys.database_principals AS grantee ON grantee.principal_id = permission.grantee_principal_id
 INNER JOIN sys.database_principals AS grantor ON grantor.principal_id = permission.grantor_principal_id
 LEFT JOIN sys.database_principals AS target_database_principal ON target_database_principal.principal_id = permission.major_id AND permission.class_desc = N'DATABASE_PRINCIPAL'
+LEFT JOIN sys.types AS target_type ON target_type.user_type_id = permission.major_id AND permission.class_desc = N'TYPE'
+LEFT JOIN sys.schemas AS target_type_schema ON target_type_schema.schema_id = target_type.schema_id
 WHERE (@principalName IS NULL OR grantee.name COLLATE DATABASE_DEFAULT = @principalName)
 ORDER BY Scope, DatabaseName, GranteeName, PermissionName, ClassDescription, SecurableName, SecurableColumn;";
 
@@ -276,7 +285,10 @@ SELECT
     SchemaName = schema_info.name,
     ObjectName = object_info.name,
     ObjectType = object_info.type_desc,
-    Script = module_info.definition
+    Script = CONCAT(
+        N'SET ANSI_NULLS ', CASE WHEN module_info.uses_ansi_nulls = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10),
+        N'SET QUOTED_IDENTIFIER ', CASE WHEN module_info.uses_quoted_identifier = 1 THEN N'ON' ELSE N'OFF' END, N';', CHAR(13), CHAR(10),
+        module_info.definition)
 FROM sys.objects AS object_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
 INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info.object_id
@@ -316,13 +328,20 @@ SELECT
     ComputedDefinition = computed_info.definition,
     IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0)),
     GeneratedAlwaysTypeDescription = column_info.generated_always_type_desc,
+    IsHidden = CONVERT(bit, column_info.is_hidden),
+    IsSparse = CONVERT(bit, column_info.is_sparse),
+    MaskingFunction = masked_column.masking_function,
     TemporalType = table_info.temporal_type,
     HistoryTableSchema = history_schema.name,
     HistoryTableName = history_table.name,
     PrimaryKeyName = primary_key.name,
     PrimaryKeyOrdinal = primary_key_column.key_ordinal,
     PrimaryKeyIndexType = primary_key.type_desc,
-    PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key)
+    PrimaryKeyIsDescending = CONVERT(bit, primary_key_column.is_descending_key),
+    UniqueConstraintName = unique_constraint.name,
+    UniqueConstraintOrdinal = unique_constraint_column.key_ordinal,
+    UniqueConstraintIndexType = unique_constraint.type_desc,
+    UniqueConstraintIsDescending = CONVERT(bit, unique_constraint_column.is_descending_key)
 FROM sys.tables AS table_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
 INNER JOIN sys.columns AS column_info ON column_info.object_id = table_info.object_id
@@ -333,10 +352,13 @@ LEFT JOIN sys.schemas AS xml_schema ON xml_schema.schema_id = xml_collection.sch
 LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
 LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
 LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+LEFT JOIN sys.masked_columns AS masked_column ON masked_column.object_id = column_info.object_id AND masked_column.column_id = column_info.column_id
 LEFT JOIN sys.tables AS history_table ON history_table.object_id = table_info.history_table_id
 LEFT JOIN sys.schemas AS history_schema ON history_schema.schema_id = history_table.schema_id
 LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.object_id AND primary_key.is_primary_key = 1
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
+LEFT JOIN sys.index_columns AS unique_constraint_column ON unique_constraint_column.object_id = table_info.object_id AND unique_constraint_column.column_id = column_info.column_id
+LEFT JOIN sys.indexes AS unique_constraint ON unique_constraint.object_id = unique_constraint_column.object_id AND unique_constraint.index_id = unique_constraint_column.index_id AND unique_constraint.is_unique_constraint = 1
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";

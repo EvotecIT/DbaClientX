@@ -15,6 +15,7 @@ internal static class SqlServerManagementMappers
             OwnerLoginName = GetString(record, "OwnerLoginName"),
             Description = GetString(record, "Description"),
             Enabled = GetBoolean(record, "Enabled"),
+            StartStepId = GetInt32(record, "StartStepId"),
             Created = GetDateTime(record, "Created"),
             Modified = GetDateTime(record, "Modified")
         };
@@ -30,7 +31,9 @@ internal static class SqlServerManagementMappers
             Command = GetString(record, "Command"),
             DatabaseName = GetString(record, "DatabaseName"),
             OnSuccessAction = GetString(record, "OnSuccessAction"),
+            OnSuccessStepId = GetInt32(record, "OnSuccessStepId"),
             OnFailAction = GetString(record, "OnFailAction"),
+            OnFailStepId = GetInt32(record, "OnFailStepId"),
             RetryAttempts = GetInt32(record, "RetryAttempts"),
             RetryInterval = GetInt32(record, "RetryInterval")
         };
@@ -45,8 +48,10 @@ internal static class SqlServerManagementMappers
             Enabled = GetBoolean(record, "Enabled"),
             FrequencyType = GetInt32(record, "FrequencyType"),
             FrequencyInterval = GetInt32(record, "FrequencyInterval"),
+            FrequencyRelativeInterval = GetInt32(record, "FrequencyRelativeInterval"),
             FrequencySubdayType = GetInt32(record, "FrequencySubdayType"),
             FrequencySubdayInterval = GetInt32(record, "FrequencySubdayInterval"),
+            FrequencyRecurrenceFactor = GetInt32(record, "FrequencyRecurrenceFactor"),
             ActiveStartDate = ParseAgentDate(GetInt32(record, "ActiveStartDate")),
             ActiveEndDate = ParseAgentDate(GetInt32(record, "ActiveEndDate")),
             ActiveStartTime = ParseAgentTime(GetInt32(record, "ActiveStartTime")),
@@ -160,17 +165,25 @@ internal static class SqlServerManagementMappers
             ComputedDefinition = GetString(record, "ComputedDefinition"),
             IsPersisted = GetBoolean(record, "IsPersisted"),
             GeneratedAlwaysTypeDescription = GetString(record, "GeneratedAlwaysTypeDescription"),
+            IsHidden = GetBoolean(record, "IsHidden"),
+            IsSparse = GetBoolean(record, "IsSparse"),
+            MaskingFunction = GetString(record, "MaskingFunction"),
             TemporalType = GetInt32(record, "TemporalType"),
             HistoryTableSchema = GetString(record, "HistoryTableSchema"),
             HistoryTableName = GetString(record, "HistoryTableName"),
             PrimaryKeyName = GetString(record, "PrimaryKeyName"),
             PrimaryKeyOrdinal = GetNullableInt32(record, "PrimaryKeyOrdinal"),
             PrimaryKeyIndexType = GetString(record, "PrimaryKeyIndexType"),
-            PrimaryKeyIsDescending = GetNullableBoolean(record, "PrimaryKeyIsDescending")
+            PrimaryKeyIsDescending = GetNullableBoolean(record, "PrimaryKeyIsDescending"),
+            UniqueConstraintName = GetString(record, "UniqueConstraintName"),
+            UniqueConstraintOrdinal = GetNullableInt32(record, "UniqueConstraintOrdinal"),
+            UniqueConstraintIndexType = GetString(record, "UniqueConstraintIndexType"),
+            UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending")
         };
 
     internal static string NormalizeModuleScript(string script)
-        => Regex.Replace(script, @"^\s*ALTER\s+", "CREATE OR ALTER ", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        => new Regex(@"^(\s*)ALTER\s+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Multiline)
+            .Replace(script, "$1CREATE OR ALTER ", 1);
 
     internal static DateTime? ParseAgentDate(int value)
     {

@@ -31,8 +31,14 @@ public sealed class SqlServerAgentJobStepInfo
     /// <summary>Action taken when the step succeeds.</summary>
     public string? OnSuccessAction { get; set; }
 
+    /// <summary>Target step id when the success action is GoToStep.</summary>
+    public int OnSuccessStepId { get; set; }
+
     /// <summary>Action taken when the step fails.</summary>
     public string? OnFailAction { get; set; }
+
+    /// <summary>Target step id when the failure action is GoToStep.</summary>
+    public int OnFailStepId { get; set; }
 
     /// <summary>Number of retry attempts configured for the step.</summary>
     public int RetryAttempts { get; set; }

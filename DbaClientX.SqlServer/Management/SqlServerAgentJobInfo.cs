@@ -25,6 +25,9 @@ public sealed class SqlServerAgentJobInfo
     /// <summary>True when the job is enabled.</summary>
     public bool Enabled { get; set; }
 
+    /// <summary>Initial step id SQL Server Agent starts with for this job.</summary>
+    public int StartStepId { get; set; }
+
     /// <summary>Date the job was created.</summary>
     public DateTime? Created { get; set; }
 
