@@ -56,15 +56,19 @@ SELECT
     CAST(i.is_primary_key AS bit) AS is_primary_key,
     c.name AS column_name,
     CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END AS ordinal_position,
-    CAST(ic.is_descending_key AS bit) AS is_descending,
+    CASE WHEN ic.key_ordinal > 0 THEN CAST(ic.is_descending_key AS bit) ELSE NULL END AS is_descending,
+    CAST(ic.is_included_column AS bit) AS is_included,
+    NULL AS prefix_length,
+    NULL AS expression,
     i.filter_definition
 FROM sys.indexes i
 INNER JOIN sys.objects o ON o.object_id = i.object_id AND o.type IN ('U', 'V')
 INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
-LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND (ic.key_ordinal > 0 OR i.type IN (3, 4, 5, 6))
+LEFT JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (3, 4, 5, 6))
 LEFT JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
 WHERE i.index_id > 0
   AND i.name IS NOT NULL
+  AND i.is_hypothetical = 0
   AND (@schema IS NULL OR s.name = @schema)
   AND (@table IS NULL OR o.name = @table)
 ORDER BY s.name, o.name, i.name, CASE WHEN ic.key_ordinal > 0 THEN ic.key_ordinal ELSE ic.index_column_id END;";
@@ -104,12 +108,23 @@ SELECT
         WHEN o.type IN ('FN', 'IF', 'TF', 'FS', 'FT') THEN 'Function'
         ELSE 'Unknown'
     END AS routine_kind,
-    NULL AS data_type,
+    CASE
+        WHEN o.type IN ('FN', 'FS') THEN
+            CASE
+                WHEN ty.schema_id IS NOT NULL AND SCHEMA_NAME(ty.schema_id) <> 'sys' THEN CONCAT(SCHEMA_NAME(ty.schema_id), '.', ty.name)
+                ELSE ty.name
+            END
+        ELSE NULL
+    END AS data_type,
+    CONVERT(nvarchar(20), o.object_id) AS specific_name,
+    NULL AS signature,
     m.definition,
     CAST(CASE WHEN o.is_ms_shipped = 1 OR s.name IN ('sys', 'INFORMATION_SCHEMA') THEN 1 ELSE 0 END AS bit) AS is_system
 FROM sys.objects o
 INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
 LEFT JOIN sys.sql_modules m ON m.object_id = o.object_id
+LEFT JOIN sys.parameters rp ON rp.object_id = o.object_id AND rp.parameter_id = 0
+LEFT JOIN sys.types ty ON ty.user_type_id = rp.user_type_id
 WHERE o.type IN ('P', 'PC', 'X', 'FN', 'IF', 'TF', 'FS', 'FT')
   AND (@schema IS NULL OR s.name = @schema)
 ORDER BY s.name, o.name;";
@@ -232,8 +247,11 @@ ORDER BY s.name, o.name;";
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
+            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
@@ -261,6 +279,8 @@ ORDER BY s.name, o.name;";
             ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
         {
             DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            SpecificName = DbaMetadataReader.GetNullableString(record, "specific_name"),
+            Signature = DbaMetadataReader.GetNullableString(record, "signature"),
             Definition = DbaMetadataReader.GetNullableString(record, "definition"),
             IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
         };

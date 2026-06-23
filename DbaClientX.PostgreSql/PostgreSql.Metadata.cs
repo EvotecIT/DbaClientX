@@ -33,24 +33,42 @@ ORDER BY ns.nspname, cls.relname;";
 
     private const string PostgreSqlColumnsQuery = @"
 SELECT
-    table_schema AS schema_name,
-    table_name,
-    column_name,
+    ns.nspname AS schema_name,
+    cls.relname AS table_name,
+    att.attname AS column_name,
     CASE
-        WHEN data_type IN ('USER-DEFINED', 'ARRAY') THEN udt_schema || '.' || udt_name
-        ELSE data_type
+        WHEN typns.nspname NOT IN ('pg_catalog', 'information_schema') THEN typns.nspname || '.' || typ.typname
+        ELSE format_type(att.atttypid, att.atttypmod)
     END AS data_type,
-    ordinal_position,
-    CASE WHEN is_nullable = 'YES' THEN true ELSE false END AS is_nullable,
-    character_maximum_length AS max_length,
-    numeric_precision,
-    numeric_scale,
-    column_default AS default_expression
-FROM information_schema.columns
-WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-  AND (@schema IS NULL OR table_schema = @schema)
-  AND (@table IS NULL OR table_name = @table)
-ORDER BY table_schema, table_name, ordinal_position;";
+    att.attnum AS ordinal_position,
+    NOT att.attnotnull AS is_nullable,
+    CASE
+        WHEN typ.typname IN ('bpchar', 'varchar') AND att.atttypmod > 4 THEN att.atttypmod - 4
+        ELSE NULL
+    END AS max_length,
+    CASE
+        WHEN typ.typname = 'numeric' AND att.atttypmod > 4 THEN ((att.atttypmod - 4) >> 16) & 65535
+        ELSE NULL
+    END AS numeric_precision,
+    CASE
+        WHEN typ.typname = 'numeric' AND att.atttypmod > 4 THEN (att.atttypmod - 4) & 65535
+        ELSE NULL
+    END AS numeric_scale,
+    pg_get_expr(def.adbin, def.adrelid) AS default_expression
+FROM pg_class cls
+INNER JOIN pg_namespace ns ON ns.oid = cls.relnamespace
+INNER JOIN pg_attribute att ON att.attrelid = cls.oid
+INNER JOIN pg_type typ ON typ.oid = att.atttypid
+INNER JOIN pg_namespace typns ON typns.oid = typ.typnamespace
+LEFT JOIN pg_attrdef def ON def.adrelid = cls.oid AND def.adnum = att.attnum
+WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
+  AND cls.relkind IN ('r', 'p', 'f', 'v', 'm')
+  AND att.attnum > 0
+  AND NOT att.attisdropped
+  AND (@schema IS NULL OR ns.nspname = @schema)
+  AND (@table IS NULL OR cls.relname = @table)
+ORDER BY ns.nspname, cls.relname, att.attnum;";
 
     private const string PostgreSqlIndexesQuery = @"
 SELECT
@@ -63,6 +81,9 @@ SELECT
     att.attname AS column_name,
     cols.ordinality AS ordinal_position,
     ((COALESCE(opts.indoption_value, 0) & 1) = 1) AS is_descending,
+    false AS is_included,
+    NULL AS prefix_length,
+    CASE WHEN att.attname IS NULL THEN pg_get_indexdef(ix.indexrelid, cols.ordinality::integer, true) ELSE NULL END AS expression,
     pg_get_expr(ix.indpred, ix.indrelid) AS filter_definition
 FROM pg_index ix
 INNER JOIN pg_class tbl ON tbl.oid = ix.indrelid
@@ -124,16 +145,21 @@ ORDER BY ns.nspname, tbl.relname, con.conname, cols.ordinality;";
 
     private const string PostgreSqlRoutinesQuery = @"
 SELECT
-    routine_schema AS schema_name,
-    routine_name,
-    CASE WHEN routine_type = 'PROCEDURE' THEN 'Procedure' WHEN routine_type = 'FUNCTION' THEN 'Function' ELSE 'Unknown' END AS routine_kind,
-    data_type,
-    routine_definition AS definition,
+    ns.nspname AS schema_name,
+    proc.proname AS routine_name,
+    CASE WHEN proc.prokind = 'p' THEN 'Procedure' WHEN proc.prokind = 'f' THEN 'Function' ELSE 'Unknown' END AS routine_kind,
+    CASE WHEN proc.prokind = 'f' THEN pg_get_function_result(proc.oid) ELSE NULL END AS data_type,
+    proc.oid::text AS specific_name,
+    pg_get_function_identity_arguments(proc.oid) AS signature,
+    pg_get_functiondef(proc.oid) AS definition,
     false AS is_system
-FROM information_schema.routines
-WHERE routine_schema NOT IN ('pg_catalog', 'information_schema')
-  AND (@schema IS NULL OR routine_schema = @schema)
-ORDER BY routine_schema, routine_name;";
+FROM pg_proc proc
+INNER JOIN pg_namespace ns ON ns.oid = proc.pronamespace
+WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND ns.nspname NOT LIKE 'pg\_%' ESCAPE '\'
+  AND proc.prokind IN ('f', 'p')
+  AND (@schema IS NULL OR ns.nspname = @schema)
+ORDER BY ns.nspname, proc.proname, pg_get_function_identity_arguments(proc.oid);";
 
     /// <summary>Lists PostgreSQL databases visible to the connection.</summary>
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string connectionString)
@@ -241,8 +267,11 @@ ORDER BY routine_schema, routine_name;";
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
             Column = DbaMetadataReader.GetNullableString(record, "column_name"),
+            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
+            IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
+            PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
 
@@ -270,6 +299,8 @@ ORDER BY routine_schema, routine_name;";
             ParseRoutineKind(DbaMetadataReader.GetString(record, "routine_kind")))
         {
             DataType = DbaMetadataReader.GetNullableString(record, "data_type"),
+            SpecificName = DbaMetadataReader.GetNullableString(record, "specific_name"),
+            Signature = DbaMetadataReader.GetNullableString(record, "signature"),
             Definition = DbaMetadataReader.GetNullableString(record, "definition"),
             IsSystem = DbaMetadataReader.GetNullableBoolean(record, "is_system")
         };
