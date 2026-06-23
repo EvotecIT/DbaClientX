@@ -325,6 +325,9 @@ SELECT
     IsIdentity = CONVERT(bit, column_info.is_identity),
     IdentitySeed = CONVERT(nvarchar(40), identity_info.seed_value),
     IdentityIncrement = CONVERT(nvarchar(40), identity_info.increment_value),
+    IdentityNotForReplication = CONVERT(bit, ISNULL(identity_info.is_not_for_replication, 0)),
+    IsRowGuidColumn = CONVERT(bit, column_info.is_rowguidcol),
+    DefaultConstraintName = default_info.name,
     DefaultDefinition = default_info.definition,
     ComputedDefinition = computed_info.definition,
     IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0)),
@@ -347,7 +350,8 @@ SELECT
     UniqueConstraintOrdinal = CONVERT(int, NULL),
     UniqueConstraintIndexType = CONVERT(nvarchar(60), NULL),
     UniqueConstraintIsDescending = CONVERT(bit, NULL),
-    AdditionalConstraintDefinitions = constraint_info.definitions
+    AdditionalConstraintDefinitions = constraint_info.definitions,
+    PostCreateStatements = post_create_info.statements
 FROM sys.tables AS table_info
 INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
 INNER JOIN sys.columns AS column_info ON column_info.object_id = table_info.object_id
@@ -362,7 +366,7 @@ LEFT JOIN sys.indexes AS primary_key ON primary_key.object_id = table_info.objec
 LEFT JOIN sys.index_columns AS primary_key_column ON primary_key_column.object_id = primary_key.object_id AND primary_key_column.index_id = primary_key.index_id AND primary_key_column.column_id = column_info.column_id
 OUTER APPLY (
     SELECT definitions = STUFF((
-        SELECT CHAR(10) + definition
+        SELECT CHAR(30) + definition
         FROM (
             SELECT definition =
                 N'CONSTRAINT ' + QUOTENAME(unique_index.name) + N' UNIQUE ' +
@@ -382,9 +386,14 @@ OUTER APPLY (
             WHERE unique_index.object_id = table_info.object_id
               AND unique_index.is_unique_constraint = 1
             UNION ALL
-            SELECT definition = N'CONSTRAINT ' + QUOTENAME(check_info.name) + N' CHECK ' + check_info.definition
+            SELECT definition =
+                N'CONSTRAINT ' + QUOTENAME(check_info.name) + N' CHECK ' +
+                CASE WHEN check_info.is_not_for_replication = 1 THEN N'NOT FOR REPLICATION ' ELSE N'' END +
+                check_info.definition
             FROM sys.check_constraints AS check_info
             WHERE check_info.parent_object_id = table_info.object_id
+              AND check_info.is_disabled = 0
+              AND check_info.is_not_trusted = 0
             UNION ALL
             SELECT definition =
                 N'CONSTRAINT ' + QUOTENAME(foreign_key.name) + N' FOREIGN KEY (' +
@@ -405,16 +414,75 @@ OUTER APPLY (
                     ORDER BY foreign_key_column.constraint_column_id
                     FOR XML PATH(N''), TYPE
                 ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN foreign_key.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END +
                 CASE WHEN foreign_key.delete_referential_action_desc <> N'NO_ACTION' THEN N' ON DELETE ' + REPLACE(foreign_key.delete_referential_action_desc, N'_', N' ') ELSE N'' END +
                 CASE WHEN foreign_key.update_referential_action_desc <> N'NO_ACTION' THEN N' ON UPDATE ' + REPLACE(foreign_key.update_referential_action_desc, N'_', N' ') ELSE N'' END
             FROM sys.foreign_keys AS foreign_key
             INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
             INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
             WHERE foreign_key.parent_object_id = table_info.object_id
+              AND foreign_key.is_disabled = 0
+              AND foreign_key.is_not_trusted = 0
         ) AS table_constraint
         FOR XML PATH(N''), TYPE
     ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
 ) AS constraint_info
+OUTER APPLY (
+    SELECT statements = STUFF((
+        SELECT CHAR(30) + statement
+        FROM (
+            SELECT statement =
+                N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                CASE WHEN check_info.is_not_trusted = 1 OR check_info.is_disabled = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END +
+                N' ADD CONSTRAINT ' + QUOTENAME(check_info.name) + N' CHECK ' +
+                CASE WHEN check_info.is_not_for_replication = 1 THEN N'NOT FOR REPLICATION ' ELSE N'' END +
+                check_info.definition + N';' +
+                CASE WHEN check_info.is_disabled = 1 THEN
+                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    N' NOCHECK CONSTRAINT ' + QUOTENAME(check_info.name) + N';'
+                ELSE N'' END
+            FROM sys.check_constraints AS check_info
+            WHERE check_info.parent_object_id = table_info.object_id
+              AND (check_info.is_disabled = 1 OR check_info.is_not_trusted = 1)
+            UNION ALL
+            SELECT statement =
+                N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                CASE WHEN foreign_key.is_not_trusted = 1 OR foreign_key.is_disabled = 1 THEN N' WITH NOCHECK' ELSE N' WITH CHECK' END +
+                N' ADD CONSTRAINT ' + QUOTENAME(foreign_key.name) + N' FOREIGN KEY (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(parent_column.name)
+                    FROM sys.foreign_key_columns AS foreign_key_column
+                    INNER JOIN sys.columns AS parent_column ON parent_column.object_id = foreign_key_column.parent_object_id AND parent_column.column_id = foreign_key_column.parent_column_id
+                    WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
+                    ORDER BY foreign_key_column.constraint_column_id
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N') REFERENCES ' +
+                QUOTENAME(referenced_schema.name) + N'.' + QUOTENAME(referenced_table.name) + N' (' +
+                STUFF((
+                    SELECT N', ' + QUOTENAME(referenced_column.name)
+                    FROM sys.foreign_key_columns AS foreign_key_column
+                    INNER JOIN sys.columns AS referenced_column ON referenced_column.object_id = foreign_key_column.referenced_object_id AND referenced_column.column_id = foreign_key_column.referenced_column_id
+                    WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
+                    ORDER BY foreign_key_column.constraint_column_id
+                    FOR XML PATH(N''), TYPE
+                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                CASE WHEN foreign_key.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END +
+                CASE WHEN foreign_key.delete_referential_action_desc <> N'NO_ACTION' THEN N' ON DELETE ' + REPLACE(foreign_key.delete_referential_action_desc, N'_', N' ') ELSE N'' END +
+                CASE WHEN foreign_key.update_referential_action_desc <> N'NO_ACTION' THEN N' ON UPDATE ' + REPLACE(foreign_key.update_referential_action_desc, N'_', N' ') ELSE N'' END +
+                N';' +
+                CASE WHEN foreign_key.is_disabled = 1 THEN
+                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    N' NOCHECK CONSTRAINT ' + QUOTENAME(foreign_key.name) + N';'
+                ELSE N'' END
+            FROM sys.foreign_keys AS foreign_key
+            INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
+            INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
+            WHERE foreign_key.parent_object_id = table_info.object_id
+              AND (foreign_key.is_disabled = 1 OR foreign_key.is_not_trusted = 1)
+        ) AS table_statement
+        FOR XML PATH(N''), TYPE
+    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+) AS post_create_info
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)
 ORDER BY schema_info.name, table_info.name, column_info.column_id;";

@@ -8,6 +8,8 @@ namespace DBAClientX.SqlServerManagement;
 
 internal static class SqlServerManagementScripting
 {
+    internal const char ConstraintDefinitionSeparator = '\u001e';
+
     public static IReadOnlyList<SqlServerScriptInfo> BuildTableScripts(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         return columns
@@ -162,6 +164,12 @@ internal static class SqlServerManagementScripting
 
         builder.Append(';');
 
+        foreach (string statement in BuildPostCreateStatements(orderedColumns))
+        {
+            builder.AppendLine();
+            builder.Append(statement);
+        }
+
         return new SqlServerScriptInfo
         {
             ScriptType = "Table",
@@ -193,6 +201,11 @@ internal static class SqlServerManagementScripting
                 builder.Append(" PERSISTED");
             }
 
+            if (!column.IsNullable)
+            {
+                builder.Append(" NOT NULL");
+            }
+
             return builder.ToString();
         }
 
@@ -200,6 +213,11 @@ internal static class SqlServerManagementScripting
         if (column.IsSparse)
         {
             builder.Append(" SPARSE");
+        }
+
+        if (column.IsRowGuidColumn)
+        {
+            builder.Append(" ROWGUIDCOL");
         }
 
         string? generatedAlways = FormatGeneratedAlways(column.GeneratedAlwaysTypeDescription);
@@ -228,13 +246,25 @@ internal static class SqlServerManagementScripting
             builder.Append(',');
             builder.Append(column.IdentityIncrement ?? "1");
             builder.Append(')');
+            if (column.IdentityNotForReplication)
+            {
+                builder.Append(" NOT FOR REPLICATION");
+            }
         }
 
         builder.Append(column.IsNullable ? " NULL" : " NOT NULL");
 
         if (!string.IsNullOrWhiteSpace(column.DefaultDefinition))
         {
-            builder.Append(" DEFAULT ");
+            builder.Append(' ');
+            if (!string.IsNullOrWhiteSpace(column.DefaultConstraintName))
+            {
+                builder.Append("CONSTRAINT ");
+                builder.Append(QuoteName(column.DefaultConstraintName!));
+                builder.Append(' ');
+            }
+
+            builder.Append("DEFAULT ");
             builder.Append(column.DefaultDefinition);
         }
 
@@ -314,9 +344,32 @@ internal static class SqlServerManagementScripting
         return columns
             .Select(column => column.AdditionalConstraintDefinitions)
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .SelectMany(value => value!.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            .SelectMany(SplitMetadataList)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> BuildPostCreateStatements(IEnumerable<SqlServerTableColumnScriptInfo> columns)
+    {
+        return columns
+            .Select(column => column.PostCreateStatements)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .SelectMany(SplitMetadataList)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> SplitMetadataList(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Array.Empty<string>();
+        }
+
+        return value!
+            .Split(new[] { ConstraintDefinitionSeparator }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(item => item.Trim())
+            .Where(item => item.Length > 0);
     }
 
     private static string QualifyName(string schema, string name)

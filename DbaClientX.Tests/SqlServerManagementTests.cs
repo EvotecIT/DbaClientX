@@ -190,6 +190,7 @@ public class SqlServerManagementTests
     [Fact]
     public void BuildTableScripts_GeneratesQuotedCreateTable()
     {
+        string separator = SqlServerManagementScripting.ConstraintDefinitionSeparator.ToString();
         var columns = new[]
         {
             new SqlServerTableColumnScriptInfo
@@ -202,7 +203,15 @@ public class SqlServerManagementTests
                 IsIdentity = true,
                 IdentitySeed = "1",
                 IdentityIncrement = "1",
-                AdditionalConstraintDefinitions = "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name] <> N'')\nCONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id])",
+                IdentityNotForReplication = true,
+                AdditionalConstraintDefinitions = string.Join(
+                    separator,
+                    "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')",
+                    "CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) NOT FOR REPLICATION"),
+                PostCreateStatements = string.Join(
+                    separator,
+                    "ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);",
+                    "ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];"),
                 PrimaryKeyName = "PK_UserAudit",
                 PrimaryKeyOrdinal = 1,
                 PrimaryKeyIndexType = "CLUSTERED",
@@ -212,10 +221,21 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "User]Audit",
-                ColumnName = "Name",
+                ColumnName = "RowGuid",
                 Ordinal = 2,
+                DataType = "uniqueidentifier",
+                IsNullable = false,
+                IsRowGuidColumn = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Name",
+                Ordinal = 3,
                 DataType = "nvarchar(128) COLLATE Polish_CI_AS",
                 IsNullable = false,
+                DefaultConstraintName = "DF_UserAudit_Name",
                 DefaultDefinition = "N''",
                 UniqueConstraintName = "UQ_UserAudit_Name",
                 UniqueConstraintOrdinal = 1,
@@ -227,7 +247,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "Ratio",
-                Ordinal = 3,
+                Ordinal = 4,
                 DataType = "float(24)",
                 IsNullable = true
             },
@@ -236,7 +256,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "Payload",
-                Ordinal = 4,
+                Ordinal = 5,
                 DataType = "xml(DOCUMENT [dbo].[AuditPayload])",
                 IsNullable = true
             },
@@ -245,7 +265,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "Blob",
-                Ordinal = 5,
+                Ordinal = 6,
                 DataType = "varbinary(max) FILESTREAM",
                 IsNullable = true
             },
@@ -254,7 +274,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "SparseCode",
-                Ordinal = 6,
+                Ordinal = 7,
                 DataType = "int",
                 IsNullable = true,
                 IsSparse = true
@@ -264,7 +284,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "Email",
-                Ordinal = 7,
+                Ordinal = 8,
                 DataType = "nvarchar(256)",
                 IsNullable = true,
                 MaskingFunction = "email()"
@@ -273,8 +293,19 @@ public class SqlServerManagementTests
             {
                 SchemaName = "dbo",
                 TableName = "User]Audit",
+                ColumnName = "NameLength",
+                Ordinal = 9,
+                DataType = "int",
+                IsNullable = false,
+                ComputedDefinition = "(len([Name]))",
+                IsPersisted = true
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
                 ColumnName = "ValidFrom",
-                Ordinal = 8,
+                Ordinal = 10,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_START",
@@ -288,7 +319,7 @@ public class SqlServerManagementTests
                 SchemaName = "dbo",
                 TableName = "User]Audit",
                 ColumnName = "ValidTo",
-                Ordinal = 9,
+                Ordinal = 11,
                 DataType = "datetime2(7)",
                 IsNullable = false,
                 GeneratedAlwaysTypeDescription = "AS_ROW_END",
@@ -304,21 +335,25 @@ public class SqlServerManagementTests
         SqlServerScriptInfo script = Assert.Single(scripts);
         Assert.Equal("Table", script.ScriptType);
         Assert.Contains("CREATE TABLE [dbo].[User]]Audit]", script.Script);
-        Assert.Contains("[Id] int IDENTITY(1,1) NOT NULL", script.Script);
-        Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL DEFAULT N''", script.Script);
+        Assert.Contains("[Id] int IDENTITY(1,1) NOT FOR REPLICATION NOT NULL", script.Script);
+        Assert.Contains("[RowGuid] uniqueidentifier ROWGUIDCOL NOT NULL", script.Script);
+        Assert.Contains("[Name] nvarchar(128) COLLATE Polish_CI_AS NOT NULL CONSTRAINT [DF_UserAudit_Name] DEFAULT N''", script.Script);
         Assert.Contains("[Ratio] float(24) NULL", script.Script);
         Assert.Contains("[Payload] xml(DOCUMENT [dbo].[AuditPayload]) NULL", script.Script);
         Assert.Contains("[Blob] varbinary(max) FILESTREAM NULL", script.Script);
         Assert.Contains("[SparseCode] int SPARSE NULL", script.Script);
         Assert.Contains("[Email] nvarchar(256) MASKED WITH (FUNCTION = N'email()') NULL", script.Script);
+        Assert.Contains("[NameLength] AS (len([Name])) PERSISTED NOT NULL", script.Script);
         Assert.Contains("[ValidFrom] datetime2(7) GENERATED ALWAYS AS ROW START HIDDEN NOT NULL", script.Script);
         Assert.Contains("[ValidTo] datetime2(7) GENERATED ALWAYS AS ROW END HIDDEN NOT NULL", script.Script);
         Assert.Contains("CONSTRAINT [PK_UserAudit] PRIMARY KEY CLUSTERED ([Id] ASC)", script.Script);
         Assert.Contains("CONSTRAINT [UQ_UserAudit_Name] UNIQUE NONCLUSTERED ([Name] ASC)", script.Script);
-        Assert.Contains("CONSTRAINT [CK_UserAudit_Name] CHECK ([Name] <> N'')", script.Script);
-        Assert.Contains("CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id])", script.Script);
+        Assert.Contains("CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')", script.Script);
+        Assert.Contains("CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) NOT FOR REPLICATION", script.Script);
         Assert.Contains("PERIOD FOR SYSTEM_TIME ([ValidFrom], [ValidTo])", script.Script);
         Assert.Contains("WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = [history].[UserAuditHistory]));", script.Script);
+        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);", script.Script);
+        Assert.Contains("ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];", script.Script);
     }
 
     [Fact]

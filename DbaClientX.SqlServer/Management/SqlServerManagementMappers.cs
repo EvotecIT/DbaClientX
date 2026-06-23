@@ -161,6 +161,9 @@ internal static class SqlServerManagementMappers
             IsIdentity = GetBoolean(record, "IsIdentity"),
             IdentitySeed = GetString(record, "IdentitySeed"),
             IdentityIncrement = GetString(record, "IdentityIncrement"),
+            IdentityNotForReplication = GetBoolean(record, "IdentityNotForReplication"),
+            IsRowGuidColumn = GetBoolean(record, "IsRowGuidColumn"),
+            DefaultConstraintName = GetString(record, "DefaultConstraintName"),
             DefaultDefinition = GetString(record, "DefaultDefinition"),
             ComputedDefinition = GetString(record, "ComputedDefinition"),
             IsPersisted = GetBoolean(record, "IsPersisted"),
@@ -179,7 +182,8 @@ internal static class SqlServerManagementMappers
             UniqueConstraintOrdinal = GetNullableInt32(record, "UniqueConstraintOrdinal"),
             UniqueConstraintIndexType = GetString(record, "UniqueConstraintIndexType"),
             UniqueConstraintIsDescending = GetNullableBoolean(record, "UniqueConstraintIsDescending"),
-            AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions")
+            AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions"),
+            PostCreateStatements = GetString(record, "PostCreateStatements")
         };
 
     internal static string NormalizeModuleScript(string script)

@@ -20,6 +20,12 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public string? IdentityIncrement { get; set; }
 
+    public bool IdentityNotForReplication { get; set; }
+
+    public bool IsRowGuidColumn { get; set; }
+
+    public string? DefaultConstraintName { get; set; }
+
     public string? DefaultDefinition { get; set; }
 
     public string? ComputedDefinition { get; set; }
@@ -57,4 +63,6 @@ internal sealed class SqlServerTableColumnScriptInfo
     public bool? UniqueConstraintIsDescending { get; set; }
 
     public string? AdditionalConstraintDefinitions { get; set; }
+
+    public string? PostCreateStatements { get; set; }
 }
