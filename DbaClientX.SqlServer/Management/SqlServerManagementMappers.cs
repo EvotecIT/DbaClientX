@@ -116,6 +116,49 @@ internal static class SqlServerManagementMappers
             Description = GetString(record, "Description")
         };
 
+    public static SqlServerDependencyInfo MapDependency(IDataRecord record)
+        => new()
+        {
+            DependencyType = GetString(record, "DependencyType") ?? string.Empty,
+            ReferencingSchema = GetString(record, "ReferencingSchema") ?? string.Empty,
+            ReferencingName = GetString(record, "ReferencingName") ?? string.Empty,
+            ReferencingType = GetString(record, "ReferencingType") ?? string.Empty,
+            ReferencedServerName = GetString(record, "ReferencedServerName"),
+            ReferencedDatabaseName = GetString(record, "ReferencedDatabaseName"),
+            ReferencedSchemaName = GetString(record, "ReferencedSchemaName"),
+            ReferencedEntityName = GetString(record, "ReferencedEntityName"),
+            ReferencedClassDescription = GetString(record, "ReferencedClassDescription"),
+            IsCallerDependent = GetBoolean(record, "IsCallerDependent"),
+            IsAmbiguous = GetBoolean(record, "IsAmbiguous")
+        };
+
+    public static SqlServerScriptInfo MapScript(IDataRecord record)
+        => new()
+        {
+            ScriptType = GetString(record, "ScriptType") ?? string.Empty,
+            SchemaName = GetString(record, "SchemaName") ?? string.Empty,
+            ObjectName = GetString(record, "ObjectName") ?? string.Empty,
+            ObjectType = GetString(record, "ObjectType") ?? string.Empty,
+            Script = GetString(record, "Script") ?? string.Empty
+        };
+
+    public static SqlServerTableColumnScriptInfo MapTableScriptColumn(IDataRecord record)
+        => new()
+        {
+            SchemaName = GetString(record, "SchemaName") ?? string.Empty,
+            TableName = GetString(record, "TableName") ?? string.Empty,
+            ColumnName = GetString(record, "ColumnName") ?? string.Empty,
+            Ordinal = GetInt32(record, "Ordinal"),
+            DataType = GetString(record, "DataType") ?? string.Empty,
+            IsNullable = GetBoolean(record, "IsNullable"),
+            IsIdentity = GetBoolean(record, "IsIdentity"),
+            IdentitySeed = GetString(record, "IdentitySeed"),
+            IdentityIncrement = GetString(record, "IdentityIncrement"),
+            DefaultDefinition = GetString(record, "DefaultDefinition"),
+            ComputedDefinition = GetString(record, "ComputedDefinition"),
+            IsPersisted = GetBoolean(record, "IsPersisted")
+        };
+
     internal static DateTime? ParseAgentDate(int value)
     {
         if (value <= 0)

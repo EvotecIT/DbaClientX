@@ -220,4 +220,92 @@ FROM sys.configurations
 WHERE (@includeAdvanced = 1 OR is_advanced = 0)
   AND (@name IS NULL OR name = @name)
 ORDER BY name;";
+
+    private const string SqlServerDependenciesManagementQuery = @"
+SELECT
+    DependencyType = N'SqlExpression',
+    ReferencingSchema = referencing_schema.name,
+    ReferencingName = referencing_object.name,
+    ReferencingType = referencing_object.type_desc,
+    ReferencedServerName = dependency.referenced_server_name,
+    ReferencedDatabaseName = dependency.referenced_database_name,
+    ReferencedSchemaName = dependency.referenced_schema_name,
+    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedClassDescription = dependency.referenced_class_desc,
+    IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
+    IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
+FROM sys.sql_expression_dependencies AS dependency
+INNER JOIN sys.objects AS referencing_object ON referencing_object.object_id = dependency.referencing_id
+INNER JOIN sys.schemas AS referencing_schema ON referencing_schema.schema_id = referencing_object.schema_id
+WHERE (@schema IS NULL OR referencing_schema.name = @schema)
+  AND (@name IS NULL OR referencing_object.name = @name)
+UNION ALL
+SELECT
+    DependencyType = N'ForeignKey',
+    ReferencingSchema = parent_schema.name,
+    ReferencingName = parent_table.name,
+    ReferencingType = parent_table.type_desc,
+    ReferencedServerName = CONVERT(nvarchar(128), NULL),
+    ReferencedDatabaseName = CONVERT(nvarchar(128), NULL),
+    ReferencedSchemaName = referenced_schema.name,
+    ReferencedEntityName = referenced_table.name,
+    ReferencedClassDescription = N'OBJECT_OR_COLUMN',
+    IsCallerDependent = CONVERT(bit, 0),
+    IsAmbiguous = CONVERT(bit, 0)
+FROM sys.foreign_keys AS foreign_key
+INNER JOIN sys.tables AS parent_table ON parent_table.object_id = foreign_key.parent_object_id
+INNER JOIN sys.schemas AS parent_schema ON parent_schema.schema_id = parent_table.schema_id
+INNER JOIN sys.tables AS referenced_table ON referenced_table.object_id = foreign_key.referenced_object_id
+INNER JOIN sys.schemas AS referenced_schema ON referenced_schema.schema_id = referenced_table.schema_id
+WHERE (@schema IS NULL OR parent_schema.name = @schema)
+  AND (@name IS NULL OR parent_table.name = @name)
+ORDER BY ReferencingSchema, ReferencingName, DependencyType, ReferencedSchemaName, ReferencedEntityName;";
+
+    private const string SqlServerModuleScriptsManagementQuery = @"
+SELECT
+    ScriptType = N'Module',
+    SchemaName = schema_info.name,
+    ObjectName = object_info.name,
+    ObjectType = object_info.type_desc,
+    Script = module_info.definition
+FROM sys.objects AS object_info
+INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = object_info.schema_id
+INNER JOIN sys.sql_modules AS module_info ON module_info.object_id = object_info.object_id
+WHERE object_info.type IN ('P', 'PC', 'X', 'V', 'TR', 'FN', 'IF', 'TF', 'FS', 'FT')
+  AND (@schema IS NULL OR schema_info.name = @schema)
+  AND (@name IS NULL OR object_info.name = @name)
+ORDER BY schema_info.name, object_info.name;";
+
+    private const string SqlServerTableScriptColumnsManagementQuery = @"
+SELECT
+    SchemaName = schema_info.name,
+    TableName = table_info.name,
+    ColumnName = column_info.name,
+    Ordinal = column_info.column_id,
+    DataType = CASE
+        WHEN type_info.is_user_defined = 1 THEN QUOTENAME(type_schema.name) + N'.' + QUOTENAME(type_info.name)
+        WHEN type_info.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length) END + N')'
+        WHEN type_info.name IN (N'nvarchar', N'nchar') THEN type_info.name + N'(' + CASE WHEN column_info.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), column_info.max_length / 2) END + N')'
+        WHEN type_info.name IN (N'decimal', N'numeric') THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.precision) + N',' + CONVERT(nvarchar(12), column_info.scale) + N')'
+        WHEN type_info.name IN (N'datetime2', N'datetimeoffset', N'time') THEN type_info.name + N'(' + CONVERT(nvarchar(12), column_info.scale) + N')'
+        ELSE type_info.name
+    END,
+    IsNullable = CONVERT(bit, column_info.is_nullable),
+    IsIdentity = CONVERT(bit, column_info.is_identity),
+    IdentitySeed = CONVERT(nvarchar(40), identity_info.seed_value),
+    IdentityIncrement = CONVERT(nvarchar(40), identity_info.increment_value),
+    DefaultDefinition = default_info.definition,
+    ComputedDefinition = computed_info.definition,
+    IsPersisted = CONVERT(bit, ISNULL(computed_info.is_persisted, 0))
+FROM sys.tables AS table_info
+INNER JOIN sys.schemas AS schema_info ON schema_info.schema_id = table_info.schema_id
+INNER JOIN sys.columns AS column_info ON column_info.object_id = table_info.object_id
+INNER JOIN sys.types AS type_info ON type_info.user_type_id = column_info.user_type_id
+INNER JOIN sys.schemas AS type_schema ON type_schema.schema_id = type_info.schema_id
+LEFT JOIN sys.identity_columns AS identity_info ON identity_info.object_id = column_info.object_id AND identity_info.column_id = column_info.column_id
+LEFT JOIN sys.default_constraints AS default_info ON default_info.object_id = column_info.default_object_id
+LEFT JOIN sys.computed_columns AS computed_info ON computed_info.object_id = column_info.object_id AND computed_info.column_id = column_info.column_id
+WHERE (@schema IS NULL OR schema_info.name = @schema)
+  AND (@name IS NULL OR table_info.name = @name)
+ORDER BY schema_info.name, table_info.name, column_info.column_id;";
 }

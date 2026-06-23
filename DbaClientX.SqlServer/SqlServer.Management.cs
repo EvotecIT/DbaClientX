@@ -115,4 +115,89 @@ public partial class SqlServer
             ["@name"] = name,
             ["@includeAdvanced"] = includeAdvanced ? 1 : 0
         });
+
+    /// <summary>
+    /// Lists SQL Server object dependencies from native catalog views.
+    /// </summary>
+    public virtual IReadOnlyList<SqlServerDependencyInfo> GetSqlServerDependencies(
+        string connectionString,
+        string? schema = null,
+        string? name = null)
+        => ExecuteMetadata(connectionString, SqlServerDependenciesManagementQuery, SqlServerManagementMappers.MapDependency, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@name"] = name
+        });
+
+    /// <summary>
+    /// Lists SQL Server module definitions for procedures, functions, views, and triggers.
+    /// </summary>
+    public virtual IReadOnlyList<SqlServerScriptInfo> GetSqlServerModuleScripts(
+        string connectionString,
+        string? schema = null,
+        string? name = null)
+        => ExecuteMetadata(connectionString, SqlServerModuleScriptsManagementQuery, SqlServerManagementMappers.MapScript, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@name"] = name
+        });
+
+    /// <summary>
+    /// Generates basic SQL Server CREATE TABLE scripts from catalog metadata.
+    /// </summary>
+    public virtual IReadOnlyList<SqlServerScriptInfo> GetSqlServerTableScripts(
+        string connectionString,
+        string? schema = null,
+        string? name = null)
+    {
+        IReadOnlyList<SqlServerTableColumnScriptInfo> columns = ExecuteMetadata(
+            connectionString,
+            SqlServerTableScriptColumnsManagementQuery,
+            SqlServerManagementMappers.MapTableScriptColumn,
+            new Dictionary<string, object?>
+            {
+                ["@schema"] = schema,
+                ["@name"] = name
+            });
+
+        return SqlServerManagementScripting.BuildTableScripts(columns);
+    }
+
+    /// <summary>
+    /// Builds an inspectable SQL Server table copy and sync command plan from metadata.
+    /// </summary>
+    public virtual SqlServerTableCopyPlan GetSqlServerTableCopyPlan(
+        string sourceConnectionString,
+        string sourceSchema,
+        string sourceTable,
+        string? destinationSchema = null,
+        string? destinationTable = null)
+    {
+        IReadOnlyList<Metadata.DbaColumnInfo> columns = GetColumns(sourceConnectionString, sourceSchema, sourceTable);
+        IReadOnlyList<Metadata.DbaIndexInfo> indexes = GetIndexes(sourceConnectionString, sourceSchema, sourceTable);
+        return SqlServerManagementScripting.BuildTableCopyPlan(
+            sourceSchema,
+            sourceTable,
+            destinationSchema ?? sourceSchema,
+            destinationTable ?? sourceTable,
+            columns,
+            indexes);
+    }
+
+    /// <summary>
+    /// Builds a SQL Server instance inventory snapshot from reusable management readers.
+    /// </summary>
+    public virtual SqlServerInventorySnapshot GetSqlServerInventory(
+        string connectionString,
+        bool includeSystem = false,
+        bool includeAdvanced = false,
+        bool includeDisabledAgent = true)
+        => new()
+        {
+            InstanceProperties = GetSqlServerInstanceProperties(connectionString),
+            Configurations = GetSqlServerConfigurations(connectionString, includeAdvanced: includeAdvanced),
+            Databases = GetDatabases(connectionString),
+            AgentJobs = GetSqlServerAgentJobs(connectionString, includeDisabled: includeDisabledAgent),
+            ServerPrincipals = GetSqlServerServerPrincipals(connectionString, includeSystem: includeSystem)
+        };
 }

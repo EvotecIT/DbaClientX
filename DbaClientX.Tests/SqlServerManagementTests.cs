@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
+using DBAClientX.Metadata;
 using DBAClientX.SqlServerManagement;
 using Xunit;
 
@@ -86,6 +88,96 @@ public class SqlServerManagementTests
         Assert.Equal("dbo", permission.SecurableSchema);
         Assert.Equal("Users", permission.SecurableName);
         Assert.Equal("app_role", permission.GranteeName);
+    }
+
+    [Fact]
+    public void MapDependency_MapsCrossDatabaseReference()
+    {
+        using var reader = ReadSingleRow(
+            ("DependencyType", typeof(string), "SqlExpression"),
+            ("ReferencingSchema", typeof(string), "dbo"),
+            ("ReferencingName", typeof(string), "ViewUsers"),
+            ("ReferencingType", typeof(string), "VIEW"),
+            ("ReferencedServerName", typeof(string), DBNull.Value),
+            ("ReferencedDatabaseName", typeof(string), "OtherDb"),
+            ("ReferencedSchemaName", typeof(string), "dbo"),
+            ("ReferencedEntityName", typeof(string), "Users"),
+            ("ReferencedClassDescription", typeof(string), "OBJECT_OR_COLUMN"),
+            ("IsCallerDependent", typeof(bool), false),
+            ("IsAmbiguous", typeof(bool), true));
+
+        SqlServerDependencyInfo dependency = SqlServerManagementMappers.MapDependency(reader);
+
+        Assert.Equal("SqlExpression", dependency.DependencyType);
+        Assert.Equal("ViewUsers", dependency.ReferencingName);
+        Assert.Equal("OtherDb", dependency.ReferencedDatabaseName);
+        Assert.True(dependency.IsAmbiguous);
+    }
+
+    [Fact]
+    public void BuildTableScripts_GeneratesQuotedCreateTable()
+    {
+        var columns = new[]
+        {
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Id",
+                Ordinal = 1,
+                DataType = "int",
+                IsIdentity = true,
+                IdentitySeed = "1",
+                IdentityIncrement = "1"
+            },
+            new SqlServerTableColumnScriptInfo
+            {
+                SchemaName = "dbo",
+                TableName = "User]Audit",
+                ColumnName = "Name",
+                Ordinal = 2,
+                DataType = "nvarchar(128)",
+                IsNullable = false,
+                DefaultDefinition = "N''"
+            }
+        };
+
+        IReadOnlyList<SqlServerScriptInfo> scripts = SqlServerManagementScripting.BuildTableScripts(columns);
+
+        SqlServerScriptInfo script = Assert.Single(scripts);
+        Assert.Equal("Table", script.ScriptType);
+        Assert.Contains("CREATE TABLE [dbo].[User]]Audit]", script.Script);
+        Assert.Contains("[Id] int IDENTITY(1,1) NOT NULL", script.Script);
+        Assert.Contains("[Name] nvarchar(128) NOT NULL DEFAULT N''", script.Script);
+    }
+
+    [Fact]
+    public void BuildTableCopyPlan_InfersPrimaryKeyAndCommands()
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("dbo", "Users", "Id", "int") { Ordinal = 1, IsNullable = false },
+            new DbaColumnInfo("dbo", "Users", "DisplayName", "nvarchar(128)") { Ordinal = 2, IsNullable = true }
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users") { Column = "Id", Ordinal = 1, IsPrimaryKey = true, IsUnique = true }
+        };
+
+        SqlServerTableCopyPlan plan = SqlServerManagementScripting.BuildTableCopyPlan(
+            "dbo",
+            "Users",
+            "archive",
+            "Users",
+            columns,
+            indexes);
+
+        Assert.Equal("SELECT [Id], [DisplayName] FROM [dbo].[Users];", plan.SourceSelectCommand);
+        Assert.Equal("INSERT INTO [archive].[Users] ([Id], [DisplayName]) VALUES (@p0, @p1);", plan.DestinationInsertCommand);
+        Assert.Equal("Id", Assert.Single(plan.KeyColumns));
+        Assert.NotNull(plan.DestinationMergeCommand);
+        Assert.Contains("ON target.[Id] = source.[Id]", plan.DestinationMergeCommand);
+        Assert.Contains("UPDATE SET target.[DisplayName] = source.[DisplayName]", plan.DestinationMergeCommand);
     }
 
     private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)

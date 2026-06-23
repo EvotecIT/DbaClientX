@@ -30,5 +30,20 @@ public enum DbaXSqlServerManagementType
     InstanceProperty,
 
     /// <summary>SQL Server instance configuration values.</summary>
-    Configuration
+    Configuration,
+
+    /// <summary>SQL Server object dependencies.</summary>
+    Dependency,
+
+    /// <summary>SQL Server procedure, function, view, and trigger scripts.</summary>
+    ModuleScript,
+
+    /// <summary>SQL Server table CREATE scripts.</summary>
+    TableScript,
+
+    /// <summary>SQL Server table copy and sync command plan.</summary>
+    TableCopyPlan,
+
+    /// <summary>SQL Server instance inventory snapshot.</summary>
+    Inventory
 }

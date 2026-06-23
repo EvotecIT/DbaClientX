@@ -3,7 +3,7 @@ using DBAClientX.SqlServerManagement;
 namespace DBAClientX.PowerShell;
 
 /// <summary>Gets SQL Server-specific management metadata without requiring SQL Server Management Objects.</summary>
-/// <para>Returns SQL Server Agent, security, role membership, permission, instance property, and configuration metadata using native SQL Server catalog queries.</para>
+/// <para>Returns SQL Server Agent, security, dependency, scripting, copy-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.</para>
 /// <example>
 /// <summary>List SQL Server Agent jobs.</summary>
 /// <prefix>PS&gt; </prefix>
@@ -32,6 +32,22 @@ public sealed class CmdletGetDbaXSqlServerManagement : AsyncPSCmdlet
     /// <summary>Optional name filter used by Agent jobs, principals, instance properties, and configurations.</summary>
     [Parameter(Mandatory = false)]
     public string? Name { get; set; }
+
+    /// <summary>Optional schema filter used by dependency, scripting, and copy-plan metadata.</summary>
+    [Parameter(Mandatory = false)]
+    public string? Schema { get; set; }
+
+    /// <summary>Source table name for table copy plans.</summary>
+    [Parameter(Mandatory = false)]
+    public string? Table { get; set; }
+
+    /// <summary>Destination schema name for table copy plans.</summary>
+    [Parameter(Mandatory = false)]
+    public string? DestinationSchema { get; set; }
+
+    /// <summary>Destination table name for table copy plans.</summary>
+    [Parameter(Mandatory = false)]
+    public string? DestinationTable { get; set; }
 
     /// <summary>Optional role name filter for role membership metadata.</summary>
     [Parameter(Mandatory = false)]
@@ -73,9 +89,21 @@ public sealed class CmdletGetDbaXSqlServerManagement : AsyncPSCmdlet
             DbaXSqlServerManagementType.Permission => client.GetSqlServerPermissions(ConnectionString, PrincipalName),
             DbaXSqlServerManagementType.InstanceProperty => client.GetSqlServerInstanceProperties(ConnectionString, Name),
             DbaXSqlServerManagementType.Configuration => client.GetSqlServerConfigurations(ConnectionString, Name, IncludeAdvanced.IsPresent),
+            DbaXSqlServerManagementType.Dependency => client.GetSqlServerDependencies(ConnectionString, Schema, Name),
+            DbaXSqlServerManagementType.ModuleScript => client.GetSqlServerModuleScripts(ConnectionString, Schema, Name),
+            DbaXSqlServerManagementType.TableScript => client.GetSqlServerTableScripts(ConnectionString, Schema, Name),
+            DbaXSqlServerManagementType.TableCopyPlan => GetTableCopyPlan(client),
+            DbaXSqlServerManagementType.Inventory => client.GetSqlServerInventory(ConnectionString, IncludeSystem.IsPresent, IncludeAdvanced.IsPresent, IncludeDisabled.IsPresent),
             _ => throw new NotSupportedException($"SQL Server management type '{Type}' is not supported.")
         };
 
         WriteObject(result, enumerateCollection: true);
+    }
+
+    private SqlServerTableCopyPlan GetTableCopyPlan(DBAClientX.SqlServer client)
+    {
+        string schema = Schema ?? "dbo";
+        string table = Table ?? Name ?? throw new PSArgumentException("Table or Name is required for TableCopyPlan.", nameof(Table));
+        return client.GetSqlServerTableCopyPlan(ConnectionString, schema, table, DestinationSchema, DestinationTable);
     }
 }
