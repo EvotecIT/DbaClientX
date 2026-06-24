@@ -146,6 +146,7 @@ jobs:
               shell: pwsh
               env:
                   RefreshPSD1Only: 'false'
+                  SignModule: 'false'
               run: ./Module/Build/Build-Module.ps1
 
             - name: Run packaged ALC smoke test

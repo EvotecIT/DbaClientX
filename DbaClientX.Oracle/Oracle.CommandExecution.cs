@@ -226,6 +226,11 @@ public partial class Oracle
     /// <inheritdoc />
     protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
+        if (command is OracleCommand bindableCommand)
+        {
+            bindableCommand.BindByName = true;
+        }
+
         if (command is not OracleCommand oracleCommand || parameterTypes is not OracleParameterTypeMap oracleTypes)
         {
             base.AddParameters(command, parameters, parameterTypes, parameterDirections);
