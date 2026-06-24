@@ -23,7 +23,7 @@ public class SqlServerManagementTests
     public void MapAgentJob_MapsDefinitionFields()
     {
         Guid jobId = Guid.NewGuid();
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("JobId", typeof(Guid), jobId),
             ("Name", typeof(string), "Nightly backup"),
             ("Category", typeof(string), "Database Maintenance"),
@@ -48,7 +48,7 @@ public class SqlServerManagementTests
     public void MapAgentJobStep_MapsGotoStepTargets()
     {
         Guid jobId = Guid.NewGuid();
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("JobId", typeof(Guid), jobId),
             ("JobName", typeof(string), "Nightly backup"),
             ("StepId", typeof(int), 1),
@@ -76,7 +76,7 @@ public class SqlServerManagementTests
     public void MapAgentSchedule_MapsRecurrenceFields()
     {
         Guid jobId = Guid.NewGuid();
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("JobId", typeof(Guid), jobId),
             ("JobName", typeof(string), "Nightly backup"),
             ("ScheduleId", typeof(int), 7),
@@ -105,7 +105,7 @@ public class SqlServerManagementTests
     [Fact]
     public void MapPrincipal_MapsSidAsHexString()
     {
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("Scope", typeof(string), "Server"),
             ("DatabaseName", typeof(string), DBNull.Value),
             ("Name", typeof(string), "app_login"),
@@ -131,7 +131,7 @@ public class SqlServerManagementTests
     [Fact]
     public void MapPermission_MapsSecurableAndPrincipals()
     {
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("Scope", typeof(string), "Database"),
             ("DatabaseName", typeof(string), "AppDb"),
             ("State", typeof(string), "G"),
@@ -225,7 +225,7 @@ public class SqlServerManagementTests
     [Fact]
     public void MapDependency_MapsCrossDatabaseReference()
     {
-        using var reader = ReadSingleRow(
+        var reader = ReadSingleRow(
             ("DependencyType", typeof(string), "SqlExpression"),
             ("ReferencingSchema", typeof(string), "dbo"),
             ("ReferencingName", typeof(string), "ViewUsers"),
@@ -1331,24 +1331,84 @@ public class SqlServerManagementTests
         Assert.DoesNotContain("target.[Id] = source.[Id]", plan.DestinationMergeCommand);
     }
 
-    private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)
+    private static SingleRowDataRecord ReadSingleRow(params (string Name, Type Type, object Value)[] columns)
+        => new(columns);
+
+    private sealed class SingleRowDataRecord : IDataRecord
     {
-        var table = new DataTable();
-        foreach ((string name, Type type, _) in columns)
+        private readonly (string Name, Type Type, object? Value)[] columns;
+        private readonly Dictionary<string, int> ordinals;
+
+        public SingleRowDataRecord(params (string Name, Type Type, object Value)[] columns)
         {
-            table.Columns.Add(name, type);
+            this.columns = columns
+                .Select(column => (column.Name, column.Type, Value: column.Value == DBNull.Value ? null : column.Value))
+                .ToArray();
+            ordinals = this.columns
+                .Select((column, index) => (column.Name, index))
+                .ToDictionary(item => item.Name, item => item.index, StringComparer.OrdinalIgnoreCase);
         }
 
-        DataRow row = table.NewRow();
-        foreach ((string name, _, object value) in columns)
+        public int FieldCount => columns.Length;
+
+        public object this[int i] => GetValue(i);
+
+        public object this[string name] => GetValue(GetOrdinal(name));
+
+        public string GetName(int i) => columns[i].Name;
+
+        public string GetDataTypeName(int i) => GetFieldType(i).Name;
+
+        public Type GetFieldType(int i) => columns[i].Type;
+
+        public object GetValue(int i) => columns[i].Value ?? DBNull.Value;
+
+        public int GetValues(object[] values)
         {
-            row[name] = value;
+            int count = Math.Min(values.Length, columns.Length);
+            for (int i = 0; i < count; i++)
+            {
+                values[i] = GetValue(i);
+            }
+
+            return count;
         }
 
-        table.Rows.Add(row);
-        DataTableReader reader = table.CreateDataReader();
-        Assert.True(reader.Read());
-        return reader;
+        public int GetOrdinal(string name) => ordinals[name];
+
+        public bool IsDBNull(int i) => columns[i].Value is null;
+
+        public bool GetBoolean(int i) => Convert.ToBoolean(GetValue(i));
+
+        public byte GetByte(int i) => Convert.ToByte(GetValue(i));
+
+        public long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length)
+            => throw new NotSupportedException();
+
+        public char GetChar(int i) => Convert.ToChar(GetValue(i));
+
+        public long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length)
+            => throw new NotSupportedException();
+
+        public IDataReader GetData(int i) => throw new NotSupportedException();
+
+        public DateTime GetDateTime(int i) => Convert.ToDateTime(GetValue(i));
+
+        public decimal GetDecimal(int i) => Convert.ToDecimal(GetValue(i));
+
+        public double GetDouble(int i) => Convert.ToDouble(GetValue(i));
+
+        public float GetFloat(int i) => Convert.ToSingle(GetValue(i));
+
+        public Guid GetGuid(int i) => (Guid)GetValue(i);
+
+        public short GetInt16(int i) => Convert.ToInt16(GetValue(i));
+
+        public int GetInt32(int i) => Convert.ToInt32(GetValue(i));
+
+        public long GetInt64(int i) => Convert.ToInt64(GetValue(i));
+
+        public string GetString(int i) => Convert.ToString(GetValue(i)) ?? string.Empty;
     }
 
     private static string GetPrivateStaticString<T>(string fieldName)
