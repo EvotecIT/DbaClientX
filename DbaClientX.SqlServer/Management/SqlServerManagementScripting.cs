@@ -22,12 +22,12 @@ internal static class SqlServerManagementScripting
             .Select(BuildTableScript)
             .ToList();
 
-        foreach (SqlServerScriptInfo? postCreateScript in tableGroups.Select(BuildTablePostCreateScript))
+        foreach (SqlServerScriptInfo postCreateScript in tableGroups
+            .Select(BuildTablePostCreateScript)
+            .Where(postCreateScript => postCreateScript != null)
+            .Select(postCreateScript => postCreateScript!))
         {
-            if (postCreateScript != null)
-            {
-                scripts.Add(postCreateScript);
-            }
+            scripts.Add(postCreateScript);
         }
 
         return scripts;

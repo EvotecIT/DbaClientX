@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using DBAClientX.SqlServerManagement;
 using Microsoft.Data.SqlClient;
 
@@ -14,7 +15,7 @@ public partial class SqlServer
         string connectionString,
         string? jobName = null,
         bool includeDisabled = true)
-        => ExecuteMetadata(connectionString, SqlServerAgentJobsManagementQuery, SqlServerManagementMappers.MapAgentJob, new Dictionary<string, object?>
+        => ExecuteAgentMetadata(connectionString, SqlServerAgentJobsManagementQuery, SqlServerManagementMappers.MapAgentJob, new Dictionary<string, object?>
         {
             ["@jobName"] = jobName,
             ["@includeDisabled"] = includeDisabled ? 1 : 0
@@ -26,7 +27,7 @@ public partial class SqlServer
     public virtual IReadOnlyList<SqlServerAgentJobStepInfo> GetSqlServerAgentJobSteps(
         string connectionString,
         string? jobName = null)
-        => ExecuteMetadata(connectionString, SqlServerAgentJobStepsManagementQuery, SqlServerManagementMappers.MapAgentJobStep, new Dictionary<string, object?>
+        => ExecuteAgentMetadata(connectionString, SqlServerAgentJobStepsManagementQuery, SqlServerManagementMappers.MapAgentJobStep, new Dictionary<string, object?>
         {
             ["@jobName"] = jobName
         });
@@ -38,7 +39,7 @@ public partial class SqlServer
         string connectionString,
         string? jobName = null,
         bool includeDisabled = true)
-        => ExecuteMetadata(connectionString, SqlServerAgentSchedulesManagementQuery, SqlServerManagementMappers.MapAgentSchedule, new Dictionary<string, object?>
+        => ExecuteAgentMetadata(connectionString, SqlServerAgentSchedulesManagementQuery, SqlServerManagementMappers.MapAgentSchedule, new Dictionary<string, object?>
         {
             ["@jobName"] = jobName,
             ["@includeDisabled"] = includeDisabled ? 1 : 0
@@ -336,8 +337,42 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            object? result = ExecuteScalar(connection, transaction, SqlServerAgentCatalogSupportQuery);
-            return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+            return SupportsAgentCatalog(connection, transaction);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                DisposeConnection(connection!);
+            }
+        }
+    }
+
+    private bool SupportsAgentCatalog(SqlConnection connection, SqlTransaction? transaction)
+    {
+        object? result = ExecuteScalar(connection, transaction, SqlServerAgentCatalogSupportQuery);
+        return result is not null && result is not DBNull && Convert.ToInt32(result) == 1;
+    }
+
+    private IReadOnlyList<T> ExecuteAgentMetadata<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null)
+    {
+        ValidateConnectionString(connectionString);
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
+            if (!SupportsAgentCatalog(connection, transaction))
+            {
+                return Array.Empty<T>();
+            }
+
+            return ExecuteMappedQuery(connection, transaction, query, map, parameters: parameters);
         }
         finally
         {

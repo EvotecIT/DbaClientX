@@ -71,7 +71,7 @@ SELECT
     i.index_type,
     CASE WHEN i.uniqueness = 'UNIQUE' THEN 1 ELSE 0 END AS is_unique,
     CASE WHEN c.constraint_type = 'P' THEN 1 ELSE 0 END AS is_primary_key,
-    CASE WHEN ie.column_expression IS NULL THEN ic.column_name ELSE NULL END AS column_name,
+    ic.column_name AS column_name,
     ic.column_position AS ordinal_position,
     CASE WHEN ic.descend = 'DESC' THEN 1 ELSE 0 END AS is_descending,
     0 AS is_included,
@@ -249,7 +249,9 @@ ORDER BY object_info.owner, object_info.object_name";
         };
 
     private static DbaIndexInfo MapIndex(IDataRecord record)
-        => new(
+    {
+        string? expression = DbaMetadataReader.GetNullableString(record, "expression");
+        return new(
             DbaMetadataReader.GetString(record, "schema_name"),
             DbaMetadataReader.GetString(record, "table_name"),
             DbaMetadataReader.GetString(record, "index_name"))
@@ -257,8 +259,8 @@ ORDER BY object_info.owner, object_info.object_name";
             IndexType = DbaMetadataReader.GetNullableString(record, "index_type"),
             IsUnique = DbaMetadataReader.GetBoolean(record, "is_unique"),
             IsPrimaryKey = DbaMetadataReader.GetBoolean(record, "is_primary_key"),
-            Column = DbaMetadataReader.GetNullableString(record, "column_name"),
-            Expression = DbaMetadataReader.GetNullableString(record, "expression"),
+            Column = expression is null ? DbaMetadataReader.GetNullableString(record, "column_name") : null,
+            Expression = expression,
             Ordinal = DbaMetadataReader.GetNullableInt32(record, "ordinal_position") ?? 0,
             IsDescending = DbaMetadataReader.GetNullableBoolean(record, "is_descending"),
             IsIncluded = DbaMetadataReader.GetNullableBoolean(record, "is_included"),
@@ -266,6 +268,7 @@ ORDER BY object_info.owner, object_info.object_name";
             PrefixLength = DbaMetadataReader.GetNullableInt32(record, "prefix_length"),
             FilterDefinition = DbaMetadataReader.GetNullableString(record, "filter_definition")
         };
+    }
 
     private static DbaForeignKeyInfo MapForeignKey(IDataRecord record)
         => new(

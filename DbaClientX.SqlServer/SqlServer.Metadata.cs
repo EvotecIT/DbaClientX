@@ -127,6 +127,10 @@ SELECT
     CASE
         WHEN o.type IN ('FN', 'FS') THEN
             CASE
+                WHEN ty.name IN ('varchar', 'char', 'varbinary', 'binary') THEN CONCAT(ty.name, N'(', CASE WHEN rp.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), rp.max_length) END, N')')
+                WHEN ty.name IN ('nvarchar', 'nchar') THEN CONCAT(ty.name, N'(', CASE WHEN rp.max_length = -1 THEN N'max' ELSE CONVERT(nvarchar(12), rp.max_length / 2) END, N')')
+                WHEN ty.name IN ('decimal', 'numeric') THEN CONCAT(ty.name, N'(', CONVERT(nvarchar(12), rp.precision), N',', CONVERT(nvarchar(12), rp.scale), N')')
+                WHEN ty.name IN ('datetime2', 'datetimeoffset', 'time') THEN CONCAT(ty.name, N'(', CONVERT(nvarchar(12), rp.scale), N')')
                 WHEN ty.schema_id IS NOT NULL AND SCHEMA_NAME(ty.schema_id) <> 'sys' THEN CONCAT(SCHEMA_NAME(ty.schema_id), '.', ty.name)
                 ELSE ty.name
             END

@@ -66,16 +66,37 @@ public class ProviderMetadataQueryTests
     }
 
     [Fact]
+    public void SqlServerRoutineQuery_PreservesReturnTypeModifiers()
+    {
+        string routines = GetQuery<DBAClientX.SqlServer>("SqlServerRoutinesQuery");
+
+        Assert.Contains("rp.max_length", routines);
+        Assert.Contains("rp.precision", routines);
+        Assert.Contains("rp.scale", routines);
+        Assert.Contains("ty.name IN ('decimal', 'numeric')", routines);
+        Assert.Contains("ty.name IN ('nvarchar', 'nchar')", routines);
+        Assert.Contains("ty.name IN ('datetime2', 'datetimeoffset', 'time')", routines);
+    }
+
+    [Fact]
     public void MySqlQueries_PreserveFunctionalIndexesAndProcedureReturnNulls()
     {
+        string tables = GetQuery<DBAClientX.MySql>("MySqlTablesQuery");
         string indexes = GetQuery<DBAClientX.MySql>("MySqlIndexesQuery");
         string indexesWithExpressions = GetQuery<DBAClientX.MySql>("MySqlIndexesWithExpressionsQuery");
         string indexesWithVisibility = GetQuery<DBAClientX.MySql>("MySqlIndexesWithVisibilityQuery");
         string indexesWithExpressionsAndVisibility = GetQuery<DBAClientX.MySql>("MySqlIndexesWithExpressionsAndVisibilityQuery");
+        string columns = GetQuery<DBAClientX.MySql>("MySqlColumnsQuery");
+        string foreignKeys = GetQuery<DBAClientX.MySql>("MySqlForeignKeysQuery");
         string expressionSupport = GetQuery<DBAClientX.MySql>("MySqlStatisticsExpressionSupportQuery");
         string visibilitySupport = GetQuery<DBAClientX.MySql>("MySqlStatisticsVisibilitySupportQuery");
         string routines = GetQuery<DBAClientX.MySql>("MySqlRoutinesQuery");
 
+        Assert.Contains("DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", tables);
+        Assert.Contains("DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", columns);
+        Assert.Contains("DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", indexes);
+        Assert.Contains("DATABASE() IS NULL AND kcu.TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", foreignKeys);
+        Assert.Contains("DATABASE() IS NULL AND ROUTINE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')", routines);
         Assert.Contains("NULL AS is_visible", indexes);
         Assert.Contains("NULL AS expression", indexes);
         Assert.Contains("INFORMATION_SCHEMA.COLUMNS", expressionSupport);
@@ -104,6 +125,8 @@ public class ProviderMetadataQueryTests
         Assert.Contains("FROM all_mviews", tables);
         Assert.Contains("all_ind_expressions", indexes);
         Assert.Contains("ie.column_expression AS expression", indexes);
+        Assert.Contains("ic.column_name AS column_name", indexes);
+        Assert.DoesNotContain("CASE WHEN ie.column_expression IS NULL", indexes);
         Assert.Contains("i.status = 'VALID'", indexes);
         Assert.Contains("i.visibility = 'VISIBLE'", indexes);
         Assert.Contains(":tableNameExact IS NULL OR fk.table_name = :tableNameExact OR fk.table_name = UPPER(:tableNameNormalized)", foreignKeys);
@@ -120,6 +143,8 @@ public class ProviderMetadataQueryTests
 
         Assert.Contains("ti.hidden <> 1", columns);
         Assert.Contains("NULL AS is_visible", indexes);
+        Assert.Contains("replace(replace(replace(im.sql, char(13), ' '), char(10), ' '), char(9), ' ')", indexes);
+        Assert.Contains("ltrim(substr(im.sql", indexes);
     }
 
     [Fact]

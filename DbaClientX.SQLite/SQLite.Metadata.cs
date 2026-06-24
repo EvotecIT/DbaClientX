@@ -65,7 +65,11 @@ SELECT
     NULL AS is_visible,
     NULL AS prefix_length,
     CASE WHEN ii.cid = -2 THEN im.sql ELSE NULL END AS expression,
-    CASE WHEN instr(lower(im.sql), ' where ') > 0 THEN substr(im.sql, instr(lower(im.sql), ' where ') + 7) ELSE NULL END AS filter_definition
+    CASE
+        WHEN instr(lower(replace(replace(replace(im.sql, char(13), ' '), char(10), ' '), char(9), ' ')), ' where ') > 0
+        THEN ltrim(substr(im.sql, instr(lower(replace(replace(replace(im.sql, char(13), ' '), char(10), ' '), char(9), ' ')), ' where ') + 7))
+        ELSE NULL
+    END AS filter_definition
 FROM pragma_table_list tl
 INNER JOIN sqlite_master m ON m.name = tl.name AND m.type = 'table'
 INNER JOIN pragma_index_list(m.name) il

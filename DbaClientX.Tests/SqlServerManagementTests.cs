@@ -1333,7 +1333,7 @@ public class SqlServerManagementTests
 
     private static DataTableReader ReadSingleRow(params (string Name, Type Type, object Value)[] columns)
     {
-        var table = new DataTable();
+        using var table = new DataTable();
         foreach ((string name, Type type, _) in columns)
         {
             table.Columns.Add(name, type);
@@ -1346,7 +1346,10 @@ public class SqlServerManagementTests
         }
 
         table.Rows.Add(row);
-        DataTableReader reader = table.CreateDataReader();
+        using DataTableReader sourceReader = table.CreateDataReader();
+        var resultTable = new DataTable();
+        resultTable.Load(sourceReader);
+        DataTableReader reader = resultTable.CreateDataReader();
         Assert.True(reader.Read());
         return reader;
     }

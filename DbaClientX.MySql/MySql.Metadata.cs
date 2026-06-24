@@ -22,7 +22,11 @@ SELECT
     TABLE_NAME AS object_name,
     CASE WHEN TABLE_TYPE = 'VIEW' THEN 'View' ELSE 'Table' END AS object_kind
 FROM INFORMATION_SCHEMA.TABLES
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@includeViews = 1 OR TABLE_TYPE = 'BASE TABLE')
 ORDER BY TABLE_SCHEMA, TABLE_NAME;";
 
@@ -48,7 +52,11 @@ SELECT
         ELSE NULL
     END AS generated_kind
 FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
 
@@ -83,7 +91,11 @@ SELECT
     NULL AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
 
@@ -104,7 +116,11 @@ SELECT
     EXPRESSION AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
 
@@ -125,7 +141,11 @@ SELECT
     NULL AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
 
@@ -146,7 +166,11 @@ SELECT
     EXPRESSION AS expression,
     NULL AS filter_definition
 FROM INFORMATION_SCHEMA.STATISTICS
-WHERE TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND (@table IS NULL OR TABLE_NAME = @table)
 ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX;";
 
@@ -169,7 +193,11 @@ LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
     ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
     AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
     AND rc.TABLE_NAME = kcu.TABLE_NAME
-WHERE kcu.TABLE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND kcu.TABLE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND kcu.TABLE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND kcu.TABLE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
   AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
   AND (@table IS NULL OR kcu.TABLE_NAME = @table)
 ORDER BY kcu.TABLE_SCHEMA, kcu.TABLE_NAME, kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION;";
@@ -183,7 +211,11 @@ SELECT
     ROUTINE_DEFINITION AS definition,
     CASE WHEN ROUTINE_SCHEMA IN ('information_schema', 'mysql', 'performance_schema', 'sys') THEN 1 ELSE 0 END AS is_system
 FROM INFORMATION_SCHEMA.ROUTINES
-WHERE ROUTINE_SCHEMA = COALESCE(@schema, DATABASE())
+WHERE (
+      (@schema IS NOT NULL AND ROUTINE_SCHEMA = @schema)
+      OR (@schema IS NULL AND DATABASE() IS NOT NULL AND ROUTINE_SCHEMA = DATABASE())
+      OR (@schema IS NULL AND DATABASE() IS NULL AND ROUTINE_SCHEMA NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys'))
+  )
 ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME;";
 
     /// <summary>Lists MySQL databases visible to the connection.</summary>
