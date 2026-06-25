@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DBAClientX.DataMovement;
 
@@ -44,12 +45,9 @@ public sealed record DbaTableCopyDefinition(
             return;
         }
 
-        foreach (var name in names)
+        if (names.Any(string.IsNullOrWhiteSpace))
         {
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                throw new ArgumentException(message);
-            }
+            throw new ArgumentException(message);
         }
     }
 }
