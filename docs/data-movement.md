@@ -251,6 +251,35 @@ var result = await new DbaTableCopyEngine().CopyAsync(
 
 The planner is intentionally metadata-driven, not domain-driven. It can infer order columns from primary keys, omit generated/rowversion columns, omit destination identity columns when requested, match destination columns, and apply per-table mappings, exclusions, and conversions. Consumers such as TestimoX should still own their table order and domain schema rules.
 
+For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `DbaProviderTableCopyAdapter` instead of implementing `IDbaTableCopySource` and `IDbaTableCopyDestination` yourself:
+
+```csharp
+var sourceAdapter = new DbaProviderTableCopyAdapter(
+    DbaTableCopyProvider.SQLite,
+    "Data Source=C:\\Data\\monitoring.sqlite");
+
+var destinationAdapter = new DbaProviderTableCopyAdapter(
+    DbaTableCopyProvider.SqlServer,
+    "Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True",
+    sqlServerOptions: new SqlServerBulkInsertOptions
+    {
+        BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
+    });
+
+var result = await new DbaTableCopyEngine().CopyAsync(
+    sourceAdapter,
+    destinationAdapter,
+    plan.Definitions,
+    new DbaTableCopyOptions
+    {
+        PageSize = 10000,
+        BatchSize = 5000
+    },
+    cancellationToken);
+```
+
+The provider adapter supports SQL Server, PostgreSQL, MySQL, Oracle, and SQLite as either source or destination. PowerShell's `Copy-DbaXTableData` uses the same adapter internally and only maps user-friendly parameters into the reusable .NET API.
+
 PowerShell can also run prepared definitions directly:
 
 ```powershell

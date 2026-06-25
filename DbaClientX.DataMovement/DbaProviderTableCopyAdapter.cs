@@ -1,35 +1,70 @@
-using System.Data;
-using DBAClientX.DataMovement;
 using Microsoft.Data.Sqlite;
+using DBAClientX;
 
-namespace DBAClientX.PowerShell;
+namespace DBAClientX.DataMovement;
 
-internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
+/// <summary>
+/// Provides reusable provider-backed source and destination adapters for <see cref="DbaTableCopyEngine"/>.
+/// </summary>
+public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
 {
-    private readonly DbaXBulkProvider _provider;
+    private readonly DbaTableCopyProvider _provider;
     private readonly string _connectionString;
-    private readonly string[] _orderBy;
+    private readonly string[] _defaultOrderBy;
     private readonly bool _allowUnordered;
     private readonly SqlServerBulkInsertOptions? _sqlServerOptions;
 
-    public DbaXTableCopyAdapter(
-        DbaXBulkProvider provider,
+    /// <summary>
+    /// Creates a provider-backed adapter from explicit provider settings.
+    /// </summary>
+    public DbaProviderTableCopyAdapter(
+        DbaTableCopyProvider provider,
         string connectionString,
-        IReadOnlyList<string>? orderBy = null,
+        IReadOnlyList<string>? defaultOrderByColumns = null,
         bool allowUnordered = false,
         SqlServerBulkInsertOptions? sqlServerOptions = null)
+        : this(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = connectionString,
+            DefaultOrderByColumns = defaultOrderByColumns,
+            AllowUnordered = allowUnordered,
+            SqlServerOptions = sqlServerOptions
+        })
     {
-        _provider = provider;
-        _connectionString = connectionString;
-        _orderBy = orderBy?.Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value.Trim()).ToArray()
-            ?? Array.Empty<string>();
-        _allowUnordered = allowUnordered;
-        _sqlServerOptions = sqlServerOptions;
     }
 
+    /// <summary>
+    /// Creates a provider-backed adapter from options.
+    /// </summary>
+    public DbaProviderTableCopyAdapter(DbaProviderTableCopyAdapterOptions options)
+    {
+        if (options == null)
+        {
+            throw new ArgumentNullException(nameof(options));
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ConnectionString))
+        {
+            throw new ArgumentException("ConnectionString cannot be null or whitespace.", nameof(options));
+        }
+
+        _provider = options.Provider;
+        _connectionString = options.ConnectionString;
+        _defaultOrderBy = options.DefaultOrderByColumns?
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(static value => value.Trim())
+            .ToArray()
+            ?? Array.Empty<string>();
+        _allowUnordered = options.AllowUnordered;
+        _sqlServerOptions = options.SqlServerOptions;
+    }
+
+    /// <inheritdoc />
     public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         => ExecuteCountAsync(definition.SourceName, cancellationToken);
 
+    /// <inheritdoc />
     public async Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
     {
         var query = BuildPageQuery(request.Definition.SourceName, request.Definition.OrderByColumns, request.Offset, request.PageSize);
@@ -38,15 +73,17 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         return table;
     }
 
+    /// <inheritdoc />
     public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         => ExecuteNonQueryAsync($"DELETE FROM {QuotePath(definition.DestinationName)}", cancellationToken);
 
+    /// <inheritdoc />
     public async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
         switch (_provider)
         {
-            case DbaXBulkProvider.SqlServer:
-                using (var sqlServer = new DBAClientX.SqlServer())
+            case DbaTableCopyProvider.SqlServer:
+                using (var sqlServer = new SqlServer())
                 {
                     await sqlServer.BulkInsertAsync(
                             _connectionString,
@@ -59,32 +96,32 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                         .ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.PostgreSql:
-                using (var postgreSql = new DBAClientX.PostgreSql())
+            case DbaTableCopyProvider.PostgreSql:
+                using (var postgreSql = new PostgreSql())
                 {
                     await postgreSql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.MySql:
-                using (var mySql = new DBAClientX.MySql())
+            case DbaTableCopyProvider.MySql:
+                using (var mySql = new MySql())
                 {
                     await mySql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.Oracle:
-                using (var oracle = new DBAClientX.Oracle())
+            case DbaTableCopyProvider.Oracle:
+                using (var oracle = new Oracle())
                 {
                     await oracle.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.SQLite:
-                using (var sqlite = new DBAClientX.SQLite())
+            case DbaTableCopyProvider.SQLite:
+                using (var sqlite = new SQLite())
                 {
                     await sqlite.BulkInsertWithConnectionStringAsync(ResolveSQLiteConnectionString(), page, definition.DestinationName, batchSize: options.BatchSize, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             default:
-                throw new PSArgumentException($"Provider '{_provider}' is not supported.");
+                throw new NotSupportedException($"Provider '{_provider}' is not supported.");
         }
     }
 
@@ -103,38 +140,30 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     {
         switch (_provider)
         {
-            case DbaXBulkProvider.SqlServer:
-                using (var sqlServer = new DBAClientX.SqlServer())
+            case DbaTableCopyProvider.SqlServer:
+                using (var sqlServer = new SqlServer())
                 {
                     return await sqlServer.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
-            case DbaXBulkProvider.PostgreSql:
-                using (var postgreSql = new DBAClientX.PostgreSql())
+            case DbaTableCopyProvider.PostgreSql:
+                using (var postgreSql = new PostgreSql())
                 {
                     return await postgreSql.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
-            case DbaXBulkProvider.MySql:
-                using (var mySql = new DBAClientX.MySql())
+            case DbaTableCopyProvider.MySql:
+                using (var mySql = new MySql())
                 {
                     return await mySql.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
-            case DbaXBulkProvider.Oracle:
-                using (var oracle = new DBAClientX.Oracle())
+            case DbaTableCopyProvider.Oracle:
+                using (var oracle = new Oracle())
                 {
                     return await oracle.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
-            case DbaXBulkProvider.SQLite:
-                if (HasSQLiteConnectionString())
-                {
-                    return await ExecuteSQLiteScalarWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
-                }
-
-                using (var sqlite = new DBAClientX.SQLite())
-                {
-                    return await sqlite.ExecuteScalarAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
+            case DbaTableCopyProvider.SQLite:
+                return await ExecuteSQLiteScalarAsync(query, cancellationToken).ConfigureAwait(false);
             default:
-                throw new PSArgumentException($"Provider '{_provider}' is not supported.");
+                throw new NotSupportedException($"Provider '{_provider}' is not supported.");
         }
     }
 
@@ -143,91 +172,73 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         object? result;
         switch (_provider)
         {
-            case DbaXBulkProvider.SqlServer:
-                using (var sqlServer = new DBAClientX.SqlServer { ReturnType = ReturnType.DataTable })
+            case DbaTableCopyProvider.SqlServer:
+                using (var sqlServer = new SqlServer { ReturnType = ReturnType.DataTable })
                 {
                     result = await sqlServer.QueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.PostgreSql:
-                using (var postgreSql = new DBAClientX.PostgreSql { ReturnType = ReturnType.DataTable })
+            case DbaTableCopyProvider.PostgreSql:
+                using (var postgreSql = new PostgreSql { ReturnType = ReturnType.DataTable })
                 {
                     result = await postgreSql.QueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.MySql:
-                using (var mySql = new DBAClientX.MySql { ReturnType = ReturnType.DataTable })
+            case DbaTableCopyProvider.MySql:
+                using (var mySql = new MySql { ReturnType = ReturnType.DataTable })
                 {
                     result = await mySql.QueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.Oracle:
-                using (var oracle = new DBAClientX.Oracle { ReturnType = ReturnType.DataTable })
+            case DbaTableCopyProvider.Oracle:
+                using (var oracle = new Oracle { ReturnType = ReturnType.DataTable })
                 {
                     result = await oracle.QueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.SQLite:
-                if (HasSQLiteConnectionString())
-                {
-                    return await ExecuteSQLiteTableWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
-                }
-
-                using (var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable })
-                {
-                    result = await sqlite.QueryAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
-                break;
+            case DbaTableCopyProvider.SQLite:
+                return await ExecuteSQLiteTableAsync(query, cancellationToken).ConfigureAwait(false);
             default:
-                throw new PSArgumentException($"Provider '{_provider}' is not supported.");
+                throw new NotSupportedException($"Provider '{_provider}' is not supported.");
         }
 
         return result as DataTable
-            ?? throw new PSInvalidOperationException($"Provider '{_provider}' did not return a DataTable.");
+            ?? throw new InvalidOperationException($"Provider '{_provider}' did not return a DataTable.");
     }
 
     private async Task ExecuteNonQueryAsync(string query, CancellationToken cancellationToken)
     {
         switch (_provider)
         {
-            case DbaXBulkProvider.SqlServer:
-                using (var sqlServer = new DBAClientX.SqlServer())
+            case DbaTableCopyProvider.SqlServer:
+                using (var sqlServer = new SqlServer())
                 {
                     await sqlServer.ExecuteNonQueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.PostgreSql:
-                using (var postgreSql = new DBAClientX.PostgreSql())
+            case DbaTableCopyProvider.PostgreSql:
+                using (var postgreSql = new PostgreSql())
                 {
                     await postgreSql.ExecuteNonQueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.MySql:
-                using (var mySql = new DBAClientX.MySql())
+            case DbaTableCopyProvider.MySql:
+                using (var mySql = new MySql())
                 {
                     await mySql.ExecuteNonQueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.Oracle:
-                using (var oracle = new DBAClientX.Oracle())
+            case DbaTableCopyProvider.Oracle:
+                using (var oracle = new Oracle())
                 {
                     await oracle.ExecuteNonQueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
-            case DbaXBulkProvider.SQLite:
-                if (HasSQLiteConnectionString())
-                {
-                    await ExecuteSQLiteNonQueryWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
-                    break;
-                }
-
-                using (var sqlite = new DBAClientX.SQLite())
-                {
-                    await sqlite.ExecuteNonQueryAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
-                }
+            case DbaTableCopyProvider.SQLite:
+                await ExecuteSQLiteNonQueryAsync(query, cancellationToken).ConfigureAwait(false);
                 break;
             default:
-                throw new PSArgumentException($"Provider '{_provider}' is not supported.");
+                throw new NotSupportedException($"Provider '{_provider}' is not supported.");
         }
     }
 
@@ -237,7 +248,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         var orderBy = BuildOrderByClause(orderByColumns);
         return _provider switch
         {
-            DbaXBulkProvider.SqlServer or DbaXBulkProvider.Oracle
+            DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.Oracle
                 => $"SELECT * FROM {quotedTable}{orderBy} OFFSET {offset} ROWS FETCH NEXT {pageSize} ROWS ONLY",
             _ => $"SELECT * FROM {quotedTable}{orderBy} LIMIT {pageSize} OFFSET {offset}"
         };
@@ -247,7 +258,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     {
         var effectiveOrderBy = orderByColumns is { Count: > 0 }
             ? orderByColumns.Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value.Trim()).ToArray()
-            : _orderBy;
+            : _defaultOrderBy;
         if (effectiveOrderBy.Length > 0)
         {
             return " ORDER BY " + string.Join(", ", effectiveOrderBy.Select(QuotePath));
@@ -255,13 +266,13 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
 
         if (!_allowUnordered)
         {
-            throw new PSArgumentException("OrderBy is required for deterministic paged table copy. Use -AllowUnordered for ad hoc copies where natural provider order is acceptable.");
+            throw new InvalidOperationException("OrderBy is required for deterministic paged table copy. Set AllowUnordered for ad hoc copies where natural provider order is acceptable.");
         }
 
         return _provider switch
         {
-            DbaXBulkProvider.SqlServer => " ORDER BY (SELECT NULL)",
-            DbaXBulkProvider.Oracle => " ORDER BY 1",
+            DbaTableCopyProvider.SqlServer => " ORDER BY (SELECT NULL)",
+            DbaTableCopyProvider.Oracle => " ORDER BY 1",
             _ => string.Empty
         };
     }
@@ -273,13 +284,13 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     {
         if (string.IsNullOrWhiteSpace(identifierPath))
         {
-            throw new PSArgumentException("Identifier cannot be null or whitespace.");
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
         var parts = identifierPath.Split('.');
         if (parts.Any(static part => string.IsNullOrWhiteSpace(part)))
         {
-            throw new PSArgumentException($"Identifier '{identifierPath}' contains an empty path segment.");
+            throw new ArgumentException($"Identifier '{identifierPath}' contains an empty path segment.", nameof(identifierPath));
         }
 
         return parts.Select(static part => part.Trim()).ToArray();
@@ -289,14 +300,14 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     {
         if (identifier.IndexOfAny(new[] { ';', '\r', '\n', '\0' }) >= 0)
         {
-            throw new PSArgumentException($"Identifier '{identifier}' contains unsupported characters.");
+            throw new ArgumentException($"Identifier '{identifier}' contains unsupported characters.", nameof(identifier));
         }
 
         return _provider switch
         {
-            DbaXBulkProvider.SqlServer => "[" + identifier.Replace("]", "]]") + "]",
-            DbaXBulkProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
-            DbaXBulkProvider.Oracle => QuoteOracleIdentifier(identifier),
+            DbaTableCopyProvider.SqlServer => "[" + identifier.Replace("]", "]]") + "]",
+            DbaTableCopyProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
+            DbaTableCopyProvider.Oracle => QuoteOracleIdentifier(identifier),
             _ => "\"" + identifier.Replace("\"", "\"\"") + "\""
         };
     }
@@ -330,17 +341,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     private static bool IsOracleIdentifierPart(char value)
         => IsOracleIdentifierStart(value) || value is >= '0' and <= '9' or '$' or '#';
 
-    private string ResolveSQLiteDatabase()
-    {
-        if (!HasSQLiteConnectionString())
-        {
-            return _connectionString;
-        }
-
-        var builder = new SqliteConnectionStringBuilder(_connectionString);
-        return builder.DataSource;
-    }
-
     private string ResolveSQLiteConnectionString()
     {
         if (!HasSQLiteConnectionString())
@@ -359,18 +359,9 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     private bool HasSQLiteConnectionString()
         => _connectionString.Contains("=", StringComparison.Ordinal);
 
-    private string ResolveSQLiteCommandConnectionString()
+    private async Task<object?> ExecuteSQLiteScalarAsync(string query, CancellationToken cancellationToken)
     {
-        var builder = new SqliteConnectionStringBuilder(_connectionString)
-        {
-            Pooling = false
-        };
-        return builder.ConnectionString;
-    }
-
-    private async Task<object?> ExecuteSQLiteScalarWithConnectionStringAsync(string query, CancellationToken cancellationToken)
-    {
-        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        using (var connection = new SqliteConnection(ResolveSQLiteConnectionString()))
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             using (var command = connection.CreateCommand())
@@ -381,9 +372,9 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         }
     }
 
-    private async Task<DataTable> ExecuteSQLiteTableWithConnectionStringAsync(string query, CancellationToken cancellationToken)
+    private async Task<DataTable> ExecuteSQLiteTableAsync(string query, CancellationToken cancellationToken)
     {
-        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        using (var connection = new SqliteConnection(ResolveSQLiteConnectionString()))
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             using (var command = connection.CreateCommand())
@@ -399,9 +390,9 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         }
     }
 
-    private async Task ExecuteSQLiteNonQueryWithConnectionStringAsync(string query, CancellationToken cancellationToken)
+    private async Task ExecuteSQLiteNonQueryAsync(string query, CancellationToken cancellationToken)
     {
-        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        using (var connection = new SqliteConnection(ResolveSQLiteConnectionString()))
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             using (var command = connection.CreateCommand())
@@ -411,16 +402,4 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
             }
         }
     }
-
-    internal static string GetProviderAlias(DbaXBulkProvider provider)
-        => provider switch
-        {
-            DbaXBulkProvider.SqlServer => "sqlserver",
-            DbaXBulkProvider.PostgreSql => "postgresql",
-            DbaXBulkProvider.MySql => "mysql",
-            DbaXBulkProvider.Oracle => "oracle",
-            DbaXBulkProvider.SQLite => "sqlite",
-            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.")
-        };
-
 }

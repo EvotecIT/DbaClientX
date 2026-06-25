@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.SQLite", "DbaCli
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Oracle", "DbaClientX.Oracle\DbaClientX.Oracle.csproj", "{67F2B6FC-362C-495A-8270-02E0932C8EA9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.DataMovement", "DbaClientX.DataMovement\DbaClientX.DataMovement.csproj", "{18A6F3D1-E5FE-45B4-BE85-CBA9C1A2F5B9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -63,6 +65,10 @@ Global
 {67F2B6FC-362C-495A-8270-02E0932C8EA9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 {67F2B6FC-362C-495A-8270-02E0932C8EA9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 {67F2B6FC-362C-495A-8270-02E0932C8EA9}.Release|Any CPU.Build.0 = Release|Any CPU
+{18A6F3D1-E5FE-45B4-BE85-CBA9C1A2F5B9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+{18A6F3D1-E5FE-45B4-BE85-CBA9C1A2F5B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+{18A6F3D1-E5FE-45B4-BE85-CBA9C1A2F5B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+{18A6F3D1-E5FE-45B4-BE85-CBA9C1A2F5B9}.Release|Any CPU.Build.0 = Release|Any CPU
 EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

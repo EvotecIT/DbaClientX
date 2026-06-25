@@ -177,8 +177,8 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         {
             ValidateOptions();
 
-            var sourceAlias = DbaXTableCopyAdapter.GetProviderAlias(SourceProvider);
-            var destinationAlias = DbaXTableCopyAdapter.GetProviderAlias(DestinationProvider);
+            var sourceAlias = GetProviderAlias(SourceProvider);
+            var destinationAlias = GetProviderAlias(DestinationProvider);
             if (!PowerShellHelpers.TryValidateConnection(this, sourceAlias, SourceConnectionString, _errorAction) ||
                 !PowerShellHelpers.TryValidateConnection(this, destinationAlias, DestinationConnectionString, _errorAction))
             {
@@ -249,9 +249,9 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
     private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> progressEvents)
     {
-        var source = new DbaXTableCopyAdapter(SourceProvider, SourceConnectionString, OrderBy, AllowUnordered.IsPresent);
-        var destination = new DbaXTableCopyAdapter(
-            DestinationProvider,
+        var source = new DbaProviderTableCopyAdapter(ToTableCopyProvider(SourceProvider), SourceConnectionString, OrderBy, AllowUnordered.IsPresent);
+        var destination = new DbaProviderTableCopyAdapter(
+            ToTableCopyProvider(DestinationProvider),
             DestinationConnectionString,
             sqlServerOptions: DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null);
 
@@ -464,4 +464,26 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             RecordType = ProgressRecordType.Completed
         });
     }
+
+    private static DbaTableCopyProvider ToTableCopyProvider(DbaXBulkProvider provider)
+        => provider switch
+        {
+            DbaXBulkProvider.SqlServer => DbaTableCopyProvider.SqlServer,
+            DbaXBulkProvider.PostgreSql => DbaTableCopyProvider.PostgreSql,
+            DbaXBulkProvider.MySql => DbaTableCopyProvider.MySql,
+            DbaXBulkProvider.Oracle => DbaTableCopyProvider.Oracle,
+            DbaXBulkProvider.SQLite => DbaTableCopyProvider.SQLite,
+            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.")
+        };
+
+    private static string GetProviderAlias(DbaXBulkProvider provider)
+        => provider switch
+        {
+            DbaXBulkProvider.SqlServer => "sqlserver",
+            DbaXBulkProvider.PostgreSql => "postgresql",
+            DbaXBulkProvider.MySql => "mysql",
+            DbaXBulkProvider.Oracle => "oracle",
+            DbaXBulkProvider.SQLite => "sqlite",
+            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.")
+        };
 }
