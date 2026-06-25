@@ -222,6 +222,72 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_AppliesDestinationSchemaToMappedTableNamesWithDots()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "Rows.Current", "Id", "int", 1)
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users")
+            {
+                Column = "Id",
+                Ordinal = 1,
+                IsPrimaryKey = true,
+                IsUnique = true
+            }
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            indexes,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                DestinationSchema = "archive",
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["Users"] = "Rows.Current"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("archive.\"Rows.Current\"", definition.DestinationName);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_MatchesDestinationMetadataColumnsCaseSensitively()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "Users", "displayname", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions { DestinationSchema = "archive" });
+
+        Assert.Empty(plan.Definitions);
+        Assert.Contains(plan.Warnings, warning => warning.Code == "MissingDestinationColumn" && warning.ColumnName == "DisplayName");
+        Assert.Contains(plan.Warnings, warning => warning.Code == "NoWritableColumns");
+    }
+
+    [Fact]
     public void BuildPlan_WarnsWhenOrderCannotBeInferred()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "NoKey", DbaTableKind.Table) };

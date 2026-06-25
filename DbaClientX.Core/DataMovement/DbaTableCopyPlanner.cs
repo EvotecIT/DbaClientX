@@ -180,13 +180,16 @@ public static class DbaTableCopyPlanner
         if (TryResolveScopedValue(options.TableMappings, QualifyName(sourceTable.Schema, sourceTable.Name), sourceTable.Name, out var mapped) &&
             !string.IsNullOrWhiteSpace(mapped))
         {
-            return mapped!.IndexOf('.') >= 0
-                ? mapped!
-                : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped!);
+            return ResolveMappedDestinationTableName(mapped!, sourceTable, options);
         }
 
         return QualifyName(options.DestinationSchema ?? sourceTable.Schema, sourceTable.Name);
     }
+
+    private static string ResolveMappedDestinationTableName(string mapped, DbaTableInfo sourceTable, DbaTableCopyPlanOptions options)
+        => string.IsNullOrWhiteSpace(options.DestinationSchema) && DbaIdentifierPath.SplitSegments(mapped).Count > 1
+            ? mapped
+            : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped);
 
     private static IReadOnlyDictionary<string, DbaColumnInfo>? ResolveDestinationColumns(
         IReadOnlyDictionary<string, IReadOnlyList<DbaColumnInfo>>? destinationColumnGroups,
@@ -200,8 +203,8 @@ public static class DbaTableCopyPlanner
         var parts = SplitName(destinationTableName);
         var key = TableKey(parts.Schema, parts.Name);
         return destinationColumnGroups.TryGetValue(key, out var columns)
-            ? columns.ToDictionary(static column => column.Name, static column => column, StringComparer.OrdinalIgnoreCase)
-            : new Dictionary<string, DbaColumnInfo>(StringComparer.OrdinalIgnoreCase);
+            ? columns.ToDictionary(static column => column.Name, static column => column, StringComparer.Ordinal)
+            : new Dictionary<string, DbaColumnInfo>(StringComparer.Ordinal);
     }
 
     private static IReadOnlyList<string>? ResolveOrderBy(

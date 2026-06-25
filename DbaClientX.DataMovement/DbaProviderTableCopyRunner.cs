@@ -44,8 +44,7 @@ public sealed class DbaProviderTableCopyRunner
 
     private static void ValidateSameProviderTableCopy(DbaProviderTableCopyRequest request)
     {
-        if (request.AllowSameProviderTableCopy ||
-            request.Source.Provider != request.Destination.Provider ||
+        if (request.Source.Provider != request.Destination.Provider ||
             !DbaProviderTableCopyTargetIdentity.TryCreate(request.Source, out var sourceIdentity) ||
             !DbaProviderTableCopyTargetIdentity.TryCreate(request.Destination, out var destinationIdentity) ||
             !string.Equals(sourceIdentity, destinationIdentity, StringComparison.Ordinal))
@@ -56,6 +55,11 @@ public sealed class DbaProviderTableCopyRunner
         if (request.Options?.ClearDestination == true)
         {
             ValidateClearDestinationDoesNotRemoveSources(request);
+        }
+
+        if (request.AllowSameProviderTableCopy)
+        {
+            return;
         }
 
         var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);

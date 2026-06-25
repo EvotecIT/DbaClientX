@@ -35,20 +35,17 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             throw new ArgumentNullException(nameof(page));
         }
 
-        var destinationSegments = SplitIdentifierPath(destinationTableName);
-        var preserveSimpleIdentifierCase = destinationSegments[destinationSegments.Count - 1].IsExplicitlyQuoted;
         var normalizedNames = page.Columns
             .Cast<DataColumn>()
-            .Select(column => NormalizeColumnName(column.ColumnName, preserveSimpleIdentifierCase))
+            .Select(static column => NormalizeColumnName(column.ColumnName))
             .ToArray();
         if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
         {
             return page;
         }
 
-        var duplicateComparer = preserveSimpleIdentifierCase ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
         var duplicates = normalizedNames
-            .GroupBy(static name => name, duplicateComparer)
+            .GroupBy(static name => name, StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Count() > 1);
         if (duplicates != null)
         {
@@ -64,7 +61,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
         return normalized;
     }
 
-    private static string NormalizeColumnName(string columnName, bool preserveSimpleIdentifierCase)
+    private static string NormalizeColumnName(string columnName)
     {
         var trimmed = columnName.Trim();
         if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
@@ -72,7 +69,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
-        return !preserveSimpleIdentifierCase && IsPostgreSqlSimpleIdentifier(trimmed)
+        return IsPostgreSqlSimpleIdentifier(trimmed)
             ? trimmed.ToLowerInvariant()
             : trimmed;
     }
