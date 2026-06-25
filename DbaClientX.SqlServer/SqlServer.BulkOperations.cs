@@ -184,18 +184,19 @@ public partial class SqlServer
         }
 
         var notifyAfter = options?.NotifyAfter;
+        var rowsCopiedCallback = options?.RowsCopied;
         if (notifyAfter.HasValue)
         {
             bulkCopy.NotifyAfter = notifyAfter.Value;
         }
-        else if (options?.RowsCopied != null)
+        else if (rowsCopiedCallback != null)
         {
             bulkCopy.NotifyAfter = batchSize.GetValueOrDefault(5000);
         }
 
-        if (options?.RowsCopied != null)
+        if (rowsCopiedCallback != null)
         {
-            bulkCopy.SqlRowsCopied += (_, args) => options.RowsCopied(args.RowsCopied);
+            bulkCopy.SqlRowsCopied += (_, args) => rowsCopiedCallback(args.RowsCopied);
         }
 
         if (options?.ColumnMappings?.Count > 0)
