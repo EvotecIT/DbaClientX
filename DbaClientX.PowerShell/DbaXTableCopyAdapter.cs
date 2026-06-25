@@ -32,7 +32,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
 
     public async Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
     {
-        var query = BuildPageQuery(request.Definition.SourceName, request.Offset, request.PageSize);
+        var query = BuildPageQuery(request.Definition.SourceName, request.Definition.OrderByColumns, request.Offset, request.PageSize);
         var table = await ExecuteTableAsync(query, cancellationToken).ConfigureAwait(false);
         table.TableName = request.Definition.DestinationName;
         return table;
@@ -231,10 +231,10 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         }
     }
 
-    private string BuildPageQuery(string tableName, long offset, int pageSize)
+    private string BuildPageQuery(string tableName, IReadOnlyList<string>? orderByColumns, long offset, int pageSize)
     {
         var quotedTable = QuotePath(tableName);
-        var orderBy = BuildOrderByClause();
+        var orderBy = BuildOrderByClause(orderByColumns);
         return _provider switch
         {
             DbaXBulkProvider.SqlServer or DbaXBulkProvider.Oracle
@@ -243,11 +243,14 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         };
     }
 
-    private string BuildOrderByClause()
+    private string BuildOrderByClause(IReadOnlyList<string>? orderByColumns)
     {
-        if (_orderBy.Length > 0)
+        var effectiveOrderBy = orderByColumns is { Count: > 0 }
+            ? orderByColumns.Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value.Trim()).ToArray()
+            : _orderBy;
+        if (effectiveOrderBy.Length > 0)
         {
-            return " ORDER BY " + string.Join(", ", _orderBy.Select(QuotePath));
+            return " ORDER BY " + string.Join(", ", effectiveOrderBy.Select(QuotePath));
         }
 
         if (!_allowUnordered)

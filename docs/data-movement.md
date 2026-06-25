@@ -206,6 +206,82 @@ For the SQLite to SQL Server migration shape used by tools such as TestimoX:
 
 In .NET code, keep product-specific schema creation and table lists in the consumer, then hand the copy loop to `DbaTableCopyEngine` with provider-backed implementations of `IDbaTableCopySource` and `IDbaTableCopyDestination`. That lets consumer projects describe "what tables matter" while DbaClientX owns "how to page, write, verify, and report the movement."
 
+For multi-table migrations, use `DbaTableCopyPlanner` to turn metadata into reusable definitions instead of rebuilding the same mapping/exclusion logic in each consumer:
+
+```csharp
+using DBAClientX.DataMovement;
+
+var plan = DbaTableCopyPlanner.BuildPlan(
+    sourceTables,
+    sourceColumns,
+    sourceIndexes,
+    destinationColumns,
+    new DbaTableCopyPlanOptions
+    {
+        DestinationSchema = "dbo",
+        ExcludeDestinationIdentityColumns = true,
+        ExcludedColumns = new[] { "__MigrationRowId", "__MigrationRank" },
+        ColumnMappings = new Dictionary<string, string>
+        {
+            ["DisplayName"] = "ProbeDisplayName"
+        },
+        ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
+        {
+            ["IsMaintenance"] = DbaTableCopyColumnType.Boolean
+        }
+    });
+
+if (plan.HasWarnings)
+{
+    // Decide whether missing destination columns or missing order columns are acceptable.
+}
+
+var result = await new DbaTableCopyEngine().CopyAsync(
+    sourceAdapter,
+    destinationAdapter,
+    plan.Definitions,
+    new DbaTableCopyOptions
+    {
+        PageSize = 10000,
+        BatchSize = 5000,
+        ClearDestination = true
+    },
+    cancellationToken);
+```
+
+The planner is intentionally metadata-driven, not domain-driven. It can infer order columns from primary keys, omit generated/rowversion columns, omit destination identity columns when requested, match destination columns, and apply per-table mappings, exclusions, and conversions. Consumers such as TestimoX should still own their table order and domain schema rules.
+
+PowerShell can also run prepared definitions directly:
+
+```powershell
+$columnMap = [System.Collections.Generic.Dictionary[string,string]]::new()
+$columnMap['DisplayName'] = 'ProbeDisplayName'
+
+$typeConversions = [System.Collections.Generic.Dictionary[string,DBAClientX.DataMovement.DbaTableCopyColumnType]]::new()
+$typeConversions['IsMaintenance'] = [DBAClientX.DataMovement.DbaTableCopyColumnType]::Boolean
+
+$definitions = @(
+    [DBAClientX.DataMovement.DbaTableCopyDefinition]::new(
+        'main.ProbeResults',
+        'dbo.ProbeResults',
+        [string[]] @('ResultId'),
+        'ProbeResults',
+        $columnMap,
+        [string[]] @('__MigrationRowId', '__MigrationRank'),
+        $typeConversions)
+)
+
+Copy-DbaXTableData `
+    -SourceProvider SQLite `
+    -SourceConnectionString 'Data Source=C:\Data\monitoring.sqlite' `
+    -DestinationProvider SqlServer `
+    -DestinationConnectionString 'Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -Definition $definitions `
+    -BatchSize 5000 `
+    -TableLock `
+    -PassThru
+```
+
 ## Benchmarking
 
 Use the benchmark example to compare DbaClientX against locally installed PowerShell competitors without adding dependencies to the repo:

@@ -10,6 +10,7 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'SourceProvider'
         $parameters | Should -Contain 'SourceConnectionString'
         $parameters | Should -Contain 'SourceTable'
+        $parameters | Should -Contain 'Definition'
         $parameters | Should -Contain 'DestinationProvider'
         $parameters | Should -Contain 'DestinationConnectionString'
         $parameters | Should -Contain 'DestinationTable'
@@ -34,6 +35,46 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'KeepIdentity'
         $parameters | Should -Contain 'KeepNulls'
         $parameters | Should -Contain 'PassThru'
+    }
+
+    it 'copies multiple planned SQLite table definitions' {
+        $source = Join-Path $TestDrive 'source-planned.db'
+        $destination = Join-Path $TestDrive 'destination-planned.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceA (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceB (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationA (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationB (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+
+        1..3 | ForEach-Object {
+            Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceA (Id, DisplayName) VALUES ($_, 'A $_');" | Out-Null
+        }
+        1..2 | ForEach-Object {
+            Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceB (Id, DisplayName) VALUES ($_, 'B $_');" | Out-Null
+        }
+
+        $definitions = @(
+            [DBAClientX.DataMovement.DbaTableCopyDefinition]::new('SourceA', 'DestinationA', [string[]] @('Id'), 'A', $null, $null, $null)
+            [DBAClientX.DataMovement.DbaTableCopyDefinition]::new('SourceB', 'DestinationB', [string[]] @('Id'), 'B', $null, $null, $null)
+        )
+
+        $result = Copy-DbaXTableData `
+            -SourceProvider SQLite `
+            -SourceConnectionString "Data Source=$source" `
+            -DestinationProvider SQLite `
+            -DestinationConnectionString "Data Source=$destination" `
+            -Definition $definitions `
+            -PageSize 2 `
+            -PassThru
+
+        $result.CopiedRows | Should -Be 5
+        $result.Verified | Should -BeTrue
+        $result.Tables.Count | Should -Be 2
+
+        $countA = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationA;'
+        $countB = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationB;'
+        [int] $countA.RowsLoaded | Should -Be 3
+        [int] $countB.RowsLoaded | Should -Be 2
     }
 
     it 'copies rows between SQLite databases' {
