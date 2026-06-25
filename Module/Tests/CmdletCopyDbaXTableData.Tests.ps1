@@ -27,6 +27,10 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DecimalColumn'
         $parameters | Should -Contain 'StringColumn'
         $parameters | Should -Contain 'DateTimeColumn'
+        $parameters | Should -Contain 'DeduplicateSourceBy'
+        $parameters | Should -Contain 'DeduplicateSourceOrderBy'
+        $parameters | Should -Contain 'DeduplicateSourceCaseInsensitive'
+        $parameters | Should -Contain 'TreatMissingTablesAsEmpty'
         $parameters | Should -Contain 'ClearDestination'
         $parameters | Should -Contain 'NoVerify'
         $parameters | Should -Contain 'TableLock'
@@ -147,6 +151,65 @@ describe 'Copy-DbaXTableData cmdlet' {
         $second.Name | Should -Be 'Row 2'
         [int] $second.IsEnabled | Should -Be 0
         [int] $second.ScoreText | Should -Be 55
+    }
+
+    it 'deduplicates source rows before copying' {
+        $source = Join-Path $TestDrive 'source-deduplicate.db'
+        $destination = Join-Path $TestDrive 'destination-deduplicate.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE ProbeIndex (ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL, StatusId INTEGER NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE ProbeIndex (ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL, StatusId INTEGER NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO ProbeIndex (ProbeName, LastCompletedUtcMs, StatusId) VALUES ('Server1', 10, 1), ('server1', 20, 2), ('Server2', 15, 3);" | Out-Null
+
+        $result = Copy-DbaXTableData `
+            -SourceProvider SQLite `
+            -SourceConnectionString "Data Source=$source" `
+            -SourceTable ProbeIndex `
+            -DestinationProvider SQLite `
+            -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable ProbeIndex `
+            -OrderBy ProbeName `
+            -DeduplicateSourceBy ProbeName `
+            -DeduplicateSourceOrderBy LastCompletedUtcMs `
+            -DeduplicateSourceCaseInsensitive `
+            -PageSize 1 `
+            -PassThru
+
+        $result.CopiedRows | Should -Be 2
+        $result.SourceRows | Should -Be 2
+        $result.Verified | Should -BeTrue
+
+        $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM ProbeIndex;'
+        [int] $count.RowsLoaded | Should -Be 2
+
+        $server1 = Invoke-DbaXSQLite -Database $destination -Query "SELECT ProbeName, LastCompletedUtcMs, StatusId FROM ProbeIndex WHERE lower(ProbeName) = 'server1';"
+        $server1.ProbeName | Should -Be 'server1'
+        [int] $server1.LastCompletedUtcMs | Should -Be 20
+        [int] $server1.StatusId | Should -Be 2
+    }
+
+    it 'treats missing source tables as empty when requested' {
+        $source = Join-Path $TestDrive 'source-missing.db'
+        $destination = Join-Path $TestDrive 'destination-missing.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE ExistingRows (Id INTEGER NOT NULL PRIMARY KEY);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE MissingRows (Id INTEGER NOT NULL PRIMARY KEY);' | Out-Null
+
+        $result = Copy-DbaXTableData `
+            -SourceProvider SQLite `
+            -SourceConnectionString "Data Source=$source" `
+            -SourceTable MissingRows `
+            -DestinationProvider SQLite `
+            -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable MissingRows `
+            -OrderBy Id `
+            -TreatMissingTablesAsEmpty `
+            -PassThru
+
+        $result.CopiedRows | Should -Be 0
+        $result.SourceRows | Should -Be 0
+        $result.DestinationRows | Should -Be 0
+        $result.Verified | Should -BeTrue
     }
 
     it 'preserves SQLite destination connection string options for clear operations' {

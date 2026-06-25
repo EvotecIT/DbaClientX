@@ -123,6 +123,24 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [ValidateNotNullOrEmpty]
     public string[]? DateTimeColumn { get; set; }
 
+    /// <summary>Source key columns used to keep one effective row per key before copying.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? DeduplicateSourceBy { get; set; }
+
+    /// <summary>Source columns used to choose the winning row for each deduplicated source key.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? DeduplicateSourceOrderBy { get; set; }
+
+    /// <summary>Uses case-insensitive source keys when deduplicating source rows.</summary>
+    [Parameter]
+    public SwitchParameter DeduplicateSourceCaseInsensitive { get; set; }
+
+    /// <summary>Treats missing source or destination tables as empty during row counts and clear operations.</summary>
+    [Parameter]
+    public SwitchParameter TreatMissingTablesAsEmpty { get; set; }
+
     /// <summary>Deletes destination table rows before copying source rows.</summary>
     [Parameter]
     public SwitchParameter ClearDestination { get; set; }
@@ -249,11 +267,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
     private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> progressEvents)
     {
-        var source = new DbaProviderTableCopyAdapter(ToTableCopyProvider(SourceProvider), SourceConnectionString, OrderBy, AllowUnordered.IsPresent);
+        var source = new DbaProviderTableCopyAdapter(
+            ToTableCopyProvider(SourceProvider),
+            SourceConnectionString,
+            OrderBy,
+            AllowUnordered.IsPresent,
+            treatMissingTablesAsEmpty: TreatMissingTablesAsEmpty.IsPresent);
         var destination = new DbaProviderTableCopyAdapter(
             ToTableCopyProvider(DestinationProvider),
             DestinationConnectionString,
-            sqlServerOptions: DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null);
+            sqlServerOptions: DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null,
+            treatMissingTablesAsEmpty: TreatMissingTablesAsEmpty.IsPresent);
 
         var options = new DbaTableCopyOptions
         {
@@ -295,7 +319,8 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 DestinationTable,
                 ConvertColumnMap(),
                 NormalizeColumnNames(ExcludeColumn),
-                BuildColumnTypeConversions())
+                BuildColumnTypeConversions(),
+                BuildSourceOptions())
         };
     }
 
@@ -314,6 +339,11 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         if (BulkCopyTimeout.HasValue && BulkCopyTimeout.Value <= 0)
         {
             throw new PSArgumentException("BulkCopyTimeout must be greater than zero.", nameof(BulkCopyTimeout));
+        }
+
+        if (DeduplicateSourceOrderBy is { Length: > 0 } && DeduplicateSourceBy is not { Length: > 0 })
+        {
+            throw new PSArgumentException("DeduplicateSourceBy is required when DeduplicateSourceOrderBy is provided.", nameof(DeduplicateSourceBy));
         }
 
         var hasDefinitions = Definition is { Length: > 0 } || _definitionBuffer.Count > 0;
@@ -344,7 +374,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
         if (hasDefinitions && HasSingleTableShapingOptions())
         {
-            throw new PSArgumentException("ColumnMap, ExcludeColumn, and type-conversion column switches are only used with SourceTable/DestinationTable. Put per-table shaping on the supplied DbaTableCopyDefinition objects.");
+            throw new PSArgumentException("ColumnMap, ExcludeColumn, source deduplication, and type-conversion column switches are only used with SourceTable/DestinationTable. Put per-table shaping on the supplied DbaTableCopyDefinition objects.");
         }
     }
 
@@ -363,7 +393,10 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
            Int64Column is { Length: > 0 } ||
            DecimalColumn is { Length: > 0 } ||
            StringColumn is { Length: > 0 } ||
-           DateTimeColumn is { Length: > 0 };
+           DateTimeColumn is { Length: > 0 } ||
+           DeduplicateSourceBy is { Length: > 0 } ||
+           DeduplicateSourceOrderBy is { Length: > 0 } ||
+           DeduplicateSourceCaseInsensitive.IsPresent;
 
     private Dictionary<string, string>? ConvertColumnMap()
     {
@@ -412,6 +445,20 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         AddColumnTypeConversions(conversions, StringColumn, DbaTableCopyColumnType.String);
         AddColumnTypeConversions(conversions, DateTimeColumn, DbaTableCopyColumnType.DateTime);
         return conversions.Count == 0 ? null : conversions;
+    }
+
+    private DbaTableCopySourceOptions? BuildSourceOptions()
+    {
+        var deduplicateBy = NormalizeColumnNames(DeduplicateSourceBy);
+        if (deduplicateBy == null)
+        {
+            return null;
+        }
+
+        return new DbaTableCopySourceOptions(
+            deduplicateBy.ToArray(),
+            NormalizeColumnNames(DeduplicateSourceOrderBy)?.ToArray(),
+            DeduplicateSourceCaseInsensitive.IsPresent);
     }
 
     private static void AddColumnTypeConversions(

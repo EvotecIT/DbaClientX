@@ -1,3 +1,4 @@
+using System.Data;
 using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
@@ -53,6 +54,103 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public async Task CopyAsync_DeduplicatesSQLiteSourceRowsByCaseInsensitiveKey()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
+        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE ProbeIndex (ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL, StatusId INTEGER NOT NULL);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE ProbeIndex (ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL, StatusId INTEGER NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeIndex (ProbeName, LastCompletedUtcMs, StatusId) VALUES ('Server1', 10, 1), ('server1', 20, 2), ('Server2', 15, 3);");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                new[] { "ProbeName" });
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[]
+                {
+                    new DbaTableCopyDefinition(
+                        "ProbeIndex",
+                        "ProbeIndex",
+                        new[] { "ProbeName" },
+                        SourceOptions: new DbaTableCopySourceOptions(
+                            new[] { "ProbeName" },
+                            new[] { "LastCompletedUtcMs" },
+                            DeduplicateCaseInsensitive: true))
+                },
+                new DbaTableCopyOptions { PageSize = 1 });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.SourceRows);
+            Assert.Equal(2, result.CopiedRows);
+            using (var sqlite = new SQLite { ReturnType = ReturnType.DataTable })
+            {
+                var rows = Assert.IsType<DataTable>(sqlite.Query(destinationPath, "SELECT ProbeName, LastCompletedUtcMs, StatusId FROM ProbeIndex ORDER BY lower(ProbeName);"));
+                Assert.Equal(2, rows.Rows.Count);
+                Assert.Equal("server1", rows.Rows[0]["ProbeName"]);
+                Assert.Equal(20L, Convert.ToInt64(rows.Rows[0]["LastCompletedUtcMs"]));
+                Assert.Equal(2L, Convert.ToInt64(rows.Rows[0]["StatusId"]));
+                Assert.Equal("Server2", rows.Rows[1]["ProbeName"]);
+            }
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
+    public async Task CopyAsync_TreatsMissingSQLiteSourceTableAsEmptyWhenConfigured()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
+        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE ExistingRows (Id INTEGER NOT NULL PRIMARY KEY);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE MissingRows (Id INTEGER NOT NULL PRIMARY KEY);");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                treatMissingTablesAsEmpty: true);
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath,
+                treatMissingTablesAsEmpty: true);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { new DbaTableCopyDefinition("MissingRows", "MissingRows", new[] { "Id" }) });
+
+            Assert.True(result.Verified);
+            Assert.Equal(0, result.SourceRows);
+            Assert.Equal(0, result.CopiedRows);
+            Assert.Equal(0, result.DestinationRows);
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public void BuildPageQuery_OracleFoldsSimpleIdentifiersToUppercase()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -96,7 +194,7 @@ public class DbaProviderTableCopyAdapterTests
         var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
 
-        return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, offset, pageSize })!;
+        return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, null, offset, pageSize })!;
     }
 
     private static void DeleteIfExists(string path)

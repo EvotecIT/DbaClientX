@@ -37,6 +37,12 @@ public sealed class DbaTableCopyPlanOptions
     /// <summary>Table-specific column type conversions applied before destination writes. Table keys may be unqualified or schema-qualified.</summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, DbaTableCopyColumnType>>? TableColumnTypeConversions { get; init; }
 
+    /// <summary>Global source-side shaping applied to every generated definition unless overridden for a table.</summary>
+    public DbaTableCopySourceOptions? SourceOptions { get; init; }
+
+    /// <summary>Table-specific source-side shaping. Table keys may be unqualified or schema-qualified.</summary>
+    public IReadOnlyDictionary<string, DbaTableCopySourceOptions>? TableSourceOptions { get; init; }
+
     /// <summary>Explicit order columns for paged reads. Table keys may be unqualified or schema-qualified.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>>? OrderByColumns { get; init; }
 

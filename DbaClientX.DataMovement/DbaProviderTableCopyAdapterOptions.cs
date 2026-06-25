@@ -19,4 +19,7 @@ public sealed class DbaProviderTableCopyAdapterOptions
 
     /// <summary>Optional SQL Server destination bulk-copy behavior.</summary>
     public SqlServerBulkInsertOptions? SqlServerOptions { get; set; }
+
+    /// <summary>When true, missing source or destination tables are counted as empty instead of failing the copy.</summary>
+    public bool TreatMissingTablesAsEmpty { get; set; }
 }

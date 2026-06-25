@@ -57,6 +57,13 @@ public class DbaTableCopyPlannerTests
                 ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
                 {
                     ["IsMaintenance"] = DbaTableCopyColumnType.Boolean
+                },
+                TableSourceOptions = new Dictionary<string, DbaTableCopySourceOptions>
+                {
+                    ["ProbeResults"] = new(
+                        new[] { "DisplayName" },
+                        new[] { "ResultId" },
+                        DeduplicateCaseInsensitive: true)
                 }
             });
 
@@ -69,6 +76,10 @@ public class DbaTableCopyPlannerTests
         Assert.Equal("ProbeDisplayName", definition.ColumnMappings["DisplayName"]);
         Assert.NotNull(definition.ColumnTypeConversions);
         Assert.Equal(DbaTableCopyColumnType.Boolean, definition.ColumnTypeConversions["IsMaintenance"]);
+        Assert.NotNull(definition.SourceOptions);
+        Assert.Equal(new[] { "DisplayName" }, definition.SourceOptions.DeduplicateByColumns);
+        Assert.Equal(new[] { "ResultId" }, definition.SourceOptions.DeduplicateOrderByColumns);
+        Assert.True(definition.SourceOptions.DeduplicateCaseInsensitive);
         Assert.NotNull(definition.ExcludedColumns);
         Assert.Contains("ResultId", definition.ExcludedColumns);
         Assert.Contains("SearchName", definition.ExcludedColumns);

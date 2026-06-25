@@ -14,7 +14,8 @@ public sealed record DbaTableCopyDefinition(
     string? LogicalName = null,
     IReadOnlyDictionary<string, string>? ColumnMappings = null,
     IReadOnlyCollection<string>? ExcludedColumns = null,
-    IReadOnlyDictionary<string, DbaTableCopyColumnType>? ColumnTypeConversions = null)
+    IReadOnlyDictionary<string, DbaTableCopyColumnType>? ColumnTypeConversions = null,
+    DbaTableCopySourceOptions? SourceOptions = null)
 {
     /// <summary>Human-friendly name used in progress and result output.</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(LogicalName) ? DestinationName : LogicalName!;
@@ -36,6 +37,8 @@ public sealed record DbaTableCopyDefinition(
         ValidateNames(ColumnMappings?.Values, "Column mapping destination column names cannot be null or whitespace.");
         ValidateNames(ExcludedColumns, "Excluded column names cannot be null or whitespace.");
         ValidateNames(ColumnTypeConversions?.Keys, "Column type conversion column names cannot be null or whitespace.");
+        ValidateNames(SourceOptions?.DeduplicateByColumns, "Source deduplication column names cannot be null or whitespace.");
+        ValidateNames(SourceOptions?.DeduplicateOrderByColumns, "Source deduplication order column names cannot be null or whitespace.");
     }
 
     private static void ValidateNames(IEnumerable<string>? names, string message)

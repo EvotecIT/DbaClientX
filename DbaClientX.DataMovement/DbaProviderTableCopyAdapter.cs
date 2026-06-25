@@ -8,11 +8,15 @@ namespace DBAClientX.DataMovement;
 /// </summary>
 public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
 {
+    private const string SourceAlias = "dbax_source";
+    private const string DeduplicationRankColumn = "__DbaXRank";
+
     private readonly DbaTableCopyProvider _provider;
     private readonly string _connectionString;
     private readonly string[] _defaultOrderBy;
     private readonly bool _allowUnordered;
     private readonly SqlServerBulkInsertOptions? _sqlServerOptions;
+    private readonly bool _treatMissingTablesAsEmpty;
 
     /// <summary>
     /// Creates a provider-backed adapter from explicit provider settings.
@@ -22,14 +26,16 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         string connectionString,
         IReadOnlyList<string>? defaultOrderByColumns = null,
         bool allowUnordered = false,
-        SqlServerBulkInsertOptions? sqlServerOptions = null)
+        SqlServerBulkInsertOptions? sqlServerOptions = null,
+        bool treatMissingTablesAsEmpty = false)
         : this(new DbaProviderTableCopyAdapterOptions
         {
             Provider = provider,
             ConnectionString = connectionString,
             DefaultOrderByColumns = defaultOrderByColumns,
             AllowUnordered = allowUnordered,
-            SqlServerOptions = sqlServerOptions
+            SqlServerOptions = sqlServerOptions,
+            TreatMissingTablesAsEmpty = treatMissingTablesAsEmpty
         })
     {
     }
@@ -58,24 +64,44 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             ?? Array.Empty<string>();
         _allowUnordered = options.AllowUnordered;
         _sqlServerOptions = options.SqlServerOptions;
+        _treatMissingTablesAsEmpty = options.TreatMissingTablesAsEmpty;
     }
 
     /// <inheritdoc />
     public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-        => ExecuteCountAsync(definition.SourceName, cancellationToken);
+        => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, cancellationToken);
 
     /// <inheritdoc />
     public async Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
     {
-        var query = BuildPageQuery(request.Definition.SourceName, request.Definition.OrderByColumns, request.Offset, request.PageSize);
-        var table = await ExecuteTableAsync(query, cancellationToken).ConfigureAwait(false);
+        var query = BuildPageQuery(
+            request.Definition.SourceName,
+            request.Definition.OrderByColumns,
+            request.Definition.SourceOptions,
+            request.Offset,
+            request.PageSize);
+        DataTable table;
+        try
+        {
+            table = await ExecuteTableAsync(query, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
+        {
+            table = new DataTable(request.Definition.DestinationName);
+        }
+
+        if (table.Columns.Contains(DeduplicationRankColumn))
+        {
+            table.Columns.Remove(DeduplicationRankColumn);
+        }
+
         table.TableName = request.Definition.DestinationName;
         return table;
     }
 
     /// <inheritdoc />
     public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-        => ExecuteNonQueryAsync($"DELETE FROM {QuotePath(definition.DestinationName)}", cancellationToken);
+        => ExecuteNonQueryIgnoreMissingAsync($"DELETE FROM {QuotePath(definition.DestinationName)}", cancellationToken);
 
     /// <inheritdoc />
     public async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
@@ -126,11 +152,20 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     }
 
     Task<long?> IDbaTableCopyDestination.CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
-        => ExecuteCountAsync(definition.DestinationName, cancellationToken);
+        => ExecuteCountAsync(definition.DestinationName, null, cancellationToken);
 
-    private async Task<long?> ExecuteCountAsync(string tableName, CancellationToken cancellationToken)
+    private async Task<long?> ExecuteCountAsync(string tableName, DbaTableCopySourceOptions? sourceOptions, CancellationToken cancellationToken)
     {
-        var result = await ExecuteScalarAsync($"SELECT COUNT(*) FROM {QuotePath(tableName)}", cancellationToken).ConfigureAwait(false);
+        object? result;
+        try
+        {
+            result = await ExecuteScalarAsync(BuildCountQuery(tableName, sourceOptions), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
+        {
+            return 0;
+        }
+
         return result == null || result == DBNull.Value
             ? null
             : Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
@@ -242,8 +277,29 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         }
     }
 
-    private string BuildPageQuery(string tableName, IReadOnlyList<string>? orderByColumns, long offset, int pageSize)
+    private async Task ExecuteNonQueryIgnoreMissingAsync(string query, CancellationToken cancellationToken)
     {
+        try
+        {
+            await ExecuteNonQueryAsync(query, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
+        {
+        }
+    }
+
+    private string BuildPageQuery(
+        string tableName,
+        IReadOnlyList<string>? orderByColumns,
+        DbaTableCopySourceOptions? sourceOptions,
+        long offset,
+        int pageSize)
+    {
+        if (sourceOptions?.HasDeduplication == true)
+        {
+            return BuildDeduplicatedPageQuery(tableName, orderByColumns, sourceOptions, offset, pageSize);
+        }
+
         var quotedTable = QuotePath(tableName);
         var orderBy = BuildOrderByClause(orderByColumns);
         return _provider switch
@@ -252,6 +308,72 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
                 => $"SELECT * FROM {quotedTable}{orderBy} OFFSET {offset} ROWS FETCH NEXT {pageSize} ROWS ONLY",
             _ => $"SELECT * FROM {quotedTable}{orderBy} LIMIT {pageSize} OFFSET {offset}"
         };
+    }
+
+    private string BuildCountQuery(string tableName, DbaTableCopySourceOptions? sourceOptions)
+    {
+        var quotedTable = QuotePath(tableName);
+        if (sourceOptions?.HasDeduplication != true)
+        {
+            return $"SELECT COUNT(*) FROM {quotedTable}";
+        }
+
+        var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: false);
+        return $"SELECT COUNT(*) FROM (SELECT 1 FROM {quotedTable} GROUP BY {keyColumns}) dbax_source_keys";
+    }
+
+    private string BuildDeduplicatedPageQuery(
+        string tableName,
+        IReadOnlyList<string>? orderByColumns,
+        DbaTableCopySourceOptions sourceOptions,
+        long offset,
+        int pageSize)
+    {
+        var quotedTable = QuotePath(tableName);
+        var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: true);
+        var winnerOrder = BuildDeduplicationWinnerOrderClause(sourceOptions);
+        var outerOrder = BuildOrderByClause(orderByColumns ?? sourceOptions.DeduplicateByColumns);
+        var rank = QuoteIdentifier(DeduplicationRankColumn);
+        var rankedSource =
+            $"SELECT {SourceAlias}.*, ROW_NUMBER() OVER (PARTITION BY {keyColumns} ORDER BY {winnerOrder}) AS {rank} " +
+            $"FROM {quotedTable} {SourceAlias}";
+
+        return _provider switch
+        {
+            DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.Oracle
+                => $"SELECT * FROM ({rankedSource}) dbax_deduped WHERE {rank} = 1{outerOrder} OFFSET {offset} ROWS FETCH NEXT {pageSize} ROWS ONLY",
+            _ => $"SELECT * FROM ({rankedSource}) dbax_deduped WHERE {rank} = 1{outerOrder} LIMIT {pageSize} OFFSET {offset}"
+        };
+    }
+
+    private string BuildDeduplicationKeyClause(DbaTableCopySourceOptions sourceOptions, bool withSourceAlias)
+        => string.Join(
+            ", ",
+            sourceOptions.DeduplicateByColumns!
+                .Where(static column => !string.IsNullOrWhiteSpace(column))
+                .Select(column => BuildDeduplicationKeyColumn(column.Trim(), sourceOptions.DeduplicateCaseInsensitive, withSourceAlias)));
+
+    private string BuildDeduplicationKeyColumn(string columnName, bool caseInsensitive, bool withSourceAlias)
+    {
+        var quoted = withSourceAlias
+            ? QuotePath(SourceAlias + "." + columnName)
+            : QuotePath(columnName);
+        return caseInsensitive ? $"LOWER({quoted})" : quoted;
+    }
+
+    private string BuildDeduplicationWinnerOrderClause(DbaTableCopySourceOptions sourceOptions)
+    {
+        var orderColumns = sourceOptions.DeduplicateOrderByColumns is { Count: > 0 }
+            ? sourceOptions.DeduplicateOrderByColumns
+            : sourceOptions.DeduplicateByColumns!;
+        var clauses = new List<string>();
+        clauses.AddRange(orderColumns
+            .Where(static column => !string.IsNullOrWhiteSpace(column))
+            .Select(column => QuotePath(SourceAlias + "." + column.Trim()) + " DESC"));
+        clauses.AddRange(sourceOptions.DeduplicateByColumns!
+            .Where(static column => !string.IsNullOrWhiteSpace(column))
+            .Select(column => QuotePath(SourceAlias + "." + column.Trim())));
+        return string.Join(", ", clauses);
     }
 
     private string BuildOrderByClause(IReadOnlyList<string>? orderByColumns)
@@ -340,6 +462,24 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     private static bool IsOracleIdentifierPart(char value)
         => IsOracleIdentifierStart(value) || value is >= '0' and <= '9' or '$' or '#';
+
+    private static bool IsMissingTableException(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            var message = current.Message;
+            if (message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("invalid object name", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("table or view does not exist", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private string ResolveSQLiteConnectionString()
     {

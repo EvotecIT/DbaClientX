@@ -80,6 +80,7 @@ public static class DbaTableCopyPlanner
         var scopedMappings = MergeScopedDictionary(options.ColumnMappings, options.TableColumnMappings, sourceTableName, table.Name);
         var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name);
         var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
+        var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name);
         var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         var includedSourceColumns = new List<DbaColumnInfo>();
         var effectiveMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -153,7 +154,8 @@ public static class DbaTableCopyPlanner
             table.Name,
             effectiveMappings.Count == 0 ? null : effectiveMappings,
             excludedColumns.Count == 0 ? null : excludedColumns,
-            scopedConversions);
+            scopedConversions,
+            scopedSourceOptions);
     }
 
     private static bool ShouldIncludeTable(DbaTableInfo table, DbaTableCopyPlanOptions options)
@@ -278,6 +280,15 @@ public static class DbaTableCopyPlanner
 
         return result.Count == 0 ? null : result;
     }
+
+    private static DbaTableCopySourceOptions? ResolveScopedSourceOptions(
+        DbaTableCopySourceOptions? global,
+        IReadOnlyDictionary<string, DbaTableCopySourceOptions>? scoped,
+        string qualifiedTableName,
+        string unqualifiedTableName)
+        => TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValue)
+            ? scopedValue
+            : global;
 
     private static IReadOnlyCollection<string>? MergeScopedCollection(
         IReadOnlyCollection<string>? global,

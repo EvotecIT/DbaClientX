@@ -61,6 +61,22 @@ public sealed class DbaTableCopyEngine
             await destination.ClearAsync(definition, cancellationToken).ConfigureAwait(false);
         }
 
+        if (sourceRows == 0)
+        {
+            long? emptyDestinationRows = null;
+            var emptyVerified = true;
+            if (options.VerifyRowCounts)
+            {
+                emptyDestinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+                if (emptyDestinationRows.HasValue)
+                {
+                    emptyVerified = emptyDestinationRows.Value == 0;
+                }
+            }
+
+            return new DbaTableCopyTableResult(definition.DisplayName, sourceRows, 0, emptyDestinationRows, emptyVerified);
+        }
+
         long copied = 0;
         long offset = 0;
         while (true)

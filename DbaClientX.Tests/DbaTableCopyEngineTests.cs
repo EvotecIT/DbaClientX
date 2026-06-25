@@ -61,6 +61,26 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_SkipsReadWhenSourceCountIsZero()
+    {
+        var source = new MemoryTableCopySource(CreateRows(0));
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true });
+
+        Assert.Equal(0, source.ReadCalls);
+        Assert.True(destination.ClearCalled);
+        Assert.True(result.Verified);
+        Assert.Equal(0, result.SourceRows);
+        Assert.Equal(0, result.CopiedRows);
+        Assert.Equal(0, result.DestinationRows);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
@@ -171,11 +191,14 @@ public class DbaTableCopyEngineTests
 
         public List<int> RequestedPageSizes { get; } = new();
 
+        public int ReadCalls { get; private set; }
+
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
             => Task.FromResult<long?>(_rows.Rows.Count);
 
         public Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
         {
+            ReadCalls++;
             RequestedOffsets.Add(request.Offset);
             RequestedPageSizes.Add(request.PageSize);
 

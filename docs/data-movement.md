@@ -188,7 +188,27 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
-The reusable .NET core owns the same behavior through `DbaTableCopyDefinition.ColumnMappings`, `ExcludedColumns`, and `ColumnTypeConversions`. PowerShell only maps the friendly `-ExcludeColumn`, `-BooleanColumn`, `-Int32Column`, `-Int64Column`, `-DecimalColumn`, `-StringColumn`, and `-DateTimeColumn` parameters into that definition.
+Some operational stores have lookup or "latest state" tables where repeated source rows should collapse to one effective row per key before moving into the destination. Use source deduplication for that shape:
+
+```powershell
+Copy-DbaXTableData `
+    -SourceProvider SQLite `
+    -SourceConnectionString 'Data Source=C:\Data\monitoring.sqlite' `
+    -SourceTable 'Monitoring_ProbeIndex' `
+    -DestinationProvider SqlServer `
+    -DestinationConnectionString 'Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'dbo.Monitoring_ProbeIndex' `
+    -OrderBy ProbeName `
+    -DeduplicateSourceBy ProbeName `
+    -DeduplicateSourceOrderBy LastCompletedUtcMs `
+    -DeduplicateSourceCaseInsensitive `
+    -TreatMissingTablesAsEmpty `
+    -PassThru
+```
+
+`-DeduplicateSourceBy` partitions the source rows by key, `-DeduplicateSourceOrderBy` picks the winning row for each key using descending order, and `-DeduplicateSourceCaseInsensitive` uses lowercase keys for providers that should merge values such as `Server1` and `server1`. `-TreatMissingTablesAsEmpty` is useful when migrating stores across schema versions where older source databases may not contain every current table.
+
+The reusable .NET core owns the same behavior through `DbaTableCopyDefinition.ColumnMappings`, `ExcludedColumns`, `ColumnTypeConversions`, and `SourceOptions`. PowerShell only maps the friendly `-ExcludeColumn`, `-BooleanColumn`, `-Int32Column`, `-Int64Column`, `-DecimalColumn`, `-StringColumn`, `-DateTimeColumn`, and source-deduplication parameters into that definition.
 
 The cmdlet supports SQL Server, PostgreSQL, MySQL, SQLite, and Oracle as source or destination providers. SQL Server destinations also support `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, and `-KeepNulls`. SQLite destination connection strings are normalized with pooling disabled for short-lived file copy workflows.
 
@@ -228,6 +248,13 @@ var plan = DbaTableCopyPlanner.BuildPlan(
         ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
         {
             ["IsMaintenance"] = DbaTableCopyColumnType.Boolean
+        },
+        TableSourceOptions = new Dictionary<string, DbaTableCopySourceOptions>
+        {
+            ["ProbeIndex"] = new DbaTableCopySourceOptions(
+                DeduplicateByColumns: new[] { "ProbeName" },
+                DeduplicateOrderByColumns: new[] { "LastCompletedUtcMs" },
+                DeduplicateCaseInsensitive: true)
         }
     });
 
@@ -256,7 +283,8 @@ For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `Db
 ```csharp
 var sourceAdapter = new DbaProviderTableCopyAdapter(
     DbaTableCopyProvider.SQLite,
-    "Data Source=C:\\Data\\monitoring.sqlite");
+    "Data Source=C:\\Data\\monitoring.sqlite",
+    treatMissingTablesAsEmpty: true);
 
 var destinationAdapter = new DbaProviderTableCopyAdapter(
     DbaTableCopyProvider.SqlServer,
@@ -264,7 +292,8 @@ var destinationAdapter = new DbaProviderTableCopyAdapter(
     sqlServerOptions: new SqlServerBulkInsertOptions
     {
         BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
-    });
+    },
+    treatMissingTablesAsEmpty: true);
 
 var result = await new DbaTableCopyEngine().CopyAsync(
     sourceAdapter,
@@ -289,6 +318,11 @@ $columnMap['DisplayName'] = 'ProbeDisplayName'
 $typeConversions = [System.Collections.Generic.Dictionary[string,DBAClientX.DataMovement.DbaTableCopyColumnType]]::new()
 $typeConversions['IsMaintenance'] = [DBAClientX.DataMovement.DbaTableCopyColumnType]::Boolean
 
+$probeIndexSourceOptions = [DBAClientX.DataMovement.DbaTableCopySourceOptions]::new(
+    [string[]] @('ProbeName'),
+    [string[]] @('LastCompletedUtcMs'),
+    $true)
+
 $definitions = @(
     [DBAClientX.DataMovement.DbaTableCopyDefinition]::new(
         'main.ProbeResults',
@@ -298,6 +332,15 @@ $definitions = @(
         $columnMap,
         [string[]] @('__MigrationRowId', '__MigrationRank'),
         $typeConversions)
+    [DBAClientX.DataMovement.DbaTableCopyDefinition]::new(
+        'main.ProbeIndex',
+        'dbo.ProbeIndex',
+        [string[]] @('ProbeName'),
+        'ProbeIndex',
+        $null,
+        $null,
+        $null,
+        $probeIndexSourceOptions)
 )
 
 Copy-DbaXTableData `
