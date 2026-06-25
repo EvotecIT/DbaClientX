@@ -27,12 +27,18 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName)
     {
-        var normalized = string.Join(
-            ".",
-            tableName
-                .Split('.')
-                .Select(static part => part.Trim().Trim('[', ']', '"', '`'))
-                .Where(static part => part.Length > 0));
+        var parts = tableName
+            .Split('.')
+            .Select(static part => part.Trim().Trim('[', ']', '"', '`'))
+            .Where(static part => part.Length > 0)
+            .ToArray();
+
+        if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
+        {
+            parts = new[] { "dbo", parts[0] };
+        }
+
+        var normalized = string.Join(".", parts);
 
         return provider == DbaTableCopyProvider.Oracle
             ? normalized.ToUpperInvariant()

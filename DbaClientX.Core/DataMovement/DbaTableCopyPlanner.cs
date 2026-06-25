@@ -90,6 +90,7 @@ public static class DbaTableCopyPlanner
             var destinationColumnName = ResolveDestinationColumnName(sourceColumn.Name, scopedMappings);
             if (excludedColumns.Contains(sourceColumn.Name) || excludedColumns.Contains(destinationColumnName))
             {
+                excludedColumns.Add(sourceColumn.Name);
                 continue;
             }
 
@@ -353,8 +354,7 @@ public static class DbaTableCopyPlanner
     private static bool IsGenerated(DbaColumnInfo column)
         => !string.IsNullOrWhiteSpace(column.GeneratedExpression) ||
            !string.IsNullOrWhiteSpace(column.GeneratedKind) ||
-           string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) ||
-           string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase);
+           string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase);
 
     private static string QualifyName(string? schema, string name)
         => string.IsNullOrWhiteSpace(schema)

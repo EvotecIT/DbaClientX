@@ -29,14 +29,14 @@ internal static class DbaTableCopyPageTransformer
         var columns = new List<ColumnTransform>();
         foreach (DataColumn sourceColumn in page.Columns)
         {
-            if (excluded.Contains(sourceColumn.ColumnName))
+            var destinationName = mappings != null && mappings.TryGetValue(sourceColumn.ColumnName, out var mappedName)
+                ? mappedName
+                : sourceColumn.ColumnName;
+            if (excluded.Contains(sourceColumn.ColumnName) || excluded.Contains(destinationName))
             {
                 continue;
             }
 
-            var destinationName = mappings != null && mappings.TryGetValue(sourceColumn.ColumnName, out var mappedName)
-                ? mappedName
-                : sourceColumn.ColumnName;
             var conversion = ResolveConversion(conversions, sourceColumn.ColumnName, destinationName);
             AddDestinationColumn(transformed, sourceColumn, destinationName, conversion);
             columns.Add(new ColumnTransform(sourceColumn.ColumnName, destinationName, conversion));

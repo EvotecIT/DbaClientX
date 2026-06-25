@@ -186,6 +186,36 @@ public class DbaTableCopyPlannerTests
         Assert.Equal("NoOrderByColumns", warning.Code);
     }
 
+    [Fact]
+    public void BuildPlan_PreservesDestinationNameExclusionsAfterMapping()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1, isIdentity: true),
+            Column("dbo", "Users", "Name", "nvarchar(128)", 2),
+            Column("dbo", "Users", "UpdatedAt", "timestamp", 3)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                ColumnMappings = new Dictionary<string, string>
+                {
+                    ["Name"] = "DisplayName"
+                },
+                ExcludedColumns = new[] { "DisplayName" }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ExcludedColumns);
+        Assert.Contains("DisplayName", definition.ExcludedColumns);
+        Assert.Contains("Name", definition.ExcludedColumns);
+        Assert.DoesNotContain("UpdatedAt", definition.ExcludedColumns);
+    }
+
     private static DbaColumnInfo Column(
         string schema,
         string table,

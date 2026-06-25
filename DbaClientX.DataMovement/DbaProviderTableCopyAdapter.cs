@@ -432,6 +432,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             DbaTableCopyProvider.SqlServer => "[" + identifier.Replace("]", "]]") + "]",
             DbaTableCopyProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
             DbaTableCopyProvider.Oracle => QuoteOracleIdentifier(identifier),
+            DbaTableCopyProvider.PostgreSql => QuotePostgreSqlIdentifier(identifier),
             _ => "\"" + identifier.Replace("\"", "\"\"") + "\""
         };
     }
@@ -460,10 +461,39 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     }
 
     private static bool IsOracleIdentifierStart(char value)
-        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_';
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
 
     private static bool IsOracleIdentifierPart(char value)
-        => IsOracleIdentifierStart(value) || value is >= '0' and <= '9' or '$' or '#';
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_' or >= '0' and <= '9' or '$' or '#';
+
+    private static string QuotePostgreSqlIdentifier(string identifier)
+        => IsPostgreSqlSimpleIdentifier(identifier)
+            ? identifier.ToLowerInvariant()
+            : "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    private static bool IsPostgreSqlSimpleIdentifier(string identifier)
+    {
+        if (identifier.Length == 0 || !IsPostgreSqlIdentifierStart(identifier[0]))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < identifier.Length; i++)
+        {
+            if (!IsPostgreSqlIdentifierPart(identifier[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsPostgreSqlIdentifierStart(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_';
+
+    private static bool IsPostgreSqlIdentifierPart(char value)
+        => IsPostgreSqlIdentifierStart(value) || value is >= '0' and <= '9' or '$';
 
     private static bool IsMissingTableException(Exception exception)
     {

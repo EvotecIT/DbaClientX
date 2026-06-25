@@ -148,6 +148,36 @@ public class DbaTableCopyEngineTests
         Assert.Equal("First", destination.Rows.Rows[0]["Name"]);
     }
 
+    [Fact]
+    public async Task CopyAsync_ExcludesMappedColumnsByDestinationName()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("Id", typeof(long));
+        sourceTable.Columns.Add("DisplayName", typeof(string));
+        sourceTable.Rows.Add(1L, "First");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["DisplayName"] = "Name"
+                    },
+                    ExcludedColumns: new[] { "Name" })
+            });
+
+        Assert.DoesNotContain("DisplayName", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.DoesNotContain("Name", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Contains("Id", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
     [Theory]
     [InlineData(0, null, null)]
     [InlineData(100, 0, null)]

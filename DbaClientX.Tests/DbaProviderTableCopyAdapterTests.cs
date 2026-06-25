@@ -245,6 +245,57 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BuildPageQuery_OracleQuotesIdentifiersStartingWithUnderscore()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p",
+            new[] { "_SortKey" });
+
+        var query = InvokeBuildPageQuery(adapter, "app._Audit", 0, 10);
+
+        Assert.Equal("SELECT * FROM APP.\"_Audit\" ORDER BY \"_SortKey\" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_PostgreSqlFoldsSimpleIdentifiersToLowercase()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p",
+            new[] { "CreatedUtc" });
+
+        var query = InvokeBuildPageQuery(adapter, "Public.Users", 0, 10);
+
+        Assert.Equal("SELECT * FROM public.users ORDER BY createdutc LIMIT 10 OFFSET 0", query);
+    }
+
+    [Fact]
+    public async Task CopyAsync_SqlServerSameTableProtectionTreatsUnqualifiedNameAsDbo()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Users", "[dbo].[Users]", new[] { "Id" })
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", ex.Message);
+    }
+
+    [Fact]
     public void BuildPageQuery_UsesDefinitionOrderColumnsWhenProvided()
     {
         var adapter = new DbaProviderTableCopyAdapter(
