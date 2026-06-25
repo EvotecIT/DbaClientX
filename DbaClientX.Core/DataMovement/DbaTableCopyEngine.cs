@@ -44,7 +44,7 @@ public sealed class DbaTableCopyEngine
 
         var sw = Stopwatch.StartNew();
         var preflight = options.ClearDestination
-            ? await PreflightSourceAsync(source, copyDefinitions, options, cancellationToken).ConfigureAwait(false)
+            ? await PreflightSourceAsync(source, destination, copyDefinitions, options, cancellationToken).ConfigureAwait(false)
             : null;
 
         if (options.ClearDestination)
@@ -78,11 +78,13 @@ public sealed class DbaTableCopyEngine
 
     private static async Task<DbaTableCopyPreflight?[]> PreflightSourceAsync(
         IDbaTableCopySource source,
+        IDbaTableCopyDestination destination,
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
         var results = new DbaTableCopyPreflight?[definitions.Count];
+        var destinationPagePreflight = destination as IDbaTableCopyPagePreflightDestination;
         for (var index = 0; index < definitions.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -95,7 +97,7 @@ public sealed class DbaTableCopyEngine
                         new DbaTableCopyPageRequest(definition, 0, options.PageSize),
                         cancellationToken)
                     .ConfigureAwait(false);
-                PreflightTransform(firstPage, definition);
+                PreflightTransform(firstPage, definition, destinationPagePreflight);
             }
 
             results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
@@ -116,7 +118,10 @@ public sealed class DbaTableCopyEngine
         }
     }
 
-    private static void PreflightTransform(DataTable page, DbaTableCopyDefinition definition)
+    private static void PreflightTransform(
+        DataTable page,
+        DbaTableCopyDefinition definition,
+        IDbaTableCopyPagePreflightDestination? destinationPagePreflight)
     {
         var transformed = DbaTableCopyPageTransformer.Transform(page, definition);
         using var transformedToDispose = ReferenceEquals(transformed, page) ? null : transformed;
@@ -127,6 +132,8 @@ public sealed class DbaTableCopyEngine
                 $"Table copy definition '{definition.DisplayName}' produced no destination columns during preflight. " +
                 "At least one destination column is required before clearing destination data.");
         }
+
+        destinationPagePreflight?.ValidatePage(definition, transformed);
     }
 
     private static async Task<DbaTableCopyTableResult> CopyTableAsync(
@@ -140,6 +147,9 @@ public sealed class DbaTableCopyEngine
         var sourceRows = preflight == null
             ? await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
             : preflight.SourceRows;
+        var initialDestinationRows = options.VerifyRowCounts && !options.ClearDestination
+            ? await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
+            : null;
         if (sourceRows == 0)
         {
             long? emptyDestinationRows = null;
@@ -149,7 +159,9 @@ public sealed class DbaTableCopyEngine
                 emptyDestinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
                 if (emptyDestinationRows.HasValue)
                 {
-                    emptyVerified = emptyDestinationRows.Value == 0;
+                    emptyVerified = options.ClearDestination
+                        ? emptyDestinationRows.Value == 0
+                        : initialDestinationRows.HasValue && emptyDestinationRows.Value == initialDestinationRows.Value;
                 }
             }
 
@@ -163,7 +175,7 @@ public sealed class DbaTableCopyEngine
         {
             if (page.Rows.Count == 0)
             {
-                return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, cancellationToken).ConfigureAwait(false);
+                return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, initialDestinationRows, cancellationToken).ConfigureAwait(false);
             }
 
             var pageRows = await CopyPageAsync(destination, definition, options, page, copied, sourceRows, cancellationToken).ConfigureAwait(false);
@@ -171,7 +183,7 @@ public sealed class DbaTableCopyEngine
             offset += page.Rows.Count;
             if (page.Rows.Count < options.PageSize)
             {
-                return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, cancellationToken).ConfigureAwait(false);
+                return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, initialDestinationRows, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -198,7 +210,7 @@ public sealed class DbaTableCopyEngine
             }
         }
 
-        return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, cancellationToken).ConfigureAwait(false);
+        return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, initialDestinationRows, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> CopyPageAsync(
@@ -222,6 +234,7 @@ public sealed class DbaTableCopyEngine
         DbaTableCopyOptions options,
         long? sourceRows,
         long copied,
+        long? initialDestinationRows,
         CancellationToken cancellationToken)
     {
         long? destinationRows = null;
@@ -231,7 +244,14 @@ public sealed class DbaTableCopyEngine
             destinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
             if (sourceRows.HasValue && destinationRows.HasValue)
             {
-                verified = sourceRows.Value == destinationRows.Value;
+                if (options.ClearDestination)
+                {
+                    verified = sourceRows.Value == destinationRows.Value;
+                }
+                else if (initialDestinationRows.HasValue)
+                {
+                    verified = destinationRows.Value == initialDestinationRows.Value + copied;
+                }
             }
         }
 

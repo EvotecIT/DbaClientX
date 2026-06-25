@@ -409,6 +409,20 @@ public class DbaProviderTableCopyAdapterTests
         Assert.Equal("\"tenant.v1\".\"Rows.Current\"", normalized);
     }
 
+    [Theory]
+    [InlineData("[Rows.Current]", "\"Rows.Current\"")]
+    [InlineData("`Rows.Current`", "\"Rows.Current\"")]
+    public void BulkDestinationName_SQLiteStripsAlternativeIdentifierDelimitersBeforeQuoting(string destinationTableName, string expected)
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.SQLite,
+            "Data Source=:memory:");
+
+        var normalized = InvokeNormalizeSQLiteBulkDestinationTableName(adapter, destinationTableName);
+
+        Assert.Equal(expected, normalized);
+    }
+
     [Fact]
     public void BulkPage_PostgreSqlNormalizesSimpleColumnNamesBeforeProviderBulkCopyQuotesThem()
     {
@@ -454,6 +468,21 @@ public class DbaProviderTableCopyAdapterTests
         var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "\"TenantA\".Users");
 
         Assert.Equal(new[] { "displayname", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
+    [Fact]
+    public void ValidatePage_PostgreSqlRejectsDuplicateNormalizedColumnsBeforeWrite()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+        using var page = new DataTable("Users");
+        page.Columns.Add("DisplayName", typeof(string));
+        page.Columns.Add("displayname", typeof(string));
+
+        var exception = Assert.Throws<InvalidOperationException>(() => adapter.ValidatePage(new DbaTableCopyDefinition("Users", "Users"), page));
+
+        Assert.Contains("duplicate destination column 'displayname'", exception.Message);
     }
 
     [Theory]
@@ -587,6 +616,14 @@ public class DbaProviderTableCopyAdapterTests
     {
         var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkDestinationTableName");
+
+        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
+    }
+
+    private static string InvokeNormalizeSQLiteBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeSQLiteBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeSQLiteBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }

@@ -182,6 +182,25 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenDestinationPagePreflightFails()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination
+        {
+            ThrowOnValidatePage = true
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Equal(1, destination.ValidatePageCalls);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_DoesNotPartiallyClearDestinationWhenDestinationPreflightFails()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -201,6 +220,31 @@ public class DbaTableCopyEngineTests
             new DbaTableCopyOptions { ClearDestination = true }));
 
         Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_VerifiesAppendAgainstInitialDestinationRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new MemoryTableCopyDestination();
+        destination.Rows.Columns.Add("Id", typeof(int));
+        destination.Rows.Columns.Add("DisplayName", typeof(string));
+        destination.Rows.Rows.Add(100, "Existing");
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.True(result.Verified);
+        Assert.Equal(2, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(3, result.DestinationRows);
     }
 
     [Fact]
@@ -407,7 +451,7 @@ public class DbaTableCopyEngineTests
         }
     }
 
-    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination
+    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination
     {
         private readonly long? _destinationRowCountOverride;
 
@@ -423,6 +467,10 @@ public class DbaTableCopyEngineTests
         public DataTable Rows { get; } = new("DestinationRows");
 
         public string? ThrowOnCountDestinationName { get; init; }
+
+        public bool ThrowOnValidatePage { get; init; }
+
+        public int ValidatePageCalls { get; private set; }
 
         public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
@@ -459,6 +507,15 @@ public class DbaTableCopyEngineTests
             }
 
             return Task.FromResult<long?>(_destinationRowCountOverride ?? Rows.Rows.Count);
+        }
+
+        public void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
+        {
+            ValidatePageCalls++;
+            if (ThrowOnValidatePage)
+            {
+                throw new InvalidOperationException("Destination page preflight failed.");
+            }
         }
     }
 }

@@ -247,6 +247,56 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlPublicSchemaAliasesBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("users", "public.users", new[] { "id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlTargetWhenDatabaseDefaultsToUsernameBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Username=app;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=app;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("public.users", "users", new[] { "id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSameMySqlTargetWhenDefaultPortIsOmittedBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -272,6 +322,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameMySqlCurrentDatabaseQualifiedTableBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=app;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=app;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "app.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public void NormalizeTableName_PostgreSqlRespectsQuotedIdentifierSemantics()
     {
         var ordinary = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users");
@@ -282,6 +357,30 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Equal(ordinary, quotedLower);
         Assert.NotEqual(ordinary, quotedMixed);
         Assert.NotEqual(InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "tenant.v1.users"), quotedDotted);
+    }
+
+    [Fact]
+    public void NormalizeTableName_PostgreSqlTreatsPublicSchemaAsDefault()
+    {
+        var unqualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users");
+        var publicQualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "public.users");
+        var quotedPublicQualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "\"public\".users");
+        var quotedMixedPublicQualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "\"Public\".users");
+
+        Assert.Equal(unqualified, publicQualified);
+        Assert.Equal(unqualified, quotedPublicQualified);
+        Assert.NotEqual(unqualified, quotedMixedPublicQualified);
+    }
+
+    [Fact]
+    public void NormalizeTableName_MySqlPreservesTableNameCase()
+    {
+        var rows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "Rows", "app");
+        var lowerRows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "rows", "app");
+        var currentDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "app.Rows", "app");
+
+        Assert.Equal(rows, currentDatabaseQualified);
+        Assert.NotEqual(rows, lowerRows);
     }
 
     [Fact]

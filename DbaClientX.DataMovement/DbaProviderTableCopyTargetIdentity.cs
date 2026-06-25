@@ -51,9 +51,29 @@ internal static class DbaProviderTableCopyTargetIdentity
             parts = parts.Skip(1).ToArray();
         }
 
+        if (provider == DbaTableCopyProvider.PostgreSql &&
+            parts.Length == 2 &&
+            IsDefaultPostgreSqlSchema(parts[0]))
+        {
+            parts = parts.Skip(1).ToArray();
+        }
+
+        if (provider == DbaTableCopyProvider.MySql &&
+            parts.Length == 2 &&
+            !string.IsNullOrWhiteSpace(currentDatabase) &&
+            string.Equals(NormalizePart(parts[0].Value), NormalizePart(currentDatabase), StringComparison.Ordinal))
+        {
+            parts = parts.Skip(1).ToArray();
+        }
+
         if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
         {
             parts = new[] { new IdentifierSegment("dbo", false), parts[0] };
+        }
+
+        if (provider == DbaTableCopyProvider.PostgreSql && parts.Length == 1)
+        {
+            parts = new[] { new IdentifierSegment("public", false), parts[0] };
         }
 
         if (provider == DbaTableCopyProvider.Oracle &&
@@ -83,6 +103,8 @@ internal static class DbaProviderTableCopyTargetIdentity
             return options.Provider switch
             {
                 DbaTableCopyProvider.SqlServer => ReadConnectionStringValue(builder, "Initial Catalog", "Database"),
+                DbaTableCopyProvider.PostgreSql => ReadPostgreSqlDatabase(builder),
+                DbaTableCopyProvider.MySql => ReadConnectionStringValue(builder, "Database", "Initial Catalog"),
                 DbaTableCopyProvider.Oracle => ReadConnectionStringValue(builder, "User ID", "User Id", "UID", "Username", "User"),
                 _ => null
             };
@@ -211,8 +233,16 @@ internal static class DbaProviderTableCopyTargetIdentity
                 : "u:" + folded;
         }
 
+        if (provider == DbaTableCopyProvider.MySql)
+        {
+            return segment.Value;
+        }
+
         return segment.Value.ToLowerInvariant();
     }
+
+    private static bool IsDefaultPostgreSqlSchema(IdentifierSegment segment)
+        => string.Equals(NormalizeTableSegment(DbaTableCopyProvider.PostgreSql, segment), "u:public", StringComparison.Ordinal);
 
     private static bool IsPostgreSqlSimpleIdentifier(string identifier)
     {
@@ -342,7 +372,9 @@ internal static class DbaProviderTableCopyTargetIdentity
             }
 
             var host = ReadConnectionStringValue(builder, "Host", "Server", "Data Source", "Address", "Addr", "Network Address");
-            var database = ReadConnectionStringValue(builder, "Database", "Initial Catalog");
+            var database = provider == DbaTableCopyProvider.PostgreSql
+                ? ReadPostgreSqlDatabase(builder)
+                : ReadConnectionStringValue(builder, "Database", "Initial Catalog");
             var port = NormalizeProviderPort(provider, ReadConnectionStringValue(builder, "Port"));
             if (!string.IsNullOrWhiteSpace(host) || !string.IsNullOrWhiteSpace(database))
             {
@@ -375,6 +407,10 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         return null;
     }
+
+    private static string? ReadPostgreSqlDatabase(DbConnectionStringBuilder builder)
+        => ReadConnectionStringValue(builder, "Database")
+           ?? ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
 
     private static string NormalizeConnectionString(string connectionString)
     {

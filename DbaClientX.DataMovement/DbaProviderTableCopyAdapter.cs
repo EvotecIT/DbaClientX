@@ -6,7 +6,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>
 /// Provides reusable provider-backed source and destination adapters for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
+public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination
 {
     private const string SourceAlias = "dbax_source";
     private const string DeduplicationRankColumn = "__DbaXCRank_62D977CD";
@@ -126,6 +126,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
                 using (var postgreSql = new PostgreSql())
                 {
                     var bulkPage = NormalizePostgreSqlBulkPage(page, definition.DestinationName);
+                    using var bulkPageToDispose = ReferenceEquals(bulkPage, page) ? null : bulkPage;
                     await postgreSql.BulkInsertAsync(
                             _connectionString,
                             bulkPage,
@@ -167,6 +168,21 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     Task<long?> IDbaTableCopyDestination.CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
         => ExecuteCountAsync(definition.DestinationName, null, cancellationToken);
+
+    /// <inheritdoc />
+    public void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
+    {
+        if (_provider != DbaTableCopyProvider.PostgreSql)
+        {
+            return;
+        }
+
+        var bulkPage = NormalizePostgreSqlBulkPage(page, definition.DestinationName);
+        if (!ReferenceEquals(bulkPage, page))
+        {
+            bulkPage.Dispose();
+        }
+    }
 
     private async Task<long?> ExecuteCountAsync(string tableName, DbaTableCopySourceOptions? sourceOptions, CancellationToken cancellationToken)
     {
@@ -506,12 +522,12 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     private IdentifierSegment NormalizeIdentifierSegment(string identifier)
     {
         var trimmed = identifier.Trim();
-        if (_provider == DbaTableCopyProvider.SqlServer &&
+        if ((_provider == DbaTableCopyProvider.SqlServer || _provider == DbaTableCopyProvider.SQLite) &&
             trimmed.Length >= 2 &&
             trimmed[0] == '[' &&
             trimmed[trimmed.Length - 1] == ']')
         {
-            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]"), false);
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]"), _provider == DbaTableCopyProvider.SQLite);
         }
 
         if (trimmed.Length >= 2 &&
@@ -521,12 +537,12 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\""), true);
         }
 
-        if (_provider == DbaTableCopyProvider.MySql &&
+        if ((_provider == DbaTableCopyProvider.MySql || _provider == DbaTableCopyProvider.SQLite) &&
             trimmed.Length >= 2 &&
             trimmed[0] == '`' &&
             trimmed[trimmed.Length - 1] == '`')
         {
-            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`"), false);
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`"), _provider == DbaTableCopyProvider.SQLite);
         }
 
         return new IdentifierSegment(trimmed, false);
