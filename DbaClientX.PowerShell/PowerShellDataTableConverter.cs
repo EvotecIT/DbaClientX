@@ -298,7 +298,7 @@ internal static class PowerShellDataTableConverter
             {
                 if (entry.Key != null)
                 {
-                    values[entry.Key.ToString()!] = entry.Value;
+                    values[entry.Key.ToString()!] = UnwrapValue(entry.Value);
                 }
             }
 
@@ -312,7 +312,7 @@ internal static class PowerShellDataTableConverter
                       property.MemberType == PSMemberTypes.Property) &&
                      !string.IsNullOrWhiteSpace(property.Name)))
         {
-            result[property.Name] = property.Value;
+            result[property.Name] = UnwrapValue(property.Value);
         }
 
         return result;
@@ -330,6 +330,9 @@ internal static class PowerShellDataTableConverter
             ? psObject.BaseObject
             : psObject;
     }
+
+    private static object? UnwrapValue(object? value)
+        => value is PSObject psObject ? psObject.BaseObject : value;
 
     private static bool IsScalarValue(object? item)
     {

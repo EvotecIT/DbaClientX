@@ -278,10 +278,13 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
 - Benchmarks: [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks)
+- Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 
 Useful example files:
 
 - [`Example.QuerySqlServer.ps1`](Module/Examples/Example.QuerySqlServer.ps1)
+- [`Example.SqlServerDataMovement.ps1`](Module/Examples/Example.SqlServerDataMovement.ps1)
+- [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)
 - [`Example.QueryOracle.ps1`](Module/Examples/Example.QueryOracle.ps1)

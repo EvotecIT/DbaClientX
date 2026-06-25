@@ -169,6 +169,7 @@ describe 'Write-DbaXTableData cmdlet' {
             $script:lastBulkTable.Rows.Count | Should -Be 2
             $script:lastBulkTable.Columns['Id'] | Should -Not -BeNullOrEmpty
             $script:lastBulkTable.Columns['Name'] | Should -Not -BeNullOrEmpty
+            $script:lastBulkTable.Rows[0]['Id'].GetType().FullName | Should -Be 'System.Int32'
             $script:lastBulkTable.Rows[1]['Name'] | Should -Be 'Beta'
         } finally {
             $prop.SetValue($null, $orig)
