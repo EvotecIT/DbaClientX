@@ -60,10 +60,12 @@ public sealed class DbaProviderTableCopyRunner
 
         var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
+        var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
-            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase);
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase);
+            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
@@ -75,15 +77,19 @@ public sealed class DbaProviderTableCopyRunner
 
     private static void ValidateClearDestinationDoesNotRemoveSources(DbaProviderTableCopyRequest request)
     {
+        ValidateClearDestinationTableNamesAreUnambiguous(request);
+
         var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
+        var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         var sourceTables = new HashSet<string>(
-            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase)),
+            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema)),
             StringComparer.Ordinal);
 
         foreach (var definition in request.Definitions)
         {
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (sourceTables.Contains(destinationTable))
             {
                 throw new InvalidOperationException(
@@ -92,4 +98,34 @@ public sealed class DbaProviderTableCopyRunner
             }
         }
     }
+
+    private static void ValidateClearDestinationTableNamesAreUnambiguous(DbaProviderTableCopyRequest request)
+    {
+        if (request.Source.Provider != DbaTableCopyProvider.SqlServer)
+        {
+            return;
+        }
+
+        var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        foreach (var definition in request.Definitions)
+        {
+            if (string.IsNullOrWhiteSpace(sourceDefaultSchema) &&
+                DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(definition.SourceName))
+            {
+                throw CreateAmbiguousSqlServerTableException(definition.SourceName);
+            }
+
+            if (string.IsNullOrWhiteSpace(destinationDefaultSchema) &&
+                DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(definition.DestinationName))
+            {
+                throw CreateAmbiguousSqlServerTableException(definition.DestinationName);
+            }
+        }
+    }
+
+    private static InvalidOperationException CreateAmbiguousSqlServerTableException(string tableName)
+        => new(
+            $"Refusing to clear destination while SQL Server table '{tableName}' is unqualified and the connection default schema is unknown. " +
+            "Schema-qualify SQL Server source and destination tables, provide a Current Schema connection option, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
 }

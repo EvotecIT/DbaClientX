@@ -27,6 +27,7 @@ namespace DBAClientX.PowerShell;
 [CmdletBinding()]
 public sealed class CmdletCopyDbaXTableData : PSCmdlet
 {
+    private static readonly string[] MySqlBulkCopyAllowedUnsupportedOptions = { "AllowLoadLocalInfile", "LoadLocalInfile" };
     private readonly List<DbaTableCopyDefinition> _definitionBuffer = new();
     private ActionPreference _errorAction;
 
@@ -202,7 +203,12 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             var sourceAlias = GetProviderAlias(SourceProvider);
             var destinationAlias = GetProviderAlias(DestinationProvider);
             if (!PowerShellHelpers.TryValidateConnection(this, sourceAlias, SourceConnectionString, _errorAction) ||
-                !PowerShellHelpers.TryValidateConnection(this, destinationAlias, DestinationConnectionString, _errorAction))
+                !PowerShellHelpers.TryValidateConnection(
+                    this,
+                    destinationAlias,
+                    DestinationConnectionString,
+                    _errorAction,
+                    allowedUnsupportedOptions: DestinationProvider == DbaXBulkProvider.MySql ? MySqlBulkCopyAllowedUnsupportedOptions : null))
             {
                 return;
             }

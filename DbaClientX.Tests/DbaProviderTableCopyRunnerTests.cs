@@ -172,6 +172,36 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_RejectsUnqualifiedSqlServerClearWhenDefaultSchemaIsUnknown()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "app.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("unqualified", exception.Message);
+        Assert.Contains("default schema is unknown", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSameSqlServerTargetWhenDefaultPortIsExplicitBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -269,6 +299,35 @@ public class DbaProviderTableCopyRunnerTests
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlSearchPathSchemaBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one;Search Path=tenant"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two;Search Path=tenant"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "tenant.Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
     [Fact]
@@ -504,6 +563,33 @@ public class DbaProviderTableCopyRunnerTests
         {
             Assert.NotEqual(firstIdentity, secondIdentity);
         }
+    }
+
+    [Fact]
+    public void TryCreate_SQLiteIdentityDistinguishesNamedMemoryDatabaseFromFile()
+    {
+        var file = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=shared"
+        };
+        var memory = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=shared;Mode=Memory;Cache=Shared"
+        };
+        var sameMemory = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=shared;Cache=Shared;Mode=Memory"
+        };
+
+        var fileIdentity = InvokeTryCreateIdentity(file);
+        var memoryIdentity = InvokeTryCreateIdentity(memory);
+        var sameMemoryIdentity = InvokeTryCreateIdentity(sameMemory);
+
+        Assert.NotEqual(fileIdentity, memoryIdentity);
+        Assert.Equal(memoryIdentity, sameMemoryIdentity);
     }
 
     [Fact]

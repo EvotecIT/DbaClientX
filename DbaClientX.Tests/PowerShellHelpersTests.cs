@@ -67,6 +67,24 @@ public class PowerShellHelpersTests
     }
 
     [Fact]
+    public void TryValidateConnection_AllowsScopedUnsupportedOption_WhenExplicitlyPermitted()
+    {
+        var cmdlet = new FakeCmdlet();
+        var warnings = new List<string>();
+
+        var success = PowerShellHelpers.TryValidateConnection(
+            cmdlet,
+            "mysql",
+            "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true",
+            ActionPreference.Continue,
+            warnings.Add,
+            allowedUnsupportedOptions: new[] { "AllowLoadLocalInfile" });
+
+        Assert.True(success);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
     public void ResolveSqlServerCredential_UsesIntegratedSecurity_WhenNoCredentialsProvided()
     {
         var result = PowerShellHelpers.ResolveSqlServerCredential(string.Empty, string.Empty, null);

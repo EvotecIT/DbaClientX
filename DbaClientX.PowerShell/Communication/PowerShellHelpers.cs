@@ -84,7 +84,8 @@ internal static class PowerShellHelpers
         string connectionString,
         ActionPreference errorAction,
         Action<string>? writeWarning = null,
-        Action<ErrorRecord>? throwTerminatingError = null)
+        Action<ErrorRecord>? throwTerminatingError = null,
+        IReadOnlyCollection<string>? allowedUnsupportedOptions = null)
     {
         writeWarning ??= cmdlet is AsyncPSCmdlet asyncCmdlet
             ? asyncCmdlet.WriteWarning
@@ -93,6 +94,13 @@ internal static class PowerShellHelpers
 
         var result = DbaConnectionFactory.Validate(providerAlias, connectionString);
         if (result.IsValid)
+        {
+            return true;
+        }
+
+        if (result.Code == DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption &&
+            result.Details != null &&
+            allowedUnsupportedOptions?.Contains(result.Details, StringComparer.OrdinalIgnoreCase) == true)
         {
             return true;
         }

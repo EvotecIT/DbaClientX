@@ -33,6 +33,9 @@ internal static class DbaProviderTableCopyTargetIdentity
         => NormalizeTableName(provider, tableName, currentDatabase: null);
 
     internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase)
+        => NormalizeTableName(provider, tableName, currentDatabase, defaultSchema: null);
+
+    internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema)
     {
         var parts = SplitTableName(tableName);
 
@@ -68,12 +71,12 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
         {
-            parts = new[] { new IdentifierSegment("dbo", false), parts[0] };
+            parts = new[] { new IdentifierSegment(string.IsNullOrWhiteSpace(defaultSchema) ? "dbo" : defaultSchema!, false), parts[0] };
         }
 
         if (provider == DbaTableCopyProvider.PostgreSql && parts.Length == 1)
         {
-            parts = new[] { new IdentifierSegment("public", false), parts[0] };
+            parts = new[] { new IdentifierSegment(string.IsNullOrWhiteSpace(defaultSchema) ? "public" : defaultSchema!, false), parts[0] };
         }
 
         if (provider == DbaTableCopyProvider.Oracle &&
@@ -85,6 +88,9 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         return string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
     }
+
+    internal static bool IsUnqualifiedTableName(string tableName)
+        => SplitTableName(tableName).Length == 1;
 
     internal static string? GetCurrentDatabase(DbaProviderTableCopyAdapterOptions options)
     {
@@ -106,6 +112,33 @@ internal static class DbaProviderTableCopyTargetIdentity
                 DbaTableCopyProvider.PostgreSql => ReadPostgreSqlDatabase(builder),
                 DbaTableCopyProvider.MySql => ReadConnectionStringValue(builder, "Database", "Initial Catalog"),
                 DbaTableCopyProvider.Oracle => ReadConnectionStringValue(builder, "User ID", "User Id", "UID", "Username", "User"),
+                _ => null
+            };
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    internal static string? GetDefaultSchema(DbaProviderTableCopyAdapterOptions options)
+    {
+        if (options == null || string.IsNullOrWhiteSpace(options.ConnectionString))
+        {
+            return null;
+        }
+
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = options.ConnectionString.Trim()
+            };
+
+            return options.Provider switch
+            {
+                DbaTableCopyProvider.SqlServer => ReadConnectionStringValue(builder, "Current Schema", "Default Schema", "Schema"),
+                DbaTableCopyProvider.PostgreSql => ReadPostgreSqlDefaultSchema(builder),
                 _ => null
             };
         }
@@ -296,20 +329,34 @@ internal static class DbaProviderTableCopyTargetIdentity
     {
         identity = string.Empty;
         string dataSource;
+        string? mode = null;
+        string? cache = null;
         if (connectionString.Contains("=", StringComparison.Ordinal))
         {
             var builder = new SqliteConnectionStringBuilder(connectionString);
             dataSource = builder.DataSource;
+            mode = builder.Mode.ToString();
+            cache = builder.Cache.ToString();
         }
         else
         {
             dataSource = connectionString;
         }
 
-        if (string.IsNullOrWhiteSpace(dataSource) ||
-            string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(dataSource))
         {
             return false;
+        }
+
+        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(mode, "Memory", StringComparison.OrdinalIgnoreCase))
+        {
+            identity = "sqlite|mode=memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
+            return true;
         }
 
         identity = "sqlite|path=" + NormalizePath(dataSource, preserveCaseOnCaseSensitiveFileSystem: true);
@@ -411,6 +458,80 @@ internal static class DbaProviderTableCopyTargetIdentity
     private static string? ReadPostgreSqlDatabase(DbConnectionStringBuilder builder)
         => ReadConnectionStringValue(builder, "Database")
            ?? ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
+
+    private static string? ReadPostgreSqlDefaultSchema(DbConnectionStringBuilder builder)
+    {
+        var searchPath = ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
+        if (string.IsNullOrWhiteSpace(searchPath))
+        {
+            return "public";
+        }
+
+        var username = ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
+        foreach (var segment in SplitPostgreSqlSearchPath(searchPath!))
+        {
+            if (segment.Length == 0)
+            {
+                continue;
+            }
+
+            if (string.Equals(segment, "$user", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(username))
+                {
+                    return username;
+                }
+
+                continue;
+            }
+
+            return segment;
+        }
+
+        return "public";
+    }
+
+    private static IEnumerable<string> SplitPostgreSqlSearchPath(string searchPath)
+    {
+        var start = 0;
+        var quoted = false;
+        for (var index = 0; index < searchPath.Length; index++)
+        {
+            var value = searchPath[index];
+            if (value == '"')
+            {
+                if (quoted && index + 1 < searchPath.Length && searchPath[index + 1] == '"')
+                {
+                    index++;
+                    continue;
+                }
+
+                quoted = !quoted;
+                continue;
+            }
+
+            if (value == ',' && !quoted)
+            {
+                yield return NormalizeSearchPathSegment(searchPath.Substring(start, index - start));
+                start = index + 1;
+            }
+        }
+
+        yield return NormalizeSearchPathSegment(searchPath.Substring(start));
+    }
+
+    private static string NormalizeSearchPathSegment(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '"' &&
+            trimmed[trimmed.Length - 1] == '"')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
+        }
+
+        return trimmed;
+    }
 
     private static string NormalizeConnectionString(string connectionString)
     {
