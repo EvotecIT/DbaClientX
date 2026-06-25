@@ -285,7 +285,8 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         }
         catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
         {
-            _ = ex;
+            // Missing tables are intentionally ignored when the caller opted into schema-version tolerant copies.
+            return;
         }
     }
 
