@@ -292,6 +292,14 @@ describe 'Copy-DbaXTableData cmdlet' {
         Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One');" | Out-Null
         Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (2, 'Two');" | Out-Null
         Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query @'
+CREATE TRIGGER DropCopiedDestinationRows
+AFTER INSERT ON DestinationRows
+WHEN NEW.Id < 99
+BEGIN
+    DELETE FROM DestinationRows WHERE Id = NEW.Id;
+END;
+'@ | Out-Null
 
         $warningMessages = @()
         Copy-DbaXTableData `
@@ -317,6 +325,14 @@ describe 'Copy-DbaXTableData cmdlet' {
         Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
         Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One');" | Out-Null
         Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query @'
+CREATE TRIGGER DropCopiedDestinationRows
+AFTER INSERT ON DestinationRows
+WHEN NEW.Id < 99
+BEGIN
+    DELETE FROM DestinationRows WHERE Id = NEW.Id;
+END;
+'@ | Out-Null
 
         {
             Copy-DbaXTableData `
