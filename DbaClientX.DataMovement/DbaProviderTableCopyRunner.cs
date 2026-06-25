@@ -53,6 +53,11 @@ public sealed class DbaProviderTableCopyRunner
             return;
         }
 
+        if (request.Options?.ClearDestination == true)
+        {
+            ValidateClearDestinationDoesNotRemoveSources(request);
+        }
+
         foreach (var definition in request.Definitions)
         {
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName);
@@ -61,6 +66,24 @@ public sealed class DbaProviderTableCopyRunner
             {
                 throw new InvalidOperationException(
                     $"Refusing to copy provider table '{definition.SourceName}' to itself. " +
+                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+            }
+        }
+    }
+
+    private static void ValidateClearDestinationDoesNotRemoveSources(DbaProviderTableCopyRequest request)
+    {
+        var sourceTables = new HashSet<string>(
+            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName)),
+            StringComparer.Ordinal);
+
+        foreach (var definition in request.Definitions)
+        {
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName);
+            if (sourceTables.Contains(destinationTable))
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to clear destination table '{definition.DestinationName}' because it is also used as a source table in the same provider database. " +
                     "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
             }
         }

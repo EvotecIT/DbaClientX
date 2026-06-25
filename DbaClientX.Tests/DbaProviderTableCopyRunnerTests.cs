@@ -187,6 +187,51 @@ public class DbaProviderTableCopyRunnerTests
         }
     }
 
+    [Fact]
+    public async Task CopyAsync_BlocksClearDestinationWhenDestinationIsAlsoASourceTable()
+    {
+        var databasePath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL);");
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE StagingRows (Id INTEGER NOT NULL);");
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE FinalRows (Id INTEGER NOT NULL);");
+            }
+
+            var request = new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = "Data Source=" + databasePath
+                },
+                Destination = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = databasePath
+                },
+                Definitions = new[]
+                {
+                    new DbaTableCopyDefinition("SourceRows", "StagingRows", new[] { "Id" }),
+                    new DbaTableCopyDefinition("StagingRows", "FinalRows", new[] { "Id" })
+                },
+                Options = new DbaTableCopyOptions
+                {
+                    ClearDestination = true
+                }
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            Assert.Contains("also used as a source table", exception.Message);
+        }
+        finally
+        {
+            DeleteIfExists(databasePath);
+        }
+    }
+
     private static void DeleteIfExists(string path)
     {
         if (File.Exists(path))

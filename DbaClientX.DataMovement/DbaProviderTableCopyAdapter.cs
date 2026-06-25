@@ -9,7 +9,7 @@ namespace DBAClientX.DataMovement;
 public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
 {
     private const string SourceAlias = "dbax_source";
-    private const string DeduplicationRankColumn = "__DbaXRank";
+    private const string DeduplicationRankColumn = "__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4";
 
     private readonly DbaTableCopyProvider _provider;
     private readonly string _connectionString;
@@ -125,7 +125,14 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.PostgreSql:
                 using (var postgreSql = new PostgreSql())
                 {
-                    await postgreSql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await postgreSql.BulkInsertAsync(
+                            _connectionString,
+                            page,
+                            NormalizePostgreSqlBulkDestinationTableName(definition.DestinationName),
+                            batchSize: options.BatchSize,
+                            bulkCopyTimeout: options.BulkCopyTimeout,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 break;
             case DbaTableCopyProvider.MySql:
@@ -335,7 +342,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: true);
         var winnerOrder = BuildDeduplicationWinnerOrderClause(sourceOptions);
         var outerOrder = BuildOrderByClause(orderByColumns ?? sourceOptions.DeduplicateByColumns);
-        var rank = QuoteIdentifier(DeduplicationRankColumn);
+        var rank = QuoteSyntheticIdentifier(DeduplicationRankColumn);
         var rankedSource =
             $"SELECT {SourceAlias}.*, ROW_NUMBER() OVER (PARTITION BY {keyColumns} ORDER BY {winnerOrder}) AS {rank} " +
             $"FROM {quotedTable} {SourceAlias}";
@@ -404,7 +411,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     private string QuotePath(string identifierPath)
         => string.Join(".", SplitIdentifierPath(identifierPath).Select(QuoteIdentifier));
 
-    private static IReadOnlyList<string> SplitIdentifierPath(string identifierPath)
+    private IReadOnlyList<string> SplitIdentifierPath(string identifierPath)
     {
         if (string.IsNullOrWhiteSpace(identifierPath))
         {
@@ -417,7 +424,51 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             throw new ArgumentException($"Identifier '{identifierPath}' contains an empty path segment.", nameof(identifierPath));
         }
 
-        return parts.Select(static part => part.Trim()).ToArray();
+        return parts.Select(NormalizeIdentifierSegment).ToArray();
+    }
+
+    private string NormalizeIdentifierSegment(string identifier)
+    {
+        var trimmed = identifier.Trim();
+        if (_provider == DbaTableCopyProvider.SqlServer &&
+            trimmed.Length >= 2 &&
+            trimmed[0] == '[' &&
+            trimmed[trimmed.Length - 1] == ']')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '"' &&
+            trimmed[trimmed.Length - 1] == '"')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
+        }
+
+        if (_provider == DbaTableCopyProvider.MySql &&
+            trimmed.Length >= 2 &&
+            trimmed[0] == '`' &&
+            trimmed[trimmed.Length - 1] == '`')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
+        }
+
+        return trimmed;
+    }
+
+    private string NormalizePostgreSqlBulkDestinationTableName(string destinationTableName)
+    {
+        if (_provider != DbaTableCopyProvider.PostgreSql)
+        {
+            return destinationTableName;
+        }
+
+        return string.Join(
+            ".",
+            SplitIdentifierPath(destinationTableName).Select(static identifier =>
+                IsPostgreSqlSimpleIdentifier(identifier)
+                    ? identifier.ToLowerInvariant()
+                    : identifier));
     }
 
     private string QuoteIdentifier(string identifier)
@@ -433,6 +484,21 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             DbaTableCopyProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
             DbaTableCopyProvider.Oracle => QuoteOracleIdentifier(identifier),
             DbaTableCopyProvider.PostgreSql => QuotePostgreSqlIdentifier(identifier),
+            _ => "\"" + identifier.Replace("\"", "\"\"") + "\""
+        };
+    }
+
+    private string QuoteSyntheticIdentifier(string identifier)
+    {
+        if (identifier.IndexOfAny(new[] { ';', '\r', '\n', '\0' }) >= 0)
+        {
+            throw new ArgumentException($"Identifier '{identifier}' contains unsupported characters.", nameof(identifier));
+        }
+
+        return _provider switch
+        {
+            DbaTableCopyProvider.SqlServer => "[" + identifier.Replace("]", "]]") + "]",
+            DbaTableCopyProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
             _ => "\"" + identifier.Replace("\"", "\"\"") + "\""
         };
     }

@@ -271,6 +271,56 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BulkDestinationName_PostgreSqlFoldsSimpleIdentifiersBeforeProviderBulkCopyQuotesThem()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+
+        var normalized = InvokeNormalizePostgreSqlBulkDestinationTableName(adapter, "Public.Users");
+
+        Assert.Equal("public.users", normalized);
+    }
+
+    [Fact]
+    public void BuildPageQuery_SqlServerStripsDelimitersBeforeQuotingIdentifiers()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.SqlServer,
+            "Server=.;Database=tempdb;Integrated Security=True",
+            new[] { "[Id]" });
+
+        var query = InvokeBuildPageQuery(adapter, "[dbo].[Rows]", 0, 10);
+
+        Assert.Equal("SELECT * FROM [dbo].[Rows] ORDER BY [Id] OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_DeduplicationUsesNamespacedRankAlias()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p",
+            new[] { "ProbeName" });
+
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
+        var query = (string)method.Invoke(
+            adapter,
+            new object?[]
+            {
+                "Public.ProbeIndex",
+                new[] { "ProbeName" },
+                new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtc" }),
+                0L,
+                10
+            })!;
+
+        Assert.Contains("__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4", query);
+        Assert.DoesNotContain("__DbaXRank", query);
+    }
+
+    [Fact]
     public async Task CopyAsync_SqlServerSameTableProtectionTreatsUnqualifiedNameAsDbo()
     {
         var request = new DbaProviderTableCopyRequest
@@ -314,6 +364,14 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
 
         return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, null, offset, pageSize })!;
+    }
+
+    private static string InvokeNormalizePostgreSqlBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkDestinationTableName");
+
+        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }
 
     private static void CreateHistoryTables(SQLite sqlite, string path)
