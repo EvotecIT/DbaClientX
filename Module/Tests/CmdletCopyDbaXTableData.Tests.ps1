@@ -153,6 +153,7 @@ describe 'Copy-DbaXTableData cmdlet' {
             -DestinationConnectionString "Data Source=$destination" `
             -DestinationTable DestinationRows `
             -OrderBy Id `
+            -ErrorAction Continue `
             -WarningVariable warningMessages
 
         $warningMessages | Should -Not -BeNullOrEmpty

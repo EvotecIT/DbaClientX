@@ -238,7 +238,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         return _provider switch
         {
             DbaXBulkProvider.SqlServer or DbaXBulkProvider.Oracle
-                => $"SELECT * FROM {quotedTable} {orderBy} OFFSET {offset} ROWS FETCH NEXT {pageSize} ROWS ONLY",
+                => $"SELECT * FROM {quotedTable}{orderBy} OFFSET {offset} ROWS FETCH NEXT {pageSize} ROWS ONLY",
             _ => $"SELECT * FROM {quotedTable}{orderBy} LIMIT {pageSize} OFFSET {offset}"
         };
     }
@@ -293,9 +293,39 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         {
             DbaXBulkProvider.SqlServer => "[" + identifier.Replace("]", "]]") + "]",
             DbaXBulkProvider.MySql => "`" + identifier.Replace("`", "``") + "`",
+            DbaXBulkProvider.Oracle => QuoteOracleIdentifier(identifier),
             _ => "\"" + identifier.Replace("\"", "\"\"") + "\""
         };
     }
+
+    private static string QuoteOracleIdentifier(string identifier)
+        => IsOracleSimpleIdentifier(identifier)
+            ? identifier.ToUpperInvariant()
+            : "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    private static bool IsOracleSimpleIdentifier(string identifier)
+    {
+        if (identifier.Length == 0 || !IsOracleIdentifierStart(identifier[0]))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < identifier.Length; i++)
+        {
+            if (!IsOracleIdentifierPart(identifier[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsOracleIdentifierStart(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_';
+
+    private static bool IsOracleIdentifierPart(char value)
+        => IsOracleIdentifierStart(value) || value is >= '0' and <= '9' or '$' or '#';
 
     private string ResolveSQLiteDatabase()
     {
