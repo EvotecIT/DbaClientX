@@ -56,7 +56,7 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.PostgreSql &&
             parts.Length == 2 &&
-            IsDefaultPostgreSqlSchema(parts[0]))
+            IsDefaultPostgreSqlSchema(parts[0], defaultSchema))
         {
             parts = parts.Skip(1).ToArray();
         }
@@ -324,8 +324,10 @@ internal static class DbaProviderTableCopyTargetIdentity
         return segment.Value.ToLowerInvariant();
     }
 
-    private static bool IsDefaultPostgreSqlSchema(IdentifierSegment segment)
-        => string.Equals(NormalizeTableSegment(DbaTableCopyProvider.PostgreSql, segment), "u:public", StringComparison.Ordinal);
+    private static bool IsDefaultPostgreSqlSchema(IdentifierSegment segment, string? defaultSchema)
+        => string.Equals(NormalizeTableSegment(DbaTableCopyProvider.PostgreSql, segment), "u:public", StringComparison.Ordinal) &&
+           (string.IsNullOrWhiteSpace(defaultSchema) ||
+            string.Equals(NormalizeTableSegment(DbaTableCopyProvider.PostgreSql, CreateDefaultSchemaSegment(defaultSchema!)), "u:public", StringComparison.Ordinal));
 
     private static bool IsPostgreSqlSimpleIdentifier(string identifier)
     {
@@ -516,7 +518,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
         if (string.IsNullOrWhiteSpace(searchPath))
         {
-            return "public";
+            return ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User") ?? "public";
         }
 
         var username = ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
@@ -728,7 +730,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             ? database?.Trim() ?? string.Empty
             : NormalizePart(database);
 
-    private static bool IsSQLiteConnectionString(string value)
+    internal static bool IsSQLiteConnectionString(string value)
         => SplitConnectionStringEntries(value).Any(static entry =>
         {
             var separator = entry.IndexOf('=');

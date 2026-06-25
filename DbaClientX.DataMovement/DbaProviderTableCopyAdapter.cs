@@ -757,7 +757,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     private string ResolveSQLiteConnectionString()
     {
-        if (!HasSQLiteConnectionString())
+        if (!DbaProviderTableCopyTargetIdentity.IsSQLiteConnectionString(_connectionString))
         {
             return SQLite.BuildConnectionString(_connectionString);
         }
@@ -769,9 +769,6 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
         return builder.ConnectionString;
     }
-
-    private bool HasSQLiteConnectionString()
-        => _connectionString.Contains("=", StringComparison.Ordinal);
 
     private async Task<object?> ExecuteSQLiteScalarAsync(string query, CancellationToken cancellationToken)
     {

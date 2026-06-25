@@ -253,6 +253,29 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_FiltersSourceSchemaCaseSensitively()
+    {
+        var sourceTables = new[]
+        {
+            new DbaTableInfo("Tenant", "Rows", DbaTableKind.Table),
+            new DbaTableInfo("tenant", "Rows", DbaTableKind.Table)
+        };
+        var sourceColumns = new[]
+        {
+            Column("Tenant", "Rows", "Id", "int", 1),
+            Column("tenant", "Rows", "id", "int", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions { SourceSchema = "tenant" });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("tenant.Rows", definition.SourceName);
+    }
+
+    [Fact]
     public void BuildPlan_DelimitsMetadataNamesThatContainDots()
     {
         var sourceTables = new[] { new DbaTableInfo("tenant.v1", "Probe.Results", DbaTableKind.Table) };

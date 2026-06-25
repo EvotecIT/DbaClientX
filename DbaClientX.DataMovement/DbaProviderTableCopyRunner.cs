@@ -31,6 +31,7 @@ public sealed class DbaProviderTableCopyRunner
         }
 
         ValidateSameProviderTableCopy(request);
+        ValidateClearDestinationDefinitionsAreUnique(request);
 
         var source = new DbaProviderTableCopyAdapter(request.Source);
         var destination = new DbaProviderTableCopyAdapter(request.Destination);
@@ -168,4 +169,30 @@ public sealed class DbaProviderTableCopyRunner
         => new(
             $"Refusing to clear destination while SQL Server table '{tableName}' is unqualified and the connection default schema is unknown. " +
             "Schema-qualify SQL Server source and destination tables, provide a Current Schema connection option, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+
+    private static void ValidateClearDestinationDefinitionsAreUnique(DbaProviderTableCopyRequest request)
+    {
+        if (request.Options?.ClearDestination != true)
+        {
+            return;
+        }
+
+        var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        var duplicate = request.Definitions
+            .GroupBy(
+                definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(
+                    request.Destination.Provider,
+                    definition.DestinationName,
+                    destinationDatabase,
+                    destinationDefaultSchema),
+                StringComparer.Ordinal)
+            .FirstOrDefault(static group => group.Count() > 1);
+        if (duplicate != null)
+        {
+            throw new InvalidOperationException(
+                $"ClearDestination cannot be used with multiple definitions targeting destination '{duplicate.First().DestinationName}'. " +
+                "Each cleared destination table must be unique.");
+        }
+    }
 }

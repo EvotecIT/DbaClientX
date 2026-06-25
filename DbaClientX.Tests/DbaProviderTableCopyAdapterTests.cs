@@ -54,6 +54,43 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public async Task CopyAsync_CopiesRowsBetweenSQLiteRawPathsContainingEqualsSigns()
+    {
+        var sourcePath = CreateTempDatabasePath("source=blue");
+        var destinationPath = CreateTempDatabasePath("destination=green");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                sourcePath,
+                new[] { "Id" });
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public async Task CopyAsync_SQLiteBulkWritePreservesDotsInsideQuotedDestinationSegments()
     {
         var sourcePath = CreateTempDatabasePath();
@@ -720,4 +757,7 @@ public class DbaProviderTableCopyAdapterTests
 
     private static string CreateTempDatabasePath()
         => Path.Join(Path.GetTempPath(), Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
+
+    private static string CreateTempDatabasePath(string namePrefix)
+        => Path.Join(Path.GetTempPath(), namePrefix + "-" + Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
 }

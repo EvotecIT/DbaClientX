@@ -265,6 +265,7 @@ public partial class SqlServer
         if (columnMappings?.Count > 0)
         {
             var normalizedMappings = new Dictionary<string, string>(StringComparer.Ordinal);
+            var destinationColumns = new HashSet<string>(StringComparer.Ordinal);
             foreach (var mapping in columnMappings)
             {
                 normalizedMappings[mapping.Key] = mapping.Value;
@@ -275,6 +276,11 @@ public partial class SqlServer
                 var destinationColumn = normalizedMappings.TryGetValue(column.ColumnName, out var mappedColumn)
                     ? mappedColumn
                     : column.ColumnName;
+                if (!destinationColumns.Add(destinationColumn))
+                {
+                    throw new ArgumentException($"Column mappings produce duplicate destination column '{destinationColumn}'.", nameof(columnMappings));
+                }
+
                 bulkCopy.ColumnMappings.Add(column.ColumnName, destinationColumn);
             }
 
@@ -383,6 +389,18 @@ public partial class SqlServer
             if (!ContainsColumn(table, mapping.Key))
             {
                 throw new ArgumentException($"Column mapping source '{mapping.Key}' does not exist in the source table.", nameof(columnMappings));
+            }
+        }
+
+        var destinationColumns = new HashSet<string>(StringComparer.Ordinal);
+        foreach (DataColumn column in table.Columns)
+        {
+            var destinationColumn = columnMappings.TryGetValue(column.ColumnName, out var mappedColumn)
+                ? mappedColumn
+                : column.ColumnName;
+            if (!destinationColumns.Add(destinationColumn))
+            {
+                throw new ArgumentException($"Column mappings produce duplicate destination column '{destinationColumn}'.", nameof(columnMappings));
             }
         }
     }

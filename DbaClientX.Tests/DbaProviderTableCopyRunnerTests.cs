@@ -402,12 +402,12 @@ public class DbaProviderTableCopyRunnerTests
             Source = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.PostgreSql,
-                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one"
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one;Search Path=public"
             },
             Destination = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.PostgreSql,
-                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two;Search Path=public"
             },
             Definitions = new[]
             {
@@ -494,12 +494,41 @@ public class DbaProviderTableCopyRunnerTests
             },
             Definitions = new[]
             {
-                new DbaTableCopyDefinition("public.users", "users", new[] { "id" })
+                new DbaTableCopyDefinition("public.users", "public.users", new[] { "id" })
             }
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksClearDestinationPostgreSqlUserSchemaBeforePublic()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=app;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "app.Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
     [Fact]
@@ -576,6 +605,17 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Equal(unqualified, publicQualified);
         Assert.Equal(unqualified, quotedPublicQualified);
         Assert.NotEqual(unqualified, quotedMixedPublicQualified);
+    }
+
+    [Fact]
+    public void NormalizeTableName_PostgreSqlUsesDefaultSchemaWhenProvided()
+    {
+        var appDefault = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users", null, "app");
+        var appQualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "app.users", null, "app");
+        var publicQualified = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "public.users", null, "app");
+
+        Assert.Equal(appDefault, appQualified);
+        Assert.NotEqual(appDefault, publicQualified);
     }
 
     [Fact]
@@ -882,6 +922,37 @@ public class DbaProviderTableCopyRunnerTests
         }
     }
 
+    [Fact]
+    public async Task CopyAsync_BlocksProviderFoldedDuplicateClearDestinationsBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("SourceRows", "Rows", new[] { "Id" }),
+                new DbaTableCopyDefinition("OtherRows", "rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            },
+            AllowSameProviderTableCopy = true
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("multiple definitions targeting destination", exception.Message);
+    }
+
     private static void DeleteIfExists(string path)
     {
         if (File.Exists(path))
@@ -897,6 +968,9 @@ public class DbaProviderTableCopyRunnerTests
         => InvokeNormalizeTableName(provider, tableName, null);
 
     private static string InvokeNormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase)
+        => InvokeNormalizeTableName(provider, tableName, currentDatabase, null);
+
+    private static string InvokeNormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema)
     {
         var type = typeof(DbaProviderTableCopyRunner).Assembly.GetType("DBAClientX.DataMovement.DbaProviderTableCopyTargetIdentity")
             ?? throw new InvalidOperationException("DbaProviderTableCopyTargetIdentity type was not found.");
@@ -904,11 +978,11 @@ public class DbaProviderTableCopyRunnerTests
                 "NormalizeTableName",
                 System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
                 null,
-                new[] { typeof(DbaTableCopyProvider), typeof(string), typeof(string) },
+                new[] { typeof(DbaTableCopyProvider), typeof(string), typeof(string), typeof(string) },
                 null)
             ?? throw new MissingMethodException(type.FullName, "NormalizeTableName");
 
-        return (string)method.Invoke(null, new object?[] { provider, tableName, currentDatabase })!;
+        return (string)method.Invoke(null, new object?[] { provider, tableName, currentDatabase, defaultSchema })!;
     }
 
     private static string InvokeTryCreateIdentity(DbaProviderTableCopyAdapterOptions options)

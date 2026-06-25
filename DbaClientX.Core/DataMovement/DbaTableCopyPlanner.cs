@@ -167,7 +167,7 @@ public static class DbaTableCopyPlanner
         }
 
         if (!string.IsNullOrWhiteSpace(options.SourceSchema) &&
-            !string.Equals(table.Schema, options.SourceSchema, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(table.Schema, options.SourceSchema, StringComparison.Ordinal))
         {
             return false;
         }
