@@ -58,6 +58,18 @@ public class DbaConnectionFactoryTests
         Assert.Contains("disabled", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
     }
 
+    [Fact]
+    public void Validate_AllowedUnsupportedOption_StillRunsRemainingValidation()
+    {
+        var result = DbaConnectionFactory.Validate(
+            "mysql",
+            "Server=dbhost;Database=app;AllowLoadLocalInfile=true",
+            new[] { "AllowLoadLocalInfile" });
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details);
+    }
+
     [Theory]
     [InlineData("None")]
     [InlineData("Preferred")]

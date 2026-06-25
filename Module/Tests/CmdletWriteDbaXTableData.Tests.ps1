@@ -186,6 +186,82 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'allows MySQL local infile for provider bulk writes without skipping validation' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkInsert = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkInsert = [pscustomobject]@{
+                Provider = $cmdlet.Provider.ToString()
+                Rows = $table.Rows.Count
+            }
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            $connectionString = 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true'
+            $table | Write-DbaXTableData -Provider MySql -ConnectionString $connectionString -DestinationTable Import | Out-Null
+
+            $script:lastBulkInsert.Provider | Should -Be 'MySql'
+            $script:lastBulkInsert.Rows | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkInsert = $null
+        }
+    }
+
+    it 'keeps MySQL local infile validation from bypassing required settings' {
+        $table = [System.Data.DataTable]::new('Input')
+        $null = $table.Columns.Add('Name', [string])
+        $row = $table.NewRow()
+        $row['Name'] = 'Alpha'
+        $table.Rows.Add($row)
+
+        {
+            $table | Write-DbaXTableData `
+                -Provider MySql `
+                -ConnectionString 'AllowLoadLocalInfile=true' `
+                -DestinationTable Import `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*Server*'
+    }
+
+    it 'normalizes PostgreSQL object columns before provider bulk writes' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            [pscustomobject]@{
+                Id = 1
+                DisplayName = 'Alpha'
+            } | Write-DbaXTableData `
+                -Provider PostgreSql `
+                -ConnectionString 'Host=localhost;Database=app;Username=user;Password=password;SslMode=Require' `
+                -DestinationTable public.ImportData | Out-Null
+
+            $columnNames = @($script:lastBulkTable.Columns | ForEach-Object ColumnName)
+            $columnNames | Should -Contain 'id'
+            $columnNames | Should -Contain 'displayname'
+            @($columnNames | Where-Object { $_ -ceq 'DisplayName' }) | Should -BeNullOrEmpty
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
     it 'passes SQL Server bulk options to the provider bulk layer' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

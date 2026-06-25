@@ -271,6 +271,11 @@ internal static class DbaProviderTableCopyTargetIdentity
             return segment.Value;
         }
 
+        if (provider == DbaTableCopyProvider.SqlServer)
+        {
+            return segment.Value;
+        }
+
         return segment.Value.ToLowerInvariant();
     }
 

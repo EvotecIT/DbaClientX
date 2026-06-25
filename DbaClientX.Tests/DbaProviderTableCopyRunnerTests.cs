@@ -461,9 +461,11 @@ public class DbaProviderTableCopyRunnerTests
         var onePart = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "Rows", "tempdb");
         var currentDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "tempdb.dbo.Rows", "tempdb");
         var otherDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "OtherDatabase.dbo.Rows", "tempdb");
+        var lowerCaseTable = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "rows", "tempdb");
 
         Assert.Equal(onePart, currentDatabaseQualified);
         Assert.NotEqual(onePart, otherDatabaseQualified);
+        Assert.NotEqual(onePart, lowerCaseTable);
     }
 
     [Fact]

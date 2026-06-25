@@ -85,6 +85,25 @@ public class PowerShellHelpersTests
     }
 
     [Fact]
+    public void TryValidateConnection_AllowedUnsupportedOption_DoesNotBypassRemainingValidation()
+    {
+        var cmdlet = new FakeCmdlet();
+        var warnings = new List<string>();
+
+        var success = PowerShellHelpers.TryValidateConnection(
+            cmdlet,
+            "mysql",
+            "AllowLoadLocalInfile=true",
+            ActionPreference.Continue,
+            warnings.Add,
+            allowedUnsupportedOptions: PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions);
+
+        Assert.False(success);
+        Assert.Single(warnings);
+        Assert.Contains("Server", warnings[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ResolveSqlServerCredential_UsesIntegratedSecurity_WhenNoCredentialsProvided()
     {
         var result = PowerShellHelpers.ResolveSqlServerCredential(string.Empty, string.Empty, null);

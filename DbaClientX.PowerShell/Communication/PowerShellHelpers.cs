@@ -16,6 +16,8 @@ namespace DBAClientX.PowerShell;
 /// </summary>
 internal static class PowerShellHelpers
 {
+    internal static readonly IReadOnlyCollection<string> MySqlBulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "LoadLocalInfile" };
+
     /// <summary>
     /// Converts a Hashtable of parameters (as supplied from PowerShell) into a nullable
     /// dictionary with string keys and nullable object values, filtering out null keys.
@@ -92,15 +94,8 @@ internal static class PowerShellHelpers
             : cmdlet.WriteWarning;
         throwTerminatingError ??= cmdlet.ThrowTerminatingError;
 
-        var result = DbaConnectionFactory.Validate(providerAlias, connectionString);
+        var result = DbaConnectionFactory.Validate(providerAlias, connectionString, allowedUnsupportedOptions);
         if (result.IsValid)
-        {
-            return true;
-        }
-
-        if (result.Code == DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption &&
-            result.Details != null &&
-            allowedUnsupportedOptions?.Contains(result.Details, StringComparer.OrdinalIgnoreCase) == true)
         {
             return true;
         }

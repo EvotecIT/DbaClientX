@@ -550,24 +550,9 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     private string NormalizePostgreSqlBulkDestinationTableName(string destinationTableName)
     {
-        if (_provider != DbaTableCopyProvider.PostgreSql)
-        {
-            return destinationTableName;
-        }
-
-        return string.Join(
-            ".",
-            SplitIdentifierPath(destinationTableName).Select(static segment =>
-            {
-                if (segment.IsExplicitlyQuoted)
-                {
-                    return "\"" + segment.Value.Replace("\"", "\"\"") + "\"";
-                }
-
-                return IsPostgreSqlSimpleIdentifier(segment.Value)
-                    ? segment.Value.ToLowerInvariant()
-                    : segment.Value;
-            }));
+        return _provider == DbaTableCopyProvider.PostgreSql
+            ? DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTableName)
+            : destinationTableName;
     }
 
     private string NormalizeSQLiteBulkDestinationTableName(string destinationTableName)
@@ -587,51 +572,9 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     private DataTable NormalizePostgreSqlBulkPage(DataTable page, string destinationTableName)
     {
-        if (_provider != DbaTableCopyProvider.PostgreSql)
-        {
-            return page;
-        }
-
-        var destinationSegments = SplitIdentifierPath(destinationTableName);
-        var preserveSimpleIdentifierCase = destinationSegments[destinationSegments.Count - 1].IsExplicitlyQuoted;
-        var normalizedNames = page.Columns
-            .Cast<DataColumn>()
-            .Select(column => NormalizePostgreSqlBulkColumnName(column.ColumnName, preserveSimpleIdentifierCase))
-            .ToArray();
-        if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
-        {
-            return page;
-        }
-
-        var duplicateComparer = preserveSimpleIdentifierCase ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
-        var duplicates = normalizedNames
-            .GroupBy(static name => name, duplicateComparer)
-            .FirstOrDefault(static group => group.Count() > 1);
-        if (duplicates != null)
-        {
-            throw new InvalidOperationException($"PostgreSQL bulk copy column normalization would create duplicate destination column '{duplicates.Key}'.");
-        }
-
-        var normalized = page.Copy();
-        for (var i = 0; i < normalized.Columns.Count; i++)
-        {
-            normalized.Columns[i].ColumnName = normalizedNames[i];
-        }
-
-        return normalized;
-    }
-
-    private static string NormalizePostgreSqlBulkColumnName(string columnName, bool preserveSimpleIdentifierCase)
-    {
-        var trimmed = columnName.Trim();
-        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
-        {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
-        }
-
-        return !preserveSimpleIdentifierCase && IsPostgreSqlSimpleIdentifier(trimmed)
-            ? trimmed.ToLowerInvariant()
-            : trimmed;
+        return _provider == DbaTableCopyProvider.PostgreSql
+            ? DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, destinationTableName)
+            : page;
     }
 
     private string QuoteIdentifier(IdentifierSegment segment)

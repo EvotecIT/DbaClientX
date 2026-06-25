@@ -105,6 +105,15 @@ public static class DbaConnectionFactory
     /// Validates a provider alias and connection string combination and returns a structured result describing any issues.
     /// </summary>
     public static ConnectionValidationResult Validate(string providerAlias, string? connectionString)
+        => Validate(providerAlias, connectionString, allowedUnsupportedOptions: null);
+
+    /// <summary>
+    /// Validates a provider alias and connection string combination while allowing explicitly scoped unsupported options.
+    /// </summary>
+    public static ConnectionValidationResult Validate(
+        string providerAlias,
+        string? connectionString,
+        IReadOnlyCollection<string>? allowedUnsupportedOptions)
     {
         if (string.IsNullOrWhiteSpace(providerAlias))
         {
@@ -142,7 +151,7 @@ public static class DbaConnectionFactory
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MalformedConnectionString, "Connection string is malformed.", SanitizeExceptionMessage(ex));
         }
 
-        var disallowedResult = ValidateDisallowedOptions(builder);
+        var disallowedResult = ValidateDisallowedOptions(builder, allowedUnsupportedOptions);
         if (disallowedResult != null)
         {
             return disallowedResult;
@@ -335,10 +344,17 @@ public static class DbaConnectionFactory
                || sslMode.Equals("VerifyCA", StringComparison.OrdinalIgnoreCase)
                || sslMode.Equals("VerifyFull", StringComparison.OrdinalIgnoreCase));
 
-    private static ConnectionValidationResult? ValidateDisallowedOptions(DbConnectionStringBuilder builder)
+    private static ConnectionValidationResult? ValidateDisallowedOptions(
+        DbConnectionStringBuilder builder,
+        IReadOnlyCollection<string>? allowedUnsupportedOptions)
     {
         foreach (string key in builder.Keys)
         {
+            if (allowedUnsupportedOptions?.Contains(key, StringComparer.OrdinalIgnoreCase) == true)
+            {
+                continue;
+            }
+
             if (DisallowedOptions.TryGetValue(key, out var message))
             {
                 return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedOption, message, key);

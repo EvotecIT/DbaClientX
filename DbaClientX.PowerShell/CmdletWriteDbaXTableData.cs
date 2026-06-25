@@ -1,5 +1,6 @@
 using System.Data;
 using System.Management.Automation;
+using DBAClientX.DataMovement;
 
 namespace DBAClientX.PowerShell;
 
@@ -141,24 +142,41 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
 
             var providerAlias = GetProviderAlias(Provider);
-            if (!PowerShellHelpers.TryValidateConnection(this, providerAlias, ConnectionString, _errorAction))
+            if (!PowerShellHelpers.TryValidateConnection(
+                    this,
+                    providerAlias,
+                    ConnectionString,
+                    _errorAction,
+                    allowedUnsupportedOptions: Provider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null))
             {
                 return;
             }
 
             var startedAt = DateTimeOffset.UtcNow;
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            if (BulkInsertOverride != null)
+            var bulkTable = PrepareProviderBulkTable(table);
+            try
             {
-                BulkInsertOverride.InvokeWithContext(
-                    functionsToDefine: null,
-                    variablesToDefine: null,
-                    args: new object?[] { this, table, BuildSqlServerOptions(table) });
+                if (BulkInsertOverride != null)
+                {
+                    BulkInsertOverride.InvokeWithContext(
+                        functionsToDefine: null,
+                        variablesToDefine: null,
+                        args: new object?[] { this, bulkTable, BuildSqlServerOptions(bulkTable) });
+                }
+                else
+                {
+                    InvokeProviderBulkInsert(bulkTable);
+                }
             }
-            else
+            finally
             {
-                InvokeProviderBulkInsert(table);
+                if (!ReferenceEquals(bulkTable, table))
+                {
+                    bulkTable.Dispose();
+                }
             }
+
             timer.Stop();
 
             CompleteProgressIfNeeded();
@@ -235,7 +253,12 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             case DbaXBulkProvider.PostgreSql:
                 using (var postgreSql = new DBAClientX.PostgreSql())
                 {
-                    postgreSql.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    postgreSql.BulkInsert(
+                        ConnectionString,
+                        table,
+                        DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(DestinationTable),
+                        batchSize: BatchSize,
+                        bulkCopyTimeout: BulkCopyTimeout);
                 }
                 break;
             case DbaXBulkProvider.MySql:
@@ -271,6 +294,11 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             DbaXBulkProvider.SQLite => "sqlite",
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
+
+    private DataTable PrepareProviderBulkTable(DataTable table)
+        => Provider == DbaXBulkProvider.PostgreSql
+            ? DbaPostgreSqlBulkCopyNormalizer.NormalizePage(table, DestinationTable)
+            : table;
 
     private SqlServerBulkInsertOptions? BuildSqlServerOptions(DataTable table)
     {
