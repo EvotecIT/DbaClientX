@@ -113,6 +113,14 @@ function Invoke-TimedRun {
     }
 }
 
+function Add-BenchmarkResults {
+    param([object[]] $InputObject)
+
+    foreach ($item in $InputObject) {
+        $results.Add($item)
+    }
+}
+
 $data = New-BenchmarkDataTable -Rows $RowCount
 $createdTables = [System.Collections.Generic.List[string]]::new()
 $results = [System.Collections.Generic.List[object]]::new()
@@ -121,23 +129,32 @@ try {
     $dbaClientXTable = "DbaClientXBench_${runId}_DbaClientX"
     New-BenchmarkTable -TableName $dbaClientXTable
     $createdTables.Add($dbaClientXTable)
-    $results.AddRange((Invoke-TimedRun -Tool 'DbaClientX Write-DbaXTableData' -TableName $dbaClientXTable -ScriptBlock {
+    Add-BenchmarkResults -InputObject (Invoke-TimedRun -Tool 'DbaClientX Write-DbaXTableData' -TableName $dbaClientXTable -ScriptBlock {
         $data | Write-DbaXTableData `
             -Provider SqlServer `
             -ConnectionString $connectionString `
             -DestinationTable "dbo.$dbaClientXTable" `
             -BatchSize $BatchSize `
             -ErrorAction Stop
-    }))
+    })
 
     $dbatoolsCommand = Get-Command Write-DbaDbTableData -ErrorAction SilentlyContinue
     if ($dbatoolsCommand) {
+        $dbatoolsConnectCommand = Get-Command Connect-DbaInstance -ErrorAction Stop
+        $dbatoolsInstanceParameters = @{
+            SqlInstance = $Server
+            Database = $Database
+        }
+        if ($dbatoolsConnectCommand.Parameters.ContainsKey('TrustServerCertificate')) {
+            $dbatoolsInstanceParameters.TrustServerCertificate = $true
+        }
+        $dbatoolsInstance = Connect-DbaInstance @dbatoolsInstanceParameters
         $dbatoolsTable = "DbaClientXBench_${runId}_dbatools"
         New-BenchmarkTable -TableName $dbatoolsTable
         $createdTables.Add($dbatoolsTable)
-        $results.AddRange((Invoke-TimedRun -Tool 'dbatools Write-DbaDbTableData' -TableName $dbatoolsTable -ScriptBlock {
+        Add-BenchmarkResults -InputObject (Invoke-TimedRun -Tool 'dbatools Write-DbaDbTableData' -TableName $dbatoolsTable -ScriptBlock {
             $parameters = @{
-                SqlInstance = $Server
+                SqlInstance = $dbatoolsInstance
                 Database = $Database
                 Schema = 'dbo'
                 Table = $dbatoolsTable
@@ -150,7 +167,7 @@ try {
                 $parameters.EnableException = $true
             }
             Write-DbaDbTableData @parameters
-        }))
+        })
     }
 
     $sqlServerCommand = Get-Command Write-SqlTableData -ErrorAction SilentlyContinue
@@ -158,7 +175,7 @@ try {
         $sqlServerTable = "DbaClientXBench_${runId}_SqlServer"
         New-BenchmarkTable -TableName $sqlServerTable
         $createdTables.Add($sqlServerTable)
-        $results.AddRange((Invoke-TimedRun -Tool 'SqlServer Write-SqlTableData' -TableName $sqlServerTable -ScriptBlock {
+        Add-BenchmarkResults -InputObject (Invoke-TimedRun -Tool 'SqlServer Write-SqlTableData' -TableName $sqlServerTable -ScriptBlock {
             $parameters = @{
                 ServerInstance = $Server
                 DatabaseName = $Database
@@ -170,7 +187,7 @@ try {
                 $parameters.Force = $true
             }
             Write-SqlTableData @parameters
-        }))
+        })
     }
 
     if (-not $dbatoolsCommand) {

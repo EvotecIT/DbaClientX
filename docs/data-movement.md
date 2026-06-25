@@ -124,3 +124,5 @@ Use the benchmark example to compare DbaClientX against locally installed PowerS
 The script always benchmarks `Write-DbaXTableData`. If `Write-DbaDbTableData` from `dbatools` or `Write-SqlTableData` from the Microsoft `SqlServer` module is already installed, it adds those runs. Otherwise it reports only DbaClientX results.
 
 Interpret the numbers as local evidence, not a universal ranking. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
+
+See [`sqlserver-benchmark-notes.md`](sqlserver-benchmark-notes.md) for local comparison evidence and dbatools behavior worth considering in future DbaClientX provider work.

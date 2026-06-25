@@ -43,22 +43,31 @@ public class OnImportAndRemoveTests
         var stateField = typeof(OnModuleImportAndRemove).GetField(
             "_defaultAlcResolvingRegistered",
             BindingFlags.NonPublic | BindingFlags.Static);
+        var nativeStateField = typeof(OnModuleImportAndRemove).GetField(
+            "_nativeDllResolvingRegistered",
+            BindingFlags.NonPublic | BindingFlags.Static);
 
         Assert.NotNull(stateField);
+        Assert.NotNull(nativeStateField);
         stateField!.SetValue(null, 0);
+        nativeStateField!.SetValue(null, 0);
 
         var sut = new OnModuleImportAndRemove();
         sut.OnImport();
         Assert.Equal(1, stateField.GetValue(null));
+        Assert.Equal(1, nativeStateField.GetValue(null));
 
         sut.OnImport();
         Assert.Equal(1, stateField.GetValue(null));
+        Assert.Equal(1, nativeStateField.GetValue(null));
 
         sut.OnRemove(null!);
         Assert.Equal(0, stateField.GetValue(null));
+        Assert.Equal(0, nativeStateField.GetValue(null));
 
         sut.OnRemove(null!);
         Assert.Equal(0, stateField.GetValue(null));
+        Assert.Equal(0, nativeStateField.GetValue(null));
     }
 
     [Fact]
@@ -106,6 +115,31 @@ public class OnImportAndRemoveTests
             {
                 Directory.Delete(root, recursive: true);
             }
+        }
+    }
+
+    [Fact]
+    public void GetNativeLibraryNames_AddsPlatformSpecificExtension()
+    {
+        var method = typeof(OnModuleImportAndRemove).GetMethod(
+            "GetNativeLibraryNames",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var result = ((IEnumerable<string>)method!.Invoke(null, new object[] { "Microsoft.Data.SqlClient.SNI" })!)
+            .ToArray();
+
+        Assert.Contains("Microsoft.Data.SqlClient.SNI", result);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            Assert.Contains("Microsoft.Data.SqlClient.SNI.dll", result);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            Assert.Contains("libMicrosoft.Data.SqlClient.SNI.dylib", result);
+        }
+        else
+        {
+            Assert.Contains("libMicrosoft.Data.SqlClient.SNI.so", result);
         }
     }
 #endif

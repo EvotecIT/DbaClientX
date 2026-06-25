@@ -16,6 +16,7 @@ using System.Runtime.Versioning;
 public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemblyCleanup {
 #if NET5_0_OR_GREATER
     private static int _defaultAlcResolvingRegistered;
+    private static int _nativeDllResolvingRegistered;
 #else
     private static int _appDomainAssemblyResolveRegistered;
 #endif
@@ -122,11 +123,21 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         if (Interlocked.CompareExchange(ref _defaultAlcResolvingRegistered, 1, 0) == 0) {
             AssemblyLoadContext.Default.Resolving += ResolveAlc;
         }
+
+        if (Interlocked.CompareExchange(ref _nativeDllResolvingRegistered, 1, 0) == 0) {
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll += ResolveNativeDll;
+            _alc.ResolvingUnmanagedDll += ResolveNativeDll;
+        }
     }
 
     private static void UnregisterDefaultAlcResolver() {
         if (Interlocked.CompareExchange(ref _defaultAlcResolvingRegistered, 0, 1) == 1) {
             AssemblyLoadContext.Default.Resolving -= ResolveAlc;
+        }
+
+        if (Interlocked.CompareExchange(ref _nativeDllResolvingRegistered, 0, 1) == 1) {
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll -= ResolveNativeDll;
+            _alc.ResolvingUnmanagedDll -= ResolveNativeDll;
         }
     }
 
@@ -185,6 +196,16 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
                 if (seen.Add(directory)) {
                     yield return directory;
                 }
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetRuntimeNativeLibraryDirectories() {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rid in GetRuntimeIdentifiers()) {
+            var nativeRoot = Path.Combine(_assemblyDir, "runtimes", rid, "native");
+            if (Directory.Exists(nativeRoot) && seen.Add(nativeRoot)) {
+                yield return nativeRoot;
             }
         }
     }
@@ -367,6 +388,49 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         }
 
         return null;
+    }
+
+    private static IntPtr ResolveNativeDll(Assembly assembly, string unmanagedDllName) {
+        foreach (var candidate in GetNativeLibraryCandidates(unmanagedDllName)) {
+            if (NativeLibrary.TryLoad(candidate, out var handle)) {
+                return handle;
+            }
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static IEnumerable<string> GetNativeLibraryCandidates(string unmanagedDllName) {
+        var names = GetNativeLibraryNames(unmanagedDllName);
+        foreach (var directory in GetRuntimeNativeLibraryDirectories()) {
+            foreach (var name in names) {
+                yield return Path.Combine(directory, name);
+            }
+        }
+
+        foreach (var name in names) {
+            yield return Path.Combine(_assemblyDir, name);
+        }
+    }
+
+    private static IEnumerable<string> GetNativeLibraryNames(string unmanagedDllName) {
+        yield return unmanagedDllName;
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+            if (!unmanagedDllName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
+                yield return unmanagedDllName + ".dll";
+            }
+        } else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
+            if (!unmanagedDllName.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase)) {
+                yield return "lib" + unmanagedDllName + ".dylib";
+                yield return unmanagedDllName + ".dylib";
+            }
+        } else {
+            if (!unmanagedDllName.EndsWith(".so", StringComparison.OrdinalIgnoreCase)) {
+                yield return "lib" + unmanagedDllName + ".so";
+                yield return unmanagedDllName + ".so";
+            }
+        }
     }
 
     private static bool IsSatisfyingAssembly(AssemblyName requiredAssemblyName, string assemblyPath) {

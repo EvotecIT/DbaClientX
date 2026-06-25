@@ -279,6 +279,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
 - Benchmarks: [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
+- SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
 Useful example files:
 
