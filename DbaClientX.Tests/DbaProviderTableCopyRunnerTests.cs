@@ -172,6 +172,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameSqlServerTargetWhenDefaultPortIsExplicitBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=db;Database=Monitoring;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=tcp:db,1433;Database=Monitoring;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("dbo.ProbeIndex", "dbo.ProbeIndex", new[] { "ProbeName" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSamePostgreSqlTargetWithDifferentCredentialsBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -281,6 +306,105 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.Equal(onePart, currentDatabaseQualified);
         Assert.NotEqual(onePart, otherDatabaseQualified);
+    }
+
+    [Fact]
+    public void NormalizeTableName_SQLiteDropsMainQualifier()
+    {
+        var unqualified = InvokeNormalizeTableName(DbaTableCopyProvider.SQLite, "Rows");
+        var mainQualified = InvokeNormalizeTableName(DbaTableCopyProvider.SQLite, "main.Rows");
+
+        Assert.Equal(unqualified, mainQualified);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameSQLiteMainQualifiedTableBeforeConnecting()
+    {
+        var databasePath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE Rows (Id INTEGER NOT NULL);");
+            }
+
+            var request = new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = "Data Source=" + databasePath
+                },
+                Destination = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = databasePath
+                },
+                Definitions = new[]
+                {
+                    new DbaTableCopyDefinition("Rows", "main.Rows", new[] { "Id" })
+                }
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            Assert.Contains("Refusing to copy provider table", exception.Message);
+        }
+        finally
+        {
+            DeleteIfExists(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameOracleUserSchemaTableBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.Oracle,
+                ConnectionString = "Data Source=oracle;User Id=app;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.Oracle,
+                ConnectionString = "Data Source=oracle;User Id=app;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Users", "APP.Users", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public void TryCreate_SQLiteIdentityPreservesCaseOnCaseSensitiveFileSystems()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + Path.Combine(Path.GetTempPath(), "DbaxCaseSensitive.db")
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + Path.Combine(Path.GetTempPath(), "dbaxcasesensitive.db")
+        };
+
+        var firstIdentity = InvokeTryCreateIdentity(first);
+        var secondIdentity = InvokeTryCreateIdentity(second);
+
+        if (Path.DirectorySeparatorChar == '\\')
+        {
+            Assert.Equal(firstIdentity, secondIdentity);
+        }
+        else
+        {
+            Assert.NotEqual(firstIdentity, secondIdentity);
+        }
     }
 
     [Fact]
@@ -396,5 +520,19 @@ public class DbaProviderTableCopyRunnerTests
             ?? throw new MissingMethodException(type.FullName, "NormalizeTableName");
 
         return (string)method.Invoke(null, new object?[] { provider, tableName, currentDatabase })!;
+    }
+
+    private static string InvokeTryCreateIdentity(DbaProviderTableCopyAdapterOptions options)
+    {
+        var type = typeof(DbaProviderTableCopyRunner).Assembly.GetType("DBAClientX.DataMovement.DbaProviderTableCopyTargetIdentity")
+            ?? throw new InvalidOperationException("DbaProviderTableCopyTargetIdentity type was not found.");
+        var method = type.GetMethod("TryCreate", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(type.FullName, "TryCreate");
+        var arguments = new object?[] { options, null };
+
+        var created = (bool)method.Invoke(null, arguments)!;
+
+        Assert.True(created);
+        return Assert.IsType<string>(arguments[1]);
     }
 }

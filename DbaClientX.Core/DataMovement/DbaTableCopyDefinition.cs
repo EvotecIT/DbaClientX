@@ -62,13 +62,13 @@ public sealed record DbaTableCopyDefinition(
             return;
         }
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in names.Where(static name => !string.IsNullOrWhiteSpace(name)))
+        var duplicate = names
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .GroupBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(static group => group.Skip(1).Any());
+        if (duplicate != null)
         {
-            if (!seen.Add(name))
-            {
-                throw new ArgumentException(message);
-            }
+            throw new ArgumentException(message);
         }
     }
 }

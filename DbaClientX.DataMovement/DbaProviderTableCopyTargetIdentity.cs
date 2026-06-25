@@ -36,6 +36,13 @@ internal static class DbaProviderTableCopyTargetIdentity
     {
         var parts = SplitTableName(tableName);
 
+        if (provider == DbaTableCopyProvider.SQLite &&
+            parts.Length == 2 &&
+            string.Equals(NormalizeTableSegment(provider, parts[0]), "main", StringComparison.Ordinal))
+        {
+            parts = parts.Skip(1).ToArray();
+        }
+
         if (provider == DbaTableCopyProvider.SqlServer &&
             parts.Length == 3 &&
             !string.IsNullOrWhiteSpace(currentDatabase) &&
@@ -49,17 +56,19 @@ internal static class DbaProviderTableCopyTargetIdentity
             parts = new[] { new IdentifierSegment("dbo", false), parts[0] };
         }
 
+        if (provider == DbaTableCopyProvider.Oracle &&
+            parts.Length == 1 &&
+            !string.IsNullOrWhiteSpace(currentDatabase))
+        {
+            parts = new[] { new IdentifierSegment(currentDatabase!, false), parts[0] };
+        }
+
         return string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
     }
 
     internal static string? GetCurrentDatabase(DbaProviderTableCopyAdapterOptions options)
     {
         if (options == null || string.IsNullOrWhiteSpace(options.ConnectionString))
-        {
-            return null;
-        }
-
-        if (options.Provider != DbaTableCopyProvider.SqlServer)
         {
             return null;
         }
@@ -71,7 +80,12 @@ internal static class DbaProviderTableCopyTargetIdentity
                 ConnectionString = options.ConnectionString.Trim()
             };
 
-            return ReadConnectionStringValue(builder, "Initial Catalog", "Database");
+            return options.Provider switch
+            {
+                DbaTableCopyProvider.SqlServer => ReadConnectionStringValue(builder, "Initial Catalog", "Database"),
+                DbaTableCopyProvider.Oracle => ReadConnectionStringValue(builder, "User ID", "User Id", "UID", "Username", "User"),
+                _ => null
+            };
         }
         catch (ArgumentException)
         {
@@ -268,7 +282,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             return false;
         }
 
-        identity = "sqlite|path=" + NormalizePath(dataSource);
+        identity = "sqlite|path=" + NormalizePath(dataSource, preserveCaseOnCaseSensitiveFileSystem: true);
         return true;
     }
 
@@ -419,6 +433,10 @@ internal static class DbaProviderTableCopyTargetIdentity
         var portIndex = hostAndPort.IndexOf(',');
         var host = portIndex >= 0 ? hostAndPort.Substring(0, portIndex) : hostAndPort;
         var portSuffix = portIndex >= 0 ? hostAndPort.Substring(portIndex) : string.Empty;
+        if (string.Equals(portSuffix, ",1433", StringComparison.Ordinal))
+        {
+            portSuffix = string.Empty;
+        }
 
         host = host switch
         {
@@ -446,20 +464,33 @@ internal static class DbaProviderTableCopyTargetIdentity
     }
 
     private static string NormalizePath(string path)
+        => NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: false);
+
+    private static string NormalizePath(string path, bool preserveCaseOnCaseSensitiveFileSystem)
     {
         try
         {
-            return Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToLowerInvariant();
+            var normalized = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+                ? normalized
+                : normalized.ToLowerInvariant();
         }
         catch (ArgumentException)
         {
-            return NormalizePart(path);
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+                ? path.Trim()
+                : NormalizePart(path);
         }
         catch (NotSupportedException)
         {
-            return NormalizePart(path);
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+                ? path.Trim()
+                : NormalizePart(path);
         }
     }
+
+    private static bool UsesCaseInsensitivePaths()
+        => Path.DirectorySeparatorChar == '\\';
 
     private static string NormalizePart(string? value)
         => value == null ? string.Empty : value.Trim().ToLowerInvariant();

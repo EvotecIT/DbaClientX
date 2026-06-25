@@ -160,6 +160,28 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenFirstSourcePageHasNoDestinationColumns()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ExcludedColumns: new[] { "Id", "DisplayName" })
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("produced no destination columns", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_DoesNotPartiallyClearDestinationWhenDestinationPreflightFails()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
