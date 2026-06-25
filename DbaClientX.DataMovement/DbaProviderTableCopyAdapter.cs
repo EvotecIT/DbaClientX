@@ -404,7 +404,6 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         return _provider switch
         {
             DbaTableCopyProvider.SqlServer => " ORDER BY (SELECT NULL)",
-            DbaTableCopyProvider.Oracle => " ORDER BY 1",
             _ => string.Empty
         };
     }
@@ -419,13 +418,83 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
-        var parts = identifierPath.Split('.');
+        var parts = SplitIdentifierPathSegments(identifierPath);
         if (parts.Any(static part => string.IsNullOrWhiteSpace(part)))
         {
             throw new ArgumentException($"Identifier '{identifierPath}' contains an empty path segment.", nameof(identifierPath));
         }
 
         return parts.Select(NormalizeIdentifierSegment).ToArray();
+    }
+
+    private static IReadOnlyList<string> SplitIdentifierPathSegments(string identifierPath)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        var quote = '\0';
+        for (var index = 0; index < identifierPath.Length; index++)
+        {
+            var value = identifierPath[index];
+            if (quote == '\0')
+            {
+                if (value is '"' or '[' or '`')
+                {
+                    quote = value;
+                    continue;
+                }
+
+                if (value == '.')
+                {
+                    parts.Add(identifierPath.Substring(start, index - start));
+                    start = index + 1;
+                }
+
+                continue;
+            }
+
+            if (quote == '"' && value == '"')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '"')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '[' && value == ']')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == ']')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '`' && value == '`')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '`')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+            }
+        }
+
+        if (quote != '\0')
+        {
+            throw new ArgumentException($"Identifier '{identifierPath}' contains an unterminated delimited path segment.", nameof(identifierPath));
+        }
+
+        parts.Add(identifierPath.Substring(start));
+        return parts;
     }
 
     private IdentifierSegment NormalizeIdentifierSegment(string identifier)

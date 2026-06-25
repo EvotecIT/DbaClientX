@@ -258,6 +258,19 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BuildPageQuery_OracleAllowUnorderedDoesNotOrderByFirstColumn()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p",
+            allowUnordered: true);
+
+        var query = InvokeBuildPageQuery(adapter, "app.Users", 0, 10);
+
+        Assert.Equal("SELECT * FROM APP.USERS OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
+    }
+
+    [Fact]
     public void BuildPageQuery_PostgreSqlFoldsSimpleIdentifiersToLowercase()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -281,6 +294,32 @@ public class DbaProviderTableCopyAdapterTests
         var query = InvokeBuildPageQuery(adapter, "\"Public\".\"Users\"", 0, 10);
 
         Assert.Equal("SELECT * FROM \"Public\".\"Users\" ORDER BY \"CreatedUtc\" LIMIT 10 OFFSET 0", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_PostgreSqlPreservesDotsInsideExplicitQuotedIdentifiers()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p",
+            new[] { "\"Created.Utc\"" });
+
+        var query = InvokeBuildPageQuery(adapter, "\"Tenant.v1\".\"Users.Current\"", 0, 10);
+
+        Assert.Equal("SELECT * FROM \"Tenant.v1\".\"Users.Current\" ORDER BY \"Created.Utc\" LIMIT 10 OFFSET 0", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_SqlServerPreservesDotsInsideBracketedIdentifiers()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.SqlServer,
+            "Server=.;Database=tempdb;Integrated Security=True",
+            new[] { "[Created.Utc]" });
+
+        var query = InvokeBuildPageQuery(adapter, "[tenant.v1].[Users.Current]", 0, 10);
+
+        Assert.Equal("SELECT * FROM [tenant.v1].[Users.Current] ORDER BY [Created.Utc] OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
     }
 
     [Fact]
