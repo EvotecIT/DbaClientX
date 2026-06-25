@@ -1,6 +1,5 @@
 using System.Data;
 using System.Management.Automation;
-using Microsoft.Data.SqlClient;
 
 namespace DBAClientX.PowerShell;
 
@@ -272,19 +271,15 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             return null;
         }
 
-        var options = new SqlServerBulkInsertOptions
-        {
-            BulkCopyOptions = GetSqlBulkCopyOptions(),
-            ColumnMappings = ConvertColumnMap(),
-            NotifyAfter = NotifyAfter
-        };
-
-        if (NotifyAfter.HasValue)
-        {
-            options.RowsCopied = rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied);
-        }
-
-        return options;
+        return SqlServerBulkInsertOptionFactory.Create(
+            TableLock.IsPresent,
+            CheckConstraints.IsPresent,
+            FireTriggers.IsPresent,
+            KeepIdentity.IsPresent,
+            KeepNulls.IsPresent,
+            ConvertColumnMap(),
+            NotifyAfter,
+            NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied) : null);
     }
 
     private bool HasSqlServerOnlyOptions()
@@ -295,37 +290,6 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
            KeepIdentity.IsPresent ||
            KeepNulls.IsPresent ||
            NotifyAfter.HasValue;
-
-    private SqlBulkCopyOptions GetSqlBulkCopyOptions()
-    {
-        var options = SqlBulkCopyOptions.Default;
-        if (TableLock.IsPresent)
-        {
-            options |= SqlBulkCopyOptions.TableLock;
-        }
-
-        if (CheckConstraints.IsPresent)
-        {
-            options |= SqlBulkCopyOptions.CheckConstraints;
-        }
-
-        if (FireTriggers.IsPresent)
-        {
-            options |= SqlBulkCopyOptions.FireTriggers;
-        }
-
-        if (KeepIdentity.IsPresent)
-        {
-            options |= SqlBulkCopyOptions.KeepIdentity;
-        }
-
-        if (KeepNulls.IsPresent)
-        {
-            options |= SqlBulkCopyOptions.KeepNulls;
-        }
-
-        return options;
-    }
 
     private Dictionary<string, string>? ConvertColumnMap()
     {

@@ -7,6 +7,7 @@ Common flows:
 - SQL Server staging tables for reports, inventories, or synchronization jobs.
 - PSWriteOffice import/export jobs that read Excel into `DataTable` objects and bulk-write them to a database.
 - Cross-provider scripts where the same PowerShell shape writes to SQL Server, PostgreSQL, MySQL, SQLite, or Oracle.
+- Table-to-table migrations between provider connections, such as SQLite history stores moving into SQL Server.
 - .NET services that should reference provider packages through DbaClientX instead of repeating provider-specific connection and bulk-copy code.
 
 ## SQL Server smoke test
@@ -132,6 +133,57 @@ $rows | Write-DbaXTableData `
 ```
 
 Provider-specific behavior, package versions, connection validation, retry conventions, and bulk-write implementation belong in DbaClientX. Consumer scripts should only own source data selection, destination table naming, and credentials.
+
+## Copying table data between providers
+
+Use `Copy-DbaXTableData` when both sides are database tables and DbaClientX should own the read, page, bulk-write, progress, and row-count verification loop. This is the friendly PowerShell surface over the reusable `DBAClientX.DataMovement.DbaTableCopyEngine` in `DbaClientX.Core`.
+
+```powershell
+Copy-DbaXTableData `
+    -SourceProvider SQLite `
+    -SourceConnectionString 'Data Source=C:\Data\history.db' `
+    -SourceTable 'ProbeResults' `
+    -DestinationProvider SqlServer `
+    -DestinationConnectionString 'Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'dbo.ProbeResults' `
+    -OrderBy Id `
+    -PageSize 10000 `
+    -BatchSize 5000 `
+    -TableLock `
+    -ClearDestination `
+    -PassThru
+```
+
+`-OrderBy` is required by default because paged migration should be deterministic. Use `-AllowUnordered` only for ad hoc copies where the provider's natural order is acceptable. `-ColumnMap` can rename columns while copying:
+
+```powershell
+Copy-DbaXTableData `
+    -SourceProvider SqlServer `
+    -SourceConnectionString $sourceConnectionString `
+    -SourceTable 'staging.Users' `
+    -DestinationProvider PostgreSql `
+    -DestinationConnectionString $destinationConnectionString `
+    -DestinationTable 'public.users' `
+    -OrderBy UserId `
+    -ColumnMap @{ UserId = 'id'; DisplayName = 'display_name' } `
+    -PassThru
+```
+
+The cmdlet supports SQL Server, PostgreSQL, MySQL, SQLite, and Oracle as source or destination providers. SQL Server destinations also support `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, and `-KeepNulls`. SQLite destination connection strings are normalized with pooling disabled for short-lived file copy workflows.
+
+For local proof without SQL Server, run:
+
+```powershell
+.\Module\Examples\Example.CopyTableData.ps1 -RowCount 100
+```
+
+For the SQLite to SQL Server migration shape used by tools such as TestimoX:
+
+```powershell
+.\Module\Examples\Example.CopyTableData.ps1 -CopyToSqlServer -Server localhost -Database tempdb -RowCount 1000
+```
+
+In .NET code, keep product-specific schema creation and table lists in the consumer, then hand the copy loop to `DbaTableCopyEngine` with provider-backed implementations of `IDbaTableCopySource` and `IDbaTableCopyDestination`. That lets consumer projects describe "what tables matter" while DbaClientX owns "how to page, write, verify, and report the movement."
 
 ## Benchmarking
 
