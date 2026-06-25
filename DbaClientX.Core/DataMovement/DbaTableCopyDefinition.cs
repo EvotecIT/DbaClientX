@@ -64,7 +64,7 @@ public sealed record DbaTableCopyDefinition(
 
         var duplicate = names
             .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .GroupBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static name => name, StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Skip(1).Any());
         if (duplicate != null)
         {

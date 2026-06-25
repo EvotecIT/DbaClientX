@@ -236,13 +236,14 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
-    public void BulkInsert_WithOptions_AppliesColumnMappingsCaseInsensitively()
+    public void BulkInsert_WithOptions_AppliesColumnMappingsCaseSensitively()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();
         using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("DisplayName", typeof(string));
-        table.Rows.Add(1, "test");
+        table.Columns.Add("displayname", typeof(string));
+        table.Rows.Add(1, "Upper", "Lower");
         var options = new DBAClientX.SqlServerBulkInsertOptions
         {
             ColumnMappings = new Dictionary<string, string>
@@ -253,9 +254,10 @@ public class SqlServerBulkInsertTests
 
         sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options);
 
-        Assert.Equal(2, sqlServer.Mappings.Count);
+        Assert.Equal(3, sqlServer.Mappings.Count);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
-        Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "DisplayName");
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "displayname" && m.Destination == "Name");
     }
 
     [Fact]

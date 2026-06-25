@@ -27,6 +27,7 @@ internal static class DbaTableCopyPageTransformer
 
         var transformed = new DataTable(page.TableName);
         var columns = new List<ColumnTransform>();
+        var destinationNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (DataColumn sourceColumn in page.Columns)
         {
             var destinationName = mappings != null && mappings.TryGetValue(sourceColumn.ColumnName, out var mappedName)
@@ -38,6 +39,12 @@ internal static class DbaTableCopyPageTransformer
             }
 
             var conversion = ResolveConversion(conversions, sourceColumn.ColumnName, destinationName);
+            if (!destinationNames.Add(destinationName))
+            {
+                throw new InvalidOperationException(
+                    $"Column mapping for source column '{sourceColumn.ColumnName}' produces duplicate destination column '{destinationName}'. Exclude the passthrough source column or choose a unique destination column name.");
+            }
+
             AddDestinationColumn(transformed, sourceColumn, destinationName, conversion);
             columns.Add(new ColumnTransform(sourceColumn.ColumnName, destinationName, conversion));
         }

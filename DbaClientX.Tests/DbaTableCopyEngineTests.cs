@@ -140,7 +140,7 @@ public class DbaTableCopyEngineTests
         var source = new MemoryTableCopySource(CreateRows(1));
         var destination = new MemoryTableCopyDestination();
 
-        var exception = await Assert.ThrowsAsync<DuplicateNameException>(() => new DbaTableCopyEngine().CopyAsync(
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
             source,
             destination,
             new[]
@@ -155,6 +155,7 @@ public class DbaTableCopyEngineTests
             },
             new DbaTableCopyOptions { ClearDestination = true }));
 
+        Assert.Contains("duplicate destination column 'Id'", exception.Message);
         Assert.Contains("Id", exception.Message);
         Assert.False(destination.ClearCalled);
     }
@@ -444,11 +445,68 @@ public class DbaTableCopyEngineTests
                     ColumnMappings: new Dictionary<string, string>
                     {
                         ["FirstName"] = "Name",
-                        ["LastName"] = "name"
+                        ["LastName"] = "Name"
                     })
             }));
 
         Assert.Contains("destination column names cannot contain duplicates", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_AllowsCaseDistinctMappedDestinationColumns()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("FirstName", typeof(string));
+        sourceTable.Columns.Add("LastName", typeof(string));
+        sourceTable.Rows.Add("Upper", "Lower");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["FirstName"] = "Name",
+                        ["LastName"] = "name"
+                    })
+            });
+
+        Assert.Equal(new[] { "Name", "name" }, destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
+    [Fact]
+    public async Task CopyAsync_RejectsMappedDestinationCollisionWithPassthroughColumn()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("A", typeof(string));
+        sourceTable.Columns.Add("B", typeof(string));
+        sourceTable.Rows.Add("Mapped", "Passthrough");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["A"] = "B"
+                    })
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("duplicate destination column 'B'", exception.Message);
         Assert.False(destination.ClearCalled);
     }
 

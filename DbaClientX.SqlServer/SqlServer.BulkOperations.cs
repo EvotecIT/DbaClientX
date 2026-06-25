@@ -264,7 +264,7 @@ public partial class SqlServer
         var columnMappings = options?.ColumnMappings;
         if (columnMappings?.Count > 0)
         {
-            var normalizedMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var normalizedMappings = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var mapping in columnMappings)
             {
                 normalizedMappings[mapping.Key] = mapping.Value;
@@ -380,10 +380,23 @@ public partial class SqlServer
                 throw new ArgumentException("Column mapping destination cannot be null or whitespace.", nameof(columnMappings));
             }
 
-            if (!table.Columns.Contains(mapping.Key))
+            if (!ContainsColumn(table, mapping.Key))
             {
                 throw new ArgumentException($"Column mapping source '{mapping.Key}' does not exist in the source table.", nameof(columnMappings));
             }
         }
+    }
+
+    private static bool ContainsColumn(DataTable table, string columnName)
+    {
+        foreach (DataColumn column in table.Columns)
+        {
+            if (string.Equals(column.ColumnName, columnName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

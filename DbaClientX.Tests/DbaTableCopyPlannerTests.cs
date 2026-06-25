@@ -197,6 +197,31 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_PreservesQualifiedTableMappingWhenDestinationSchemaIsSet()
+    {
+        var sourceTables = new[] { new DbaTableInfo("src", "Customers", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("src", "Customers", "CustomerId", "int", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                DestinationSchema = "archive",
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["src.Customers"] = "warehouse.Clients"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("warehouse.Clients", definition.DestinationName);
+    }
+
+    [Fact]
     public void BuildPlan_DoesNotApplyCaseDifferentScopedTableMappings()
     {
         var sourceTables = new[]
@@ -253,7 +278,7 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
-    public void BuildPlan_AppliesDestinationSchemaToMappedTableNamesWithDots()
+    public void BuildPlan_AppliesDestinationSchemaToDelimitedMappedTableNamesWithDots()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
         var sourceColumns = new[]
@@ -285,7 +310,7 @@ public class DbaTableCopyPlannerTests
                 DestinationSchema = "archive",
                 TableMappings = new Dictionary<string, string>
                 {
-                    ["Users"] = "Rows.Current"
+                    ["Users"] = "\"Rows.Current\""
                 }
             });
 

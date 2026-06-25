@@ -187,7 +187,7 @@ public static class DbaTableCopyPlanner
     }
 
     private static string ResolveMappedDestinationTableName(string mapped, DbaTableInfo sourceTable, DbaTableCopyPlanOptions options)
-        => string.IsNullOrWhiteSpace(options.DestinationSchema) && DbaIdentifierPath.SplitSegments(mapped).Count > 1
+        => DbaIdentifierPath.SplitSegments(mapped).Count > 1
             ? mapped
             : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped);
 
