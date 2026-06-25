@@ -314,7 +314,7 @@ public class DbaProviderTableCopyAdapterTests
         var adapter = new DbaProviderTableCopyAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
-        var page = new DataTable("Users");
+        using var page = new DataTable("Users");
         page.Columns.Add("DisplayName", typeof(string));
         page.Columns.Add("\"CreatedUtc\"", typeof(DateTime));
         page.Columns.Add("Created At", typeof(string));
