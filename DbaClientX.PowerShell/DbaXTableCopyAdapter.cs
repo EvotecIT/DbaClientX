@@ -58,10 +58,10 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                             _connectionString,
                             destinationPage,
                             definition.DestinationName,
+                            _sqlServerOptions,
                             batchSize: options.BatchSize,
                             bulkCopyTimeout: options.BulkCopyTimeout,
-                            cancellationToken: cancellationToken,
-                            options: _sqlServerOptions)
+                            cancellationToken: cancellationToken)
                         .ConfigureAwait(false);
                 }
                 break;

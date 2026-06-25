@@ -5,7 +5,7 @@ using Microsoft.Data.SqlClient;
 namespace DBAClientX;
 
 /// <summary>
-/// Optional SQL Server bulk-copy behavior for <see cref="SqlServer.BulkInsert(string, System.Data.DataTable, string, bool, int?, int?, SqlServerBulkInsertOptions?)"/>.
+/// Optional SQL Server bulk-copy behavior for <see cref="SqlServer.BulkInsert(string, System.Data.DataTable, string, SqlServerBulkInsertOptions?, bool, int?, int?)"/>.
 /// </summary>
 public sealed class SqlServerBulkInsertOptions
 {

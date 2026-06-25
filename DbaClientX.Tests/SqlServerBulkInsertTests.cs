@@ -89,6 +89,36 @@ public class SqlServerBulkInsertTests
         }
     }
 
+    private class LegacyFactorySqlServer : DBAClientX.SqlServer
+    {
+        public int LegacyFactoryCalls { get; private set; }
+        public int OptionsFactoryCalls { get; private set; }
+
+        protected override SqlConnection CreateConnection(string connectionString) => new();
+
+        protected override void OpenConnection(SqlConnection connection)
+        {
+            // no-op to avoid real connection
+        }
+
+        protected override SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction)
+        {
+            LegacyFactoryCalls++;
+            return base.CreateBulkCopy(connection, transaction);
+        }
+
+        protected override SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction, SqlBulkCopyOptions options)
+        {
+            OptionsFactoryCalls++;
+            return base.CreateBulkCopy(connection, transaction, options);
+        }
+
+        protected override void WriteToServer(SqlBulkCopy bulkCopy, DataTable table)
+        {
+            // no-op to avoid real connection
+        }
+    }
+
     [Fact]
     public void BulkInsert_SetsOptionsAndMappings()
     {
@@ -147,6 +177,38 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithoutOptions_UsesLegacyBulkCopyFactory()
+    {
+        using var sqlServer = new LegacyFactorySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        sqlServer.BulkInsert("Server=s;Database=db;Encrypt=True", table, "dbo.Dest");
+
+        Assert.Equal(1, sqlServer.LegacyFactoryCalls);
+        Assert.Equal(0, sqlServer.OptionsFactoryCalls);
+    }
+
+    [Fact]
+    public void BulkInsert_WithBulkCopyOptions_UsesOptionsBulkCopyFactory()
+    {
+        using var sqlServer = new LegacyFactorySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            BulkCopyOptions = SqlBulkCopyOptions.TableLock
+        };
+
+        sqlServer.BulkInsert("Server=s;Database=db;Encrypt=True", table, "dbo.Dest", options);
+
+        Assert.Equal(0, sqlServer.LegacyFactoryCalls);
+        Assert.Equal(1, sqlServer.OptionsFactoryCalls);
+    }
+
+    [Fact]
     public void BulkInsert_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();
@@ -164,7 +226,7 @@ public class SqlServerBulkInsertTests
             }
         };
 
-        sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options: options);
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options);
 
         Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity, sqlServer.Options);
         Assert.Equal(25, sqlServer.NotifyAfter);
@@ -190,7 +252,7 @@ public class SqlServerBulkInsertTests
             }
         };
 
-        await sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest", options: options);
+        await sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest", options);
 
         Assert.Equal(SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers, sqlServer.Options);
         Assert.Equal(10, sqlServer.NotifyAfter);
@@ -212,7 +274,7 @@ public class SqlServerBulkInsertTests
             }
         };
 
-        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options: options));
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options));
     }
 
     [Fact]

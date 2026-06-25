@@ -119,6 +119,11 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 return;
             }
 
+            if (!ShouldProcess(DestinationTable, $"Bulk write input using {Provider}"))
+            {
+                return;
+            }
+
             var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
             if (table.Columns.Count == 0 && table.Rows.Count == 0)
             {
@@ -132,11 +137,6 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                     }));
                 }
 
-                return;
-            }
-
-            if (!ShouldProcess(DestinationTable, $"Bulk write {table.Rows.Count} row(s) using {Provider}"))
-            {
                 return;
             }
 
@@ -221,7 +221,15 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             case DbaXBulkProvider.SqlServer:
                 using (var sqlServer = new DBAClientX.SqlServer())
                 {
-                    sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout, options: BuildSqlServerOptions(table));
+                    var sqlServerOptions = BuildSqlServerOptions(table);
+                    if (sqlServerOptions == null)
+                    {
+                        sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    }
+                    else
+                    {
+                        sqlServer.BulkInsert(ConnectionString, table, DestinationTable, sqlServerOptions, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    }
                 }
                 break;
             case DbaXBulkProvider.PostgreSql:
