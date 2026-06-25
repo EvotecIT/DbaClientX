@@ -267,34 +267,37 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
     private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> progressEvents)
     {
-        var source = new DbaProviderTableCopyAdapter(
-            ToTableCopyProvider(SourceProvider),
-            SourceConnectionString,
-            OrderBy,
-            AllowUnordered.IsPresent,
-            treatMissingTablesAsEmpty: TreatMissingTablesAsEmpty.IsPresent);
-        var destination = new DbaProviderTableCopyAdapter(
-            ToTableCopyProvider(DestinationProvider),
-            DestinationConnectionString,
-            sqlServerOptions: DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null,
-            treatMissingTablesAsEmpty: TreatMissingTablesAsEmpty.IsPresent);
-
-        var options = new DbaTableCopyOptions
+        var request = new DbaProviderTableCopyRequest
         {
-            PageSize = PageSize,
-            BatchSize = BatchSize,
-            BulkCopyTimeout = BulkCopyTimeout,
-            ClearDestination = ClearDestination.IsPresent,
-            VerifyRowCounts = !NoVerify.IsPresent,
-            Progress = progressEvents.Add
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = ToTableCopyProvider(SourceProvider),
+                ConnectionString = SourceConnectionString,
+                DefaultOrderByColumns = OrderBy,
+                AllowUnordered = AllowUnordered.IsPresent,
+                TreatMissingTablesAsEmpty = TreatMissingTablesAsEmpty.IsPresent
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = ToTableCopyProvider(DestinationProvider),
+                ConnectionString = DestinationConnectionString,
+                SqlServerOptions = DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null,
+                TreatMissingTablesAsEmpty = TreatMissingTablesAsEmpty.IsPresent
+            },
+            Definitions = definitions,
+            Options = new DbaTableCopyOptions
+            {
+                PageSize = PageSize,
+                BatchSize = BatchSize,
+                BulkCopyTimeout = BulkCopyTimeout,
+                ClearDestination = ClearDestination.IsPresent,
+                VerifyRowCounts = !NoVerify.IsPresent,
+                Progress = progressEvents.Add
+            }
         };
 
-        return await new DbaTableCopyEngine()
-            .CopyAsync(
-                source,
-                destination,
-                definitions,
-                options)
+        return await new DbaProviderTableCopyRunner()
+            .CopyAsync(request)
             .ConfigureAwait(false);
     }
 

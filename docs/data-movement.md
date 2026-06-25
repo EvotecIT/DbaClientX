@@ -280,36 +280,39 @@ The planner is intentionally metadata-driven, not domain-driven. It can infer or
 
 When `DbaTableCopyOptions.ClearDestination` is enabled for a multi-table plan, DbaClientX clears destination tables in reverse definition order before copying rows in the declared order. That lets domain tools list parent tables before child/detail tables for natural copy order while still deleting dependent destination rows first.
 
-For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `DbaProviderTableCopyAdapter` instead of implementing `IDbaTableCopySource` and `IDbaTableCopyDestination` yourself:
+For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `DbaProviderTableCopyRunner` when the source and destination are regular DbaClientX provider connections:
 
 ```csharp
-var sourceAdapter = new DbaProviderTableCopyAdapter(
-    DbaTableCopyProvider.SQLite,
-    "Data Source=C:\\Data\\monitoring.sqlite",
-    treatMissingTablesAsEmpty: true);
-
-var destinationAdapter = new DbaProviderTableCopyAdapter(
-    DbaTableCopyProvider.SqlServer,
-    "Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True",
-    sqlServerOptions: new SqlServerBulkInsertOptions
+var result = await new DbaProviderTableCopyRunner().CopyAsync(
+    new DbaProviderTableCopyRequest
     {
-        BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
-    },
-    treatMissingTablesAsEmpty: true);
-
-var result = await new DbaTableCopyEngine().CopyAsync(
-    sourceAdapter,
-    destinationAdapter,
-    plan.Definitions,
-    new DbaTableCopyOptions
-    {
-        PageSize = 10000,
-        BatchSize = 5000
+        Source = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=C:\\Data\\monitoring.sqlite",
+            TreatMissingTablesAsEmpty = true
+        },
+        Destination = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True",
+            SqlServerOptions = new SqlServerBulkInsertOptions
+            {
+                BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
+            },
+            TreatMissingTablesAsEmpty = true
+        },
+        Definitions = plan.Definitions,
+        Options = new DbaTableCopyOptions
+        {
+            PageSize = 10000,
+            BatchSize = 5000
+        }
     },
     cancellationToken);
 ```
 
-The provider adapter supports SQL Server, PostgreSQL, MySQL, Oracle, and SQLite as either source or destination. PowerShell's `Copy-DbaXTableData` uses the same adapter internally and only maps user-friendly parameters into the reusable .NET API.
+The provider runner supports SQL Server, PostgreSQL, MySQL, Oracle, and SQLite as either source or destination. Use `DbaProviderTableCopyAdapter` directly only when you need custom composition with `DbaTableCopyEngine` or your own source/destination implementations. PowerShell's `Copy-DbaXTableData` builds a `DbaProviderTableCopyRequest` internally and only maps user-friendly parameters into the reusable .NET API.
 
 PowerShell can also run prepared definitions directly:
 
