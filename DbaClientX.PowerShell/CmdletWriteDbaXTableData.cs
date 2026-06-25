@@ -155,26 +155,17 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             var startedAt = DateTimeOffset.UtcNow;
             var timer = System.Diagnostics.Stopwatch.StartNew();
             var bulkTable = PrepareProviderBulkTable(table);
-            try
+            using var disposableBulkTable = ReferenceEquals(bulkTable, table) ? null : bulkTable;
+            if (BulkInsertOverride != null)
             {
-                if (BulkInsertOverride != null)
-                {
-                    BulkInsertOverride.InvokeWithContext(
-                        functionsToDefine: null,
-                        variablesToDefine: null,
-                        args: new object?[] { this, bulkTable, BuildSqlServerOptions(bulkTable) });
-                }
-                else
-                {
-                    InvokeProviderBulkInsert(bulkTable);
-                }
+                BulkInsertOverride.InvokeWithContext(
+                    functionsToDefine: null,
+                    variablesToDefine: null,
+                    args: new object?[] { this, bulkTable, BuildSqlServerOptions(bulkTable) });
             }
-            finally
+            else
             {
-                if (!ReferenceEquals(bulkTable, table))
-                {
-                    bulkTable.Dispose();
-                }
+                InvokeProviderBulkInsert(bulkTable);
             }
 
             timer.Stop();
