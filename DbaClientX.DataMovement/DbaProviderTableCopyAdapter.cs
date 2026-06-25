@@ -479,7 +479,8 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             return page;
         }
 
-        var preserveSimpleIdentifierCase = SplitIdentifierPath(destinationTableName).Any(static segment => segment.IsExplicitlyQuoted);
+        var destinationSegments = SplitIdentifierPath(destinationTableName);
+        var preserveSimpleIdentifierCase = destinationSegments[destinationSegments.Count - 1].IsExplicitlyQuoted;
         var normalizedNames = page.Columns
             .Cast<DataColumn>()
             .Select(column => NormalizePostgreSqlBulkColumnName(column.ColumnName, preserveSimpleIdentifierCase))
@@ -639,6 +640,15 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         for (Exception? current = exception; current != null; current = current.InnerException)
         {
             var message = current.Message;
+            if (message.Contains("no such column", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("unknown column", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("invalid column name", StringComparison.OrdinalIgnoreCase) ||
+                (message.Contains("column", StringComparison.OrdinalIgnoreCase) &&
+                 message.Contains("does not exist", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
             if (message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("invalid object name", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||

@@ -341,6 +341,36 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BulkPage_PostgreSqlFoldsSimpleColumnNamesWhenOnlySchemaIsQuoted()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+        using var page = new DataTable("Users");
+        page.Columns.Add("DisplayName", typeof(string));
+        page.Columns.Add("\"CreatedUtc\"", typeof(DateTime));
+
+        var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "\"TenantA\".Users");
+
+        Assert.Equal(new[] { "displayname", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
+    [Theory]
+    [InlineData("relation \"missing\" does not exist", true)]
+    [InlineData("no such table: MissingRows", true)]
+    [InlineData("invalid object name 'dbo.MissingRows'.", true)]
+    [InlineData("column \"BadKey\" does not exist", false)]
+    [InlineData("no such column: BadKey", false)]
+    [InlineData("Unknown column 'BadKey' in 'field list'", false)]
+    [InlineData("Invalid column name 'BadKey'.", false)]
+    public void MissingTableDetection_DoesNotTreatMissingColumnsAsMissingTables(string message, bool expected)
+    {
+        var actual = InvokeIsMissingTableException(new InvalidOperationException(message));
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void BuildPageQuery_SqlServerStripsDelimitersBeforeQuotingIdentifiers()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -438,6 +468,14 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkPage");
 
         return (DataTable)method.Invoke(adapter, new object?[] { page, destinationTableName })!;
+    }
+
+    private static bool InvokeIsMissingTableException(Exception exception)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("IsMissingTableException", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "IsMissingTableException");
+
+        return (bool)method.Invoke(null, new object?[] { exception })!;
     }
 
     private static void CreateHistoryTables(SQLite sqlite, string path)

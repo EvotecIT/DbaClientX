@@ -125,7 +125,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
 
             var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
-            if (table.Columns.Count == 0 && table.Rows.Count == 0)
+            if (table.Rows.Count == 0)
             {
                 if (PassThru.IsPresent)
                 {
