@@ -172,6 +172,32 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void NormalizeTableName_PostgreSqlRespectsQuotedIdentifierSemantics()
+    {
+        var ordinary = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users");
+        var quotedLower = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "\"users\"");
+        var quotedMixed = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "\"Users\"");
+        var quotedDotted = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "\"tenant.v1\".users");
+
+        Assert.Equal(ordinary, quotedLower);
+        Assert.NotEqual(ordinary, quotedMixed);
+        Assert.NotEqual(InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "tenant.v1.users"), quotedDotted);
+    }
+
+    [Fact]
+    public void NormalizeTableName_OracleRespectsQuotedIdentifierSemantics()
+    {
+        var ordinary = InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "users");
+        var quotedUpper = InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "\"USERS\"");
+        var quotedMixed = InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "\"Users\"");
+        var quotedDotted = InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "\"APP.V1\".USERS");
+
+        Assert.Equal(ordinary, quotedUpper);
+        Assert.NotEqual(ordinary, quotedMixed);
+        Assert.NotEqual(InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "APP.V1.USERS"), quotedDotted);
+    }
+
+    [Fact]
     public async Task CopyAsync_AllowsSameProviderDatabaseWithDifferentTables()
     {
         var databasePath = CreateTempDatabasePath();
@@ -267,4 +293,14 @@ public class DbaProviderTableCopyRunnerTests
 
     private static string CreateTempDatabasePath()
         => Path.Join(Path.GetTempPath(), Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
+
+    private static string InvokeNormalizeTableName(DbaTableCopyProvider provider, string tableName)
+    {
+        var type = typeof(DbaProviderTableCopyRunner).Assembly.GetType("DBAClientX.DataMovement.DbaProviderTableCopyTargetIdentity")
+            ?? throw new InvalidOperationException("DbaProviderTableCopyTargetIdentity type was not found.");
+        var method = type.GetMethod("NormalizeTableName", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(type.FullName, "NormalizeTableName");
+
+        return (string)method.Invoke(null, new object[] { provider, tableName })!;
+    }
 }

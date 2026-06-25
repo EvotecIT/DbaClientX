@@ -255,7 +255,7 @@ public class PostgreSqlBulkInsertTests
     public void BuildCopyCommand_PreservesDotsInsideQuotedDestinationSegments()
     {
         using var pg = new InspectingPostgreSql();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id");
 
         var command = pg.BuildCommand(table.Columns, "\"tenant.v1\".\"Rows.Current\"");

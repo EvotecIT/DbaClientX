@@ -31,23 +31,184 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName)
     {
-        var parts = tableName
-            .Split('.')
-            .Select(static part => part.Trim().Trim('[', ']', '"', '`'))
-            .Where(static part => part.Length > 0)
-            .ToArray();
+        var parts = SplitTableName(tableName);
 
         if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
         {
-            parts = new[] { "dbo", parts[0] };
+            parts = new[] { new IdentifierSegment("dbo", false), parts[0] };
         }
 
-        var normalized = string.Join(".", parts);
-
-        return provider == DbaTableCopyProvider.Oracle
-            ? normalized.ToUpperInvariant()
-            : normalized.ToLowerInvariant();
+        return string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
     }
+
+    private static IdentifierSegment[] SplitTableName(string tableName)
+    {
+        var parts = new List<IdentifierSegment>();
+        var start = 0;
+        var quote = '\0';
+        for (var index = 0; index < tableName.Length; index++)
+        {
+            var value = tableName[index];
+            if (quote == '\0')
+            {
+                if (value is '"' or '[' or '`')
+                {
+                    quote = value;
+                    continue;
+                }
+
+                if (value == '.')
+                {
+                    AddSegment(parts, tableName.Substring(start, index - start));
+                    start = index + 1;
+                }
+
+                continue;
+            }
+
+            if (quote == '"' && value == '"')
+            {
+                if (index + 1 < tableName.Length && tableName[index + 1] == '"')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '[' && value == ']')
+            {
+                if (index + 1 < tableName.Length && tableName[index + 1] == ']')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '`' && value == '`')
+            {
+                if (index + 1 < tableName.Length && tableName[index + 1] == '`')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+            }
+        }
+
+        AddSegment(parts, tableName.Substring(start));
+        return parts.ToArray();
+    }
+
+    private static void AddSegment(List<IdentifierSegment> parts, string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '"' &&
+            trimmed[trimmed.Length - 1] == '"')
+        {
+            parts.Add(new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\""), true));
+            return;
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '[' &&
+            trimmed[trimmed.Length - 1] == ']')
+        {
+            parts.Add(new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]"), false));
+            return;
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '`' &&
+            trimmed[trimmed.Length - 1] == '`')
+        {
+            parts.Add(new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`"), false));
+            return;
+        }
+
+        parts.Add(new IdentifierSegment(trimmed, false));
+    }
+
+    private static string NormalizeTableSegment(DbaTableCopyProvider provider, IdentifierSegment segment)
+    {
+        if (provider == DbaTableCopyProvider.PostgreSql)
+        {
+            var folded = segment.Value.ToLowerInvariant();
+            return segment.IsExplicitlyQuoted && (!IsPostgreSqlSimpleIdentifier(segment.Value) || !string.Equals(segment.Value, folded, StringComparison.Ordinal))
+                ? "q:" + segment.Value
+                : "u:" + folded;
+        }
+
+        if (provider == DbaTableCopyProvider.Oracle)
+        {
+            var folded = segment.Value.ToUpperInvariant();
+            return segment.IsExplicitlyQuoted && (!IsOracleSimpleIdentifier(segment.Value) || !string.Equals(segment.Value, folded, StringComparison.Ordinal))
+                ? "q:" + segment.Value
+                : "u:" + folded;
+        }
+
+        return segment.Value.ToLowerInvariant();
+    }
+
+    private static bool IsPostgreSqlSimpleIdentifier(string identifier)
+    {
+        if (identifier.Length == 0 || !IsPostgreSqlIdentifierStart(identifier[0]))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < identifier.Length; i++)
+        {
+            if (!IsPostgreSqlIdentifierPart(identifier[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsPostgreSqlIdentifierStart(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_';
+
+    private static bool IsPostgreSqlIdentifierPart(char value)
+        => IsPostgreSqlIdentifierStart(value) || value is >= '0' and <= '9' or '$';
+
+    private static bool IsOracleSimpleIdentifier(string identifier)
+    {
+        if (identifier.Length == 0 || !IsOracleIdentifierStart(identifier[0]))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < identifier.Length; i++)
+        {
+            if (!IsOracleIdentifierPart(identifier[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsOracleIdentifierStart(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+    private static bool IsOracleIdentifierPart(char value)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_' or >= '0' and <= '9' or '$' or '#';
 
     private static bool TryCreateSQLiteIdentity(string connectionString, out string identity)
     {
@@ -249,4 +410,17 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     private static string NormalizePart(string? value)
         => value == null ? string.Empty : value.Trim().ToLowerInvariant();
+
+    private readonly struct IdentifierSegment
+    {
+        internal IdentifierSegment(string value, bool isExplicitlyQuoted)
+        {
+            Value = value;
+            IsExplicitlyQuoted = isExplicitlyQuoted;
+        }
+
+        internal string Value { get; }
+
+        internal bool IsExplicitlyQuoted { get; }
+    }
 }
