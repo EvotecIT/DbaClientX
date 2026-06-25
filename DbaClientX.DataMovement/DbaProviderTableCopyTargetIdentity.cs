@@ -441,7 +441,7 @@ internal static class DbaProviderTableCopyTargetIdentity
                 identity = providerName +
                     "|host=" + NormalizePart(host) +
                     ";port=" + port +
-                    ";database=" + NormalizePart(database);
+                    ";database=" + NormalizeProviderDatabasePart(provider, database);
                 return true;
             }
 
@@ -685,6 +685,11 @@ internal static class DbaProviderTableCopyTargetIdentity
             _ => string.Empty
         };
     }
+
+    private static string NormalizeProviderDatabasePart(DbaTableCopyProvider provider, string? database)
+        => provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql
+            ? database?.Trim() ?? string.Empty
+            : NormalizePart(database);
 
     private static string NormalizePath(string path)
         => NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: false);

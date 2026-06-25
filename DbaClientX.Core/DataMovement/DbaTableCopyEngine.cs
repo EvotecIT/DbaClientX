@@ -284,7 +284,7 @@ public sealed class DbaTableCopyEngine
     private static void ValidateUniqueClearDestinations(IReadOnlyList<DbaTableCopyDefinition> definitions)
     {
         var duplicate = definitions
-            .GroupBy(static definition => NormalizeDestinationNameForDuplicateCheck(definition.DestinationName), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static definition => NormalizeDestinationNameForDuplicateCheck(definition.DestinationName), StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Count() > 1);
         if (duplicate != null)
         {

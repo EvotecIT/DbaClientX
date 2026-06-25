@@ -17,7 +17,7 @@ internal static class DbaTableCopyPageTransformer
 
         var excluded = new HashSet<string>(
             definition.ExcludedColumns ?? Array.Empty<string>(),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         var mappings = definition.ColumnMappings is { Count: > 0 }
             ? ToDictionary(definition.ColumnMappings)
             : null;
@@ -83,7 +83,7 @@ internal static class DbaTableCopyPageTransformer
 
     private static Dictionary<string, TValue> ToDictionary<TValue>(IReadOnlyDictionary<string, TValue> source)
     {
-        var result = new Dictionary<string, TValue>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, TValue>(StringComparer.Ordinal);
         foreach (var entry in source)
         {
             result[entry.Key] = entry.Value;

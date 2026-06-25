@@ -654,6 +654,28 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Equal(memoryIdentity, sameMemoryIdentity);
     }
 
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "Host=localhost;Database=App;Username=u;Password=p", "Host=LOCALHOST;Database=app;Username=u;Password=p")]
+    [InlineData(DbaTableCopyProvider.MySql, "Server=localhost;Database=App;User ID=u;Password=p", "Server=LOCALHOST;Database=app;User ID=u;Password=p")]
+    public void TryCreate_ProviderIdentityPreservesCaseSensitiveDatabaseNames(
+        DbaTableCopyProvider provider,
+        string firstConnectionString,
+        string secondConnectionString)
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = firstConnectionString
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = secondConnectionString
+        };
+
+        Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
+    }
+
     [Fact]
     public async Task CopyAsync_AllowsSameProviderDatabaseWithDifferentTables()
     {

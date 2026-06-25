@@ -13,6 +13,19 @@ internal static class DbaIdentifierPath
         return "\"" + trimmed.Replace("\"", "\"\"") + "\"";
     }
 
+    public static string QuotePlanSegmentPreservingCase(string segment)
+    {
+        var trimmed = segment.Trim();
+        if (IsDelimitedSegment(trimmed))
+        {
+            return trimmed;
+        }
+
+        return IsSimplePlanSegment(trimmed) && string.Equals(trimmed, trimmed.ToLowerInvariant(), StringComparison.Ordinal)
+            ? trimmed
+            : "\"" + trimmed.Replace("\"", "\"\"") + "\"";
+    }
+
     public static string UnquoteSegment(string segment)
     {
         var trimmed = segment.Trim();

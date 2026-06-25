@@ -81,9 +81,9 @@ public static class DbaTableCopyPlanner
         var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name);
         var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
         var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name);
-        var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), StringComparer.Ordinal);
         var includedSourceColumns = new List<DbaColumnInfo>();
-        var effectiveMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var effectiveMappings = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var sourceColumn in sourceColumns.OrderBy(static column => column.Ordinal))
         {
@@ -220,15 +220,15 @@ public static class DbaTableCopyPlanner
             return explicitOrder;
         }
 
-        var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), StringComparer.OrdinalIgnoreCase);
+        var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), StringComparer.Ordinal);
         var tableKey = TableKey(table.Schema, table.Name);
         if (sourceIndexGroups != null && sourceIndexGroups.TryGetValue(tableKey, out var indexes))
         {
             var keyColumns = indexes
                 .Where(static index => index.IsPrimaryKey && index.IsIncluded != true && !string.IsNullOrWhiteSpace(index.Column))
                 .OrderBy(static index => index.Ordinal)
-                .Select(static index => index.Column!)
-                .Where(sourceNames.Contains)
+                .Where(index => sourceNames.Contains(index.Column!))
+                .Select(static index => DbaIdentifierPath.QuotePlanSegmentPreservingCase(index.Column!))
                 .ToArray();
             if (keyColumns.Length > 0)
             {
@@ -246,19 +246,19 @@ public static class DbaTableCopyPlanner
 
     private static Dictionary<string, IReadOnlyList<DbaColumnInfo>> GroupColumns(IEnumerable<DbaColumnInfo> columns)
         => columns
-            .GroupBy(static column => TableKey(column.Schema, column.Table), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static column => TableKey(column.Schema, column.Table), StringComparer.Ordinal)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaColumnInfo>)group.OrderBy(static column => column.Ordinal).ToArray(),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
 
     private static Dictionary<string, IReadOnlyList<DbaIndexInfo>> GroupIndexes(IEnumerable<DbaIndexInfo> indexes)
         => indexes
-            .GroupBy(static index => TableKey(index.Schema, index.Table), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static index => TableKey(index.Schema, index.Table), StringComparer.Ordinal)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaIndexInfo>)group.ToArray(),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
 
     private static IReadOnlyDictionary<string, TValue>? MergeScopedDictionary<TValue>(
         IReadOnlyDictionary<string, TValue>? global,
@@ -266,7 +266,7 @@ public static class DbaTableCopyPlanner
         string qualifiedTableName,
         string unqualifiedTableName)
     {
-        var result = new Dictionary<string, TValue>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, TValue>(StringComparer.Ordinal);
         if (global != null)
         {
             foreach (var entry in global)
@@ -300,7 +300,7 @@ public static class DbaTableCopyPlanner
         string qualifiedTableName,
         string unqualifiedTableName)
     {
-        var result = new HashSet<string>(global ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        var result = new HashSet<string>(global ?? Array.Empty<string>(), StringComparer.Ordinal);
         if (TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null)
         {
             foreach (var value in scopedValues)

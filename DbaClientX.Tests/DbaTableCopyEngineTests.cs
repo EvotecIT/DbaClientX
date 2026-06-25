@@ -244,6 +244,29 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_AllowsCaseDistinctClearDestinations()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("\"Rows\"", "\"Rows\""),
+                new DbaTableCopyDefinition("\"rows\"", "\"rows\"")
+            },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = false
+            });
+
+        Assert.Equal(new[] { "\"rows\"", "\"Rows\"" }, destination.ClearOrder);
+    }
+
+    [Fact]
     public async Task CopyAsync_VerifiesAppendAgainstInitialDestinationRows()
     {
         var source = new MemoryTableCopySource(CreateRows(2));
@@ -340,6 +363,35 @@ public class DbaTableCopyEngineTests
         Assert.DoesNotContain("DisplayName", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
         Assert.DoesNotContain("Name", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
         Assert.Contains("Id", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
+    [Fact]
+    public async Task CopyAsync_AppliesColumnMappingsWithExactSourceColumnCase()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("Name", typeof(string));
+        sourceTable.Columns.Add("name", typeof(string));
+        sourceTable.Rows.Add("Upper", "Lower");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["Name"] = "FullName"
+                    })
+            });
+
+        Assert.Equal(new[] { "FullName", "name" }, destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Equal("Upper", destination.Rows.Rows[0]["FullName"]);
+        Assert.Equal("Lower", destination.Rows.Rows[0]["name"]);
     }
 
     [Theory]

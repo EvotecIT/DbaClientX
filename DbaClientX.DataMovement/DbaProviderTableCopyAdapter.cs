@@ -140,7 +140,14 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.MySql:
                 using (var mySql = new MySql())
                 {
-                    await mySql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await mySql.BulkInsertAsync(
+                            _connectionString,
+                            page,
+                            NormalizeMySqlBulkDestinationTableName(definition.DestinationName),
+                            batchSize: options.BatchSize,
+                            bulkCopyTimeout: options.BulkCopyTimeout,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 break;
             case DbaTableCopyProvider.Oracle:
@@ -558,6 +565,13 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     private string NormalizeSqlServerBulkDestinationTableName(string destinationTableName)
     {
         return _provider == DbaTableCopyProvider.SqlServer
+            ? QuotePath(destinationTableName)
+            : destinationTableName;
+    }
+
+    private string NormalizeMySqlBulkDestinationTableName(string destinationTableName)
+    {
+        return _provider == DbaTableCopyProvider.MySql
             ? QuotePath(destinationTableName)
             : destinationTableName;
     }

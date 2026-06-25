@@ -421,6 +421,18 @@ public class DbaProviderTableCopyAdapterTests
         Assert.Equal("[tenant.v1].[Rows.Current]", normalized);
     }
 
+    [Fact]
+    public void BulkDestinationName_MySqlTranslatesPlannerQuotesToBackticks()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.MySql,
+            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True");
+
+        var normalized = InvokeNormalizeMySqlBulkDestinationTableName(adapter, "\"tenant.v1\".\"Rows.Current\"");
+
+        Assert.Equal("`tenant.v1`.`Rows.Current`", normalized);
+    }
+
     [Theory]
     [InlineData("[Rows.Current]", "\"Rows.Current\"")]
     [InlineData("`Rows.Current`", "\"Rows.Current\"")]
@@ -636,6 +648,14 @@ public class DbaProviderTableCopyAdapterTests
     {
         var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeSqlServerBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeSqlServerBulkDestinationTableName");
+
+        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
+    }
+
+    private static string InvokeNormalizeMySqlBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeMySqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeMySqlBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }

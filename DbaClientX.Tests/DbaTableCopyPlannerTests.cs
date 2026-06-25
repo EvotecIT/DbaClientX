@@ -71,7 +71,7 @@ public class DbaTableCopyPlannerTests
         Assert.Equal("main.ProbeResults", definition.SourceName);
         Assert.Equal("dbo.ProbeResults", definition.DestinationName);
         Assert.Equal("ProbeResults", definition.LogicalName);
-        Assert.Equal(new[] { "ResultId" }, definition.OrderByColumns);
+        Assert.Equal(new[] { "\"ResultId\"" }, definition.OrderByColumns);
         Assert.NotNull(definition.ColumnMappings);
         Assert.Equal("ProbeDisplayName", definition.ColumnMappings["DisplayName"]);
         Assert.NotNull(definition.ColumnTypeConversions);
@@ -285,6 +285,53 @@ public class DbaTableCopyPlannerTests
         Assert.Empty(plan.Definitions);
         Assert.Contains(plan.Warnings, warning => warning.Code == "MissingDestinationColumn" && warning.ColumnName == "DisplayName");
         Assert.Contains(plan.Warnings, warning => warning.Code == "NoWritableColumns");
+    }
+
+    [Fact]
+    public void BuildPlan_KeepsTableMetadataGroupsCaseSensitive()
+    {
+        var sourceTables = new[] { new DbaTableInfo("archive", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("archive", "Users", "Name", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "users", "Name", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, destinationColumns: destinationColumns);
+
+        Assert.Empty(plan.Definitions);
+        Assert.Contains(plan.Warnings, warning => warning.Code == "MissingDestinationColumn" && warning.ColumnName == "Name");
+        Assert.Contains(plan.Warnings, warning => warning.Code == "NoWritableColumns");
+    }
+
+    [Fact]
+    public void BuildPlan_QuotesMixedCaseMetadataOrderColumns()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "Users", "Id", "integer", 1),
+            Column("public", "Users", "name", "text", 2)
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("public", "Users", "Users_pkey")
+            {
+                Column = "Id",
+                Ordinal = 1,
+                IsPrimaryKey = true,
+                IsUnique = true
+            }
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, indexes);
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal(new[] { "\"Id\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
     }
 
     [Fact]
