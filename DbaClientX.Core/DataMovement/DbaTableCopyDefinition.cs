@@ -63,9 +63,9 @@ public sealed record DbaTableCopyDefinition(
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in names)
+        foreach (var name in names.Where(static name => !string.IsNullOrWhiteSpace(name)))
         {
-            if (!string.IsNullOrWhiteSpace(name) && !seen.Add(name))
+            if (!seen.Add(name))
             {
                 throw new ArgumentException(message);
             }
