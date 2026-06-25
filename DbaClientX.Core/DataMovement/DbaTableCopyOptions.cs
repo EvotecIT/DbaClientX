@@ -19,7 +19,7 @@ public sealed class DbaTableCopyOptions
     /// <summary>Optional destination bulk-write timeout in seconds.</summary>
     public int? BulkCopyTimeout { get; init; }
 
-    /// <summary>When true, asks the destination adapter to clear existing rows before copying.</summary>
+    /// <summary>When true, clears all destination tables in reverse definition order before copying rows.</summary>
     public bool ClearDestination { get; init; }
 
     /// <summary>When true, compares source and destination row counts after the copy when both adapters can provide counts.</summary>

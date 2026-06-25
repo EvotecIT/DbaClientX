@@ -278,6 +278,8 @@ var result = await new DbaTableCopyEngine().CopyAsync(
 
 The planner is intentionally metadata-driven, not domain-driven. It can infer order columns from primary keys, omit generated/rowversion columns, omit destination identity columns when requested, match destination columns, and apply per-table mappings, exclusions, and conversions. Consumers such as TestimoX should still own their table order and domain schema rules.
 
+When `DbaTableCopyOptions.ClearDestination` is enabled for a multi-table plan, DbaClientX clears destination tables in reverse definition order before copying rows in the declared order. That lets domain tools list parent tables before child/detail tables for natural copy order while still deleting dependent destination rows first.
+
 For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `DbaProviderTableCopyAdapter` instead of implementing `IDbaTableCopySource` and `IDbaTableCopyDestination` yourself:
 
 ```csharp

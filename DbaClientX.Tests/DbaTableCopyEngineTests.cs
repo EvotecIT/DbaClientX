@@ -81,6 +81,30 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_ClearsDestinationTablesInReverseOrderBeforeCopying()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("ProbeResults", "ProbeResults"),
+                new DbaTableCopyDefinition("ProbeResultMetadata", "ProbeResultMetadata")
+            },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = false
+            });
+
+        Assert.Equal(new[] { "ProbeResultMetadata", "ProbeResults" }, destination.ClearOrder);
+        Assert.Equal(new[] { "ProbeResults", "ProbeResultMetadata" }, destination.WriteOrder);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
@@ -222,17 +246,23 @@ public class DbaTableCopyEngineTests
 
         public bool ClearCalled { get; private set; }
 
+        public List<string> ClearOrder { get; } = new();
+
+        public List<string> WriteOrder { get; } = new();
+
         public DataTable Rows { get; } = new("DestinationRows");
 
         public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
             ClearCalled = true;
+            ClearOrder.Add(definition.DestinationName);
             Rows.Rows.Clear();
             return Task.CompletedTask;
         }
 
         public Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
         {
+            WriteOrder.Add(definition.DestinationName);
             if (Rows.Columns.Count == 0)
             {
                 foreach (DataColumn column in page.Columns)

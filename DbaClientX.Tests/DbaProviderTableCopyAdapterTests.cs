@@ -151,6 +151,74 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public async Task CopyAsync_ClearsDependentSQLiteTablesInReverseDefinitionOrder()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
+        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                CreateHistoryTables(sqlite, sourcePath);
+                CreateHistoryTables(sqlite, destinationPath);
+                sqlite.ExecuteNonQuery(
+                    destinationPath,
+                    """
+                    CREATE TRIGGER BlockProbeResultDeleteBeforeMetadata
+                    BEFORE DELETE ON ProbeResults
+                    WHEN EXISTS (SELECT 1 FROM ProbeResultMetadata WHERE ResultId = OLD.ResultId)
+                    BEGIN
+                        SELECT RAISE(ABORT, 'metadata exists');
+                    END;
+                    """);
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeResults (ResultId, ProbeName, IsMaintenance) VALUES (1, 'Dns', 1);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeResultMetadata (ResultId, MetaKey, MetaValue) VALUES (1, 'Zone', 'contoso.com');");
+                sqlite.ExecuteNonQuery(destinationPath, "INSERT INTO ProbeResults (ResultId, ProbeName, IsMaintenance) VALUES (99, 'Old', 0);");
+                sqlite.ExecuteNonQuery(destinationPath, "INSERT INTO ProbeResultMetadata (ResultId, MetaKey, MetaValue) VALUES (99, 'OldKey', 'OldValue');");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                new[] { "ResultId" });
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[]
+                {
+                    new DbaTableCopyDefinition("ProbeResults", "ProbeResults", new[] { "ResultId" }),
+                    new DbaTableCopyDefinition("ProbeResultMetadata", "ProbeResultMetadata", new[] { "ResultId", "MetaKey" })
+                },
+                new DbaTableCopyOptions
+                {
+                    ClearDestination = true,
+                    PageSize = 1
+                });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.SourceRows);
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal(2, result.DestinationRows);
+            using (var sqlite = new SQLite { ReturnType = ReturnType.DataTable })
+            {
+                var metadata = Assert.IsType<DataTable>(sqlite.Query(destinationPath, "SELECT ResultId, MetaKey, MetaValue FROM ProbeResultMetadata;"));
+                var row = Assert.Single(metadata.Rows.Cast<DataRow>());
+                Assert.Equal(1L, Convert.ToInt64(row["ResultId"]));
+                Assert.Equal("Zone", row["MetaKey"]);
+            }
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public void BuildPageQuery_OracleFoldsSimpleIdentifiersToUppercase()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -195,6 +263,12 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
 
         return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, null, offset, pageSize })!;
+    }
+
+    private static void CreateHistoryTables(SQLite sqlite, string path)
+    {
+        sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResults (ResultId INTEGER NOT NULL PRIMARY KEY, ProbeName TEXT NOT NULL, IsMaintenance INTEGER NOT NULL);");
+        sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResultMetadata (ResultId INTEGER NOT NULL, MetaKey TEXT NOT NULL, MetaValue TEXT NOT NULL, PRIMARY KEY (ResultId, MetaKey));");
     }
 
     private static void DeleteIfExists(string path)

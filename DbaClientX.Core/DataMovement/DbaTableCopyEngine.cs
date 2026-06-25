@@ -35,12 +35,26 @@ public sealed class DbaTableCopyEngine
         options ??= new DbaTableCopyOptions();
         ValidateOptions(options);
 
+        var copyDefinitions = definitions.ToArray();
+        foreach (var definition in copyDefinitions)
+        {
+            definition.Validate();
+        }
+
         var sw = Stopwatch.StartNew();
+        if (options.ClearDestination)
+        {
+            for (var index = copyDefinitions.Length - 1; index >= 0; index--)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await destination.ClearAsync(copyDefinitions[index], cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         var results = new List<DbaTableCopyTableResult>();
-        foreach (var definition in definitions)
+        foreach (var definition in copyDefinitions)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            definition.Validate();
             results.Add(await CopyTableAsync(source, destination, definition, options, cancellationToken).ConfigureAwait(false));
         }
 
@@ -56,11 +70,6 @@ public sealed class DbaTableCopyEngine
         CancellationToken cancellationToken)
     {
         var sourceRows = await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
-        if (options.ClearDestination)
-        {
-            await destination.ClearAsync(definition, cancellationToken).ConfigureAwait(false);
-        }
-
         if (sourceRows == 0)
         {
             long? emptyDestinationRows = null;
