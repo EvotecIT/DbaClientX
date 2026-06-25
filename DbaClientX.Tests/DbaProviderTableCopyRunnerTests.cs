@@ -386,12 +386,12 @@ public class DbaProviderTableCopyRunnerTests
         var first = new DbaProviderTableCopyAdapterOptions
         {
             Provider = DbaTableCopyProvider.SQLite,
-            ConnectionString = "Data Source=" + Path.Combine(Path.GetTempPath(), "DbaxCaseSensitive.db")
+            ConnectionString = "Data Source=" + Path.Join(Path.GetTempPath(), "DbaxCaseSensitive.db")
         };
         var second = new DbaProviderTableCopyAdapterOptions
         {
             Provider = DbaTableCopyProvider.SQLite,
-            ConnectionString = "Data Source=" + Path.Combine(Path.GetTempPath(), "dbaxcasesensitive.db")
+            ConnectionString = "Data Source=" + Path.Join(Path.GetTempPath(), "dbaxcasesensitive.db")
         };
 
         var firstIdentity = InvokeTryCreateIdentity(first);

@@ -119,21 +119,13 @@ public sealed class DbaTableCopyEngine
     private static void PreflightTransform(DataTable page, DbaTableCopyDefinition definition)
     {
         var transformed = DbaTableCopyPageTransformer.Transform(page, definition);
-        try
+        using var transformedToDispose = ReferenceEquals(transformed, page) ? null : transformed;
+
+        if (transformed.Columns.Count == 0)
         {
-            if (transformed.Columns.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"Table copy definition '{definition.DisplayName}' produced no destination columns during preflight. " +
-                    "At least one destination column is required before clearing destination data.");
-            }
-        }
-        finally
-        {
-            if (!ReferenceEquals(transformed, page))
-            {
-                transformed.Dispose();
-            }
+            throw new InvalidOperationException(
+                $"Table copy definition '{definition.DisplayName}' produced no destination columns during preflight. " +
+                "At least one destination column is required before clearing destination data.");
         }
     }
 
