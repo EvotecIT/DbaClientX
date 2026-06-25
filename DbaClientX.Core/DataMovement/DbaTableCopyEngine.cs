@@ -255,7 +255,8 @@ public sealed class DbaTableCopyEngine
                 }
                 else if (initialDestinationRows.HasValue)
                 {
-                    verified = destinationRows.Value == initialDestinationRows.Value + copied;
+                    verified = copied == sourceRows.Value &&
+                               destinationRows.Value == initialDestinationRows.Value + copied;
                 }
             }
         }

@@ -68,8 +68,8 @@ public class DbaTableCopyPlannerTests
             });
 
         var definition = Assert.Single(plan.Definitions);
-        Assert.Equal("main.ProbeResults", definition.SourceName);
-        Assert.Equal("dbo.ProbeResults", definition.DestinationName);
+        Assert.Equal("main.\"ProbeResults\"", definition.SourceName);
+        Assert.Equal("dbo.\"ProbeResults\"", definition.DestinationName);
         Assert.Equal("ProbeResults", definition.LogicalName);
         Assert.Equal(new[] { "\"ResultId\"" }, definition.OrderByColumns);
         Assert.NotNull(definition.ColumnMappings);
@@ -188,7 +188,7 @@ public class DbaTableCopyPlannerTests
             });
 
         var definition = Assert.Single(plan.Definitions);
-        Assert.Equal("src.Customers", definition.SourceName);
+        Assert.Equal("src.\"Customers\"", definition.SourceName);
         Assert.Equal("warehouse.Clients", definition.DestinationName);
         Assert.Equal(new[] { "CustomerId" }, definition.OrderByColumns);
         Assert.NotNull(definition.ColumnMappings);
@@ -248,7 +248,7 @@ public class DbaTableCopyPlannerTests
 
         Assert.Collection(
             plan.Definitions,
-            first => Assert.Equal("public.ArchiveUsers", first.DestinationName),
+            first => Assert.Equal("public.\"ArchiveUsers\"", first.DestinationName),
             second => Assert.Equal("public.users", second.DestinationName));
     }
 
@@ -272,7 +272,7 @@ public class DbaTableCopyPlannerTests
             options: new DbaTableCopyPlanOptions { SourceSchema = "tenant" });
 
         var definition = Assert.Single(plan.Definitions);
-        Assert.Equal("tenant.Rows", definition.SourceName);
+        Assert.Equal("tenant.\"Rows\"", definition.SourceName);
     }
 
     [Fact]
@@ -492,6 +492,22 @@ public class DbaTableCopyPlannerTests
         var definition = Assert.Single(plan.Definitions);
         Assert.NotNull(definition.ExcludedColumns);
         Assert.Contains("Version", definition.ExcludedColumns);
+    }
+
+    [Fact]
+    public void BuildPlan_PreservesCaseForMetadataTableNames()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "Users", "Id", "int", 1, isIdentity: true)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns);
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("public.\"Users\"", definition.SourceName);
+        Assert.Equal("public.\"Users\"", definition.DestinationName);
     }
 
     private static DbaColumnInfo Column(

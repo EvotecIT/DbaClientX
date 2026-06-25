@@ -293,6 +293,34 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_AppendVerificationRequiresCopiedRowsToMatchKnownSourceRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2))
+        {
+            SourceRowCountOverride = 3
+        };
+        var destination = new MemoryTableCopyDestination();
+        destination.Rows.Columns.Add("Id", typeof(int));
+        destination.Rows.Columns.Add("DisplayName", typeof(string));
+        destination.Rows.Rows.Add(100, "Existing");
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Equal(3, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(3, result.DestinationRows);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
@@ -552,6 +580,8 @@ public class DbaTableCopyEngineTests
 
         public bool ThrowOnRead { get; init; }
 
+        public long? SourceRowCountOverride { get; init; }
+
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
             CountCalls++;
@@ -560,7 +590,7 @@ public class DbaTableCopyEngineTests
                 throw new InvalidOperationException("Count failed.");
             }
 
-            return Task.FromResult<long?>(_rows.Rows.Count);
+            return Task.FromResult<long?>(SourceRowCountOverride ?? _rows.Rows.Count);
         }
 
         public Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)

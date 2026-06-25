@@ -611,6 +611,35 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksClearDestinationPostgreSqlUserSearchPathBeforeFallback()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=app;Password=one;Search Path=$user, public"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two;Search Path=$user, public"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "public.Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("omits Search Path", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSameMySqlTargetWhenDefaultPortIsOmittedBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest

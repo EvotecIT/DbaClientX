@@ -199,6 +199,52 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public async Task CopyAsync_PreservesSyntheticRankNamedSourceColumnWithoutDeduplication()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE ProbeIndex (Id INTEGER NOT NULL, __DbaXCRank_62D977CD TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE ProbeIndex (Id INTEGER NOT NULL, __DbaXCRank_62D977CD TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeIndex (Id, __DbaXCRank_62D977CD) VALUES (1, 'real-rank');");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                new[] { "Id" });
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[]
+                {
+                    new DbaTableCopyDefinition("ProbeIndex", "ProbeIndex", new[] { "Id" })
+                },
+                new DbaTableCopyOptions { PageSize = 1 });
+
+            Assert.True(result.Verified);
+            using (var sqlite = new SQLite { ReturnType = ReturnType.DataTable })
+            {
+                var rows = Assert.IsType<DataTable>(sqlite.Query(destinationPath, "SELECT Id, __DbaXCRank_62D977CD FROM ProbeIndex ORDER BY Id;"));
+                Assert.Equal(1, rows.Rows.Count);
+                Assert.Equal("real-rank", rows.Rows[0]["__DbaXCRank_62D977CD"]);
+            }
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public async Task CopyAsync_TreatsMissingSQLiteSourceTableAsEmptyWhenConfigured()
     {
         var sourcePath = CreateTempDatabasePath();

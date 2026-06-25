@@ -90,7 +90,8 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             table = new DataTable(request.Definition.DestinationName);
         }
 
-        if (table.Columns.Contains(DeduplicationRankColumn))
+        if (request.Definition.SourceOptions?.HasDeduplication == true &&
+            table.Columns.Contains(DeduplicationRankColumn))
         {
             table.Columns.Remove(DeduplicationRankColumn);
         }

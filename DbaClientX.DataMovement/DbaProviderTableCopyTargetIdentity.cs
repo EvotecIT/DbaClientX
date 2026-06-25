@@ -212,7 +212,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             var searchPath =
                 ReadRawConnectionStringValue(options.ConnectionString, "Search Path", "SearchPath", "Current Schema") ??
                 ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
-            return string.IsNullOrWhiteSpace(searchPath);
+            return string.IsNullOrWhiteSpace(searchPath) || HasAmbiguousPostgreSqlSearchPath(searchPath!);
         }
         catch (ArgumentException)
         {
@@ -599,6 +599,23 @@ internal static class DbaProviderTableCopyTargetIdentity
         }
 
         yield return NormalizeSearchPathSegment(searchPath.Substring(start));
+    }
+
+    private static bool HasAmbiguousPostgreSqlSearchPath(string searchPath)
+    {
+        var segments = SplitPostgreSqlSearchPath(searchPath)
+            .Where(static segment => segment.Length > 0)
+            .ToArray();
+        for (var index = 0; index < segments.Length; index++)
+        {
+            if (string.Equals(segments[index], "$user", StringComparison.OrdinalIgnoreCase) &&
+                segments.Skip(index + 1).Any(static segment => segment.Length > 0))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? ReadRawConnectionStringValue(string connectionString, params string[] keys)

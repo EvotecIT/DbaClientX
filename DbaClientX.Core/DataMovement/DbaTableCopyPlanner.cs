@@ -330,6 +330,14 @@ public static class DbaTableCopyPlanner
             return true;
         }
 
+        var legacyQualifiedTableName = DbaIdentifierPath.NormalizeForDuplicateCheck(qualifiedTableName);
+        if (!string.Equals(legacyQualifiedTableName, qualifiedTableName, StringComparison.Ordinal) &&
+            values.TryGetValue(legacyQualifiedTableName, out var legacyQualified))
+        {
+            value = legacyQualified;
+            return true;
+        }
+
         if (values.TryGetValue(unqualifiedTableName, out var unqualified))
         {
             value = unqualified;
@@ -353,8 +361,8 @@ public static class DbaTableCopyPlanner
 
     private static string QualifyName(string? schema, string name)
         => string.IsNullOrWhiteSpace(schema)
-            ? DbaIdentifierPath.QuotePlanSegment(name)
-            : DbaIdentifierPath.QuotePlanSegment(schema!) + "." + DbaIdentifierPath.QuotePlanSegment(name);
+            ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(name)
+            : DbaIdentifierPath.QuotePlanSegmentPreservingCase(schema!) + "." + DbaIdentifierPath.QuotePlanSegmentPreservingCase(name);
 
     private static string TableKey(string? schema, string name)
         => QualifyName(schema, name);
