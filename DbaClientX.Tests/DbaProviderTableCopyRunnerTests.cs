@@ -226,7 +226,32 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
-        Assert.Contains("also used as a source table", exception.Message);
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksExplicitSqlServerCrossDatabaseSameTableCopyBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=Other;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Shared.dbo.Rows", "Shared.dbo.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
     [Fact]
@@ -255,7 +280,32 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
-        Assert.Contains("also used as a source table", exception.Message);
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksExplicitMySqlCrossDatabaseSameTableCopyBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=App;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=Other;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Shared.Rows", "Shared.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
     [Fact]
@@ -528,7 +578,36 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
-        Assert.Contains("Refusing to clear destination table", exception.Message);
+        Assert.Contains("omits Search Path", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksClearDestinationPostgreSqlPublicFallbackWhenSearchPathOmitted()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=app;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "public.Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("omits Search Path", exception.Message);
     }
 
     [Fact]
@@ -930,12 +1009,12 @@ public class DbaProviderTableCopyRunnerTests
             Source = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.PostgreSql,
-                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one"
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one;Search Path=public"
             },
             Destination = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.PostgreSql,
-                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two"
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=writer;Password=two;Search Path=public"
             },
             Definitions = new[]
             {
@@ -951,6 +1030,37 @@ public class DbaProviderTableCopyRunnerTests
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
         Assert.Contains("multiple definitions targeting destination", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_RejectsUnqualifiedSqlServerDestinationClearWhenDefaultSchemaIsUnknown()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("SourceRows", "Rows", new[] { "Id" }),
+                new DbaTableCopyDefinition("OtherRows", "app.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("unqualified", exception.Message);
+        Assert.Contains("default schema is unknown", exception.Message);
     }
 
     private static void DeleteIfExists(string path)

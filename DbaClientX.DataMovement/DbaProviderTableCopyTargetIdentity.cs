@@ -193,6 +193,33 @@ internal static class DbaProviderTableCopyTargetIdentity
         }
     }
 
+    internal static bool HasAmbiguousPostgreSqlDefaultSchema(DbaProviderTableCopyAdapterOptions options)
+    {
+        if (options == null ||
+            options.Provider != DbaTableCopyProvider.PostgreSql ||
+            string.IsNullOrWhiteSpace(options.ConnectionString))
+        {
+            return false;
+        }
+
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = options.ConnectionString.Trim()
+            };
+
+            var searchPath =
+                ReadRawConnectionStringValue(options.ConnectionString, "Search Path", "SearchPath", "Current Schema") ??
+                ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
+            return string.IsNullOrWhiteSpace(searchPath);
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
+
     private static IdentifierSegment[] SplitTableName(string tableName)
     {
         var parts = new List<IdentifierSegment>();

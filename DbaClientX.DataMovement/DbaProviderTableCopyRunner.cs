@@ -54,6 +54,8 @@ public sealed class DbaProviderTableCopyRunner
 
         if (!string.Equals(sourceIdentity, destinationIdentity, StringComparison.Ordinal))
         {
+            ValidateExplicitCrossDatabaseSelfCopies(request);
+
             if (request.Options?.ClearDestination == true)
             {
                 ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(request);
@@ -78,6 +80,9 @@ public sealed class DbaProviderTableCopyRunner
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
+            ValidatePostgreSqlTableNameIsUnambiguous(request.Source, definition.SourceName);
+            ValidatePostgreSqlTableNameIsUnambiguous(request.Destination, definition.DestinationName);
+
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
@@ -142,26 +147,12 @@ public sealed class DbaProviderTableCopyRunner
 
     private static void ValidateClearDestinationTableNamesAreUnambiguous(DbaProviderTableCopyRequest request)
     {
-        if (request.Source.Provider != DbaTableCopyProvider.SqlServer)
-        {
-            return;
-        }
-
         var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
-            if (string.IsNullOrWhiteSpace(sourceDefaultSchema) &&
-                DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(definition.SourceName))
-            {
-                throw CreateAmbiguousSqlServerTableException(definition.SourceName);
-            }
-
-            if (string.IsNullOrWhiteSpace(destinationDefaultSchema) &&
-                DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(definition.DestinationName))
-            {
-                throw CreateAmbiguousSqlServerTableException(definition.DestinationName);
-            }
+            ValidateClearDestinationTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
+            ValidateClearDestinationTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
         }
     }
 
@@ -169,6 +160,61 @@ public sealed class DbaProviderTableCopyRunner
         => new(
             $"Refusing to clear destination while SQL Server table '{tableName}' is unqualified and the connection default schema is unknown. " +
             "Schema-qualify SQL Server source and destination tables, provide a Current Schema connection option, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+
+    private static InvalidOperationException CreateAmbiguousPostgreSqlTableException(string tableName)
+        => new(
+            $"Refusing to guard PostgreSQL table '{tableName}' because the connection omits Search Path and the table name is unqualified. " +
+            "Schema-qualify PostgreSQL source and destination tables or provide an explicit Search Path.");
+
+    private static void ValidateClearDestinationTableNameIsUnambiguous(DbaProviderTableCopyAdapterOptions options, string tableName, string? defaultSchema)
+    {
+        if (!DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(tableName))
+        {
+            return;
+        }
+
+        if (options.Provider == DbaTableCopyProvider.SqlServer && string.IsNullOrWhiteSpace(defaultSchema))
+        {
+            throw CreateAmbiguousSqlServerTableException(tableName);
+        }
+
+        ValidatePostgreSqlTableNameIsUnambiguous(options, tableName);
+    }
+
+    private static void ValidatePostgreSqlTableNameIsUnambiguous(DbaProviderTableCopyAdapterOptions options, string tableName)
+    {
+        if (options.Provider == DbaTableCopyProvider.PostgreSql &&
+            DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(tableName) &&
+            DbaProviderTableCopyTargetIdentity.HasAmbiguousPostgreSqlDefaultSchema(options))
+        {
+            throw CreateAmbiguousPostgreSqlTableException(tableName);
+        }
+    }
+
+    private static void ValidateExplicitCrossDatabaseSelfCopies(DbaProviderTableCopyRequest request)
+    {
+        if (request.AllowSameProviderTableCopy ||
+            request.Source.Provider is not (DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql))
+        {
+            return;
+        }
+
+        var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
+        var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
+        var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        foreach (var definition in request.Definitions)
+        {
+            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
+            if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to copy provider table '{definition.SourceName}' to itself. " +
+                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+            }
+        }
+    }
 
     private static void ValidateClearDestinationDefinitionsAreUnique(DbaProviderTableCopyRequest request)
     {
@@ -179,6 +225,11 @@ public sealed class DbaProviderTableCopyRunner
 
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        foreach (var definition in request.Definitions)
+        {
+            ValidateClearDestinationTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
+        }
+
         var duplicate = request.Definitions
             .GroupBy(
                 definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(
