@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,12 +22,13 @@ public partial class SqlServer
         int? batchSize = null,
         int? bulkCopyTimeout = null,
         string? username = null,
-        string? password = null)
+        string? password = null,
+        SqlServerBulkInsertOptions? options = null)
     {
-        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
-        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
+        BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, options);
     }
 
     /// <summary>
@@ -38,10 +40,11 @@ public partial class SqlServer
         string destinationTable,
         bool useTransaction = false,
         int? batchSize = null,
-        int? bulkCopyTimeout = null)
+        int? bulkCopyTimeout = null,
+        SqlServerBulkInsertOptions? options = null)
     {
         ValidateConnectionString(connectionString);
-        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -50,8 +53,8 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
-            using var bulkCopy = CreateBulkCopy(connection!, transaction);
-            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout);
+            using var bulkCopy = CreateBulkCopy(connection!, transaction, options?.BulkCopyOptions ?? SqlBulkCopyOptions.Default);
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
             WriteToServer(bulkCopy, table);
         }
         catch (DbaTransactionException)
@@ -85,12 +88,13 @@ public partial class SqlServer
         int? bulkCopyTimeout = null,
         CancellationToken cancellationToken = default,
         string? username = null,
-        string? password = null)
+        string? password = null,
+        SqlServerBulkInsertOptions? options = null)
     {
-        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
 
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
-        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
+        await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken, options).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -103,10 +107,11 @@ public partial class SqlServer
         bool useTransaction = false,
         int? batchSize = null,
         int? bulkCopyTimeout = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SqlServerBulkInsertOptions? options = null)
     {
         ValidateConnectionString(connectionString);
-        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
+        ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -115,8 +120,8 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            using var bulkCopy = CreateBulkCopy(connection!, transaction);
-            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout);
+            using var bulkCopy = CreateBulkCopy(connection!, transaction, options?.BulkCopyOptions ?? SqlBulkCopyOptions.Default);
+            ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
             await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
@@ -142,6 +147,15 @@ public partial class SqlServer
     protected virtual SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction) => new(connection, SqlBulkCopyOptions.Default, transaction);
 
     /// <summary>
+    /// Creates a configured <see cref="SqlBulkCopy"/> instance for the supplied connection, transaction, and options.
+    /// </summary>
+    /// <param name="connection">An open SQL Server connection.</param>
+    /// <param name="transaction">Optional transaction to enlist the bulk copy operation in.</param>
+    /// <param name="options">SQL Server bulk-copy options.</param>
+    /// <returns>A configured <see cref="SqlBulkCopy"/> instance.</returns>
+    protected virtual SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction, SqlBulkCopyOptions options) => new(connection, options, transaction);
+
+    /// <summary>
     /// Writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
     /// <param name="bulkCopy">The configured bulk copy instance.</param>
@@ -157,7 +171,7 @@ public partial class SqlServer
     /// <returns>A task that completes when the transfer finishes.</returns>
     protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken);
 
-    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
+    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
         bulkCopy.DestinationTableName = destinationTable;
         if (batchSize.HasValue)
@@ -167,6 +181,30 @@ public partial class SqlServer
         if (bulkCopyTimeout.HasValue)
         {
             bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
+        }
+
+        if (options?.NotifyAfter.HasValue == true)
+        {
+            bulkCopy.NotifyAfter = options.NotifyAfter.Value;
+        }
+        else if (options?.RowsCopied != null)
+        {
+            bulkCopy.NotifyAfter = batchSize.GetValueOrDefault(5000);
+        }
+
+        if (options?.RowsCopied != null)
+        {
+            bulkCopy.SqlRowsCopied += (_, args) => options.RowsCopied(args.RowsCopied);
+        }
+
+        if (options?.ColumnMappings?.Count > 0)
+        {
+            foreach (var mapping in options.ColumnMappings)
+            {
+                bulkCopy.ColumnMappings.Add(mapping.Key, mapping.Value);
+            }
+
+            return;
         }
 
         foreach (DataColumn column in table.Columns)
@@ -214,7 +252,7 @@ public partial class SqlServer
 #endif
     }
 
-    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
+    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options = null)
     {
         if (table == null)
         {
@@ -239,6 +277,39 @@ public partial class SqlServer
         if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
+        }
+
+        if (options?.NotifyAfter.HasValue == true && options.NotifyAfter.Value <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.NotifyAfter), "NotifyAfter must be greater than zero.");
+        }
+
+        ValidateColumnMappings(table, options?.ColumnMappings);
+    }
+
+    private static void ValidateColumnMappings(DataTable table, IDictionary<string, string>? columnMappings)
+    {
+        if (columnMappings == null || columnMappings.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var mapping in columnMappings)
+        {
+            if (string.IsNullOrWhiteSpace(mapping.Key))
+            {
+                throw new ArgumentException("Column mapping source cannot be null or whitespace.", nameof(columnMappings));
+            }
+
+            if (string.IsNullOrWhiteSpace(mapping.Value))
+            {
+                throw new ArgumentException("Column mapping destination cannot be null or whitespace.", nameof(columnMappings));
+            }
+
+            if (!table.Columns.Contains(mapping.Key))
+            {
+                throw new ArgumentException($"Column mapping source '{mapping.Key}' does not exist in the source table.", nameof(columnMappings));
+            }
         }
     }
 }

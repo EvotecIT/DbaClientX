@@ -109,6 +109,13 @@ describe 'Write-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DestinationTable'
         $parameters | Should -Contain 'BatchSize'
         $parameters | Should -Contain 'BulkCopyTimeout'
+        $parameters | Should -Contain 'ColumnMap'
+        $parameters | Should -Contain 'TableLock'
+        $parameters | Should -Contain 'CheckConstraints'
+        $parameters | Should -Contain 'FireTriggers'
+        $parameters | Should -Contain 'KeepIdentity'
+        $parameters | Should -Contain 'KeepNulls'
+        $parameters | Should -Contain 'NotifyAfter'
         $parameters | Should -Contain 'PassThru'
     }
 
@@ -176,6 +183,45 @@ describe 'Write-DbaXTableData cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastBulkTable = $null
+        }
+    }
+
+    it 'passes SQL Server bulk options to the provider bulk layer' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkOptions = $options
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            $table | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -ColumnMap @{ Name = 'DisplayName' } `
+                -TableLock `
+                -KeepIdentity `
+                -KeepNulls `
+                -NotifyAfter 10 | Out-Null
+
+            $script:lastBulkOptions | Should -Not -BeNullOrEmpty
+            $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
+            $script:lastBulkOptions.NotifyAfter | Should -Be 10
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::TableLock) | Should -Not -Be 0
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepIdentity) | Should -Not -Be 0
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepNulls) | Should -Not -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkOptions = $null
         }
     }
 
@@ -432,6 +478,13 @@ describe 'Write-DbaXTableData cmdlet' {
         {
             [pscustomobject]@{ Id = 1 } |
                 Write-DbaXTableData -Provider SQLite -ConnectionString 'Data Source=C:\Temp\bulk-test.db' -DestinationTable Import -BulkCopyTimeout 30 -ErrorAction Stop
+        } | Should -Throw
+    }
+
+    it 'rejects SQL Server bulk options for other providers' {
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app' -DestinationTable Import -TableLock -ErrorAction Stop
         } | Should -Throw
     }
 }

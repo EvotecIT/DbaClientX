@@ -82,6 +82,26 @@ Import-OfficeExcel .\Customers.xlsx -AsDataTable |
 
 If the upstream library is OfficeIMO or another .NET component, keep the reusable document/file-format work there, return `DataTable` or `IDataReader`, and let DbaClientX own the database write.
 
+## SQL Server bulk options
+
+SQL Server bulk loads can use the same thin DbaClientX path while opting into provider-specific behavior when the destination requires it:
+
+```powershell
+Write-DbaXTableData `
+    -Provider SqlServer `
+    -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'staging.Customers' `
+    -InputObject $customerTable `
+    -ColumnMap @{ CustomerName = 'DisplayName'; CustomerId = 'Id' } `
+    -TableLock `
+    -KeepIdentity `
+    -KeepNulls `
+    -NotifyAfter 5000 `
+    -PassThru
+```
+
+`-ColumnMap`, `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, `-KeepNulls`, and `-NotifyAfter` are SQL Server-specific. Other providers reject those switches instead of silently ignoring them.
+
 ## Other providers
 
 The cmdlet stays the same; change the provider and connection string.

@@ -15,6 +15,8 @@ public class SqlServerBulkInsertTests
         public int? Timeout { get; private set; }
         public string? Destination { get; private set; }
         public string? ConnectionString { get; private set; }
+        public SqlBulkCopyOptions Options { get; private set; }
+        public int NotifyAfter { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
@@ -32,11 +34,18 @@ public class SqlServerBulkInsertTests
 
         protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        protected override SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction, SqlBulkCopyOptions options)
+        {
+            Options = options;
+            return base.CreateBulkCopy(connection, transaction, options);
+        }
+
         protected override void WriteToServer(SqlBulkCopy bulkCopy, DataTable table)
         {
             BatchSize = bulkCopy.BatchSize;
             Timeout = bulkCopy.BulkCopyTimeout;
             Destination = bulkCopy.DestinationTableName;
+            NotifyAfter = bulkCopy.NotifyAfter;
             foreach (SqlBulkCopyColumnMapping mapping in bulkCopy.ColumnMappings)
             {
                 Mappings.Add((mapping.SourceColumn, mapping.DestinationColumn));
@@ -135,6 +144,75 @@ public class SqlServerBulkInsertTests
         Assert.Equal(30, sqlServer.Timeout);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
         Assert.Equal(table.Columns.Count, sqlServer.Mappings.Count);
+    }
+
+    [Fact]
+    public void BulkInsert_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("DisplayName", typeof(string));
+        table.Rows.Add(1, "test");
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            BulkCopyOptions = SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity,
+            NotifyAfter = 25,
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["DisplayName"] = "Name"
+            }
+        };
+
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options: options);
+
+        Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity, sqlServer.Options);
+        Assert.Equal(25, sqlServer.NotifyAfter);
+        Assert.Single(sqlServer.Mappings);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("DisplayName", typeof(string));
+        table.Rows.Add(1, "test");
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            BulkCopyOptions = SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers,
+            NotifyAfter = 10,
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["DisplayName"] = "Name"
+            }
+        };
+
+        await sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest", options: options);
+
+        Assert.Equal(SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers, sqlServer.Options);
+        Assert.Equal(10, sqlServer.NotifyAfter);
+        Assert.Single(sqlServer.Mappings);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
+    }
+
+    [Fact]
+    public void BulkInsert_WithInvalidColumnMappingSource_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["Missing"] = "Id"
+            }
+        };
+
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options: options));
     }
 
     [Fact]

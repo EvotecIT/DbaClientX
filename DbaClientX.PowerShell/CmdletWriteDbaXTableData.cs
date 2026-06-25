@@ -1,5 +1,6 @@
 using System.Data;
 using System.Management.Automation;
+using Microsoft.Data.SqlClient;
 
 namespace DBAClientX.PowerShell;
 
@@ -53,6 +54,34 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     [Parameter]
     public int? BulkCopyTimeout { get; set; }
 
+    /// <summary>SQL Server-only mapping from source column names to destination column names.</summary>
+    [Parameter]
+    public Hashtable? ColumnMap { get; set; }
+
+    /// <summary>SQL Server-only option to acquire a bulk update lock for the duration of the copy.</summary>
+    [Parameter]
+    public SwitchParameter TableLock { get; set; }
+
+    /// <summary>SQL Server-only option to check destination constraints during the copy.</summary>
+    [Parameter]
+    public SwitchParameter CheckConstraints { get; set; }
+
+    /// <summary>SQL Server-only option to fire insert triggers during the copy.</summary>
+    [Parameter]
+    public SwitchParameter FireTriggers { get; set; }
+
+    /// <summary>SQL Server-only option to preserve identity values from the source data.</summary>
+    [Parameter]
+    public SwitchParameter KeepIdentity { get; set; }
+
+    /// <summary>SQL Server-only option to preserve null values from the source data.</summary>
+    [Parameter]
+    public SwitchParameter KeepNulls { get; set; }
+
+    /// <summary>SQL Server-only number of rows copied between progress updates.</summary>
+    [Parameter]
+    public int? NotifyAfter { get; set; }
+
     /// <summary>Writes a small result object with provider, destination table, and row count.</summary>
     [Parameter]
     public SwitchParameter PassThru { get; set; }
@@ -103,17 +132,22 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 return;
             }
 
+            var startedAt = DateTimeOffset.UtcNow;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             if (BulkInsertOverride != null)
             {
                 BulkInsertOverride.InvokeWithContext(
                     functionsToDefine: null,
                     variablesToDefine: null,
-                    args: new object?[] { this, table });
+                    args: new object?[] { this, table, BuildSqlServerOptions(table) });
             }
             else
             {
                 InvokeProviderBulkInsert(table);
             }
+            timer.Stop();
+
+            CompleteProgressIfNeeded();
 
             if (PassThru.IsPresent)
             {
@@ -121,7 +155,10 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 {
                     Provider,
                     DestinationTable,
-                    Rows = table.Rows.Count
+                    Rows = table.Rows.Count,
+                    StartedAt = startedAt,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    ElapsedMilliseconds = Math.Round(timer.Elapsed.TotalMilliseconds, 2)
                 }));
             }
         }
@@ -151,6 +188,16 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         {
             throw new PSArgumentException("SQLite bulk inserts do not support BulkCopyTimeout.", nameof(BulkCopyTimeout));
         }
+
+        if (NotifyAfter.HasValue && NotifyAfter.Value <= 0)
+        {
+            throw new PSArgumentException("NotifyAfter must be greater than zero.", nameof(NotifyAfter));
+        }
+
+        if (Provider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
+        {
+            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, and NotifyAfter are only supported for the SqlServer provider.");
+        }
     }
 
     private void InvokeProviderBulkInsert(DataTable table)
@@ -160,7 +207,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             case DbaXBulkProvider.SqlServer:
                 using (var sqlServer = new DBAClientX.SqlServer())
                 {
-                    sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout, options: BuildSqlServerOptions(table));
                 }
                 break;
             case DbaXBulkProvider.PostgreSql:
@@ -202,4 +249,119 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             DbaXBulkProvider.SQLite => "sqlite",
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
+
+    private SqlServerBulkInsertOptions? BuildSqlServerOptions(DataTable table)
+    {
+        if (Provider != DbaXBulkProvider.SqlServer || !HasSqlServerOnlyOptions())
+        {
+            return null;
+        }
+
+        var options = new SqlServerBulkInsertOptions
+        {
+            BulkCopyOptions = GetSqlBulkCopyOptions(),
+            ColumnMappings = ConvertColumnMap(),
+            NotifyAfter = NotifyAfter
+        };
+
+        if (NotifyAfter.HasValue)
+        {
+            options.RowsCopied = rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied);
+        }
+
+        return options;
+    }
+
+    private bool HasSqlServerOnlyOptions()
+        => ColumnMap is { Count: > 0 } ||
+           TableLock.IsPresent ||
+           CheckConstraints.IsPresent ||
+           FireTriggers.IsPresent ||
+           KeepIdentity.IsPresent ||
+           KeepNulls.IsPresent ||
+           NotifyAfter.HasValue;
+
+    private SqlBulkCopyOptions GetSqlBulkCopyOptions()
+    {
+        var options = SqlBulkCopyOptions.Default;
+        if (TableLock.IsPresent)
+        {
+            options |= SqlBulkCopyOptions.TableLock;
+        }
+
+        if (CheckConstraints.IsPresent)
+        {
+            options |= SqlBulkCopyOptions.CheckConstraints;
+        }
+
+        if (FireTriggers.IsPresent)
+        {
+            options |= SqlBulkCopyOptions.FireTriggers;
+        }
+
+        if (KeepIdentity.IsPresent)
+        {
+            options |= SqlBulkCopyOptions.KeepIdentity;
+        }
+
+        if (KeepNulls.IsPresent)
+        {
+            options |= SqlBulkCopyOptions.KeepNulls;
+        }
+
+        return options;
+    }
+
+    private Dictionary<string, string>? ConvertColumnMap()
+    {
+        if (ColumnMap is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (DictionaryEntry entry in ColumnMap)
+        {
+            var source = entry.Key?.ToString();
+            var destination = entry.Value?.ToString();
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                throw new PSArgumentException("ColumnMap source column names cannot be null or whitespace.", nameof(ColumnMap));
+            }
+
+            if (string.IsNullOrWhiteSpace(destination))
+            {
+                throw new PSArgumentException("ColumnMap destination column names cannot be null or whitespace.", nameof(ColumnMap));
+            }
+
+            mappings[source!] = destination!;
+        }
+
+        return mappings;
+    }
+
+    private void WriteRowsCopiedProgress(int totalRows, long rowsCopied)
+    {
+        var progress = new ProgressRecord(1, $"Writing {DestinationTable}", $"{rowsCopied} row(s) copied")
+        {
+            PercentComplete = totalRows > 0
+                ? Math.Min(100, (int)Math.Round(rowsCopied * 100d / totalRows))
+                : 100
+        };
+
+        WriteProgress(progress);
+    }
+
+    private void CompleteProgressIfNeeded()
+    {
+        if (!NotifyAfter.HasValue)
+        {
+            return;
+        }
+
+        WriteProgress(new ProgressRecord(1, $"Writing {DestinationTable}", "Complete")
+        {
+            RecordType = ProgressRecordType.Completed
+        });
+    }
 }

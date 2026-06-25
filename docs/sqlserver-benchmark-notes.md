@@ -32,15 +32,17 @@ These are workstation-local measurements, not universal rankings. They include e
 
 Treat the comparison as "thin DbaClientX bulk-copy surface versus dbatools administrative import surface", not as a claim that every DbaClientX scenario is universally faster than every dbatools scenario. For deeper performance work, run each tool in separate PowerShell processes and include a raw `SqlBulkCopy` baseline.
 
-## dbatools behaviors worth learning from
+## dbatools behaviors reviewed
 
-The installed dbatools 2.8.2 implementation shows several useful scenarios DbaClientX can consider over time:
+The installed dbatools 2.8.2 implementation shows several useful scenarios for operator-friendly SQL Server imports. This branch brings the highest-value bulk-copy controls into DbaClientX's SQL Server provider while keeping the default path small:
 
-- `ColumnMap` lets callers map source column names to different destination column names.
+- `ColumnMap` lets callers map source column names to different destination column names. DbaClientX exposes this as `Write-DbaXTableData -ColumnMap` and provider-level `SqlServerBulkInsertOptions.ColumnMappings`.
+- SQL Server bulk-copy options are exposed for `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, and `KeepNulls`.
+- `NotifyAfter` and progress reporting are available for long-running SQL Server imports.
+
+These dbatools behaviors remain good future candidates:
+
 - `AutoCreateTable` can create missing schemas and destination tables.
-- `TableLock` is enabled by default unless `-NoTableLock` is used.
-- Bulk-copy options are exposed for `CheckConstraints`, `FireTriggers`, `KeepIdentity`, and `KeepNulls`.
-- `NotifyAfter` and progress reporting are available for long-running imports.
 - `ConvertTo-DbaDataTable` has configurable conversion for `TimeSpan`, dbatools size types, arrays, and raw string fallback.
 
-DbaClientX should keep the common fast path small, but these are good candidates for provider-owned features instead of consumer-side workarounds when real callers need them.
+DbaClientX should keep the common fast path small, but reusable provider-owned features are preferable to consumer-side workarounds when real callers need them.
