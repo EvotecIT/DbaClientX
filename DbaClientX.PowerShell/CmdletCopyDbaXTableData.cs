@@ -181,6 +181,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             }
 
             CompleteProgress();
+            if (!result.Verified)
+            {
+                var message = $"Copy-DbaXTableData verification failed for {DestinationTable}: source rows={result.SourceRows?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"}, destination rows={result.DestinationRows?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"}.";
+                if (_errorAction == ActionPreference.Stop)
+                {
+                    throw new PSInvalidOperationException(message);
+                }
+
+                WriteWarning(message);
+            }
+
             if (PassThru.IsPresent)
             {
                 WriteObject(new PSObject(new

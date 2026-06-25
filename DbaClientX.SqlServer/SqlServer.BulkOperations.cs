@@ -250,26 +250,24 @@ public partial class SqlServer
         }
 
         var notifyAfter = options?.NotifyAfter;
-        if (notifyAfter.HasValue)
+        if (options?.RowsCopied is Action<long> rowsCopiedCallback)
+        {
+            bulkCopy.NotifyAfter = notifyAfter ?? batchSize.GetValueOrDefault(5000);
+            bulkCopy.SqlRowsCopied += (_, args) => rowsCopiedCallback(args.RowsCopied);
+        }
+        else if (notifyAfter.HasValue)
         {
             bulkCopy.NotifyAfter = notifyAfter.Value;
         }
 
-        if (options?.RowsCopied is Action<long> rowsCopiedCallback)
-        {
-            if (!notifyAfter.HasValue)
-            {
-                bulkCopy.NotifyAfter = batchSize.GetValueOrDefault(5000);
-            }
-
-            bulkCopy.SqlRowsCopied += (_, args) => rowsCopiedCallback(args.RowsCopied);
-        }
-
         if (options?.ColumnMappings?.Count > 0)
         {
-            foreach (var mapping in options.ColumnMappings)
+            foreach (DataColumn column in table.Columns)
             {
-                bulkCopy.ColumnMappings.Add(mapping.Key, mapping.Value);
+                var destinationColumn = options.ColumnMappings.TryGetValue(column.ColumnName, out var mappedColumn)
+                    ? mappedColumn
+                    : column.ColumnName;
+                bulkCopy.ColumnMappings.Add(column.ColumnName, destinationColumn);
             }
 
             return;

@@ -107,4 +107,77 @@ describe 'Copy-DbaXTableData cmdlet' {
         [int] $second.IsEnabled | Should -Be 0
         [int] $second.ScoreText | Should -Be 55
     }
+
+    it 'preserves SQLite destination connection string options for clear operations' {
+        $source = Join-Path $TestDrive 'source-readonly.db'
+        $destination = Join-Path $TestDrive 'destination-readonly.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'Source');" | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+
+        {
+            Copy-DbaXTableData `
+                -SourceProvider SQLite `
+                -SourceConnectionString "Data Source=$source" `
+                -SourceTable SourceRows `
+                -DestinationProvider SQLite `
+                -DestinationConnectionString "Data Source=$destination;Mode=ReadOnly" `
+                -DestinationTable DestinationRows `
+                -OrderBy Id `
+                -ClearDestination `
+                -ErrorAction Stop
+        } | Should -Throw
+
+        $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
+        [int] $count.RowsLoaded | Should -Be 1
+    }
+
+    it 'warns when row-count verification fails without PassThru' {
+        $source = Join-Path $TestDrive 'source-mismatch.db'
+        $destination = Join-Path $TestDrive 'destination-mismatch.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One');" | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (2, 'Two');" | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+
+        $warningMessages = @()
+        Copy-DbaXTableData `
+            -SourceProvider SQLite `
+            -SourceConnectionString "Data Source=$source" `
+            -SourceTable SourceRows `
+            -DestinationProvider SQLite `
+            -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable DestinationRows `
+            -OrderBy Id `
+            -WarningVariable warningMessages
+
+        $warningMessages | Should -Not -BeNullOrEmpty
+        ($warningMessages -join "`n") | Should -Match 'verification failed'
+    }
+
+    it 'honors ErrorAction Stop when row-count verification fails' {
+        $source = Join-Path $TestDrive 'source-mismatch-stop.db'
+        $destination = Join-Path $TestDrive 'destination-mismatch-stop.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One');" | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+
+        {
+            Copy-DbaXTableData `
+                -SourceProvider SQLite `
+                -SourceConnectionString "Data Source=$source" `
+                -SourceTable SourceRows `
+                -DestinationProvider SQLite `
+                -DestinationConnectionString "Data Source=$destination" `
+                -DestinationTable DestinationRows `
+                -OrderBy Id `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*verification failed*'
+    }
 }

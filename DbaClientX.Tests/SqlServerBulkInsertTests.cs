@@ -230,7 +230,8 @@ public class SqlServerBulkInsertTests
 
         Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity, sqlServer.Options);
         Assert.Equal(25, sqlServer.NotifyAfter);
-        Assert.Single(sqlServer.Mappings);
+        Assert.Equal(2, sqlServer.Mappings.Count);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
     }
 
@@ -256,7 +257,8 @@ public class SqlServerBulkInsertTests
 
         Assert.Equal(SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers, sqlServer.Options);
         Assert.Equal(10, sqlServer.NotifyAfter);
-        Assert.Single(sqlServer.Mappings);
+        Assert.Equal(2, sqlServer.Mappings.Count);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
     }
 

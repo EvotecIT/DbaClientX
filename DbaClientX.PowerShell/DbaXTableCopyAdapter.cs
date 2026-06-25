@@ -124,6 +124,11 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                     return await oracle.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
             case DbaXBulkProvider.SQLite:
+                if (HasSQLiteConnectionString())
+                {
+                    return await ExecuteSQLiteScalarWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
+                }
+
                 using (var sqlite = new DBAClientX.SQLite())
                 {
                     return await sqlite.ExecuteScalarAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -163,6 +168,11 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                 }
                 break;
             case DbaXBulkProvider.SQLite:
+                if (HasSQLiteConnectionString())
+                {
+                    return await ExecuteSQLiteTableWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
+                }
+
                 using (var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable })
                 {
                     result = await sqlite.QueryAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -205,6 +215,12 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                 }
                 break;
             case DbaXBulkProvider.SQLite:
+                if (HasSQLiteConnectionString())
+                {
+                    await ExecuteSQLiteNonQueryWithConnectionStringAsync(query, cancellationToken).ConfigureAwait(false);
+                    break;
+                }
+
                 using (var sqlite = new DBAClientX.SQLite())
                 {
                     await sqlite.ExecuteNonQueryAsync(ResolveSQLiteDatabase(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -283,7 +299,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
 
     private string ResolveSQLiteDatabase()
     {
-        if (!_connectionString.Contains("=", StringComparison.Ordinal))
+        if (!HasSQLiteConnectionString())
         {
             return _connectionString;
         }
@@ -294,7 +310,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
 
     private string ResolveSQLiteConnectionString()
     {
-        if (!_connectionString.Contains("=", StringComparison.Ordinal))
+        if (!HasSQLiteConnectionString())
         {
             return SQLite.BuildConnectionString(_connectionString);
         }
@@ -305,6 +321,62 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         };
 
         return builder.ConnectionString;
+    }
+
+    private bool HasSQLiteConnectionString()
+        => _connectionString.Contains("=", StringComparison.Ordinal);
+
+    private string ResolveSQLiteCommandConnectionString()
+    {
+        var builder = new SqliteConnectionStringBuilder(_connectionString)
+        {
+            Pooling = false
+        };
+        return builder.ConnectionString;
+    }
+
+    private async Task<object?> ExecuteSQLiteScalarWithConnectionStringAsync(string query, CancellationToken cancellationToken)
+    {
+        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = query;
+                return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task<DataTable> ExecuteSQLiteTableWithConnectionStringAsync(string query, CancellationToken cancellationToken)
+    {
+        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = query;
+                using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var table = new DataTable();
+                    table.Load(reader);
+                    return table;
+                }
+            }
+        }
+    }
+
+    private async Task ExecuteSQLiteNonQueryWithConnectionStringAsync(string query, CancellationToken cancellationToken)
+    {
+        using (var connection = new SqliteConnection(ResolveSQLiteCommandConnectionString()))
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = query;
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     internal static string GetProviderAlias(DbaXBulkProvider provider)
