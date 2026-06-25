@@ -76,10 +76,11 @@ public sealed class DbaTableCopyEngine
                 break;
             }
 
-            await destination.WritePageAsync(definition, page, options, cancellationToken).ConfigureAwait(false);
-            copied += page.Rows.Count;
+            var destinationPage = DbaTableCopyPageTransformer.Transform(page, definition);
+            await destination.WritePageAsync(definition, destinationPage, options, cancellationToken).ConfigureAwait(false);
+            copied += destinationPage.Rows.Count;
             offset += page.Rows.Count;
-            options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, copied, sourceRows, page.Rows.Count));
+            options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, copied, sourceRows, destinationPage.Rows.Count));
 
             if (page.Rows.Count < options.PageSize)
             {

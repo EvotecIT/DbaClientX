@@ -19,6 +19,13 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'BatchSize'
         $parameters | Should -Contain 'BulkCopyTimeout'
         $parameters | Should -Contain 'ColumnMap'
+        $parameters | Should -Contain 'ExcludeColumn'
+        $parameters | Should -Contain 'BooleanColumn'
+        $parameters | Should -Contain 'Int32Column'
+        $parameters | Should -Contain 'Int64Column'
+        $parameters | Should -Contain 'DecimalColumn'
+        $parameters | Should -Contain 'StringColumn'
+        $parameters | Should -Contain 'DateTimeColumn'
         $parameters | Should -Contain 'ClearDestination'
         $parameters | Should -Contain 'NoVerify'
         $parameters | Should -Contain 'TableLock'
@@ -59,5 +66,45 @@ describe 'Copy-DbaXTableData cmdlet' {
 
         $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
         [int] $count.RowsLoaded | Should -Be 7
+    }
+
+    it 'maps excludes and converts columns while copying rows' {
+        $source = Join-Path $TestDrive 'source-transform.db'
+        $destination = Join-Path $TestDrive 'destination-transform.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL, IsEnabled INTEGER NOT NULL, ScoreText TEXT NOT NULL, Helper TEXT);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, Name TEXT NOT NULL, IsEnabled INTEGER NOT NULL, ScoreText INTEGER NOT NULL);' | Out-Null
+
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName, IsEnabled, ScoreText, Helper) VALUES (1, 'Row 1', 1, '42', 'skip');" | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName, IsEnabled, ScoreText, Helper) VALUES (2, 'Row 2', 0, '55', 'skip');" | Out-Null
+
+        $result = Copy-DbaXTableData `
+            -SourceProvider SQLite `
+            -SourceConnectionString "Data Source=$source" `
+            -SourceTable SourceRows `
+            -DestinationProvider SQLite `
+            -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable DestinationRows `
+            -OrderBy Id `
+            -ColumnMap @{ DisplayName = 'Name' } `
+            -ExcludeColumn Helper `
+            -BooleanColumn IsEnabled `
+            -Int32Column ScoreText `
+            -PassThru
+
+        $result.CopiedRows | Should -Be 2
+        $result.Verified | Should -BeTrue
+
+        $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
+        [int] $count.RowsLoaded | Should -Be 2
+
+        $first = Invoke-DbaXSQLite -Database $destination -Query 'SELECT Id, Name, IsEnabled, ScoreText FROM DestinationRows WHERE Id = 1;'
+        $second = Invoke-DbaXSQLite -Database $destination -Query 'SELECT Id, Name, IsEnabled, ScoreText FROM DestinationRows WHERE Id = 2;'
+        $first.Name | Should -Be 'Row 1'
+        [int] $first.IsEnabled | Should -Be 1
+        [int] $first.ScoreText | Should -Be 42
+        $second.Name | Should -Be 'Row 2'
+        [int] $second.IsEnabled | Should -Be 0
+        [int] $second.ScoreText | Should -Be 55
     }
 }

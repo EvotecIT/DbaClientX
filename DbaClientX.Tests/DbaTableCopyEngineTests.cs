@@ -60,6 +60,50 @@ public class DbaTableCopyEngineTests
         Assert.Equal(1, tableResult.DestinationRows);
     }
 
+    [Fact]
+    public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("Id", typeof(long));
+        sourceTable.Columns.Add("DisplayName", typeof(string));
+        sourceTable.Columns.Add("IsMaintenance", typeof(int));
+        sourceTable.Columns.Add("DurationText", typeof(string));
+        sourceTable.Columns.Add("__MigrationRowId", typeof(long));
+        sourceTable.Rows.Add(1L, "First", 1, "42", 100L);
+        sourceTable.Rows.Add(2L, "Second", 0, "55", 101L);
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["DisplayName"] = "Name"
+                    },
+                    ExcludedColumns: new[] { "__MigrationRowId" },
+                    ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>
+                    {
+                        ["IsMaintenance"] = DbaTableCopyColumnType.Boolean,
+                        ["DurationText"] = DbaTableCopyColumnType.Int32
+                    })
+            });
+
+        Assert.DoesNotContain("__MigrationRowId", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Contains("Name", destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Equal(typeof(bool), destination.Rows.Columns["IsMaintenance"]!.DataType);
+        Assert.Equal(typeof(int), destination.Rows.Columns["DurationText"]!.DataType);
+        Assert.Equal(true, destination.Rows.Rows[0]["IsMaintenance"]);
+        Assert.Equal(false, destination.Rows.Rows[1]["IsMaintenance"]);
+        Assert.Equal(42, destination.Rows.Rows[0]["DurationText"]);
+        Assert.Equal("First", destination.Rows.Rows[0]["Name"]);
+    }
+
     [Theory]
     [InlineData(0, null, null)]
     [InlineData(100, 0, null)]
@@ -155,7 +199,7 @@ public class DbaTableCopyEngineTests
 
         public bool ClearCalled { get; private set; }
 
-        public DataTable Rows { get; } = CreateRows(0);
+        public DataTable Rows { get; } = new("DestinationRows");
 
         public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
@@ -166,6 +210,14 @@ public class DbaTableCopyEngineTests
 
         public Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
         {
+            if (Rows.Columns.Count == 0)
+            {
+                foreach (DataColumn column in page.Columns)
+                {
+                    Rows.Columns.Add(column.ColumnName, column.DataType);
+                }
+            }
+
             foreach (DataRow row in page.Rows)
             {
                 Rows.ImportRow(row);

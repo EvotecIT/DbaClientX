@@ -10,7 +10,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
     private readonly string _connectionString;
     private readonly string[] _orderBy;
     private readonly bool _allowUnordered;
-    private readonly Dictionary<string, string>? _columnMap;
     private readonly SqlServerBulkInsertOptions? _sqlServerOptions;
 
     public DbaXTableCopyAdapter(
@@ -18,7 +17,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         string connectionString,
         IReadOnlyList<string>? orderBy = null,
         bool allowUnordered = false,
-        Dictionary<string, string>? columnMap = null,
         SqlServerBulkInsertOptions? sqlServerOptions = null)
     {
         _provider = provider;
@@ -26,9 +24,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
         _orderBy = orderBy?.Where(static value => !string.IsNullOrWhiteSpace(value)).Select(static value => value.Trim()).ToArray()
             ?? Array.Empty<string>();
         _allowUnordered = allowUnordered;
-        _columnMap = columnMap is { Count: > 0 }
-            ? new Dictionary<string, string>(columnMap, StringComparer.OrdinalIgnoreCase)
-            : null;
         _sqlServerOptions = sqlServerOptions;
     }
 
@@ -48,7 +43,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
 
     public async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        var destinationPage = ApplyColumnMap(page);
         switch (_provider)
         {
             case DbaXBulkProvider.SqlServer:
@@ -56,7 +50,7 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
                 {
                     await sqlServer.BulkInsertAsync(
                             _connectionString,
-                            destinationPage,
+                            page,
                             definition.DestinationName,
                             _sqlServerOptions,
                             batchSize: options.BatchSize,
@@ -68,25 +62,25 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
             case DbaXBulkProvider.PostgreSql:
                 using (var postgreSql = new DBAClientX.PostgreSql())
                 {
-                    await postgreSql.BulkInsertAsync(_connectionString, destinationPage, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await postgreSql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             case DbaXBulkProvider.MySql:
                 using (var mySql = new DBAClientX.MySql())
                 {
-                    await mySql.BulkInsertAsync(_connectionString, destinationPage, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await mySql.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             case DbaXBulkProvider.Oracle:
                 using (var oracle = new DBAClientX.Oracle())
                 {
-                    await oracle.BulkInsertAsync(_connectionString, destinationPage, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await oracle.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             case DbaXBulkProvider.SQLite:
                 using (var sqlite = new DBAClientX.SQLite())
                 {
-                    await sqlite.BulkInsertWithConnectionStringAsync(ResolveSQLiteConnectionString(), destinationPage, definition.DestinationName, batchSize: options.BatchSize, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await sqlite.BulkInsertWithConnectionStringAsync(ResolveSQLiteConnectionString(), page, definition.DestinationName, batchSize: options.BatchSize, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             default:
@@ -251,31 +245,6 @@ internal sealed class DbaXTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyD
             DbaXBulkProvider.Oracle => " ORDER BY 1",
             _ => string.Empty
         };
-    }
-
-    private DataTable ApplyColumnMap(DataTable page)
-    {
-        if (_columnMap is null)
-        {
-            return page;
-        }
-
-        var mapped = page.Clone();
-        mapped.TableName = page.TableName;
-        foreach (DataColumn column in mapped.Columns)
-        {
-            if (_columnMap.TryGetValue(column.ColumnName, out var destinationColumn))
-            {
-                column.ColumnName = destinationColumn;
-            }
-        }
-
-        foreach (DataRow row in page.Rows)
-        {
-            mapped.ImportRow(row);
-        }
-
-        return mapped;
     }
 
     private string QuotePath(string identifierPath)

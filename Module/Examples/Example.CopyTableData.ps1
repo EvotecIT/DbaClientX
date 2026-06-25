@@ -25,7 +25,10 @@ try {
 CREATE TABLE SourceRows
 (
     Id INTEGER NOT NULL PRIMARY KEY,
-    DisplayName TEXT NOT NULL
+    DisplayName TEXT NOT NULL,
+    IsEnabled INTEGER NOT NULL,
+    ScoreText TEXT NOT NULL,
+    Helper TEXT
 );
 "@ -ErrorAction Stop | Out-Null
 
@@ -33,12 +36,15 @@ CREATE TABLE SourceRows
 CREATE TABLE DestinationRows
 (
     Id INTEGER NOT NULL PRIMARY KEY,
-    DisplayName TEXT NOT NULL
+    Name TEXT NOT NULL,
+    IsEnabled INTEGER NOT NULL,
+    ScoreValue INTEGER NOT NULL
 );
 "@ -ErrorAction Stop | Out-Null
 
     1..$RowCount | ForEach-Object {
-        Invoke-DbaXSQLite -Database $sourceDatabase -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES ($_, 'Row $_');" -ErrorAction Stop | Out-Null
+        $enabled = $_ % 2
+        Invoke-DbaXSQLite -Database $sourceDatabase -Query "INSERT INTO SourceRows (Id, DisplayName, IsEnabled, ScoreText, Helper) VALUES ($_, 'Row $_', $enabled, '$($_ * 10)', 'skip');" -ErrorAction Stop | Out-Null
     }
 
     $sqliteCopy = Copy-DbaXTableData `
@@ -49,6 +55,10 @@ CREATE TABLE DestinationRows
         -DestinationConnectionString "Data Source=$sqliteDestination" `
         -DestinationTable DestinationRows `
         -OrderBy Id `
+        -ColumnMap @{ DisplayName = 'Name'; ScoreText = 'ScoreValue' } `
+        -ExcludeColumn Helper `
+        -BooleanColumn IsEnabled `
+        -Int32Column ScoreValue `
         -PageSize 1000 `
         -BatchSize 500 `
         -ClearDestination `
@@ -67,7 +77,9 @@ CREATE TABLE DestinationRows
 CREATE TABLE $sqlTable
 (
     Id int NOT NULL PRIMARY KEY,
-    DisplayName nvarchar(100) NOT NULL
+    Name nvarchar(100) NOT NULL,
+    IsEnabled bit NOT NULL,
+    ScoreValue int NOT NULL
 );
 "@ -ErrorAction Stop | Out-Null
 
@@ -79,6 +91,10 @@ CREATE TABLE $sqlTable
             -DestinationConnectionString $sqlConnectionString `
             -DestinationTable $sqlTable `
             -OrderBy Id `
+            -ColumnMap @{ DisplayName = 'Name'; ScoreText = 'ScoreValue' } `
+            -ExcludeColumn Helper `
+            -BooleanColumn IsEnabled `
+            -Int32Column ScoreValue `
             -PageSize 1000 `
             -BatchSize 500 `
             -TableLock `

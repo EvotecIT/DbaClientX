@@ -169,6 +169,27 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
+When providers differ in type affinity or destination schema, shape each page before the bulk write. This is useful for TestimoX-style SQLite to SQL Server history migrations where SQLite helper columns should be dropped, identity columns should be omitted, and numeric flags should become SQL Server `bit` values:
+
+```powershell
+Copy-DbaXTableData `
+    -SourceProvider SQLite `
+    -SourceConnectionString 'Data Source=C:\Data\monitoring.sqlite' `
+    -SourceTable 'Monitoring_ProbeResults' `
+    -DestinationProvider SqlServer `
+    -DestinationConnectionString 'Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'dbo.Monitoring_ProbeResults' `
+    -OrderBy ResultId `
+    -ExcludeColumn '__MigrationRowId' `
+    -ColumnMap @{ DisplayName = 'ProbeDisplayName' } `
+    -BooleanColumn IsMaintenance `
+    -Int32Column ProbeType, StatusId, LatencyMs, DurationMs `
+    -BatchSize 5000 `
+    -PassThru
+```
+
+The reusable .NET core owns the same behavior through `DbaTableCopyDefinition.ColumnMappings`, `ExcludedColumns`, and `ColumnTypeConversions`. PowerShell only maps the friendly `-ExcludeColumn`, `-BooleanColumn`, `-Int32Column`, `-Int64Column`, `-DecimalColumn`, `-StringColumn`, and `-DateTimeColumn` parameters into that definition.
+
 The cmdlet supports SQL Server, PostgreSQL, MySQL, SQLite, and Oracle as source or destination providers. SQL Server destinations also support `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, and `-KeepNulls`. SQLite destination connection strings are normalized with pooling disabled for short-lived file copy workflows.
 
 For local proof without SQL Server, run:

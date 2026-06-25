@@ -76,6 +76,41 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [Parameter]
     public Hashtable? ColumnMap { get; set; }
 
+    /// <summary>Source column names excluded from destination pages before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? ExcludeColumn { get; set; }
+
+    /// <summary>Column names converted to Boolean values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? BooleanColumn { get; set; }
+
+    /// <summary>Column names converted to Int32 values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? Int32Column { get; set; }
+
+    /// <summary>Column names converted to Int64 values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? Int64Column { get; set; }
+
+    /// <summary>Column names converted to Decimal values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? DecimalColumn { get; set; }
+
+    /// <summary>Column names converted to String values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? StringColumn { get; set; }
+
+    /// <summary>Column names converted to DateTime values before bulk writing.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? DateTimeColumn { get; set; }
+
     /// <summary>Deletes destination table rows before copying source rows.</summary>
     [Parameter]
     public SwitchParameter ClearDestination { get; set; }
@@ -180,7 +215,6 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         var destination = new DbaXTableCopyAdapter(
             DestinationProvider,
             DestinationConnectionString,
-            columnMap: ConvertColumnMap(),
             sqlServerOptions: DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null);
 
         var options = new DbaTableCopyOptions
@@ -197,7 +231,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             .CopyAsync(
                 source,
                 destination,
-                new[] { new DbaTableCopyDefinition(SourceTable, DestinationTable, OrderBy, DestinationTable) },
+                new[]
+                {
+                    new DbaTableCopyDefinition(
+                        SourceTable,
+                        DestinationTable,
+                        OrderBy,
+                        DestinationTable,
+                        ConvertColumnMap(),
+                        NormalizeColumnNames(ExcludeColumn),
+                        BuildColumnTypeConversions())
+                },
                 options)
             .ConfigureAwait(false);
     }
@@ -268,6 +312,43 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
 
         return mappings;
+    }
+
+    private static IReadOnlyList<string>? NormalizeColumnNames(string[]? columns)
+    {
+        var normalized = columns?
+            .Where(static column => !string.IsNullOrWhiteSpace(column))
+            .Select(static column => column.Trim())
+            .ToArray();
+        return normalized is { Length: > 0 } ? normalized : null;
+    }
+
+    private Dictionary<string, DbaTableCopyColumnType>? BuildColumnTypeConversions()
+    {
+        var conversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase);
+        AddColumnTypeConversions(conversions, BooleanColumn, DbaTableCopyColumnType.Boolean);
+        AddColumnTypeConversions(conversions, Int32Column, DbaTableCopyColumnType.Int32);
+        AddColumnTypeConversions(conversions, Int64Column, DbaTableCopyColumnType.Int64);
+        AddColumnTypeConversions(conversions, DecimalColumn, DbaTableCopyColumnType.Decimal);
+        AddColumnTypeConversions(conversions, StringColumn, DbaTableCopyColumnType.String);
+        AddColumnTypeConversions(conversions, DateTimeColumn, DbaTableCopyColumnType.DateTime);
+        return conversions.Count == 0 ? null : conversions;
+    }
+
+    private static void AddColumnTypeConversions(
+        IDictionary<string, DbaTableCopyColumnType> conversions,
+        IEnumerable<string>? columns,
+        DbaTableCopyColumnType conversion)
+    {
+        if (columns == null)
+        {
+            return;
+        }
+
+        foreach (var column in columns.Where(static column => !string.IsNullOrWhiteSpace(column)))
+        {
+            conversions[column.Trim()] = conversion;
+        }
     }
 
     private SqlServerBulkInsertOptions? BuildSqlServerOptions()
