@@ -24,9 +24,8 @@ public sealed record DbaTableCopyResult(IReadOnlyList<DbaTableCopyTableResult> T
     private static long? SumKnown(Func<DbaTableCopyTableResult, long?> selector, IReadOnlyList<DbaTableCopyTableResult> tables)
     {
         var total = 0L;
-        foreach (var table in tables)
+        foreach (var value in tables.Select(selector))
         {
-            var value = selector(table);
             if (!value.HasValue)
             {
                 return null;
