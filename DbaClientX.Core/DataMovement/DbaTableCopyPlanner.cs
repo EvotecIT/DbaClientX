@@ -201,7 +201,7 @@ public static class DbaTableCopyPlanner
         var key = TableKey(parts.Schema, parts.Name);
         return destinationColumnGroups.TryGetValue(key, out var columns)
             ? columns.ToDictionary(static column => column.Name, static column => column, StringComparer.OrdinalIgnoreCase)
-            : null;
+            : new Dictionary<string, DbaColumnInfo>(StringComparer.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<string>? ResolveOrderBy(
@@ -354,7 +354,8 @@ public static class DbaTableCopyPlanner
     private static bool IsGenerated(DbaColumnInfo column)
         => !string.IsNullOrWhiteSpace(column.GeneratedExpression) ||
            !string.IsNullOrWhiteSpace(column.GeneratedKind) ||
-           string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase);
+           string.Equals(column.DataType, "rowversion", StringComparison.OrdinalIgnoreCase) ||
+           (string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase) && column.MaxLength == 8);
 
     private static string QualifyName(string? schema, string name)
         => string.IsNullOrWhiteSpace(schema)

@@ -105,6 +105,36 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenSourceCountFails()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1)) { ThrowOnCountRows = true };
+        var destination = new MemoryTableCopyDestination();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenFirstSourcePageFails()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1)) { ThrowOnRead = true };
+        var destination = new MemoryTableCopyDestination();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
@@ -247,11 +277,27 @@ public class DbaTableCopyEngineTests
 
         public int ReadCalls { get; private set; }
 
+        public bool ThrowOnCountRows { get; init; }
+
+        public bool ThrowOnRead { get; init; }
+
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-            => Task.FromResult<long?>(_rows.Rows.Count);
+        {
+            if (ThrowOnCountRows)
+            {
+                throw new InvalidOperationException("Count failed.");
+            }
+
+            return Task.FromResult<long?>(_rows.Rows.Count);
+        }
 
         public Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
         {
+            if (ThrowOnRead)
+            {
+                throw new InvalidOperationException("Read failed.");
+            }
+
             ReadCalls++;
             RequestedOffsets.Add(request.Offset);
             RequestedPageSizes.Add(request.PageSize);

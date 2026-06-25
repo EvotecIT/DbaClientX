@@ -125,7 +125,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.PostgreSql:
                 using (var postgreSql = new PostgreSql())
                 {
-                    var bulkPage = NormalizePostgreSqlBulkPage(page);
+                    var bulkPage = NormalizePostgreSqlBulkPage(page, definition.DestinationName);
                     await postgreSql.BulkInsertAsync(
                             _connectionString,
                             bulkPage,
@@ -472,24 +472,26 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
                     : segment.Value));
     }
 
-    private DataTable NormalizePostgreSqlBulkPage(DataTable page)
+    private DataTable NormalizePostgreSqlBulkPage(DataTable page, string destinationTableName)
     {
         if (_provider != DbaTableCopyProvider.PostgreSql)
         {
             return page;
         }
 
+        var preserveSimpleIdentifierCase = SplitIdentifierPath(destinationTableName).Any(static segment => segment.IsExplicitlyQuoted);
         var normalizedNames = page.Columns
             .Cast<DataColumn>()
-            .Select(static column => NormalizePostgreSqlBulkColumnName(column.ColumnName))
+            .Select(column => NormalizePostgreSqlBulkColumnName(column.ColumnName, preserveSimpleIdentifierCase))
             .ToArray();
         if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
         {
             return page;
         }
 
+        var duplicateComparer = preserveSimpleIdentifierCase ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
         var duplicates = normalizedNames
-            .GroupBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static name => name, duplicateComparer)
             .FirstOrDefault(static group => group.Count() > 1);
         if (duplicates != null)
         {
@@ -505,7 +507,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         return normalized;
     }
 
-    private static string NormalizePostgreSqlBulkColumnName(string columnName)
+    private static string NormalizePostgreSqlBulkColumnName(string columnName, bool preserveSimpleIdentifierCase)
     {
         var trimmed = columnName.Trim();
         if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
@@ -513,7 +515,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
-        return IsPostgreSqlSimpleIdentifier(trimmed)
+        return !preserveSimpleIdentifierCase && IsPostgreSqlSimpleIdentifier(trimmed)
             ? trimmed.ToLowerInvariant()
             : trimmed;
     }

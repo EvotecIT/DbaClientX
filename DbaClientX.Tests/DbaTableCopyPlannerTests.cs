@@ -129,6 +129,33 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_TreatsMissingDestinationMetadataTableAsNoWritableColumns()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "OtherUsers", "Id", "int", 1),
+            Column("archive", "OtherUsers", "DisplayName", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions { DestinationSchema = "archive" });
+
+        Assert.Empty(plan.Definitions);
+        Assert.Contains(plan.Warnings, warning => warning.Code == "MissingDestinationColumn" && warning.ColumnName == "Id");
+        Assert.Contains(plan.Warnings, warning => warning.Code == "MissingDestinationColumn" && warning.ColumnName == "DisplayName");
+        Assert.Contains(plan.Warnings, warning => warning.Code == "NoWritableColumns");
+    }
+
+    [Fact]
     public void BuildPlan_UsesTableMappingsAndExplicitOrder()
     {
         var sourceTables = new[] { new DbaTableInfo("src", "Customers", DbaTableKind.Table) };
@@ -216,6 +243,23 @@ public class DbaTableCopyPlannerTests
         Assert.DoesNotContain("UpdatedAt", definition.ExcludedColumns);
     }
 
+    [Fact]
+    public void BuildPlan_ExcludesSqlServerTimestampRowversionShapeAsGenerated()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1),
+            Column("dbo", "Users", "Version", "timestamp", 2, maxLength: 8)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns);
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ExcludedColumns);
+        Assert.Contains("Version", definition.ExcludedColumns);
+    }
+
     private static DbaColumnInfo Column(
         string schema,
         string table,
@@ -223,12 +267,14 @@ public class DbaTableCopyPlannerTests
         string dataType,
         int ordinal,
         bool? isIdentity = null,
-        string? generatedKind = null)
+        string? generatedKind = null,
+        long? maxLength = null)
         => new(schema, table, name, dataType)
         {
             Ordinal = ordinal,
             IsIdentity = isIdentity,
+            MaxLength = maxLength,
+            GeneratedExpression = generatedKind == null ? null : name + " expression",
             GeneratedKind = generatedKind,
-            GeneratedExpression = generatedKind == null ? null : name + " expression"
         };
 }

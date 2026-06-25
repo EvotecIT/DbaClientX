@@ -319,10 +319,25 @@ public class DbaProviderTableCopyAdapterTests
         page.Columns.Add("\"CreatedUtc\"", typeof(DateTime));
         page.Columns.Add("Created At", typeof(string));
 
-        var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page);
+        var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "Users");
 
         Assert.Equal(new[] { "displayname", "CreatedUtc", "Created At" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
         Assert.Equal("DisplayName", page.Columns[0].ColumnName);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlPreservesSimpleColumnCaseForQuotedDestinationTable()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+        using var page = new DataTable("Users");
+        page.Columns.Add("DisplayName", typeof(string));
+        page.Columns.Add("\"CreatedUtc\"", typeof(DateTime));
+
+        var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "\"Public\".\"Users\"");
+
+        Assert.Equal(new[] { "DisplayName", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
     }
 
     [Fact]
@@ -417,12 +432,12 @@ public class DbaProviderTableCopyAdapterTests
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }
 
-    private static DataTable InvokeNormalizePostgreSqlBulkPage(DbaProviderTableCopyAdapter adapter, DataTable page)
+    private static DataTable InvokeNormalizePostgreSqlBulkPage(DbaProviderTableCopyAdapter adapter, DataTable page, string destinationTableName)
     {
         var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkPage", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkPage");
 
-        return (DataTable)method.Invoke(adapter, new object?[] { page })!;
+        return (DataTable)method.Invoke(adapter, new object?[] { page, destinationTableName })!;
     }
 
     private static void CreateHistoryTables(SQLite sqlite, string path)
