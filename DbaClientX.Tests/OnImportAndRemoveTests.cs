@@ -2,6 +2,9 @@ using System;
 using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.InteropServices;
+#if NET5_0_OR_GREATER
+using System.Runtime.Loader;
+#endif
 using DBAClientX.PowerShell;
 using Xunit;
 
@@ -141,6 +144,23 @@ public class OnImportAndRemoveTests
         {
             Assert.Contains("libMicrosoft.Data.SqlClient.SNI.so", result);
         }
+    }
+
+    [Fact]
+    public void GetNativeResolverLoadContexts_IncludesActualModuleLoadContext()
+    {
+        var method = typeof(OnModuleImportAndRemove).GetMethod(
+            "GetNativeResolverLoadContexts",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var result = ((IEnumerable<AssemblyLoadContext>)method!.Invoke(null, Array.Empty<object>())!)
+            .ToArray();
+        var moduleContext = AssemblyLoadContext.GetLoadContext(typeof(OnModuleImportAndRemove).Assembly);
+
+        Assert.NotNull(moduleContext);
+        Assert.Contains(AssemblyLoadContext.Default, result);
+        Assert.Contains(OnModuleImportAndRemove.LoadContext, result);
+        Assert.Contains(moduleContext!, result);
     }
 #endif
 }

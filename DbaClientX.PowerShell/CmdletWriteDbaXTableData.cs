@@ -120,12 +120,27 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 return;
             }
 
-            if (!ShouldProcess(DestinationTable, $"Bulk write {_input.Count} input item(s) using {Provider}"))
+            var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
+            if (table.Columns.Count == 0 && table.Rows.Count == 0)
+            {
+                if (PassThru.IsPresent)
+                {
+                    WriteObject(new PSObject(new
+                    {
+                        Provider,
+                        DestinationTable,
+                        Rows = 0
+                    }));
+                }
+
+                return;
+            }
+
+            if (!ShouldProcess(DestinationTable, $"Bulk write {table.Rows.Count} row(s) using {Provider}"))
             {
                 return;
             }
 
-            var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
             var providerAlias = GetProviderAlias(Provider);
             if (!PowerShellHelpers.TryValidateConnection(this, providerAlias, ConnectionString, _errorAction))
             {

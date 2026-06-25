@@ -103,6 +103,10 @@ function Invoke-TimedRun {
         $timer.Stop()
 
         $loaded = Get-BenchmarkRowCount -TableName $TableName
+        if ($loaded -ne $RowCount) {
+            throw "$Tool loaded $loaded of $RowCount expected row(s) into dbo.$TableName."
+        }
+
         [pscustomobject]@{
             Tool = $Tool
             Iteration = $iteration

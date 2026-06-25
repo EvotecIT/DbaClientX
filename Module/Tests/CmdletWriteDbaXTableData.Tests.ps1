@@ -274,6 +274,26 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'treats explicit empty collections as a no-op' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:bulkCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            $script:bulkCalls++
+        })
+
+        try {
+            $result = Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject @() -PassThru
+
+            $script:bulkCalls | Should -Be 0
+            $result.Rows | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:bulkCalls = 0
+        }
+    }
+
     it 'merges compatible DataRow input from different tables' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

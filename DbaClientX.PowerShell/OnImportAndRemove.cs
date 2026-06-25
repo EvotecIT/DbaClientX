@@ -125,8 +125,9 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         }
 
         if (Interlocked.CompareExchange(ref _nativeDllResolvingRegistered, 1, 0) == 0) {
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll += ResolveNativeDll;
-            _alc.ResolvingUnmanagedDll += ResolveNativeDll;
+            foreach (var context in GetNativeResolverLoadContexts()) {
+                context.ResolvingUnmanagedDll += ResolveNativeDll;
+            }
         }
     }
 
@@ -136,8 +137,25 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         }
 
         if (Interlocked.CompareExchange(ref _nativeDllResolvingRegistered, 0, 1) == 1) {
-            AssemblyLoadContext.Default.ResolvingUnmanagedDll -= ResolveNativeDll;
-            _alc.ResolvingUnmanagedDll -= ResolveNativeDll;
+            foreach (var context in GetNativeResolverLoadContexts()) {
+                context.ResolvingUnmanagedDll -= ResolveNativeDll;
+            }
+        }
+    }
+
+    private static IEnumerable<AssemblyLoadContext> GetNativeResolverLoadContexts() {
+        var seen = new HashSet<AssemblyLoadContext>();
+        if (seen.Add(AssemblyLoadContext.Default)) {
+            yield return AssemblyLoadContext.Default;
+        }
+
+        if (seen.Add(_alc)) {
+            yield return _alc;
+        }
+
+        var moduleAlc = AssemblyLoadContext.GetLoadContext(typeof(OnModuleImportAndRemove).Assembly);
+        if (moduleAlc != null && seen.Add(moduleAlc)) {
+            yield return moduleAlc;
         }
     }
 
