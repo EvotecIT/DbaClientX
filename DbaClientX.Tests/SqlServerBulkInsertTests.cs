@@ -150,7 +150,7 @@ public class SqlServerBulkInsertTests
     public void BulkInsert_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("DisplayName", typeof(string));
         table.Rows.Add(1, "test");
@@ -176,7 +176,7 @@ public class SqlServerBulkInsertTests
     public async Task BulkInsertAsync_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("DisplayName", typeof(string));
         table.Rows.Add(1, "test");
@@ -202,7 +202,7 @@ public class SqlServerBulkInsertTests
     public void BulkInsert_WithInvalidColumnMappingSource_Throws()
     {
         using var sqlServer = new DBAClientX.SqlServer();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         var options = new DBAClientX.SqlServerBulkInsertOptions
         {

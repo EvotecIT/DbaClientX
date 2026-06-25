@@ -183,9 +183,10 @@ public partial class SqlServer
             bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
         }
 
-        if (options?.NotifyAfter.HasValue == true)
+        var notifyAfter = options?.NotifyAfter;
+        if (notifyAfter.HasValue)
         {
-            bulkCopy.NotifyAfter = options.NotifyAfter.Value;
+            bulkCopy.NotifyAfter = notifyAfter.Value;
         }
         else if (options?.RowsCopied != null)
         {
@@ -279,9 +280,9 @@ public partial class SqlServer
             throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
         }
 
-        if (options?.NotifyAfter.HasValue == true && options.NotifyAfter.Value <= 0)
+        if (options?.NotifyAfter is int notifyAfter && notifyAfter <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(options.NotifyAfter), "NotifyAfter must be greater than zero.");
+            throw new ArgumentOutOfRangeException(nameof(SqlServerBulkInsertOptions.NotifyAfter), "NotifyAfter must be greater than zero.");
         }
 
         ValidateColumnMappings(table, options?.ColumnMappings);
