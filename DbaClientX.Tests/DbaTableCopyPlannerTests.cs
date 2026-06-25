@@ -197,6 +197,31 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_DelimitsMetadataNamesThatContainDots()
+    {
+        var sourceTables = new[] { new DbaTableInfo("tenant.v1", "Probe.Results", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("tenant.v1", "Probe.Results", "ResultId", "int", 1, isIdentity: true)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive.v1", "Probe.Results", "ResultId", "int", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions { DestinationSchema = "archive.v1" });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("\"tenant.v1\".\"Probe.Results\"", definition.SourceName);
+        Assert.Equal("\"archive.v1\".\"Probe.Results\"", definition.DestinationName);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_WarnsWhenOrderCannotBeInferred()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "NoKey", DbaTableKind.Table) };

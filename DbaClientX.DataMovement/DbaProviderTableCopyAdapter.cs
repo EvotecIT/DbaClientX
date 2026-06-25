@@ -114,7 +114,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
                     await sqlServer.BulkInsertAsync(
                             _connectionString,
                             page,
-                            definition.DestinationName,
+                            NormalizeSqlServerBulkDestinationTableName(definition.DestinationName),
                             _sqlServerOptions,
                             batchSize: options.BatchSize,
                             bulkCopyTimeout: options.BulkCopyTimeout,
@@ -552,6 +552,13 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     {
         return _provider == DbaTableCopyProvider.PostgreSql
             ? DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTableName)
+            : destinationTableName;
+    }
+
+    private string NormalizeSqlServerBulkDestinationTableName(string destinationTableName)
+    {
+        return _provider == DbaTableCopyProvider.SqlServer
+            ? QuotePath(destinationTableName)
             : destinationTableName;
     }
 

@@ -359,17 +359,17 @@ public static class DbaTableCopyPlanner
 
     private static string QualifyName(string? schema, string name)
         => string.IsNullOrWhiteSpace(schema)
-            ? name
-            : schema + "." + name;
+            ? DbaIdentifierPath.QuotePlanSegment(name)
+            : DbaIdentifierPath.QuotePlanSegment(schema!) + "." + DbaIdentifierPath.QuotePlanSegment(name);
 
     private static string TableKey(string? schema, string name)
         => QualifyName(schema, name);
 
     private static (string? Schema, string Name) SplitName(string tableName)
     {
-        var index = tableName.LastIndexOf('.');
-        return index < 0
-            ? (null, tableName)
-            : (tableName.Substring(0, index), tableName.Substring(index + 1));
+        var parts = DbaIdentifierPath.SplitSegments(tableName);
+        return parts.Count == 1
+            ? (null, DbaIdentifierPath.UnquoteSegment(parts[0]))
+            : (string.Join(".", parts.Take(parts.Count - 1).Select(DbaIdentifierPath.UnquoteSegment)), DbaIdentifierPath.UnquoteSegment(parts[parts.Count - 1]));
     }
 }

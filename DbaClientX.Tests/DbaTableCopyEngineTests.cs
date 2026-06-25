@@ -223,6 +223,27 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_RejectsDuplicateClearDestinationsBeforePreflight()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("UsersA", "dbo.Users"),
+                new DbaTableCopyDefinition("UsersB", "[dbo].[Users]")
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("ClearDestination cannot be used with multiple definitions targeting destination", exception.Message);
+        Assert.Equal(0, source.CountCalls);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_VerifiesAppendAgainstInitialDestinationRows()
     {
         var source = new MemoryTableCopySource(CreateRows(2));
@@ -413,6 +434,8 @@ public class DbaTableCopyEngineTests
 
         public List<int> RequestedPageSizes { get; } = new();
 
+        public int CountCalls { get; private set; }
+
         public int ReadCalls { get; private set; }
 
         public bool ThrowOnCountRows { get; init; }
@@ -421,6 +444,7 @@ public class DbaTableCopyEngineTests
 
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
+            CountCalls++;
             if (ThrowOnCountRows)
             {
                 throw new InvalidOperationException("Count failed.");

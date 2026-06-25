@@ -42,6 +42,11 @@ public sealed class DbaTableCopyEngine
             definition.Validate();
         }
 
+        if (options.ClearDestination)
+        {
+            ValidateUniqueClearDestinations(copyDefinitions);
+        }
+
         var sw = Stopwatch.StartNew();
         var preflight = options.ClearDestination
             ? await PreflightSourceAsync(source, destination, copyDefinitions, options, cancellationToken).ConfigureAwait(false)
@@ -275,6 +280,22 @@ public sealed class DbaTableCopyEngine
             throw new ArgumentOutOfRangeException(nameof(options.BulkCopyTimeout), "BulkCopyTimeout must be greater than zero.");
         }
     }
+
+    private static void ValidateUniqueClearDestinations(IReadOnlyList<DbaTableCopyDefinition> definitions)
+    {
+        var duplicate = definitions
+            .GroupBy(static definition => NormalizeDestinationNameForDuplicateCheck(definition.DestinationName), StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(static group => group.Count() > 1);
+        if (duplicate != null)
+        {
+            throw new InvalidOperationException(
+                $"ClearDestination cannot be used with multiple definitions targeting destination '{duplicate.First().DestinationName}'. " +
+                "Each cleared destination table must be unique.");
+        }
+    }
+
+    private static string NormalizeDestinationNameForDuplicateCheck(string destinationName)
+        => DbaIdentifierPath.NormalizeForDuplicateCheck(destinationName);
 
     private sealed record DbaTableCopyPreflight(long? SourceRows, DataTable? FirstPage);
 }
