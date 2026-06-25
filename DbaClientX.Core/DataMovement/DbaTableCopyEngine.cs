@@ -49,6 +49,8 @@ public sealed class DbaTableCopyEngine
 
         if (options.ClearDestination)
         {
+            await PreflightDestinationAsync(destination, copyDefinitions, cancellationToken).ConfigureAwait(false);
+
             for (var index = copyDefinitions.Length - 1; index >= 0; index--)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -93,12 +95,34 @@ public sealed class DbaTableCopyEngine
                         new DbaTableCopyPageRequest(definition, 0, options.PageSize),
                         cancellationToken)
                     .ConfigureAwait(false);
+                PreflightTransform(firstPage, definition);
             }
 
             results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
         }
 
         return results;
+    }
+
+    private static async Task PreflightDestinationAsync(
+        IDbaTableCopyDestination destination,
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
+        foreach (var definition in definitions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static void PreflightTransform(DataTable page, DbaTableCopyDefinition definition)
+    {
+        var transformed = DbaTableCopyPageTransformer.Transform(page, definition);
+        if (!ReferenceEquals(transformed, page))
+        {
+            transformed.Dispose();
+        }
     }
 
     private static async Task<DbaTableCopyTableResult> CopyTableAsync(

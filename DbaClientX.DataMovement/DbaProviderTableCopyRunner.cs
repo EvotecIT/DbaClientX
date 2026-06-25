@@ -58,10 +58,12 @@ public sealed class DbaProviderTableCopyRunner
             ValidateClearDestinationDoesNotRemoveSources(request);
         }
 
+        var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
+        var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         foreach (var definition in request.Definitions)
         {
-            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName);
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName);
+            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase);
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
@@ -73,13 +75,15 @@ public sealed class DbaProviderTableCopyRunner
 
     private static void ValidateClearDestinationDoesNotRemoveSources(DbaProviderTableCopyRequest request)
     {
+        var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
+        var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var sourceTables = new HashSet<string>(
-            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName)),
+            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase)),
             StringComparer.Ordinal);
 
         foreach (var definition in request.Definitions)
         {
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase);
             if (sourceTables.Contains(destinationTable))
             {
                 throw new InvalidOperationException(

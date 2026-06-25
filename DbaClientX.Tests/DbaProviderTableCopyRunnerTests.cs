@@ -147,6 +147,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameSqlServerTableWithCurrentDatabaseQualifierBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "tempdb.dbo.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSamePostgreSqlTargetWithDifferentCredentialsBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -164,6 +189,56 @@ public class DbaProviderTableCopyRunnerTests
             Definitions = new[]
             {
                 new DbaTableCopyDefinition("public.probeindex", "public.probeindex", new[] { "probename" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlTargetWhenDefaultPortIsOmittedBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Port=5432;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("public.probeindex", "public.probeindex", new[] { "probename" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameMySqlTargetWhenDefaultPortIsOmittedBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=Monitoring;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Port=3306;Database=Monitoring;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("probeindex", "probeindex", new[] { "probename" })
             }
         };
 
@@ -195,6 +270,17 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Equal(ordinary, quotedUpper);
         Assert.NotEqual(ordinary, quotedMixed);
         Assert.NotEqual(InvokeNormalizeTableName(DbaTableCopyProvider.Oracle, "APP.V1.USERS"), quotedDotted);
+    }
+
+    [Fact]
+    public void NormalizeTableName_SqlServerDropsOnlyCurrentDatabaseQualifier()
+    {
+        var onePart = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "Rows", "tempdb");
+        var currentDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "tempdb.dbo.Rows", "tempdb");
+        var otherDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.SqlServer, "OtherDatabase.dbo.Rows", "tempdb");
+
+        Assert.Equal(onePart, currentDatabaseQualified);
+        Assert.NotEqual(onePart, otherDatabaseQualified);
     }
 
     [Fact]
@@ -295,12 +381,20 @@ public class DbaProviderTableCopyRunnerTests
         => Path.Join(Path.GetTempPath(), Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
 
     private static string InvokeNormalizeTableName(DbaTableCopyProvider provider, string tableName)
+        => InvokeNormalizeTableName(provider, tableName, null);
+
+    private static string InvokeNormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase)
     {
         var type = typeof(DbaProviderTableCopyRunner).Assembly.GetType("DBAClientX.DataMovement.DbaProviderTableCopyTargetIdentity")
             ?? throw new InvalidOperationException("DbaProviderTableCopyTargetIdentity type was not found.");
-        var method = type.GetMethod("NormalizeTableName", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+        var method = type.GetMethod(
+                "NormalizeTableName",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic,
+                null,
+                new[] { typeof(DbaTableCopyProvider), typeof(string), typeof(string) },
+                null)
             ?? throw new MissingMethodException(type.FullName, "NormalizeTableName");
 
-        return (string)method.Invoke(null, new object[] { provider, tableName })!;
+        return (string)method.Invoke(null, new object?[] { provider, tableName, currentDatabase })!;
     }
 }

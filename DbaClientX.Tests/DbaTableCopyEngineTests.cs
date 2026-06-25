@@ -135,6 +135,53 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenFirstSourcePageTransformFails()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        var exception = await Assert.ThrowsAsync<DuplicateNameException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["DisplayName"] = "Id"
+                    })
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("Id", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_DoesNotPartiallyClearDestinationWhenDestinationPreflightFails()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination
+        {
+            ThrowOnCountDestinationName = "MissingRows"
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("MissingRows", "MissingRows"),
+                new DbaTableCopyDefinition("ExistingRows", "ExistingRows")
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
@@ -241,6 +288,31 @@ public class DbaTableCopyEngineTests
             new[] { new DbaTableCopyDefinition("", "DestinationRows") }));
     }
 
+    [Fact]
+    public async Task CopyAsync_RejectsDuplicateMappedDestinationColumns()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnMappings: new Dictionary<string, string>
+                    {
+                        ["FirstName"] = "Name",
+                        ["LastName"] = "name"
+                    })
+            }));
+
+        Assert.Contains("destination column names cannot contain duplicates", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
     private static void AssertProgress(DbaTableCopyProgress progress, long rowsCopied, long sourceRows, int pageRows)
     {
         Assert.Equal("Rows", progress.TableName);
@@ -328,6 +400,8 @@ public class DbaTableCopyEngineTests
 
         public DataTable Rows { get; } = new("DestinationRows");
 
+        public string? ThrowOnCountDestinationName { get; init; }
+
         public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
             ClearCalled = true;
@@ -356,6 +430,13 @@ public class DbaTableCopyEngineTests
         }
 
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-            => Task.FromResult<long?>(_destinationRowCountOverride ?? Rows.Rows.Count);
+        {
+            if (string.Equals(definition.DestinationName, ThrowOnCountDestinationName, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Destination count failed.");
+            }
+
+            return Task.FromResult<long?>(_destinationRowCountOverride ?? Rows.Rows.Count);
+        }
     }
 }

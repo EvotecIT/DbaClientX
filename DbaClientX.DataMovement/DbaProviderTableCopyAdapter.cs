@@ -151,7 +151,13 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.SQLite:
                 using (var sqlite = new SQLite())
                 {
-                    await sqlite.BulkInsertWithConnectionStringAsync(ResolveSQLiteConnectionString(), page, definition.DestinationName, batchSize: options.BatchSize, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await sqlite.BulkInsertWithConnectionStringAsync(
+                            ResolveSQLiteConnectionString(),
+                            page,
+                            NormalizeSQLiteBulkDestinationTableName(definition.DestinationName),
+                            batchSize: options.BatchSize,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 break;
             default:
@@ -548,6 +554,21 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             }));
     }
 
+    private string NormalizeSQLiteBulkDestinationTableName(string destinationTableName)
+    {
+        if (_provider != DbaTableCopyProvider.SQLite)
+        {
+            return destinationTableName;
+        }
+
+        return string.Join(
+            ".",
+            SplitIdentifierPath(destinationTableName).Select(static segment =>
+                segment.IsExplicitlyQuoted
+                    ? "\"" + segment.Value.Replace("\"", "\"\"") + "\""
+                    : segment.Value));
+    }
+
     private DataTable NormalizePostgreSqlBulkPage(DataTable page, string destinationTableName)
     {
         if (_provider != DbaTableCopyProvider.PostgreSql)
@@ -727,8 +748,10 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
             if (message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("invalid object name", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("relation", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("view", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("table or view does not exist", StringComparison.OrdinalIgnoreCase))
             {
                 return true;

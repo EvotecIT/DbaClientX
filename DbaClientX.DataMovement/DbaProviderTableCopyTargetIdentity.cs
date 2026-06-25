@@ -30,8 +30,19 @@ internal static class DbaProviderTableCopyTargetIdentity
     }
 
     internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName)
+        => NormalizeTableName(provider, tableName, currentDatabase: null);
+
+    internal static string NormalizeTableName(DbaTableCopyProvider provider, string tableName, string? currentDatabase)
     {
         var parts = SplitTableName(tableName);
+
+        if (provider == DbaTableCopyProvider.SqlServer &&
+            parts.Length == 3 &&
+            !string.IsNullOrWhiteSpace(currentDatabase) &&
+            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizePart(currentDatabase), StringComparison.Ordinal))
+        {
+            parts = parts.Skip(1).ToArray();
+        }
 
         if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
         {
@@ -39,6 +50,33 @@ internal static class DbaProviderTableCopyTargetIdentity
         }
 
         return string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
+    }
+
+    internal static string? GetCurrentDatabase(DbaProviderTableCopyAdapterOptions options)
+    {
+        if (options == null || string.IsNullOrWhiteSpace(options.ConnectionString))
+        {
+            return null;
+        }
+
+        if (options.Provider != DbaTableCopyProvider.SqlServer)
+        {
+            return null;
+        }
+
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = options.ConnectionString.Trim()
+            };
+
+            return ReadConnectionStringValue(builder, "Initial Catalog", "Database");
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static IdentifierSegment[] SplitTableName(string tableName)
@@ -291,12 +329,12 @@ internal static class DbaProviderTableCopyTargetIdentity
 
             var host = ReadConnectionStringValue(builder, "Host", "Server", "Data Source", "Address", "Addr", "Network Address");
             var database = ReadConnectionStringValue(builder, "Database", "Initial Catalog");
-            var port = ReadConnectionStringValue(builder, "Port");
+            var port = NormalizeProviderPort(provider, ReadConnectionStringValue(builder, "Port"));
             if (!string.IsNullOrWhiteSpace(host) || !string.IsNullOrWhiteSpace(database))
             {
                 identity = providerName +
                     "|host=" + NormalizePart(host) +
-                    ";port=" + NormalizePart(port) +
+                    ";port=" + port +
                     ";database=" + NormalizePart(database);
                 return true;
             }
@@ -390,6 +428,21 @@ internal static class DbaProviderTableCopyTargetIdentity
         };
 
         return host + portSuffix + instanceSuffix;
+    }
+
+    private static string NormalizeProviderPort(DbaTableCopyProvider provider, string? port)
+    {
+        if (!string.IsNullOrWhiteSpace(port))
+        {
+            return NormalizePart(port);
+        }
+
+        return provider switch
+        {
+            DbaTableCopyProvider.PostgreSql => "5432",
+            DbaTableCopyProvider.MySql => "3306",
+            _ => string.Empty
+        };
     }
 
     private static string NormalizePath(string path)

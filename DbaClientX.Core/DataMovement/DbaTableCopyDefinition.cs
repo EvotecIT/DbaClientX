@@ -35,6 +35,7 @@ public sealed record DbaTableCopyDefinition(
 
         ValidateNames(ColumnMappings?.Keys, "Column mapping source column names cannot be null or whitespace.");
         ValidateNames(ColumnMappings?.Values, "Column mapping destination column names cannot be null or whitespace.");
+        ValidateUniqueNames(ColumnMappings?.Values, "Column mapping destination column names cannot contain duplicates.");
         ValidateNames(ExcludedColumns, "Excluded column names cannot be null or whitespace.");
         ValidateNames(ColumnTypeConversions?.Keys, "Column type conversion column names cannot be null or whitespace.");
         ValidateNames(SourceOptions?.DeduplicateByColumns, "Source deduplication column names cannot be null or whitespace.");
@@ -51,6 +52,23 @@ public sealed record DbaTableCopyDefinition(
         if (names.Any(string.IsNullOrWhiteSpace))
         {
             throw new ArgumentException(message);
+        }
+    }
+
+    private static void ValidateUniqueNames(IEnumerable<string>? names, string message)
+    {
+        if (names == null)
+        {
+            return;
+        }
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names)
+        {
+            if (!string.IsNullOrWhiteSpace(name) && !seen.Add(name))
+            {
+                throw new ArgumentException(message);
+            }
         }
     }
 }

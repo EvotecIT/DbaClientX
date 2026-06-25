@@ -54,6 +54,56 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public async Task CopyAsync_SQLiteBulkWritePreservesDotsInsideQuotedDestinationSegments()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE \"Rows.Source\" (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE \"Rows.Current\" (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO \"Rows.Source\" (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
+                sqlite.ExecuteNonQuery(destinationPath, "INSERT INTO \"Rows.Current\" (Id, DisplayName) VALUES (99, 'Old');");
+            }
+
+            var source = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                new[] { "Id" });
+            var destination = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { new DbaTableCopyDefinition("\"Rows.Source\"", "\"Rows.Current\"", new[] { "Id" }) },
+                new DbaTableCopyOptions
+                {
+                    ClearDestination = true,
+                    PageSize = 1
+                });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+            using (var sqlite = new SQLite { ReturnType = ReturnType.DataTable })
+            {
+                var rows = Assert.IsType<DataTable>(sqlite.Query(destinationPath, "SELECT Id, DisplayName FROM \"Rows.Current\" ORDER BY Id;"));
+                Assert.Equal(2, rows.Rows.Count);
+                Assert.Equal("One", rows.Rows[0]["DisplayName"]);
+                Assert.Equal("Two", rows.Rows[1]["DisplayName"]);
+            }
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public async Task CopyAsync_DeduplicatesSQLiteSourceRowsByCaseInsensitiveKey()
     {
         var sourcePath = CreateTempDatabasePath();
@@ -410,6 +460,7 @@ public class DbaProviderTableCopyAdapterTests
     [InlineData("relation \"missing\" does not exist", true)]
     [InlineData("no such table: MissingRows", true)]
     [InlineData("invalid object name 'dbo.MissingRows'.", true)]
+    [InlineData("function lower(integer) does not exist", false)]
     [InlineData("column \"BadKey\" does not exist", false)]
     [InlineData("no such column: BadKey", false)]
     [InlineData("Unknown column 'BadKey' in 'field list'", false)]
