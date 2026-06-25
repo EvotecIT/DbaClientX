@@ -348,6 +348,18 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BulkDestinationName_PostgreSqlPreservesDotsInsideExplicitQuotedSegments()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+
+        var normalized = InvokeNormalizePostgreSqlBulkDestinationTableName(adapter, "\"tenant.v1\".\"Rows.Current\"");
+
+        Assert.Equal("\"tenant.v1\".\"Rows.Current\"", normalized);
+    }
+
+    [Fact]
     public void BulkPage_PostgreSqlNormalizesSimpleColumnNamesBeforeProviderBulkCopyQuotesThem()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -443,8 +455,35 @@ public class DbaProviderTableCopyAdapterTests
                 10
             })!;
 
-        Assert.Contains("__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4", query);
+        Assert.Contains("__DbaXCRank_62D977CD", query);
         Assert.DoesNotContain("__DbaXRank", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_OracleDeduplicationRankAliasFitsLegacyIdentifierLimit()
+    {
+        const string rankAlias = "__DbaXCRank_62D977CD";
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p",
+            new[] { "ProbeName" });
+
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
+        var query = (string)method.Invoke(
+            adapter,
+            new object?[]
+            {
+                "App.ProbeIndex",
+                new[] { "ProbeName" },
+                new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtc" }),
+                0L,
+                10
+            })!;
+
+        Assert.True(rankAlias.Length <= 30);
+        Assert.Contains($"\"{rankAlias}\"", query);
+        Assert.DoesNotContain("__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4", query);
     }
 
     [Fact]

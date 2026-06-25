@@ -9,7 +9,7 @@ namespace DBAClientX.DataMovement;
 public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination
 {
     private const string SourceAlias = "dbax_source";
-    private const string DeduplicationRankColumn = "__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4";
+    private const string DeduplicationRankColumn = "__DbaXCRank_62D977CD";
 
     private readonly DbaTableCopyProvider _provider;
     private readonly string _connectionString;
@@ -536,9 +536,16 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         return string.Join(
             ".",
             SplitIdentifierPath(destinationTableName).Select(static segment =>
-                !segment.IsExplicitlyQuoted && IsPostgreSqlSimpleIdentifier(segment.Value)
+            {
+                if (segment.IsExplicitlyQuoted)
+                {
+                    return "\"" + segment.Value.Replace("\"", "\"\"") + "\"";
+                }
+
+                return IsPostgreSqlSimpleIdentifier(segment.Value)
                     ? segment.Value.ToLowerInvariant()
-                    : segment.Value));
+                    : segment.Value;
+            }));
     }
 
     private DataTable NormalizePostgreSqlBulkPage(DataTable page, string destinationTableName)

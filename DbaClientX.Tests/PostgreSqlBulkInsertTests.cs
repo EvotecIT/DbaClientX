@@ -252,6 +252,18 @@ public class PostgreSqlBulkInsertTests
     }
 
     [Fact]
+    public void BuildCopyCommand_PreservesDotsInsideQuotedDestinationSegments()
+    {
+        using var pg = new InspectingPostgreSql();
+        var table = new DataTable();
+        table.Columns.Add("Id");
+
+        var command = pg.BuildCommand(table.Columns, "\"tenant.v1\".\"Rows.Current\"");
+
+        Assert.Equal("COPY \"tenant.v1\".\"Rows.Current\" (\"Id\") FROM STDIN (FORMAT BINARY)", command);
+    }
+
+    [Fact]
     public void BulkInsert_WithEmptyDestination_Throws()
     {
         using var pg = new DBAClientX.PostgreSql();

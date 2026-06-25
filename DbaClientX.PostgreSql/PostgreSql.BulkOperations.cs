@@ -298,18 +298,71 @@ public partial class PostgreSql
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
-        var parts = identifierPath.Split('.');
-        for (var i = 0; i < parts.Length; i++)
+        return string.Join(".", SplitIdentifierPath(identifierPath).Select(static part => QuoteIdentifier(part.Value)));
+    }
+
+    private static IReadOnlyList<IdentifierSegment> SplitIdentifierPath(string identifierPath)
+    {
+        var parts = new List<IdentifierSegment>();
+        var start = 0;
+        var quoted = false;
+        for (var index = 0; index < identifierPath.Length; index++)
         {
-            if (string.IsNullOrWhiteSpace(parts[i]))
+            var value = identifierPath[index];
+            if (quoted)
             {
-                throw new ArgumentException("Identifier cannot contain empty segments.", nameof(identifierPath));
+                if (value == '"')
+                {
+                    if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '"')
+                    {
+                        index++;
+                        continue;
+                    }
+
+                    quoted = false;
+                }
+
+                continue;
             }
 
-            parts[i] = QuoteIdentifier(parts[i].Trim());
+            if (value == '"')
+            {
+                quoted = true;
+                continue;
+            }
+
+            if (value == '.')
+            {
+                parts.Add(NormalizeIdentifierSegment(identifierPath.Substring(start, index - start), identifierPath));
+                start = index + 1;
+            }
         }
 
-        return string.Join(".", parts);
+        if (quoted)
+        {
+            throw new ArgumentException($"Identifier '{identifierPath}' contains an unterminated quoted segment.", nameof(identifierPath));
+        }
+
+        parts.Add(NormalizeIdentifierSegment(identifierPath.Substring(start), identifierPath));
+        return parts;
+    }
+
+    private static IdentifierSegment NormalizeIdentifierSegment(string value, string identifierPath)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new ArgumentException($"Identifier '{identifierPath}' cannot contain empty segments.", nameof(identifierPath));
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '"' &&
+            trimmed[trimmed.Length - 1] == '"')
+        {
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\""));
+        }
+
+        return new IdentifierSegment(trimmed);
     }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)
@@ -338,5 +391,15 @@ public partial class PostgreSql
         {
             throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
         }
+    }
+
+    private readonly struct IdentifierSegment
+    {
+        internal IdentifierSegment(string value)
+        {
+            Value = value;
+        }
+
+        internal string Value { get; }
     }
 }
