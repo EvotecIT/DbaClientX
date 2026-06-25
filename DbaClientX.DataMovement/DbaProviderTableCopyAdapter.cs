@@ -125,9 +125,10 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.PostgreSql:
                 using (var postgreSql = new PostgreSql())
                 {
+                    var bulkPage = NormalizePostgreSqlBulkPage(page);
                     await postgreSql.BulkInsertAsync(
                             _connectionString,
-                            page,
+                            bulkPage,
                             NormalizePostgreSqlBulkDestinationTableName(definition.DestinationName),
                             batchSize: options.BatchSize,
                             bulkCopyTimeout: options.BulkCopyTimeout,
@@ -411,7 +412,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     private string QuotePath(string identifierPath)
         => string.Join(".", SplitIdentifierPath(identifierPath).Select(QuoteIdentifier));
 
-    private IReadOnlyList<string> SplitIdentifierPath(string identifierPath)
+    private IReadOnlyList<IdentifierSegment> SplitIdentifierPath(string identifierPath)
     {
         if (string.IsNullOrWhiteSpace(identifierPath))
         {
@@ -427,7 +428,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         return parts.Select(NormalizeIdentifierSegment).ToArray();
     }
 
-    private string NormalizeIdentifierSegment(string identifier)
+    private IdentifierSegment NormalizeIdentifierSegment(string identifier)
     {
         var trimmed = identifier.Trim();
         if (_provider == DbaTableCopyProvider.SqlServer &&
@@ -435,14 +436,14 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             trimmed[0] == '[' &&
             trimmed[trimmed.Length - 1] == ']')
         {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]"), false);
         }
 
         if (trimmed.Length >= 2 &&
             trimmed[0] == '"' &&
             trimmed[trimmed.Length - 1] == '"')
         {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\""), true);
         }
 
         if (_provider == DbaTableCopyProvider.MySql &&
@@ -450,10 +451,10 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             trimmed[0] == '`' &&
             trimmed[trimmed.Length - 1] == '`')
         {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
+            return new IdentifierSegment(trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`"), false);
         }
 
-        return trimmed;
+        return new IdentifierSegment(trimmed, false);
     }
 
     private string NormalizePostgreSqlBulkDestinationTableName(string destinationTableName)
@@ -465,10 +466,67 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
         return string.Join(
             ".",
-            SplitIdentifierPath(destinationTableName).Select(static identifier =>
-                IsPostgreSqlSimpleIdentifier(identifier)
-                    ? identifier.ToLowerInvariant()
-                    : identifier));
+            SplitIdentifierPath(destinationTableName).Select(static segment =>
+                !segment.IsExplicitlyQuoted && IsPostgreSqlSimpleIdentifier(segment.Value)
+                    ? segment.Value.ToLowerInvariant()
+                    : segment.Value));
+    }
+
+    private DataTable NormalizePostgreSqlBulkPage(DataTable page)
+    {
+        if (_provider != DbaTableCopyProvider.PostgreSql)
+        {
+            return page;
+        }
+
+        var normalizedNames = page.Columns
+            .Cast<DataColumn>()
+            .Select(static column => NormalizePostgreSqlBulkColumnName(column.ColumnName))
+            .ToArray();
+        if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
+        {
+            return page;
+        }
+
+        var duplicates = normalizedNames
+            .GroupBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(static group => group.Count() > 1);
+        if (duplicates != null)
+        {
+            throw new InvalidOperationException($"PostgreSQL bulk copy column normalization would create duplicate destination column '{duplicates.Key}'.");
+        }
+
+        var normalized = page.Copy();
+        for (var i = 0; i < normalized.Columns.Count; i++)
+        {
+            normalized.Columns[i].ColumnName = normalizedNames[i];
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizePostgreSqlBulkColumnName(string columnName)
+    {
+        var trimmed = columnName.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
+        }
+
+        return IsPostgreSqlSimpleIdentifier(trimmed)
+            ? trimmed.ToLowerInvariant()
+            : trimmed;
+    }
+
+    private string QuoteIdentifier(IdentifierSegment segment)
+    {
+        if (segment.IsExplicitlyQuoted &&
+            (_provider == DbaTableCopyProvider.PostgreSql || _provider == DbaTableCopyProvider.Oracle))
+        {
+            return "\"" + segment.Value.Replace("\"", "\"\"") + "\"";
+        }
+
+        return QuoteIdentifier(segment.Value);
     }
 
     private string QuoteIdentifier(string identifier)
@@ -560,6 +618,19 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
     private static bool IsPostgreSqlIdentifierPart(char value)
         => IsPostgreSqlIdentifierStart(value) || value is >= '0' and <= '9' or '$';
+
+    private readonly struct IdentifierSegment
+    {
+        public IdentifierSegment(string value, bool isExplicitlyQuoted)
+        {
+            Value = value;
+            IsExplicitlyQuoted = isExplicitlyQuoted;
+        }
+
+        public string Value { get; }
+
+        public bool IsExplicitlyQuoted { get; }
+    }
 
     private static bool IsMissingTableException(Exception exception)
     {

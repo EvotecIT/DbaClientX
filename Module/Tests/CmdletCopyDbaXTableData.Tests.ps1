@@ -82,6 +82,31 @@ describe 'Copy-DbaXTableData cmdlet' {
         [int] $countB.RowsLoaded | Should -Be 2
     }
 
+    it 'rejects unordered supplied definitions before clearing destinations' {
+        $source = Join-Path $TestDrive 'source-unordered-definition.db'
+        $destination = Join-Path $TestDrive 'destination-unordered-definition.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query "INSERT INTO DestinationRows (Id, DisplayName) VALUES (99, 'Existing');" | Out-Null
+
+        $definition = [DBAClientX.DataMovement.DbaTableCopyDefinition]::new('SourceRows', 'DestinationRows')
+
+        {
+            Copy-DbaXTableData `
+                -SourceProvider SQLite `
+                -SourceConnectionString "Data Source=$source" `
+                -DestinationProvider SQLite `
+                -DestinationConnectionString "Data Source=$destination" `
+                -Definition $definition `
+                -ClearDestination `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*OrderBy is required*'
+
+        $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
+        [int] $count.RowsLoaded | Should -Be 1
+    }
+
     it 'copies rows between SQLite databases' {
         $source = Join-Path $TestDrive 'source.db'
         $destination = Join-Path $TestDrive 'destination.db'

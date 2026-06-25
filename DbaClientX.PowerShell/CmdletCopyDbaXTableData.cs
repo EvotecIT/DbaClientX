@@ -384,6 +384,14 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         {
             throw new PSArgumentException("ColumnMap, ExcludeColumn, source deduplication, and type-conversion column switches are only used with SourceTable/DestinationTable. Put per-table shaping on the supplied DbaTableCopyDefinition objects.");
         }
+
+        if (hasDefinitions &&
+            !AllowUnordered.IsPresent &&
+            (OrderBy == null || OrderBy.Length == 0) &&
+            HasUnorderedSuppliedDefinitions())
+        {
+            throw new PSArgumentException("OrderBy is required when any supplied DbaTableCopyDefinition does not include OrderByColumns. Use -AllowUnordered only for ad hoc copies where provider natural order is acceptable.", nameof(OrderBy));
+        }
     }
 
     private bool HasSqlServerOnlyOptions()
@@ -405,6 +413,30 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
            DeduplicateSourceBy is { Length: > 0 } ||
            DeduplicateSourceOrderBy is { Length: > 0 } ||
            DeduplicateSourceCaseInsensitive.IsPresent;
+
+    private bool HasUnorderedSuppliedDefinitions()
+        => EnumerateSuppliedDefinitions().Any(static definition => definition.OrderByColumns == null || definition.OrderByColumns.Count == 0);
+
+    private IEnumerable<DbaTableCopyDefinition> EnumerateSuppliedDefinitions()
+    {
+        if (_definitionBuffer.Count > 0)
+        {
+            foreach (var definition in _definitionBuffer)
+            {
+                yield return definition;
+            }
+        }
+
+        if (Definition == null)
+        {
+            yield break;
+        }
+
+        foreach (var definition in Definition)
+        {
+            yield return definition;
+        }
+    }
 
     private Dictionary<string, string>? ConvertColumnMap()
     {

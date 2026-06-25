@@ -271,6 +271,32 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BuildPageQuery_PostgreSqlPreservesExplicitQuotedIdentifiers()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p",
+            new[] { "\"CreatedUtc\"" });
+
+        var query = InvokeBuildPageQuery(adapter, "\"Public\".\"Users\"", 0, 10);
+
+        Assert.Equal("SELECT * FROM \"Public\".\"Users\" ORDER BY \"CreatedUtc\" LIMIT 10 OFFSET 0", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_OraclePreservesExplicitQuotedIdentifiers()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p",
+            new[] { "\"CreatedUtc\"" });
+
+        var query = InvokeBuildPageQuery(adapter, "\"App\".\"Users\"", 0, 10);
+
+        Assert.Equal("SELECT * FROM \"App\".\"Users\" ORDER BY \"CreatedUtc\" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
+    }
+
+    [Fact]
     public void BulkDestinationName_PostgreSqlFoldsSimpleIdentifiersBeforeProviderBulkCopyQuotesThem()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -280,6 +306,23 @@ public class DbaProviderTableCopyAdapterTests
         var normalized = InvokeNormalizePostgreSqlBulkDestinationTableName(adapter, "Public.Users");
 
         Assert.Equal("public.users", normalized);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlNormalizesSimpleColumnNamesBeforeProviderBulkCopyQuotesThem()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p");
+        var page = new DataTable("Users");
+        page.Columns.Add("DisplayName", typeof(string));
+        page.Columns.Add("\"CreatedUtc\"", typeof(DateTime));
+        page.Columns.Add("Created At", typeof(string));
+
+        var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page);
+
+        Assert.Equal(new[] { "displayname", "CreatedUtc", "Created At" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Equal("DisplayName", page.Columns[0].ColumnName);
     }
 
     [Fact]
@@ -372,6 +415,14 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
+    }
+
+    private static DataTable InvokeNormalizePostgreSqlBulkPage(DbaProviderTableCopyAdapter adapter, DataTable page)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkPage", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkPage");
+
+        return (DataTable)method.Invoke(adapter, new object?[] { page })!;
     }
 
     private static void CreateHistoryTables(SQLite sqlite, string path)

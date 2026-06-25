@@ -147,6 +147,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlTargetWithDifferentCredentialsBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Port=5432;Database=Monitoring;Username=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Port=5432;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("public.probeindex", "public.probeindex", new[] { "probename" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_AllowsSameProviderDatabaseWithDifferentTables()
     {
         var databasePath = CreateTempDatabasePath();

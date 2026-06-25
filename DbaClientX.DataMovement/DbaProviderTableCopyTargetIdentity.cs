@@ -19,6 +19,10 @@ internal static class DbaProviderTableCopyTargetIdentity
                 return TryCreateSQLiteIdentity(options.ConnectionString, out identity);
             case DbaTableCopyProvider.SqlServer:
                 return TryCreateSqlServerIdentity(options.ConnectionString, out identity);
+            case DbaTableCopyProvider.PostgreSql:
+            case DbaTableCopyProvider.MySql:
+            case DbaTableCopyProvider.Oracle:
+                return TryCreateProviderTargetIdentity(options.Provider, options.ConnectionString, out identity);
             default:
                 identity = options.Provider.ToString().ToLowerInvariant() + "|" + NormalizeConnectionString(options.ConnectionString);
                 return true;
@@ -104,6 +108,48 @@ internal static class DbaProviderTableCopyTargetIdentity
         }
     }
 
+    private static bool TryCreateProviderTargetIdentity(DbaTableCopyProvider provider, string connectionString, out string identity)
+    {
+        identity = string.Empty;
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString.Trim()
+            };
+
+            var providerName = provider.ToString().ToLowerInvariant();
+            if (provider == DbaTableCopyProvider.Oracle)
+            {
+                var dataSource = ReadConnectionStringValue(builder, "Data Source", "Server");
+                identity = !string.IsNullOrWhiteSpace(dataSource)
+                    ? providerName + "|datasource=" + NormalizePart(dataSource)
+                    : providerName + "|" + NormalizeConnectionStringWithoutCredentials(builder);
+                return true;
+            }
+
+            var host = ReadConnectionStringValue(builder, "Host", "Server", "Data Source", "Address", "Addr", "Network Address");
+            var database = ReadConnectionStringValue(builder, "Database", "Initial Catalog");
+            var port = ReadConnectionStringValue(builder, "Port");
+            if (!string.IsNullOrWhiteSpace(host) || !string.IsNullOrWhiteSpace(database))
+            {
+                identity = providerName +
+                    "|host=" + NormalizePart(host) +
+                    ";port=" + NormalizePart(port) +
+                    ";database=" + NormalizePart(database);
+                return true;
+            }
+
+            identity = providerName + "|" + NormalizeConnectionStringWithoutCredentials(builder);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            identity = provider.ToString().ToLowerInvariant() + "|" + NormalizeConnectionString(connectionString);
+            return true;
+        }
+    }
+
     private static string? ReadConnectionStringValue(DbConnectionStringBuilder builder, params string[] keys)
     {
         var matched = keys
@@ -140,6 +186,24 @@ internal static class DbaProviderTableCopyTargetIdentity
                 .Cast<string>()
                 .OrderBy(static key => key, StringComparer.OrdinalIgnoreCase)
                 .Select(key => NormalizePart(key) + "=" + NormalizePart(builder[key]?.ToString())));
+
+    private static string NormalizeConnectionStringWithoutCredentials(DbConnectionStringBuilder builder)
+        => string.Join(
+            ";",
+            builder.Keys
+                .Cast<string>()
+                .Where(static key => !IsCredentialKey(key))
+                .OrderBy(static key => key, StringComparer.OrdinalIgnoreCase)
+                .Select(key => NormalizePart(key) + "=" + NormalizePart(builder[key]?.ToString())));
+
+    private static bool IsCredentialKey(string key)
+        => string.Equals(key, "Password", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Pwd", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "User ID", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "User Id", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Username", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "User", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "UID", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeSqlServerName(string? value)
     {
