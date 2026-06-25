@@ -285,6 +285,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         }
         catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
         {
+            _ = ex;
         }
     }
 

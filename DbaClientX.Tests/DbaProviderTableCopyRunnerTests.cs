@@ -8,8 +8,8 @@ public class DbaProviderTableCopyRunnerTests
     [Fact]
     public async Task CopyAsync_RunsProviderBackedCopyFromRequest()
     {
-        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
-        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -85,7 +85,7 @@ public class DbaProviderTableCopyRunnerTests
     [Fact]
     public async Task CopyAsync_BlocksSameProviderTableByDefault()
     {
-        var databasePath = Path.Combine(Path.GetTempPath(), "DbaClientX-same-" + Guid.NewGuid().ToString("N") + ".db");
+        var databasePath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -149,7 +149,7 @@ public class DbaProviderTableCopyRunnerTests
     [Fact]
     public async Task CopyAsync_AllowsSameProviderDatabaseWithDifferentTables()
     {
-        var databasePath = Path.Combine(Path.GetTempPath(), "DbaClientX-same-db-" + Guid.NewGuid().ToString("N") + ".db");
+        var databasePath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -194,4 +194,7 @@ public class DbaProviderTableCopyRunnerTests
             File.Delete(path);
         }
     }
+
+    private static string CreateTempDatabasePath()
+        => Path.Join(Path.GetTempPath(), Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
 }

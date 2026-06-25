@@ -100,16 +100,12 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     private static string? ReadConnectionStringValue(DbConnectionStringBuilder builder, params string[] keys)
     {
-        foreach (var key in keys)
+        var matched = keys
+            .Select(key => builder.TryGetValue(key, out var value) ? value?.ToString() : null)
+            .FirstOrDefault(static text => !string.IsNullOrWhiteSpace(text));
+        if (!string.IsNullOrWhiteSpace(matched))
         {
-            if (builder.TryGetValue(key, out var value) && value != null)
-            {
-                var text = value.ToString();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    return text;
-                }
-            }
+            return matched;
         }
 
         return null;

@@ -10,8 +10,8 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public async Task CopyAsync_CopiesRowsBetweenSQLiteConnectionStrings()
     {
-        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
-        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -56,8 +56,8 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public async Task CopyAsync_DeduplicatesSQLiteSourceRowsByCaseInsensitiveKey()
     {
-        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
-        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -114,8 +114,8 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public async Task CopyAsync_TreatsMissingSQLiteSourceTableAsEmptyWhenConfigured()
     {
-        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
-        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -153,8 +153,8 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public async Task CopyAsync_ClearsDependentSQLiteTablesInReverseDefinitionOrder()
     {
-        var sourcePath = Path.Combine(Path.GetTempPath(), "DbaClientX-source-" + Guid.NewGuid().ToString("N") + ".db");
-        var destinationPath = Path.Combine(Path.GetTempPath(), "DbaClientX-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
         try
         {
             using (var sqlite = new SQLite())
@@ -278,4 +278,7 @@ public class DbaProviderTableCopyAdapterTests
             File.Delete(path);
         }
     }
+
+    private static string CreateTempDatabasePath()
+        => Path.Join(Path.GetTempPath(), Path.ChangeExtension(Path.GetRandomFileName(), ".db"));
 }

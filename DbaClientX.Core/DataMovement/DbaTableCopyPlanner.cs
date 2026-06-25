@@ -332,14 +332,13 @@ public static class DbaTableCopyPlanner
             return true;
         }
 
-        foreach (var entry in values)
+        var matched = values.FirstOrDefault(entry =>
+            string.Equals(entry.Key, qualifiedTableName, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(entry.Key, unqualifiedTableName, StringComparison.OrdinalIgnoreCase));
+        if (!EqualityComparer<KeyValuePair<string, TValue>>.Default.Equals(matched, default))
         {
-            if (string.Equals(entry.Key, qualifiedTableName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(entry.Key, unqualifiedTableName, StringComparison.OrdinalIgnoreCase))
-            {
-                value = entry.Value;
-                return true;
-            }
+            value = matched.Value;
+            return true;
         }
 
         value = default;
