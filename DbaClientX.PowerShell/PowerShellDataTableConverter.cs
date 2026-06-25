@@ -21,6 +21,14 @@ internal static class PowerShellDataTableConverter
             .Select(Unwrap)
             .ToList();
 
+        if (items.Count == 1 && ShouldExpandSingleEnumerableInput(items[0]))
+        {
+            items = ((IEnumerable)items[0]!)
+                .Cast<object?>()
+                .Select(Unwrap)
+                .ToList();
+        }
+
         if (items.Count == 0)
         {
             return string.IsNullOrWhiteSpace(tableName)
@@ -333,6 +341,16 @@ internal static class PowerShellDataTableConverter
 
     private static object? UnwrapValue(object? value)
         => value is PSObject psObject ? psObject.BaseObject : value;
+
+    private static bool ShouldExpandSingleEnumerableInput(object? item)
+        => item is IEnumerable &&
+           item is not string &&
+           item is not byte[] &&
+           item is not DataTable &&
+           item is not DataView &&
+           item is not IDataReader &&
+           item is not IDataRecord &&
+           item is not IDictionary;
 
     private static bool IsScalarValue(object? item)
     {

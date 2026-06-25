@@ -151,6 +151,34 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'passes explicit DataTable input to the provider bulk layer' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject $table | Out-Null
+
+            $script:lastBulkTable.Rows.Count | Should -Be 1
+            $script:lastBulkTable.Columns['Name'] | Should -Not -BeNullOrEmpty
+            $script:lastBulkTable.Rows[0]['Name'] | Should -Be 'Alpha'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
     it 'converts object pipeline input to a DataTable' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

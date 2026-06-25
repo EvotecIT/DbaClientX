@@ -130,10 +130,11 @@ try {
     New-BenchmarkTable -TableName $dbaClientXTable
     $createdTables.Add($dbaClientXTable)
     Add-BenchmarkResults -InputObject (Invoke-TimedRun -Tool 'DbaClientX Write-DbaXTableData' -TableName $dbaClientXTable -ScriptBlock {
-        $data | Write-DbaXTableData `
+        Write-DbaXTableData `
             -Provider SqlServer `
             -ConnectionString $connectionString `
             -DestinationTable "dbo.$dbaClientXTable" `
+            -InputObject $data `
             -BatchSize $BatchSize `
             -ErrorAction Stop
     })
