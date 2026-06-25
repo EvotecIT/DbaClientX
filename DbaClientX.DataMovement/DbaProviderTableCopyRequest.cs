@@ -16,4 +16,7 @@ public sealed class DbaProviderTableCopyRequest
 
     /// <summary>Copy execution options such as page size, batch size, clearing, verification, and progress.</summary>
     public DbaTableCopyOptions? Options { get; set; }
+
+    /// <summary>Allows copying from and to the same provider database table. Leave disabled unless the caller intentionally owns that unusual behavior.</summary>
+    public bool AllowSameProviderTableCopy { get; set; }
 }

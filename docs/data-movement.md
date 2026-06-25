@@ -314,6 +314,8 @@ var result = await new DbaProviderTableCopyRunner().CopyAsync(
 
 The provider runner supports SQL Server, PostgreSQL, MySQL, Oracle, and SQLite as either source or destination. Use `DbaProviderTableCopyAdapter` directly only when you need custom composition with `DbaTableCopyEngine` or your own source/destination implementations. PowerShell's `Copy-DbaXTableData` builds a `DbaProviderTableCopyRequest` internally and only maps user-friendly parameters into the reusable .NET API.
 
+By default, the provider runner refuses a same-provider copy when the normalized source and destination database identity and table name are the same. This prevents accidental self-copy loops or destructive clears during migration work. In rare advanced scenarios, set `DbaProviderTableCopyRequest.AllowSameProviderTableCopy = true`; in PowerShell, use `-AllowSameTableCopy`.
+
 PowerShell can also run prepared definitions directly:
 
 ```powershell

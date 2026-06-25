@@ -31,6 +31,7 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DeduplicateSourceOrderBy'
         $parameters | Should -Contain 'DeduplicateSourceCaseInsensitive'
         $parameters | Should -Contain 'TreatMissingTablesAsEmpty'
+        $parameters | Should -Contain 'AllowSameTableCopy'
         $parameters | Should -Contain 'ClearDestination'
         $parameters | Should -Contain 'NoVerify'
         $parameters | Should -Contain 'TableLock'
@@ -210,6 +211,25 @@ describe 'Copy-DbaXTableData cmdlet' {
         $result.SourceRows | Should -Be 0
         $result.DestinationRows | Should -Be 0
         $result.Verified | Should -BeTrue
+    }
+
+    it 'blocks accidental same-table copies by default' {
+        $database = Join-Path $TestDrive 'same-table.db'
+
+        Invoke-DbaXSQLite -Database $database -Query 'CREATE TABLE Rows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $database -Query "INSERT INTO Rows (Id, DisplayName) VALUES (1, 'Row 1');" | Out-Null
+
+        {
+            Copy-DbaXTableData `
+                -SourceProvider SQLite `
+                -SourceConnectionString "Data Source=$database" `
+                -SourceTable Rows `
+                -DestinationProvider SQLite `
+                -DestinationConnectionString "Data Source=$database;Pooling=False" `
+                -DestinationTable Rows `
+                -OrderBy Id `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*Refusing to copy provider table*'
     }
 
     it 'preserves SQLite destination connection string options for clear operations' {

@@ -141,6 +141,10 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [Parameter]
     public SwitchParameter TreatMissingTablesAsEmpty { get; set; }
 
+    /// <summary>Allows copying from and to the same provider database table. Use only when intentionally owning the consequences.</summary>
+    [Parameter]
+    public SwitchParameter AllowSameTableCopy { get; set; }
+
     /// <summary>Deletes destination table rows before copying source rows.</summary>
     [Parameter]
     public SwitchParameter ClearDestination { get; set; }
@@ -285,6 +289,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 TreatMissingTablesAsEmpty = TreatMissingTablesAsEmpty.IsPresent
             },
             Definitions = definitions,
+            AllowSameProviderTableCopy = AllowSameTableCopy.IsPresent,
             Options = new DbaTableCopyOptions
             {
                 PageSize = PageSize,

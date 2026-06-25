@@ -82,6 +82,111 @@ public class DbaProviderTableCopyRunnerTests
         await Assert.ThrowsAsync<ArgumentException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
     }
 
+    [Fact]
+    public async Task CopyAsync_BlocksSameProviderTableByDefault()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), "DbaClientX-same-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE ProbeIndex (ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL);");
+                sqlite.ExecuteNonQuery(databasePath, "INSERT INTO ProbeIndex (ProbeName, LastCompletedUtcMs) VALUES ('Server1', 10);");
+            }
+
+            var request = new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = "Data Source=" + databasePath
+                },
+                Destination = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = databasePath
+                },
+                Definitions = new[]
+                {
+                    new DbaTableCopyDefinition("ProbeIndex", "ProbeIndex", new[] { "ProbeName" })
+                }
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            Assert.Contains("Refusing to copy provider table", exception.Message);
+        }
+        finally
+        {
+            DeleteIfExists(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameSqlServerTableAliasesBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=Monitoring;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=Monitoring;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("dbo.ProbeIndex", "dbo.ProbeIndex", new[] { "ProbeName" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_AllowsSameProviderDatabaseWithDifferentTables()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), "DbaClientX-same-db-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(databasePath, "CREATE TABLE DestinationRows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(databasePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
+            }
+
+            var result = await new DbaProviderTableCopyRunner().CopyAsync(new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = "Data Source=" + databasePath
+                },
+                Destination = new DbaProviderTableCopyAdapterOptions
+                {
+                    Provider = DbaTableCopyProvider.SQLite,
+                    ConnectionString = "Data Source=" + databasePath + ";Pooling=False"
+                },
+                Definitions = new[]
+                {
+                    new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" })
+                }
+            });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal(2, result.DestinationRows);
+        }
+        finally
+        {
+            DeleteIfExists(databasePath);
+        }
+    }
+
     private static void DeleteIfExists(string path)
     {
         if (File.Exists(path))
