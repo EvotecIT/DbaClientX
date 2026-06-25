@@ -433,6 +433,18 @@ public class DbaProviderTableCopyAdapterTests
         Assert.Equal("`tenant.v1`.`Rows.Current`", normalized);
     }
 
+    [Fact]
+    public void BulkDestinationName_OracleQuotesDestinationPath()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p");
+
+        var normalized = InvokeNormalizeOracleBulkDestinationTableName(adapter, "app.Order Details");
+
+        Assert.Equal("APP.\"Order Details\"", normalized);
+    }
+
     [Theory]
     [InlineData("[Rows.Current]", "\"Rows.Current\"")]
     [InlineData("`Rows.Current`", "\"Rows.Current\"")]
@@ -656,6 +668,14 @@ public class DbaProviderTableCopyAdapterTests
     {
         var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeMySqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeMySqlBulkDestinationTableName");
+
+        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
+    }
+
+    private static string InvokeNormalizeOracleBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeOracleBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeOracleBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }

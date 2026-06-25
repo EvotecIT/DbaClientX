@@ -46,9 +46,18 @@ public sealed class DbaProviderTableCopyRunner
     {
         if (request.Source.Provider != request.Destination.Provider ||
             !DbaProviderTableCopyTargetIdentity.TryCreate(request.Source, out var sourceIdentity) ||
-            !DbaProviderTableCopyTargetIdentity.TryCreate(request.Destination, out var destinationIdentity) ||
-            !string.Equals(sourceIdentity, destinationIdentity, StringComparison.Ordinal))
+            !DbaProviderTableCopyTargetIdentity.TryCreate(request.Destination, out var destinationIdentity))
         {
+            return;
+        }
+
+        if (!string.Equals(sourceIdentity, destinationIdentity, StringComparison.Ordinal))
+        {
+            if (request.Options?.ClearDestination == true)
+            {
+                ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(request);
+            }
+
             return;
         }
 
@@ -94,6 +103,33 @@ public sealed class DbaProviderTableCopyRunner
         foreach (var definition in request.Definitions)
         {
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
+            if (sourceTables.Contains(destinationTable))
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to clear destination table '{definition.DestinationName}' because it is also used as a source table in the same provider database. " +
+                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+            }
+        }
+    }
+
+    private static void ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(DbaProviderTableCopyRequest request)
+    {
+        if (request.Source.Provider is not (DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql))
+        {
+            return;
+        }
+
+        var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
+        var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
+        var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
+        var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        var sourceTables = new HashSet<string>(
+            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema)),
+            StringComparer.Ordinal);
+
+        foreach (var definition in request.Definitions)
+        {
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (sourceTables.Contains(destinationTable))
             {
                 throw new InvalidOperationException(

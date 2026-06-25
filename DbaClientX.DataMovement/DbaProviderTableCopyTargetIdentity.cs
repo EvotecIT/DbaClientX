@@ -49,7 +49,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         if (provider == DbaTableCopyProvider.SqlServer &&
             parts.Length == 3 &&
             !string.IsNullOrWhiteSpace(currentDatabase) &&
-            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizePart(currentDatabase), StringComparison.Ordinal))
+            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizeProviderDatabasePart(provider, currentDatabase), StringComparison.Ordinal))
         {
             parts = parts.Skip(1).ToArray();
         }
@@ -64,7 +64,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         if (provider == DbaTableCopyProvider.MySql &&
             parts.Length == 2 &&
             !string.IsNullOrWhiteSpace(currentDatabase) &&
-            string.Equals(NormalizePart(parts[0].Value), NormalizePart(currentDatabase), StringComparison.Ordinal))
+            string.Equals(NormalizeProviderDatabasePart(provider, parts[0].Value), NormalizeProviderDatabasePart(provider, currentDatabase), StringComparison.Ordinal))
         {
             parts = parts.Skip(1).ToArray();
         }
@@ -91,6 +91,43 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     internal static bool IsUnqualifiedTableName(string tableName)
         => SplitTableName(tableName).Length == 1;
+
+    internal static string NormalizeEffectiveTableTarget(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema)
+    {
+        var parts = SplitTableName(tableName);
+        var database = currentDatabase;
+        if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 3)
+        {
+            database = parts[0].Value;
+            parts = parts.Skip(1).ToArray();
+        }
+        else if (provider == DbaTableCopyProvider.MySql && parts.Length == 2)
+        {
+            database = parts[0].Value;
+            parts = parts.Skip(1).ToArray();
+        }
+
+        if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 1)
+        {
+            parts = new[] { CreateDefaultSchemaSegment(string.IsNullOrWhiteSpace(defaultSchema) ? "dbo" : defaultSchema!), parts[0] };
+        }
+
+        if (provider == DbaTableCopyProvider.PostgreSql && parts.Length == 1)
+        {
+            parts = new[] { CreateDefaultSchemaSegment(string.IsNullOrWhiteSpace(defaultSchema) ? "public" : defaultSchema!), parts[0] };
+        }
+
+        if (provider == DbaTableCopyProvider.Oracle &&
+            parts.Length == 1 &&
+            !string.IsNullOrWhiteSpace(database))
+        {
+            parts = new[] { new IdentifierSegment(database!, false), parts[0] };
+        }
+
+        return provider.ToString().ToLowerInvariant() +
+            "|database=" + NormalizeProviderDatabasePart(provider, database) +
+            ";table=" + string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
+    }
 
     private static IdentifierSegment CreateDefaultSchemaSegment(string defaultSchema)
     {
@@ -344,7 +381,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         string dataSource;
         string? mode = null;
         string? cache = null;
-        if (connectionString.Contains("=", StringComparison.Ordinal))
+        if (IsSQLiteConnectionString(connectionString))
         {
             var builder = new SqliteConnectionStringBuilder(connectionString);
             dataSource = builder.DataSource;
@@ -391,7 +428,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             var attach = ReadConnectionStringValue(builder, "AttachDBFilename", "AttachDbFilename", "Extended Properties");
             if (!string.IsNullOrWhiteSpace(server) && !string.IsNullOrWhiteSpace(database))
             {
-                identity = "sqlserver|server=" + NormalizeSqlServerName(server) + ";database=" + NormalizePart(database);
+                identity = "sqlserver|server=" + NormalizeSqlServerName(server) + ";database=" + NormalizeProviderDatabasePart(DbaTableCopyProvider.SqlServer, database);
                 return true;
             }
 
@@ -687,9 +724,37 @@ internal static class DbaProviderTableCopyTargetIdentity
     }
 
     private static string NormalizeProviderDatabasePart(DbaTableCopyProvider provider, string? database)
-        => provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql
+        => provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql
             ? database?.Trim() ?? string.Empty
             : NormalizePart(database);
+
+    private static bool IsSQLiteConnectionString(string value)
+        => SplitConnectionStringEntries(value).Any(static entry =>
+        {
+            var separator = entry.IndexOf('=');
+            if (separator < 0)
+            {
+                return false;
+            }
+
+            var key = entry.Substring(0, separator).Trim();
+            return IsSQLiteConnectionStringKey(key);
+        });
+
+    private static bool IsSQLiteConnectionStringKey(string key)
+        => string.Equals(key, "Data Source", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "DataSource", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Filename", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Mode", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Cache", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Password", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Pooling", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Foreign Keys", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Recursive Triggers", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Default Timeout", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Command Timeout", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Vfs", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizePath(string path)
         => NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: false);

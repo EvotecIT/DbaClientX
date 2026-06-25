@@ -172,6 +172,93 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameSqlServerTableWithCasePreservedCurrentDatabaseQualifierBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("dbo.Rows", "App.dbo.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksExplicitSqlServerCrossDatabaseSameTableClearBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=Other;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Shared.dbo.Rows", "Shared.dbo.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("also used as a source table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksExplicitMySqlCrossDatabaseSameTableClearBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=App;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=Other;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Shared.Rows", "Shared.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("also used as a source table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_RejectsUnqualifiedSqlServerClearWhenDefaultSchemaIsUnknown()
     {
         var request = new DbaProviderTableCopyRequest
@@ -654,6 +741,22 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Equal(memoryIdentity, sameMemoryIdentity);
     }
 
+    [Fact]
+    public void TryCreate_SQLiteIdentityAcceptsRawPathContainingEqualsSign()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbax=blue.db");
+        var options = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = path
+        };
+
+        var identity = InvokeTryCreateIdentity(options);
+
+        Assert.Contains("sqlite|path=", identity);
+        Assert.Contains("dbax=blue.db", identity, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(DbaTableCopyProvider.PostgreSql, "Host=localhost;Database=App;Username=u;Password=p", "Host=LOCALHOST;Database=app;Username=u;Password=p")]
     [InlineData(DbaTableCopyProvider.MySql, "Server=localhost;Database=App;User ID=u;Password=p", "Server=LOCALHOST;Database=app;User ID=u;Password=p")]
@@ -671,6 +774,23 @@ public class DbaProviderTableCopyRunnerTests
         {
             Provider = provider,
             ConnectionString = secondConnectionString
+        };
+
+        Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
+    }
+
+    [Fact]
+    public void TryCreate_SqlServerIdentityPreservesCaseSensitiveDatabaseNames()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Server=.;Database=App;Integrated Security=True"
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Server=.;Database=app;Integrated Security=True"
         };
 
         Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));

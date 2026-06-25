@@ -239,7 +239,7 @@ public static class DbaTableCopyPlanner
         var identityColumns = sourceColumns
             .Where(static column => column.IsIdentity == true)
             .OrderBy(static column => column.Ordinal)
-            .Select(static column => column.Name)
+            .Select(static column => DbaIdentifierPath.QuotePlanSegmentPreservingCase(column.Name))
             .ToArray();
         return identityColumns.Length > 0 ? identityColumns : null;
     }
@@ -333,15 +333,6 @@ public static class DbaTableCopyPlanner
         if (values.TryGetValue(unqualifiedTableName, out var unqualified))
         {
             value = unqualified;
-            return true;
-        }
-
-        var matched = values.FirstOrDefault(entry =>
-            string.Equals(entry.Key, qualifiedTableName, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(entry.Key, unqualifiedTableName, StringComparison.OrdinalIgnoreCase));
-        if (!EqualityComparer<KeyValuePair<string, TValue>>.Default.Equals(matched, default))
-        {
-            value = matched.Value;
             return true;
         }
 

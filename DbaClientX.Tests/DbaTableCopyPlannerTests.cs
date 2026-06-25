@@ -172,15 +172,15 @@ public class DbaTableCopyPlannerTests
             {
                 TableMappings = new Dictionary<string, string>
                 {
-                    ["SRC.CUSTOMERS"] = "warehouse.Clients"
+                    ["src.Customers"] = "warehouse.Clients"
                 },
                 OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
                 {
-                    ["customers"] = new[] { "CustomerId" }
+                    ["Customers"] = new[] { "CustomerId" }
                 },
                 TableColumnMappings = new Dictionary<string, IReadOnlyDictionary<string, string>>
                 {
-                    ["customers"] = new Dictionary<string, string>
+                    ["Customers"] = new Dictionary<string, string>
                     {
                         ["Name"] = "DisplayName"
                     }
@@ -194,6 +194,37 @@ public class DbaTableCopyPlannerTests
         Assert.NotNull(definition.ColumnMappings);
         Assert.Equal("DisplayName", definition.ColumnMappings["Name"]);
         Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_DoesNotApplyCaseDifferentScopedTableMappings()
+    {
+        var sourceTables = new[]
+        {
+            new DbaTableInfo("public", "Users", DbaTableKind.Table),
+            new DbaTableInfo("public", "users", DbaTableKind.Table)
+        };
+        var sourceColumns = new[]
+        {
+            Column("public", "Users", "Id", "integer", 1),
+            Column("public", "users", "id", "integer", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["Users"] = "ArchiveUsers"
+                }
+            });
+
+        Assert.Collection(
+            plan.Definitions,
+            first => Assert.Equal("public.ArchiveUsers", first.DestinationName),
+            second => Assert.Equal("public.users", second.DestinationName));
     }
 
     [Fact]
@@ -328,6 +359,23 @@ public class DbaTableCopyPlannerTests
         };
 
         var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, indexes);
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal(new[] { "\"Id\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_QuotesMixedCaseIdentityOrderColumns()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "Users", "Id", "integer", 1, isIdentity: true),
+            Column("public", "Users", "name", "text", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns);
 
         var definition = Assert.Single(plan.Definitions);
         Assert.Equal(new[] { "\"Id\"" }, definition.OrderByColumns);

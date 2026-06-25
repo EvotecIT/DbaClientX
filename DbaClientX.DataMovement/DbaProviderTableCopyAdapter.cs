@@ -153,7 +153,14 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.Oracle:
                 using (var oracle = new Oracle())
                 {
-                    await oracle.BulkInsertAsync(_connectionString, page, definition.DestinationName, batchSize: options.BatchSize, bulkCopyTimeout: options.BulkCopyTimeout, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await oracle.BulkInsertAsync(
+                            _connectionString,
+                            page,
+                            NormalizeOracleBulkDestinationTableName(definition.DestinationName),
+                            batchSize: options.BatchSize,
+                            bulkCopyTimeout: options.BulkCopyTimeout,
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 break;
             case DbaTableCopyProvider.SQLite:
@@ -572,6 +579,13 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
     private string NormalizeMySqlBulkDestinationTableName(string destinationTableName)
     {
         return _provider == DbaTableCopyProvider.MySql
+            ? QuotePath(destinationTableName)
+            : destinationTableName;
+    }
+
+    private string NormalizeOracleBulkDestinationTableName(string destinationTableName)
+    {
+        return _provider == DbaTableCopyProvider.Oracle
             ? QuotePath(destinationTableName)
             : destinationTableName;
     }
