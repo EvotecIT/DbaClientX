@@ -353,6 +353,36 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'passes zero-row DataTable input to SQL Server auto-create' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkInsert = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkInsert = [pscustomobject]@{
+                Rows = $table.Rows.Count
+                ColumnCount = $table.Columns.Count
+                AutoCreateTable = $options.AutoCreateTable
+            }
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+
+            $result = Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject $table -AutoCreateTable -PassThru
+
+            $script:lastBulkInsert.Rows | Should -Be 0
+            $script:lastBulkInsert.ColumnCount | Should -Be 1
+            $script:lastBulkInsert.AutoCreateTable | Should -BeTrue
+            $result.Rows | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkInsert = $null
+        }
+    }
+
     it 'treats explicit empty collections as a no-op' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

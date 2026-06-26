@@ -560,7 +560,7 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
-    public void BulkPage_PostgreSqlFoldsSimpleColumnCaseForQuotedDestinationTable()
+    public void BulkPage_PostgreSqlPreservesSimpleColumnCaseForQuotedDestinationTable()
     {
         var adapter = new DbaProviderTableCopyAdapter(
             DbaTableCopyProvider.PostgreSql,
@@ -571,7 +571,7 @@ public class DbaProviderTableCopyAdapterTests
 
         var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "\"Public\".\"Users\"");
 
-        Assert.Equal(new[] { "displayname", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Equal(new[] { "DisplayName", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
     }
 
     [Fact]
@@ -702,23 +702,23 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
-    public async Task CopyAsync_SqlServerSameTableProtectionTreatsUnqualifiedNameAsDbo()
+    public async Task CopyAsync_SqlServerSameTableProtectionBlocksSchemaQualifiedAliases()
     {
         var request = new DbaProviderTableCopyRequest
         {
             Source = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.SqlServer,
-                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True;Current Schema=dbo"
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True"
             },
             Destination = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.SqlServer,
-                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Current Schema=dbo"
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True"
             },
             Definitions = new[]
             {
-                new DbaTableCopyDefinition("Users", "[dbo].[Users]", new[] { "Id" })
+                new DbaTableCopyDefinition("dbo.Users", "[dbo].[Users]", new[] { "Id" })
             }
         };
 

@@ -136,7 +136,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
 
             var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
-            if (table.Rows.Count == 0)
+            if (table.Rows.Count == 0 && !ShouldWriteSchemaOnlyTable())
             {
                 if (PassThru.IsPresent)
                 {
@@ -204,6 +204,9 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
         }
     }
+
+    private bool ShouldWriteSchemaOnlyTable()
+        => Provider == DbaXBulkProvider.SqlServer && AutoCreateTable.IsPresent;
 
     private void ValidateOptions()
     {

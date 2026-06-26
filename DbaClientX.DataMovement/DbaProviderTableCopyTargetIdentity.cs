@@ -182,7 +182,7 @@ internal static class DbaProviderTableCopyTargetIdentity
 
             return options.Provider switch
             {
-                DbaTableCopyProvider.SqlServer => ReadConnectionStringValue(builder, "Current Schema", "Default Schema", "Schema"),
+                DbaTableCopyProvider.SqlServer => null,
                 DbaTableCopyProvider.PostgreSql => ReadPostgreSqlDefaultSchema(builder, options.ConnectionString),
                 _ => null
             };
@@ -340,7 +340,7 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.MySql)
         {
-            return segment.Value;
+            return segment.Value.ToLowerInvariant();
         }
 
         if (provider == DbaTableCopyProvider.SqlServer)

@@ -35,9 +35,10 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             throw new ArgumentNullException(nameof(page));
         }
 
+        var preserveSimpleColumnCasing = HasExplicitlyQuotedTableSegment(destinationTableName);
         var normalizedNames = page.Columns
             .Cast<DataColumn>()
-            .Select(static column => NormalizeColumnName(column.ColumnName))
+            .Select(column => NormalizeColumnName(column.ColumnName, preserveSimpleColumnCasing))
             .ToArray();
         if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
         {
@@ -61,7 +62,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
         return normalized;
     }
 
-    private static string NormalizeColumnName(string columnName)
+    private static string NormalizeColumnName(string columnName, bool preserveSimpleCasing)
     {
         var trimmed = columnName.Trim();
         if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
@@ -69,10 +70,18 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
+        if (preserveSimpleCasing)
+        {
+            return trimmed;
+        }
+
         return IsPostgreSqlSimpleIdentifier(trimmed)
             ? trimmed.ToLowerInvariant()
             : trimmed;
     }
+
+    private static bool HasExplicitlyQuotedTableSegment(string destinationTableName)
+        => SplitIdentifierPath(destinationTableName).Last().IsExplicitlyQuoted;
 
     private static IReadOnlyList<IdentifierSegment> SplitIdentifierPath(string identifierPath)
     {

@@ -161,7 +161,7 @@ public sealed class DbaProviderTableCopyRunner
     private static InvalidOperationException CreateAmbiguousSqlServerTableException(string tableName)
         => new(
             $"Refusing to guard SQL Server table '{tableName}' because the table name is unqualified and the connection default schema is unknown. " +
-            "Schema-qualify SQL Server source and destination tables, provide a Current Schema connection option, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+            "Schema-qualify SQL Server source and destination tables, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
 
     private static InvalidOperationException CreateAmbiguousPostgreSqlTableException(string tableName)
         => new(
