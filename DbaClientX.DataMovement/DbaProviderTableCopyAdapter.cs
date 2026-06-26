@@ -366,7 +366,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         }
 
         var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: false);
-        return $"SELECT COUNT(*) FROM (SELECT 1 FROM {quotedTable} GROUP BY {keyColumns}) dbax_source_keys";
+        return $"SELECT COUNT(*) FROM (SELECT 1 AS dbax_key FROM {quotedTable} GROUP BY {keyColumns}) dbax_source_keys";
     }
 
     private string BuildDeduplicatedPageQuery(

@@ -659,6 +659,22 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void BuildCountQuery_DeduplicationAliasesConstantForSqlServerDerivedTable()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.SqlServer,
+            "Server=.;Database=tempdb;Integrated Security=True",
+            new[] { "ProbeName" });
+
+        var query = InvokeBuildCountQuery(
+            adapter,
+            "[dbo].[ProbeIndex]",
+            new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtcMs" }, true));
+
+        Assert.Equal("SELECT COUNT(*) FROM (SELECT 1 AS dbax_key FROM [dbo].[ProbeIndex] GROUP BY LOWER([ProbeName])) dbax_source_keys", query);
+    }
+
+    [Fact]
     public void BuildPageQuery_OracleDeduplicationRankAliasFitsLegacyIdentifierLimit()
     {
         const string rankAlias = "__DbaXCRank_62D977CD";
@@ -729,6 +745,14 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
 
         return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, null, offset, pageSize })!;
+    }
+
+    private static string InvokeBuildCountQuery(DbaProviderTableCopyAdapter adapter, string tableName, DbaTableCopySourceOptions? sourceOptions)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildCountQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildCountQuery");
+
+        return (string)method.Invoke(adapter, new object?[] { tableName, sourceOptions })!;
     }
 
     private static string InvokeNormalizePostgreSqlBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
