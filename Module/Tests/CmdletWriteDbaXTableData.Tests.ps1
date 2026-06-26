@@ -115,6 +115,7 @@ describe 'Write-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'FireTriggers'
         $parameters | Should -Contain 'KeepIdentity'
         $parameters | Should -Contain 'KeepNulls'
+        $parameters | Should -Contain 'AutoCreateTable'
         $parameters | Should -Contain 'NotifyAfter'
         $parameters | Should -Contain 'PassThru'
     }
@@ -287,10 +288,12 @@ describe 'Write-DbaXTableData cmdlet' {
                 -TableLock `
                 -KeepIdentity `
                 -KeepNulls `
+                -AutoCreateTable `
                 -NotifyAfter 10 | Out-Null
 
             $script:lastBulkOptions | Should -Not -BeNullOrEmpty
             $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
+            $script:lastBulkOptions.AutoCreateTable | Should -BeTrue
             $script:lastBulkOptions.NotifyAfter | Should -Be 10
             ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::TableLock) | Should -Not -Be 0
             ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepIdentity) | Should -Not -Be 0

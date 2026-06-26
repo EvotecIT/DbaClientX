@@ -55,6 +55,17 @@ Use it when you need:
 | SQLite | [DBAClientX.SQLite](https://www.nuget.org/packages/DBAClientX.SQLite) | `Invoke-DbaXSQLite` | `Write-DbaXTableData -Provider SQLite` | `Invoke-DbaXSQLiteTransaction` |
 | Oracle | [DBAClientX.Oracle](https://www.nuget.org/packages/DBAClientX.Oracle) | `Invoke-DbaXOracle`, `Invoke-DbaXOracleNonQuery`, `Invoke-DbaXOracleScalar` | `Write-DbaXTableData -Provider Oracle` | `Invoke-DbaXOracleTransaction` |
 
+## Data Movement
+
+| Scenario | PowerShell surface | Reusable .NET owner |
+| --- | --- | --- |
+| Write objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported data to a table | `Write-DbaXTableData` | Provider `BulkInsert` implementations |
+| SQL Server staging import with table creation, column mapping, locks, identity/null preservation, triggers, constraints, and progress | `Write-DbaXTableData -Provider SqlServer` | `SqlServerBulkInsertOptions` |
+| Copy tables between SQL Server, PostgreSQL, MySQL, SQLite, and Oracle | `Copy-DbaXTableData` | `DBAClientX.DataMovement.DbaProviderTableCopyRunner` |
+| Export SQL rows to Excel and import them back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX for database work, PSWriteOffice/OfficeIMO for workbook work |
+
+The thin PowerShell layer maps friendly parameters into provider-owned C# APIs. Database behavior belongs in DbaClientX; Excel/document behavior belongs in PSWriteOffice and OfficeIMO.
+
 ## Install
 
 PowerShell:
@@ -143,6 +154,7 @@ $rows | Write-DbaXTableData `
     -Provider SqlServer `
     -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
     -DestinationTable 'dbo.ImportUsers' `
+    -AutoCreateTable `
     -BatchSize 5000 `
     -PassThru
 ```
@@ -157,6 +169,32 @@ Import-OfficeExcel .\Users.xlsx -AsDataTable |
         -DestinationTable 'public.import_users' `
         -BatchSize 5000
 ```
+
+Excel round trip:
+
+```powershell
+.\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
+```
+
+The example queries SQL Server rows, exports them to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, writes it to SQL Server with `-AutoCreateTable`, and verifies source/destination row counts.
+
+SQL Server-specific import controls:
+
+```powershell
+$customerTable | Write-DbaXTableData `
+    -Provider SqlServer `
+    -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'staging.Customers' `
+    -AutoCreateTable `
+    -ColumnMap @{ CustomerName = 'DisplayName'; CustomerId = 'Id' } `
+    -TableLock `
+    -KeepIdentity `
+    -KeepNulls `
+    -NotifyAfter 5000 `
+    -PassThru
+```
+
+PowerShell object conversion keeps common tabular inputs simple: `TimeSpan` values are treated as scalar values, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. For file-format-specific conversion rules, keep the conversion in the owning library and pass DbaClientX a `DataTable`, `IDataReader`, or object stream.
 
 ### Use Transactions
 
@@ -176,6 +214,27 @@ Invoke-DbaXTransaction -Server 'sql01' -Database 'App' -ScriptBlock {
 ```
 
 Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block succeeds, roll back on failure, and dispose the provider client in `finally`.
+
+## SQL Server Benchmark Snapshot
+
+These are local `localhost` / `tempdb` measurements gathered with [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1). The benchmark creates isolated tables, uses explicit `DataTable` input, verifies row counts after every run, and drops its tables unless `-KeepTables` is used.
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 5000 -Iterations 3 -BatchSize 5000
+```
+
+| Rows | Iterations | Command | Elapsed |
+| ---: | ---: | --- | ---: |
+| 1,000 | 1 | DbaClientX `Write-DbaXTableData` | 87.56 ms |
+| 1,000 | 1 | dbatools `Write-DbaDbTableData` | 2.20 s |
+| 5,000 | 1 | DbaClientX `Write-DbaXTableData` | 103.64 ms |
+| 5,000 | 1 | dbatools `Write-DbaDbTableData` | 10.05 s |
+| 5,000 | 3 | DbaClientX `Write-DbaXTableData` | 26.94 ms to 121.67 ms |
+| 5,000 | 3 | dbatools `Write-DbaDbTableData` | 19.12 s to 48.62 s |
+| 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
+| 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
+
+Benchmark numbers are workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the script in the environment that matters.
 
 ## .NET Usage
 
@@ -215,11 +274,16 @@ table.Columns.Add("Name", typeof(string));
 table.Rows.Add(1, "Example");
 
 sqlServer.BulkInsert(
-    server: "SQL1",
+    serverOrInstance: "SQL1",
     database: "App",
     integratedSecurity: true,
     table: table,
     destinationTable: "dbo.ImportUsers",
+    options: new SqlServerBulkInsertOptions
+    {
+        AutoCreateTable = true,
+        BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
+    },
     batchSize: 1000,
     bulkCopyTimeout: 60);
 ```
@@ -285,6 +349,7 @@ Useful example files:
 
 - [`Example.QuerySqlServer.ps1`](Module/Examples/Example.QuerySqlServer.ps1)
 - [`Example.SqlServerDataMovement.ps1`](Module/Examples/Example.SqlServerDataMovement.ps1)
+- [`Example.ExcelRoundTrip.ps1`](Module/Examples/Example.ExcelRoundTrip.ps1)
 - [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)

@@ -28,21 +28,18 @@ On the local `localhost` SQL Server used while preparing this branch:
 | 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
 | 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
 
-These are workstation-local measurements, not universal rankings. They include each public cmdlet surface as called by the benchmark. The dbatools run used `Connect-DbaInstance -TrustServerCertificate` and a `System.Data.DataTable` input, so it was not failing certificate validation and was not intentionally forced through object-pipeline conversion. The 1,000-row and 5,000-row single-iteration rows above use explicit `-InputObject` for both cmdlets. A separate dbatools-only spot check still measured seconds for a 1,000-row `DataTable` load, which suggests the observed gap is mostly wrapper/connection/SMO/progress overhead in the dbatools cmdlet path rather than an in-process DbaClientX module side effect.
+These are workstation-local measurements, not universal rankings. They include each public cmdlet surface as called by the benchmark. The comparison run used `Connect-DbaInstance -TrustServerCertificate` and a `System.Data.DataTable` input, so it was not failing certificate validation and was not intentionally forced through object-pipeline conversion. The 1,000-row and 5,000-row single-iteration rows above use explicit `-InputObject` for both cmdlets.
 
-Treat the comparison as "thin DbaClientX bulk-copy surface versus dbatools administrative import surface", not as a claim that every DbaClientX scenario is universally faster than every dbatools scenario. For deeper performance work, run each tool in separate PowerShell processes and include a raw `SqlBulkCopy` baseline.
+For deeper performance work, run each command in separate PowerShell processes and include a raw `SqlBulkCopy` baseline.
 
-## dbatools behaviors reviewed
+## SQL Server import controls
 
-The installed dbatools 2.8.2 implementation shows several useful scenarios for operator-friendly SQL Server imports. This branch brings the highest-value bulk-copy controls into DbaClientX's SQL Server provider while keeping the default path small:
+DbaClientX exposes the SQL Server import controls that are useful for reusable staging and migration work while keeping the default path small:
 
-- `ColumnMap` lets callers map source column names to different destination column names. DbaClientX exposes this as `Write-DbaXTableData -ColumnMap` and provider-level `SqlServerBulkInsertOptions.ColumnMappings`.
+- `AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape.
+- `ColumnMap` maps source column names to different destination column names through `Write-DbaXTableData -ColumnMap` and provider-level `SqlServerBulkInsertOptions.ColumnMappings`.
 - SQL Server bulk-copy options are exposed for `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, and `KeepNulls`.
 - `NotifyAfter` and progress reporting are available for long-running SQL Server imports.
+- PowerShell input conversion preserves `TimeSpan` scalar values, treats scalar input as a `Value` column, and expands a single enumerable input into rows.
 
-These dbatools behaviors remain good future candidates:
-
-- `AutoCreateTable` can create missing schemas and destination tables.
-- `ConvertTo-DbaDataTable` has configurable conversion for `TimeSpan`, dbatools size types, arrays, and raw string fallback.
-
-DbaClientX should keep the common fast path small, but reusable provider-owned features are preferable to consumer-side workarounds when real callers need them.
+File-format-specific conversion should stay in the owning file-format library. DbaClientX should receive a shaped `DataTable`, `IDataReader`, or object stream and own the provider write.

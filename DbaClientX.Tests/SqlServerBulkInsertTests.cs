@@ -89,6 +89,29 @@ public class SqlServerBulkInsertTests
         }
     }
 
+    private class AutoCreateBulkCopySqlServer : CaptureBulkCopySqlServer
+    {
+        public List<(string CommandText, Dictionary<string, object?> Parameters)> SetupCommands { get; } = new();
+
+        protected override void ExecuteBulkInsertSetupCommand(
+            SqlConnection connection,
+            SqlTransaction? transaction,
+            string commandText,
+            IReadOnlyDictionary<string, object?> parameters)
+            => SetupCommands.Add((commandText, new Dictionary<string, object?>(parameters)));
+
+        protected override Task ExecuteBulkInsertSetupCommandAsync(
+            SqlConnection connection,
+            SqlTransaction? transaction,
+            string commandText,
+            IReadOnlyDictionary<string, object?> parameters,
+            CancellationToken cancellationToken)
+        {
+            SetupCommands.Add((commandText, new Dictionary<string, object?>(parameters)));
+            return Task.CompletedTask;
+        }
+    }
+
     private class LegacyFactorySqlServer : DBAClientX.SqlServer
     {
         public int LegacyFactoryCalls { get; private set; }
@@ -117,6 +140,67 @@ public class SqlServerBulkInsertTests
         {
             // no-op to avoid real connection
         }
+    }
+
+    [Fact]
+    public void BulkInsert_WithAutoCreateTable_CreatesSchemaAndMappedTable()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        var displayName = table.Columns.Add("DisplayName", typeof(string));
+        displayName.MaxLength = 100;
+        displayName.AllowDBNull = false;
+        table.Columns.Add("IsActive", typeof(bool));
+        table.Columns.Add("Duration", typeof(TimeSpan));
+        table.Columns.Add("Payload", typeof(byte[]));
+        table.Rows.Add("Alpha", true, TimeSpan.FromSeconds(5), new byte[] { 1, 2, 3 });
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            AutoCreateTable = true,
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["DisplayName"] = "Name"
+            }
+        };
+
+        sqlServer.BulkInsert("s", "db", true, table, "[stage.v1].[Import Rows]", options);
+
+        Assert.Equal(2, sqlServer.SetupCommands.Count);
+        Assert.Contains("CREATE SCHEMA", sqlServer.SetupCommands[0].CommandText);
+        Assert.Equal("stage.v1", sqlServer.SetupCommands[0].Parameters["@schemaName"]);
+        var createTable = sqlServer.SetupCommands[1].CommandText;
+        Assert.Equal("[stage.v1].[Import Rows]", sqlServer.SetupCommands[1].Parameters["@objectName"]);
+        Assert.Contains("CREATE TABLE [stage.v1].[Import Rows]", createTable);
+        Assert.Contains("[Name] nvarchar(100) NOT NULL", createTable);
+        Assert.Contains("[IsActive] bit NULL", createTable);
+        Assert.Contains("[Duration] time NULL", createTable);
+        Assert.Contains("[Payload] varbinary(max) NULL", createTable);
+        Assert.Contains(sqlServer.Mappings, mapping => mapping.Source == "DisplayName" && mapping.Destination == "Name");
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithAutoCreateTable_CreatesDefaultSchemaTable()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("CreatedUtc", typeof(DateTime));
+        table.Columns.Add("CorrelationId", typeof(Guid));
+        table.Rows.Add(1, DateTime.UtcNow, Guid.NewGuid());
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            AutoCreateTable = true
+        };
+
+        await sqlServer.BulkInsertAsync("s", "db", true, table, "ImportRows", options);
+
+        Assert.Single(sqlServer.SetupCommands);
+        var createTable = sqlServer.SetupCommands[0].CommandText;
+        Assert.Equal("[dbo].[ImportRows]", sqlServer.SetupCommands[0].Parameters["@objectName"]);
+        Assert.Contains("CREATE TABLE [dbo].[ImportRows]", createTable);
+        Assert.Contains("[Id] int NULL", createTable);
+        Assert.Contains("[CreatedUtc] datetime2 NULL", createTable);
+        Assert.Contains("[CorrelationId] uniqueidentifier NULL", createTable);
     }
 
     [Fact]

@@ -13,6 +13,12 @@ namespace DBAClientX.PowerShell;
 /// <para>Loads the workbook rows as a DataTable and sends them through the SQL Server bulk-copy provider.</para>
 /// </example>
 /// <example>
+/// <summary>Create a SQL Server staging table from incoming columns.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>$rows | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable staging.Import -AutoCreateTable -TableLock</code>
+/// <para>Creates the destination schema and table when needed, then writes the rows through SQL Server bulk copy.</para>
+/// </example>
+/// <example>
 /// <summary>Write object pipeline data to PostgreSQL.</summary>
 /// <prefix>PS&gt; </prefix>
 /// <code>$rows | Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' -DestinationTable public.import_data -BatchSize 5000</code>
@@ -77,6 +83,10 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     /// <summary>SQL Server-only option to preserve null values from the source data.</summary>
     [Parameter]
     public SwitchParameter KeepNulls { get; set; }
+
+    /// <summary>SQL Server-only option to create the destination schema and table when they do not already exist.</summary>
+    [Parameter]
+    public SwitchParameter AutoCreateTable { get; set; }
 
     /// <summary>SQL Server-only number of rows copied between progress updates.</summary>
     [Parameter]
@@ -219,7 +229,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
 
         if (Provider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
         {
-            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, and NotifyAfter are only supported for the SqlServer provider.");
+            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, AutoCreateTable, and NotifyAfter are only supported for the SqlServer provider.");
         }
     }
 
@@ -304,6 +314,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             FireTriggers.IsPresent,
             KeepIdentity.IsPresent,
             KeepNulls.IsPresent,
+            AutoCreateTable.IsPresent,
             ConvertColumnMap(),
             NotifyAfter,
             NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied) : null);
@@ -316,6 +327,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
            FireTriggers.IsPresent ||
            KeepIdentity.IsPresent ||
            KeepNulls.IsPresent ||
+           AutoCreateTable.IsPresent ||
            NotifyAfter.HasValue;
 
     private Dictionary<string, string>? ConvertColumnMap()

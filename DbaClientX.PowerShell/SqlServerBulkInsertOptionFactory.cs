@@ -8,6 +8,7 @@ internal static class SqlServerBulkInsertOptionFactory
         bool fireTriggers,
         bool keepIdentity,
         bool keepNulls,
+        bool autoCreateTable,
         Dictionary<string, string>? columnMappings = null,
         int? notifyAfter = null,
         Action<long>? rowsCopied = null)
@@ -15,6 +16,7 @@ internal static class SqlServerBulkInsertOptionFactory
         var options = new SqlServerBulkInsertOptions
         {
             ColumnMappings = columnMappings,
+            AutoCreateTable = autoCreateTable,
             NotifyAfter = notifyAfter,
             RowsCopied = rowsCopied
         };

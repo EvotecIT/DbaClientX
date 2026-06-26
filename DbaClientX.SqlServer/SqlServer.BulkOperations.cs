@@ -69,6 +69,7 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
+            EnsureAutoCreatedDestinationTable(connection!, transaction, table, destinationTable, options);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
             WriteToServer(bulkCopy, table);
@@ -165,6 +166,7 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, table, destinationTable, options, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
             await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);

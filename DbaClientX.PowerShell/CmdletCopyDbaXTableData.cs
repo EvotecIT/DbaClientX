@@ -534,7 +534,8 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             CheckConstraints.IsPresent,
             FireTriggers.IsPresent,
             KeepIdentity.IsPresent,
-            KeepNulls.IsPresent);
+            KeepNulls.IsPresent,
+            autoCreateTable: false);
     }
 
     private void WriteTableCopyProgress(DbaTableCopyProgress progress)

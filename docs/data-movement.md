@@ -83,6 +83,14 @@ Import-OfficeExcel .\Customers.xlsx -AsDataTable |
 
 If the upstream library is OfficeIMO or another .NET component, keep the reusable document/file-format work there, return `DataTable` or `IDataReader`, and let DbaClientX own the database write.
 
+For a runnable SQL Server to Excel to SQL Server flow, use:
+
+```powershell
+.\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
+```
+
+That example exports SQL Server rows to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, bulk-writes the data through DbaClientX, and verifies row counts.
+
 ## SQL Server bulk options
 
 SQL Server bulk loads can use the same thin DbaClientX path while opting into provider-specific behavior when the destination requires it:
@@ -93,6 +101,7 @@ Write-DbaXTableData `
     -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
     -DestinationTable 'staging.Customers' `
     -InputObject $customerTable `
+    -AutoCreateTable `
     -ColumnMap @{ CustomerName = 'DisplayName'; CustomerId = 'Id' } `
     -TableLock `
     -KeepIdentity `
@@ -101,7 +110,9 @@ Write-DbaXTableData `
     -PassThru
 ```
 
-`-ColumnMap`, `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, `-KeepNulls`, and `-NotifyAfter` are SQL Server-specific. Other providers reject those switches instead of silently ignoring them.
+`-AutoCreateTable`, `-ColumnMap`, `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, `-KeepNulls`, and `-NotifyAfter` are SQL Server-specific. Other providers reject those switches instead of silently ignoring them. `-AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape; existing tables are left unchanged.
+
+PowerShell input conversion is intentionally small. `TimeSpan` values are preserved as scalar values, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. When a source format needs richer coercion, keep that logic in the owning file-format library and pass DbaClientX a shaped `DataTable`, `IDataReader`, or object stream.
 
 ## Other providers
 
@@ -363,14 +374,14 @@ Copy-DbaXTableData `
 
 ## Benchmarking
 
-Use the benchmark example to compare DbaClientX against locally installed PowerShell competitors without adding dependencies to the repo:
+Use the benchmark example for repeatable local SQL Server import evidence without adding benchmark-only dependencies to the repo:
 
 ```powershell
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -RowCount 5000 -Iterations 3
 ```
 
-The script always benchmarks `Write-DbaXTableData`. If `Write-DbaDbTableData` from `dbatools` or `Write-SqlTableData` from the Microsoft `SqlServer` module is already installed, it adds those runs. Otherwise it reports only DbaClientX results.
+The script always benchmarks `Write-DbaXTableData`. If optional comparison commands are already installed, it adds those runs. Otherwise it reports only DbaClientX results.
 
 Interpret the numbers as local evidence, not a universal ranking. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
 
-See [`sqlserver-benchmark-notes.md`](sqlserver-benchmark-notes.md) for local comparison evidence and dbatools behavior worth considering in future DbaClientX provider work.
+The README includes the current local benchmark table. See [`sqlserver-benchmark-notes.md`](sqlserver-benchmark-notes.md) for the rerun command and measurement notes.
