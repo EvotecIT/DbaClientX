@@ -91,6 +91,7 @@ public static class DbaTableCopyPlanner
         foreach (var sourceColumn in sourceColumns.OrderBy(static column => column.Ordinal))
         {
             var destinationColumnName = ResolveDestinationColumnName(sourceColumn.Name, scopedMappings);
+            var effectiveDestinationColumnName = destinationColumnName;
             if (excludedColumns.Contains(sourceColumn.Name) || excludedColumns.Contains(destinationColumnName))
             {
                 excludedColumns.Add(sourceColumn.Name);
@@ -124,12 +125,16 @@ public static class DbaTableCopyPlanner
                     excludedColumns.Add(sourceColumn.Name);
                     continue;
                 }
+                else
+                {
+                    effectiveDestinationColumnName = destinationColumn.Name;
+                }
             }
 
             includedSourceColumns.Add(sourceColumn);
-            if (!string.Equals(sourceColumn.Name, destinationColumnName, StringComparison.Ordinal))
+            if (!string.Equals(sourceColumn.Name, effectiveDestinationColumnName, StringComparison.Ordinal))
             {
-                effectiveMappings[sourceColumn.Name] = destinationColumnName;
+                effectiveMappings[sourceColumn.Name] = effectiveDestinationColumnName;
             }
         }
 

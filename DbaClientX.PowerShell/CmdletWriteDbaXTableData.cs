@@ -340,7 +340,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             return null;
         }
 
-        var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (DictionaryEntry entry in ColumnMap)
         {
             var source = entry.Key?.ToString();

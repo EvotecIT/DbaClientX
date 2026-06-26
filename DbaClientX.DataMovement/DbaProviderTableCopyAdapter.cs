@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using DBAClientX;
 
@@ -234,7 +235,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.MySql:
                 using (var mySql = new MySql())
                 {
-                    return await mySql.ExecuteScalarAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return await mySql.ExecuteScalarAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
             case DbaTableCopyProvider.Oracle:
                 using (var oracle = new Oracle())
@@ -268,7 +269,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.MySql:
                 using (var mySql = new MySql { ReturnType = ReturnType.DataTable })
                 {
-                    result = await mySql.QueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    result = await mySql.QueryAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             case DbaTableCopyProvider.Oracle:
@@ -306,7 +307,7 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             case DbaTableCopyProvider.MySql:
                 using (var mySql = new MySql())
                 {
-                    await mySql.ExecuteNonQueryAsync(_connectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    await mySql.ExecuteNonQueryAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
                 break;
             case DbaTableCopyProvider.Oracle:
@@ -613,6 +614,30 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         return _provider == DbaTableCopyProvider.PostgreSql
             ? DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, destinationTableName)
             : page;
+    }
+
+    private string ResolveMySqlRegularOperationConnectionString()
+    {
+        if (_provider != DbaTableCopyProvider.MySql)
+        {
+            return _connectionString;
+        }
+
+        var builder = new DbConnectionStringBuilder { ConnectionString = _connectionString };
+        RemoveConnectionStringOption(builder, "AllowLoadLocalInfile");
+        RemoveConnectionStringOption(builder, "LoadLocalInfile");
+        return builder.ConnectionString;
+    }
+
+    private static void RemoveConnectionStringOption(DbConnectionStringBuilder builder, string optionName)
+    {
+        var matchingKey = builder.Keys
+            .Cast<string>()
+            .FirstOrDefault(key => string.Equals(key, optionName, StringComparison.OrdinalIgnoreCase));
+        if (matchingKey != null)
+        {
+            builder.Remove(matchingKey);
+        }
     }
 
     private string QuoteIdentifier(IdentifierSegment segment)

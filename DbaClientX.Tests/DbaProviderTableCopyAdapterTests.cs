@@ -517,6 +517,21 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
+    public void RegularOperationConnectionString_MySqlRemovesBulkOnlyLocalInfileOptions()
+    {
+        var adapter = new DbaProviderTableCopyAdapter(
+            DbaTableCopyProvider.MySql,
+            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True;LoadLocalInfile=True");
+
+        var normalized = InvokeResolveMySqlRegularOperationConnectionString(adapter);
+
+        Assert.Contains("Server=localhost", normalized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Database=db", normalized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("AllowLoadLocalInfile", normalized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("LoadLocalInfile", normalized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BulkDestinationName_OracleQuotesDestinationPath()
     {
         var adapter = new DbaProviderTableCopyAdapter(
@@ -818,6 +833,14 @@ public class DbaProviderTableCopyAdapterTests
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeMySqlBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
+    }
+
+    private static string InvokeResolveMySqlRegularOperationConnectionString(DbaProviderTableCopyAdapter adapter)
+    {
+        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("ResolveMySqlRegularOperationConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "ResolveMySqlRegularOperationConnectionString");
+
+        return (string)method.Invoke(adapter, Array.Empty<object?>())!;
     }
 
     private static string InvokeNormalizeOracleBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)

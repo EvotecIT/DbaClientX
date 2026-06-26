@@ -391,6 +391,8 @@ public class DbaTableCopyPlannerTests
 
         var definition = Assert.Single(plan.Definitions);
         Assert.Null(definition.ExcludedColumns);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("displayname", definition.ColumnMappings["DisplayName"]);
         Assert.DoesNotContain(plan.Warnings, warning => warning.Code == "MissingDestinationColumn");
     }
 

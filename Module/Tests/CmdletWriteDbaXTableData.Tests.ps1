@@ -304,6 +304,45 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'preserves case-sensitive SQL Server column map entries' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkOptions = $options
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $null = $table.Columns.Add('name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $row['name'] = 'Beta'
+            $table.Rows.Add($row)
+
+            $columnMap = [hashtable]::new([StringComparer]::Ordinal)
+            $columnMap['Name'] = 'DisplayName'
+            $columnMap['name'] = 'displayname'
+
+            $table | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -ColumnMap $columnMap | Out-Null
+
+            $script:lastBulkOptions | Should -Not -BeNullOrEmpty
+            $script:lastBulkOptions.ColumnMappings.Count | Should -Be 2
+            $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
+            $script:lastBulkOptions.ColumnMappings['name'] | Should -Be 'displayname'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkOptions = $null
+        }
+    }
+
     it 'converts object pipeline input to a DataTable' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
