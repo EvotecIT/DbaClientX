@@ -19,7 +19,7 @@ public class DbaProviderTableCopyRunnerTests
                 sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeIndex (ProbeName, LastCompletedUtcMs, StatusId) VALUES ('Server1', 10, 1), ('server1', 20, 2), ('Server2', 15, 3);");
             }
 
-            var result = await new DbaProviderTableCopyRunner().CopyAsync(new DbaProviderTableCopyRequest
+            var result = await CreateRunner().CopyAsync(new DbaProviderTableCopyRequest
             {
                 Source = new DbaProviderTableCopyAdapterOptions
                 {
@@ -79,7 +79,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        await Assert.ThrowsAsync<ArgumentException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        await Assert.ThrowsAsync<ArgumentException>(() => CreateRunner().CopyAsync(request));
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public class DbaProviderTableCopyRunnerTests
                 }
             };
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
             Assert.Contains("Refusing to copy provider table", exception.Message);
         }
         finally
@@ -142,7 +142,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -167,7 +167,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
     }
@@ -197,7 +197,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
@@ -226,7 +226,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
@@ -255,7 +255,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -284,7 +284,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -309,7 +309,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -390,7 +390,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -415,7 +415,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -445,7 +445,7 @@ public class DbaProviderTableCopyRunnerTests
             AllowSameProviderTableCopy = true
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("AllowLoadLocalInfile=true", exception.Message);
     }
 
@@ -496,7 +496,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -525,7 +525,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
     }
@@ -551,7 +551,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
     }
@@ -582,7 +582,7 @@ public class DbaProviderTableCopyRunnerTests
             AllowSameProviderTableCopy = true
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
     }
@@ -637,7 +637,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -662,7 +662,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -687,7 +687,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -712,7 +712,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -741,7 +741,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
@@ -770,7 +770,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
@@ -795,7 +795,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -824,7 +824,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("omits Search Path", exception.Message);
     }
 
@@ -853,7 +853,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("omits Search Path", exception.Message);
     }
 
@@ -882,7 +882,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("omits Search Path", exception.Message);
     }
 
@@ -911,7 +911,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("omits Search Path", exception.Message);
     }
 
@@ -940,7 +940,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("omits Search Path", exception.Message);
     }
 
@@ -965,7 +965,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -990,7 +990,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -1106,7 +1106,7 @@ public class DbaProviderTableCopyRunnerTests
                 }
             };
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
             Assert.Contains("Refusing to copy provider table", exception.Message);
         }
         finally
@@ -1136,7 +1136,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", exception.Message);
     }
 
@@ -1274,7 +1274,7 @@ public class DbaProviderTableCopyRunnerTests
                 sqlite.ExecuteNonQuery(databasePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
             }
 
-            var result = await new DbaProviderTableCopyRunner().CopyAsync(new DbaProviderTableCopyRequest
+            var result = await CreateRunner().CopyAsync(new DbaProviderTableCopyRequest
             {
                 Source = new DbaProviderTableCopyAdapterOptions
                 {
@@ -1338,7 +1338,7 @@ public class DbaProviderTableCopyRunnerTests
                 }
             };
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
             Assert.Contains("also used as a source table", exception.Message);
         }
         finally
@@ -1374,7 +1374,7 @@ public class DbaProviderTableCopyRunnerTests
             AllowSameProviderTableCopy = true
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("multiple definitions targeting destination", exception.Message);
     }
 
@@ -1404,7 +1404,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
     }
@@ -1464,6 +1464,20 @@ public class DbaProviderTableCopyRunnerTests
 
         return (bool)method.Invoke(null, new object?[] { path })!;
     }
+
+    private static DbaProviderTableCopyRunner CreateRunner()
+        => new(CreateAdapter, CreateAdapter);
+
+    private static DbaProviderTableCopyAdapterBase CreateAdapter(DbaProviderTableCopyAdapterOptions options)
+        => options.Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(options),
+            DbaTableCopyProvider.PostgreSql => new PostgreSqlTableCopyAdapter(options),
+            DbaTableCopyProvider.MySql => new MySqlTableCopyAdapter(options),
+            DbaTableCopyProvider.Oracle => new OracleTableCopyAdapter(options),
+            DbaTableCopyProvider.SQLite => new SQLiteTableCopyAdapter(options),
+            _ => throw new NotSupportedException($"Provider '{options.Provider}' is not supported.")
+        };
 
     private static void InvokeValidateSameProviderTableCopy(DbaProviderTableCopyRequest request)
     {

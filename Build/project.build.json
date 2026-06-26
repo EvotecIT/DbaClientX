@@ -8,8 +8,7 @@
     "DbaClientX.PostgreSql": "0.X.0",
     "DbaClientX.MySql": "0.X.0",
     "DbaClientX.SQLite": "0.X.0",
-    "DbaClientX.Oracle": "0.X.0",
-    "DbaClientX.DataMovement": "0.X.0"
+    "DbaClientX.Oracle": "0.X.0"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,

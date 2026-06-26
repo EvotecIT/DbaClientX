@@ -17,9 +17,6 @@ public sealed class DbaProviderTableCopyAdapterOptions
     /// <summary>Allows paged reads without explicit order columns. Use only for ad hoc copies.</summary>
     public bool AllowUnordered { get; set; }
 
-    /// <summary>Optional SQL Server destination bulk-copy behavior.</summary>
-    public SqlServerBulkInsertOptions? SqlServerOptions { get; set; }
-
     /// <summary>When true, missing source or destination tables are counted as empty instead of failing the copy.</summary>
     public bool TreatMissingTablesAsEmpty { get; set; }
 }

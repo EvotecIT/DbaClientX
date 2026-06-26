@@ -1,5 +1,4 @@
 using System.Data.Common;
-using Microsoft.Data.Sqlite;
 
 namespace DBAClientX.DataMovement;
 
@@ -466,10 +465,13 @@ internal static class DbaProviderTableCopyTargetIdentity
         string? cache = null;
         if (IsSQLiteConnectionString(connectionString))
         {
-            var builder = new SqliteConnectionStringBuilder(connectionString);
-            dataSource = builder.DataSource;
-            mode = builder.Mode.ToString();
-            cache = builder.Cache.ToString();
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString.Trim()
+            };
+            dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
+            mode = ReadConnectionStringValue(builder, "Mode");
+            cache = ReadConnectionStringValue(builder, "Cache");
         }
         else
         {

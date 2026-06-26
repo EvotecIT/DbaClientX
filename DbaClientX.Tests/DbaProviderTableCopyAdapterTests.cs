@@ -5,7 +5,7 @@ using DBAClientX.DataMovement;
 
 namespace DbaClientX.Tests;
 
-public class DbaProviderTableCopyAdapterTests
+public class DbaProviderTableCopyAdapterBaseTests
 {
     [Fact]
     public async Task CopyAsync_CopiesRowsBetweenSQLiteConnectionStrings()
@@ -21,11 +21,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two'), (3, 'Three');");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "Id" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath);
 
@@ -67,11 +67,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 sourcePath,
                 new[] { "Id" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 destinationPath);
 
@@ -105,11 +105,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(destinationPath, "INSERT INTO \"Rows.Current\" (Id, DisplayName) VALUES (99, 'Old');");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "Id" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath);
 
@@ -154,11 +154,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeIndex (ProbeName, LastCompletedUtcMs, StatusId) VALUES ('Server1', 10, 1), ('server1', 20, 2), ('Server2', 15, 3);");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "ProbeName" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath);
 
@@ -212,11 +212,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO ProbeIndex (Id, __DbaXCRank_62D977CD) VALUES (1, 'real-rank');");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "Id" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath);
 
@@ -257,11 +257,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE MissingRows (Id INTEGER NOT NULL PRIMARY KEY);");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 treatMissingTablesAsEmpty: true);
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath,
                 treatMissingTablesAsEmpty: true);
@@ -310,11 +310,11 @@ public class DbaProviderTableCopyAdapterTests
                 sqlite.ExecuteNonQuery(destinationPath, "INSERT INTO ProbeResultMetadata (ResultId, MetaKey, MetaValue) VALUES (99, 'OldKey', 'OldValue');");
             }
 
-            var source = new DbaProviderTableCopyAdapter(
+            var source = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "ResultId" });
-            var destination = new DbaProviderTableCopyAdapter(
+            var destination = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + destinationPath);
 
@@ -354,7 +354,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleFoldsSimpleIdentifiersToUppercase()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             new[] { "Id" });
@@ -367,7 +367,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleQuotesNonSimpleIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             new[] { "Created At" });
@@ -380,7 +380,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleQuotesIdentifiersStartingWithUnderscore()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             new[] { "_SortKey" });
@@ -393,7 +393,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleAllowUnorderedDoesNotOrderByFirstColumn()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             allowUnordered: true);
@@ -406,7 +406,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_PostgreSqlFoldsSimpleIdentifiersToLowercase()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p",
             new[] { "CreatedUtc" });
@@ -419,7 +419,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_PostgreSqlPreservesExplicitQuotedIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p",
             new[] { "\"CreatedUtc\"" });
@@ -432,7 +432,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_PostgreSqlPreservesDotsInsideExplicitQuotedIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p",
             new[] { "\"Created.Utc\"" });
@@ -445,7 +445,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_SqlServerPreservesDotsInsideBracketedIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SqlServer,
             "Server=.;Database=tempdb;Integrated Security=True",
             new[] { "[Created.Utc]" });
@@ -458,7 +458,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OraclePreservesExplicitQuotedIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             new[] { "\"CreatedUtc\"" });
@@ -471,7 +471,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkDestinationName_PostgreSqlFoldsSimpleIdentifiersBeforeProviderBulkCopyQuotesThem()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
 
@@ -483,7 +483,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkDestinationName_PostgreSqlPreservesDotsInsideExplicitQuotedSegments()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
 
@@ -495,7 +495,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkDestinationName_SqlServerQuotesDestinationPath()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SqlServer,
             "Server=.;Database=tempdb;Integrated Security=True");
 
@@ -507,7 +507,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkDestinationName_MySqlTranslatesPlannerQuotesToBackticks()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.MySql,
             "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True");
 
@@ -519,7 +519,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void RegularOperationConnectionString_MySqlRemovesBulkOnlyLocalInfileOptions()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.MySql,
             "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True;LoadLocalInfile=True");
 
@@ -534,7 +534,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkDestinationName_OracleQuotesDestinationPath()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p");
 
@@ -548,7 +548,7 @@ public class DbaProviderTableCopyAdapterTests
     [InlineData("`Rows.Current`", "\"Rows.Current\"")]
     public void BulkDestinationName_SQLiteStripsAlternativeIdentifierDelimitersBeforeQuoting(string destinationTableName, string expected)
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SQLite,
             "Data Source=:memory:");
 
@@ -560,7 +560,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkPage_PostgreSqlNormalizesSimpleColumnNamesBeforeProviderBulkCopyQuotesThem()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
         using var page = new DataTable("Users");
@@ -577,7 +577,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkPage_PostgreSqlFoldsSimpleColumnNamesForQuotedDestinationTable()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
         using var page = new DataTable("Users");
@@ -592,7 +592,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BulkPage_PostgreSqlFoldsSimpleColumnNamesWhenOnlySchemaIsQuoted()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
         using var page = new DataTable("Users");
@@ -607,7 +607,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void ValidatePage_PostgreSqlRejectsDuplicateNormalizedColumnsBeforeWrite()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p");
         using var page = new DataTable("Users");
@@ -638,7 +638,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_SqlServerStripsDelimitersBeforeQuotingIdentifiers()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SqlServer,
             "Server=.;Database=tempdb;Integrated Security=True",
             new[] { "[Id]" });
@@ -651,13 +651,13 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_DeduplicationUsesNamespacedRankAlias()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.PostgreSql,
             "Host=localhost;Database=db;Username=u;Password=p",
             new[] { "ProbeName" });
 
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "BuildPageQuery");
         var query = (string)method.Invoke(
             adapter,
             new object?[]
@@ -689,7 +689,7 @@ public class DbaProviderTableCopyAdapterTests
                     "INSERT INTO SourceRows (Id, ProbeName, LastCompletedUtcMs, \"__DbaXCRank_62D977CD\") VALUES (1, 'Server1', 10, 'source-a'), (2, 'Server1', 20, 'source-b');");
             }
 
-            var adapter = new DbaProviderTableCopyAdapter(
+            var adapter = CreateAdapter(
                 DbaTableCopyProvider.SQLite,
                 "Data Source=" + sourcePath,
                 new[] { "ProbeName" });
@@ -715,7 +715,7 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildCountQuery_DeduplicationAliasesConstantForSqlServerDerivedTable()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SqlServer,
             "Server=.;Database=tempdb;Integrated Security=True",
             new[] { "ProbeName" });
@@ -731,13 +731,13 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleDeduplicationRankAliasFitsLegacyIdentifierLimit()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
             new[] { "ProbeName" });
 
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "BuildPageQuery");
         var query = (string)method.Invoke(
             adapter,
             new object?[]
@@ -778,14 +778,14 @@ public class DbaProviderTableCopyAdapterTests
             }
         };
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("Refusing to copy provider table", ex.Message);
     }
 
     [Fact]
     public void BuildPageQuery_UsesDefinitionOrderColumnsWhenProvided()
     {
-        var adapter = new DbaProviderTableCopyAdapter(
+        var adapter = CreateAdapter(
             DbaTableCopyProvider.SqlServer,
             "Server=.;Database=tempdb;Integrated Security=True",
             new[] { "FallbackId" });
@@ -795,85 +795,98 @@ public class DbaProviderTableCopyAdapterTests
         Assert.Equal("SELECT * FROM [dbo].[Users] ORDER BY [DefinitionId] OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
     }
 
-    private static string InvokeBuildPageQuery(DbaProviderTableCopyAdapter adapter, string tableName, long offset, int pageSize, IReadOnlyList<string>? orderByColumns = null)
+    private static string InvokeBuildPageQuery(DbaProviderTableCopyAdapterBase adapter, string tableName, long offset, int pageSize, IReadOnlyList<string>? orderByColumns = null)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildPageQuery");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("BuildPageQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "BuildPageQuery");
 
         return (string)method.Invoke(adapter, new object?[] { tableName, orderByColumns, null, offset, pageSize })!;
     }
 
-    private static string InvokeBuildCountQuery(DbaProviderTableCopyAdapter adapter, string tableName, DbaTableCopySourceOptions? sourceOptions)
+    private static string InvokeBuildCountQuery(DbaProviderTableCopyAdapterBase adapter, string tableName, DbaTableCopySourceOptions? sourceOptions)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("BuildCountQuery", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "BuildCountQuery");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("BuildCountQuery", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "BuildCountQuery");
 
         return (string)method.Invoke(adapter, new object?[] { tableName, sourceOptions })!;
     }
 
-    private static string InvokeNormalizePostgreSqlBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    private static string InvokeNormalizePostgreSqlBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
+        => DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTableName);
+
+    private static string InvokeNormalizeSqlServerBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
+        => InvokeNormalizeQuotedBulkDestinationTableName(adapter, destinationTableName);
+
+    private static string InvokeNormalizeMySqlBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
+        => InvokeNormalizeQuotedBulkDestinationTableName(adapter, destinationTableName);
+
+    private static string InvokeResolveMySqlRegularOperationConnectionString(DbaProviderTableCopyAdapterBase adapter)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkDestinationTableName");
-
-        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
-    }
-
-    private static string InvokeNormalizeSqlServerBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
-    {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeSqlServerBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeSqlServerBulkDestinationTableName");
-
-        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
-    }
-
-    private static string InvokeNormalizeMySqlBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
-    {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeMySqlBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeMySqlBulkDestinationTableName");
-
-        return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
-    }
-
-    private static string InvokeResolveMySqlRegularOperationConnectionString(DbaProviderTableCopyAdapter adapter)
-    {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("ResolveMySqlRegularOperationConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "ResolveMySqlRegularOperationConnectionString");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("ResolveMySqlRegularOperationConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveMySqlRegularOperationConnectionString");
 
         return (string)method.Invoke(adapter, Array.Empty<object?>())!;
     }
 
-    private static string InvokeNormalizeOracleBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    private static string InvokeNormalizeOracleBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
+        => InvokeNormalizeQuotedBulkDestinationTableName(adapter, destinationTableName);
+
+    private static string InvokeNormalizeSQLiteBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeOracleBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeOracleBulkDestinationTableName");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("NormalizeSQLiteBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "NormalizeSQLiteBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }
 
-    private static string InvokeNormalizeSQLiteBulkDestinationTableName(DbaProviderTableCopyAdapter adapter, string destinationTableName)
+    private static DataTable InvokeNormalizePostgreSqlBulkPage(DbaProviderTableCopyAdapterBase adapter, DataTable page, string destinationTableName)
+        => DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, destinationTableName);
+
+    private static string InvokeNormalizeQuotedBulkDestinationTableName(DbaProviderTableCopyAdapterBase adapter, string destinationTableName)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizeSQLiteBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizeSQLiteBulkDestinationTableName");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("NormalizeQuotedBulkDestinationTableName", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "NormalizeQuotedBulkDestinationTableName");
 
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
-    }
-
-    private static DataTable InvokeNormalizePostgreSqlBulkPage(DbaProviderTableCopyAdapter adapter, DataTable page, string destinationTableName)
-    {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("NormalizePostgreSqlBulkPage", BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "NormalizePostgreSqlBulkPage");
-
-        return (DataTable)method.Invoke(adapter, new object?[] { page, destinationTableName })!;
     }
 
     private static bool InvokeIsMissingTableException(Exception exception)
     {
-        var method = typeof(DbaProviderTableCopyAdapter).GetMethod("IsMissingTableException", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapter), "IsMissingTableException");
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("IsMissingTableException", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "IsMissingTableException");
 
         return (bool)method.Invoke(null, new object?[] { exception })!;
     }
+
+    private static DbaProviderTableCopyRunner CreateRunner()
+        => new(CreateAdapter, CreateAdapter);
+
+    private static DbaProviderTableCopyAdapterBase CreateAdapter(DbaProviderTableCopyAdapterOptions options)
+        => options.Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(options),
+            DbaTableCopyProvider.PostgreSql => new PostgreSqlTableCopyAdapter(options),
+            DbaTableCopyProvider.MySql => new MySqlTableCopyAdapter(options),
+            DbaTableCopyProvider.Oracle => new OracleTableCopyAdapter(options),
+            DbaTableCopyProvider.SQLite => new SQLiteTableCopyAdapter(options),
+            _ => throw new NotSupportedException($"Provider '{options.Provider}' is not supported.")
+        };
+
+    private static DbaProviderTableCopyAdapterBase CreateAdapter(
+        DbaTableCopyProvider provider,
+        string connectionString,
+        IReadOnlyList<string>? defaultOrderByColumns = null,
+        bool allowUnordered = false,
+        bool treatMissingTablesAsEmpty = false)
+        => provider switch
+        {
+            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty: treatMissingTablesAsEmpty),
+            DbaTableCopyProvider.PostgreSql => new PostgreSqlTableCopyAdapter(connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty),
+            DbaTableCopyProvider.MySql => new MySqlTableCopyAdapter(connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty),
+            DbaTableCopyProvider.Oracle => new OracleTableCopyAdapter(connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty),
+            DbaTableCopyProvider.SQLite => new SQLiteTableCopyAdapter(connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty),
+            _ => throw new NotSupportedException($"Provider '{provider}' is not supported.")
+        };
 
     private static void CreateHistoryTables(SQLite sqlite, string path)
     {

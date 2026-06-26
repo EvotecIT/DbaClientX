@@ -61,7 +61,7 @@ Use it when you need:
 | --- | --- | --- |
 | Write objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported data to a table | `Write-DbaXTableData` | Provider `BulkInsert` implementations |
 | SQL Server staging import with table creation, column mapping, locks, identity/null preservation, triggers, constraints, and progress | `Write-DbaXTableData -Provider SqlServer` | `SqlServerBulkInsertOptions` |
-| Copy tables between SQL Server, PostgreSQL, MySQL, SQLite, and Oracle | `Copy-DbaXTableData` | `DBAClientX.DataMovement.DbaProviderTableCopyRunner` |
+| Copy tables between selected providers | `Copy-DbaXTableData` | `DbaProviderTableCopyRunner` in `DBAClientX.Core` plus provider-owned adapters |
 | Export SQL rows to Excel and import them back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX for database work, PSWriteOffice/OfficeIMO for workbook work |
 
 The thin PowerShell layer maps friendly parameters into provider-owned C# APIs. Database behavior belongs in DbaClientX; Excel/document behavior belongs in PSWriteOffice and OfficeIMO.

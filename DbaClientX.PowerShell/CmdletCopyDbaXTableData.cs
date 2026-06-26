@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using DBAClientX;
 using DBAClientX.DataMovement;
 
 namespace DBAClientX.PowerShell;
@@ -295,7 +296,6 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             {
                 Provider = ToTableCopyProvider(DestinationProvider),
                 ConnectionString = DestinationConnectionString,
-                SqlServerOptions = DestinationProvider == DbaXBulkProvider.SqlServer ? BuildSqlServerOptions() : null,
                 TreatMissingTablesAsEmpty = TreatMissingTablesAsEmpty.IsPresent
             },
             Definitions = definitions,
@@ -311,10 +311,33 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             }
         };
 
-        return await new DbaProviderTableCopyRunner()
+        return await new DbaProviderTableCopyRunner(
+                CreateSourceAdapter,
+                CreateDestinationAdapter)
             .CopyAsync(request)
             .ConfigureAwait(false);
     }
+
+    private IDbaTableCopySource CreateSourceAdapter(DbaProviderTableCopyAdapterOptions options)
+        => CreateProviderAdapter(options, sqlServerOptions: null);
+
+    private IDbaTableCopyDestination CreateDestinationAdapter(DbaProviderTableCopyAdapterOptions options)
+        => CreateProviderAdapter(
+            options,
+            options.Provider == DbaTableCopyProvider.SqlServer ? BuildSqlServerOptions() : null);
+
+    private static DbaProviderTableCopyAdapterBase CreateProviderAdapter(
+        DbaProviderTableCopyAdapterOptions options,
+        SqlServerBulkInsertOptions? sqlServerOptions)
+        => options.Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(options, sqlServerOptions),
+            DbaTableCopyProvider.PostgreSql => new PostgreSqlTableCopyAdapter(options),
+            DbaTableCopyProvider.MySql => new MySqlTableCopyAdapter(options),
+            DbaTableCopyProvider.Oracle => new OracleTableCopyAdapter(options),
+            DbaTableCopyProvider.SQLite => new SQLiteTableCopyAdapter(options),
+            _ => throw new PSArgumentException($"Provider '{options.Provider}' is not supported.")
+        };
 
     private IReadOnlyList<DbaTableCopyDefinition> BuildDefinitions()
     {

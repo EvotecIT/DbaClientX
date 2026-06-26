@@ -7,6 +7,20 @@ namespace DBAClientX.DataMovement;
 /// </summary>
 public sealed class DbaProviderTableCopyRunner
 {
+    private readonly Func<DbaProviderTableCopyAdapterOptions, IDbaTableCopySource> _sourceFactory;
+    private readonly Func<DbaProviderTableCopyAdapterOptions, IDbaTableCopyDestination> _destinationFactory;
+
+    /// <summary>
+    /// Creates a provider-backed runner that delegates concrete adapter creation to provider packages.
+    /// </summary>
+    public DbaProviderTableCopyRunner(
+        Func<DbaProviderTableCopyAdapterOptions, IDbaTableCopySource> sourceFactory,
+        Func<DbaProviderTableCopyAdapterOptions, IDbaTableCopyDestination> destinationFactory)
+    {
+        _sourceFactory = sourceFactory ?? throw new ArgumentNullException(nameof(sourceFactory));
+        _destinationFactory = destinationFactory ?? throw new ArgumentNullException(nameof(destinationFactory));
+    }
+
     /// <summary>
     /// Copies tables between provider connections from a single request object.
     /// </summary>
@@ -36,8 +50,8 @@ public sealed class DbaProviderTableCopyRunner
         ValidateClearDestinationDefinitionsAreUnique(request);
         ValidateDestinationBulkCopyRequirements(request);
 
-        var source = new DbaProviderTableCopyAdapter(request.Source);
-        var destination = new DbaProviderTableCopyAdapter(request.Destination);
+        var source = _sourceFactory(request.Source);
+        var destination = _destinationFactory(request.Destination);
         return new DbaTableCopyEngine().CopyAsync(
             source,
             destination,

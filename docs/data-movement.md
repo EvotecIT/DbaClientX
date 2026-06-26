@@ -291,39 +291,50 @@ The planner is intentionally metadata-driven, not domain-driven. It can infer or
 
 When `DbaTableCopyOptions.ClearDestination` is enabled for a multi-table plan, DbaClientX clears destination tables in reverse definition order before copying rows in the declared order. That lets domain tools list parent tables before child/detail tables for natural copy order while still deleting dependent destination rows first.
 
-For provider-backed .NET copies, reference `DBAClientX.DataMovement` and use `DbaProviderTableCopyRunner` when the source and destination are regular DbaClientX provider connections:
+For provider-backed .NET copies, reference `DBAClientX.Core` plus only the provider packages you need. The runner and neutral contracts live in Core, while concrete adapters live in provider packages such as `DBAClientX.SQLite` and `DBAClientX.SqlServer`:
 
 ```csharp
-var result = await new DbaProviderTableCopyRunner().CopyAsync(
-    new DbaProviderTableCopyRequest
+var runner = new DbaProviderTableCopyRunner(
+    source => source.Provider switch
     {
-        Source = new DbaProviderTableCopyAdapterOptions
-        {
-            Provider = DbaTableCopyProvider.SQLite,
-            ConnectionString = "Data Source=C:\\Data\\monitoring.sqlite",
-            TreatMissingTablesAsEmpty = true
-        },
-        Destination = new DbaProviderTableCopyAdapterOptions
-        {
-            Provider = DbaTableCopyProvider.SqlServer,
-            ConnectionString = "Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True",
-            SqlServerOptions = new SqlServerBulkInsertOptions
+        DbaTableCopyProvider.SQLite => new SQLiteTableCopyAdapter(source),
+        _ => throw new NotSupportedException($"Source provider '{source.Provider}' is not enabled.")
+    },
+    destination => destination.Provider switch
+    {
+        DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(
+            destination,
+            new SqlServerBulkInsertOptions
             {
                 BulkCopyOptions = Microsoft.Data.SqlClient.SqlBulkCopyOptions.TableLock
-            },
-            TreatMissingTablesAsEmpty = true
-        },
-        Definitions = plan.Definitions,
-        Options = new DbaTableCopyOptions
-        {
-            PageSize = 10000,
-            BatchSize = 5000
-        }
+            }),
+        _ => throw new NotSupportedException($"Destination provider '{destination.Provider}' is not enabled.")
+    });
+
+var result = await runner.CopyAsync(new DbaProviderTableCopyRequest
+{
+    Source = new DbaProviderTableCopyAdapterOptions
+    {
+        Provider = DbaTableCopyProvider.SQLite,
+        ConnectionString = "Data Source=C:\\Data\\monitoring.sqlite",
+        TreatMissingTablesAsEmpty = true
     },
-    cancellationToken);
+    Destination = new DbaProviderTableCopyAdapterOptions
+    {
+        Provider = DbaTableCopyProvider.SqlServer,
+        ConnectionString = "Server=sql01;Database=monitoring;Encrypt=True;TrustServerCertificate=True;Integrated Security=True",
+        TreatMissingTablesAsEmpty = true
+    },
+    Definitions = plan.Definitions,
+    Options = new DbaTableCopyOptions
+    {
+        PageSize = 10000,
+        BatchSize = 5000
+    }
+}, cancellationToken);
 ```
 
-The provider runner supports SQL Server, PostgreSQL, MySQL, Oracle, and SQLite as either source or destination. Use `DbaProviderTableCopyAdapter` directly only when you need custom composition with `DbaTableCopyEngine` or your own source/destination implementations. PowerShell's `Copy-DbaXTableData` builds a `DbaProviderTableCopyRequest` internally and only maps user-friendly parameters into the reusable .NET API.
+The provider runner is intentionally factory-based: there is no required all-provider data-movement package. Applications reference only the provider adapters they compile in. PowerShell's `Copy-DbaXTableData` references all provider packages because the module intentionally offers all provider choices, but application services such as TestimoX can compile only SQLite and SQL Server.
 
 By default, the provider runner refuses a same-provider copy when the normalized source and destination database identity and table name are the same. This prevents accidental self-copy loops or destructive clears during migration work. In rare advanced scenarios, set `DbaProviderTableCopyRequest.AllowSameProviderTableCopy = true`; in PowerShell, use `-AllowSameTableCopy`.
 
