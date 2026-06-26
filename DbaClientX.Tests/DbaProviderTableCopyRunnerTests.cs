@@ -939,31 +939,6 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public async Task CopyAsync_BlocksMySqlCaseOnlyTableAliasBeforeConnecting()
-    {
-        var request = new DbaProviderTableCopyRequest
-        {
-            Source = new DbaProviderTableCopyAdapterOptions
-            {
-                Provider = DbaTableCopyProvider.MySql,
-                ConnectionString = "Server=localhost;Database=app;User ID=reader;Password=one"
-            },
-            Destination = new DbaProviderTableCopyAdapterOptions
-            {
-                Provider = DbaTableCopyProvider.MySql,
-                ConnectionString = "Server=localhost;Database=app;User ID=writer;Password=two"
-            },
-            Definitions = new[]
-            {
-                new DbaTableCopyDefinition("Rows", "rows", new[] { "Id" })
-            }
-        };
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
-        Assert.Contains("Refusing to copy provider table", exception.Message);
-    }
-
-    [Fact]
     public void NormalizeTableName_PostgreSqlRespectsQuotedIdentifierSemantics()
     {
         var ordinary = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users");
@@ -1001,14 +976,14 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public void NormalizeTableName_MySqlFoldsTableNameCase()
+    public void NormalizeTableName_MySqlPreservesTableNameCase()
     {
         var rows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "Rows", "app");
         var lowerRows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "rows", "app");
         var currentDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "app.Rows", "app");
 
         Assert.Equal(rows, currentDatabaseQualified);
-        Assert.Equal(rows, lowerRows);
+        Assert.NotEqual(rows, lowerRows);
     }
 
     [Fact]

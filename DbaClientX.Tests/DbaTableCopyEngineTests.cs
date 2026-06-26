@@ -81,6 +81,28 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_WritesSchemaPageWhenDestinationRequestsEmptyPages()
+    {
+        var source = new MemoryTableCopySource(CreateRows(0));
+        var destination = new MemoryTableCopyDestination { WriteEmptyPages = true };
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") });
+
+        Assert.Equal(1, source.ReadCalls);
+        Assert.Equal(new long[] { 0 }, source.RequestedOffsets);
+        Assert.Equal(new[] { "DestinationRows" }, destination.WriteOrder);
+        Assert.Equal(2, destination.Rows.Columns.Count);
+        Assert.Equal(0, destination.Rows.Rows.Count);
+        Assert.True(result.Verified);
+        Assert.Equal(0, result.SourceRows);
+        Assert.Equal(0, result.CopiedRows);
+        Assert.Equal(0, result.DestinationRows);
+    }
+
+    [Fact]
     public async Task CopyAsync_ClearsDestinationTablesInReverseOrderBeforeCopying()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -666,7 +688,7 @@ public class DbaTableCopyEngineTests
         }
     }
 
-    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination
+    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination
     {
         private readonly long? _destinationRowCountOverride;
 
@@ -686,6 +708,8 @@ public class DbaTableCopyEngineTests
         public bool ThrowOnValidatePage { get; init; }
 
         public int ValidatePageCalls { get; private set; }
+
+        public bool WriteEmptyPages { get; init; }
 
         public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
@@ -732,5 +756,8 @@ public class DbaTableCopyEngineTests
                 throw new InvalidOperationException("Destination page preflight failed.");
             }
         }
+
+        public bool ShouldWriteEmptyPage(DbaTableCopyDefinition definition)
+            => WriteEmptyPages;
     }
 }

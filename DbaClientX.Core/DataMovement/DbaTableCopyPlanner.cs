@@ -291,7 +291,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName)
     {
         var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new Dictionary<string, TValue>(hasScopedValues ? GetComparer(scopedValues!) : GetComparer(global));
+        var result = new Dictionary<string, TValue>(GetComparer(global) ?? GetComparer(scopedValues));
         if (global != null)
         {
             foreach (var entry in global)
@@ -326,7 +326,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName)
     {
         var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new HashSet<string>(global ?? Array.Empty<string>(), hasScopedValues ? GetComparer(scopedValues!) : GetComparer(global));
+        var result = new HashSet<string>(global ?? Array.Empty<string>(), GetComparer(global) ?? GetComparer(scopedValues));
         if (hasScopedValues)
         {
             foreach (var value in scopedValues!)

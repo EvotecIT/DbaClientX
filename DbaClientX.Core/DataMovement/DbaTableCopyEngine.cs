@@ -96,13 +96,16 @@ public sealed class DbaTableCopyEngine
             var definition = definitions[index];
             var sourceRows = await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
             DataTable? firstPage = null;
-            if (sourceRows != 0)
+            if (sourceRows != 0 || ShouldWriteEmptyPage(destination, definition))
             {
                 firstPage = await source.ReadPageAsync(
                         new DbaTableCopyPageRequest(definition, 0, options.PageSize),
                         cancellationToken)
                     .ConfigureAwait(false);
-                PreflightTransform(firstPage, definition, destinationPagePreflight);
+                if (firstPage.Columns.Count > 0)
+                {
+                    PreflightTransform(firstPage, definition, destinationPagePreflight);
+                }
             }
 
             results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
@@ -157,20 +160,21 @@ public sealed class DbaTableCopyEngine
             : null;
         if (sourceRows == 0)
         {
-            long? emptyDestinationRows = null;
-            var emptyVerified = true;
-            if (options.VerifyRowCounts)
+            var emptyPage = preflight?.FirstPage;
+            if (emptyPage == null && ShouldWriteEmptyPage(destination, definition))
             {
-                emptyDestinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
-                if (emptyDestinationRows.HasValue)
-                {
-                    emptyVerified = options.ClearDestination
-                        ? emptyDestinationRows.Value == 0
-                        : initialDestinationRows.HasValue && emptyDestinationRows.Value == initialDestinationRows.Value;
-                }
+                emptyPage = await source.ReadPageAsync(
+                        new DbaTableCopyPageRequest(definition, 0, options.PageSize),
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
 
-            return new DbaTableCopyTableResult(definition.DisplayName, sourceRows, 0, emptyDestinationRows, emptyVerified);
+            if (emptyPage is { Columns.Count: > 0 })
+            {
+                await CopyPageAsync(destination, definition, options, emptyPage, 0, sourceRows, cancellationToken).ConfigureAwait(false);
+            }
+
+            return await CompleteCopyAsync(destination, definition, options, sourceRows, 0, initialDestinationRows, cancellationToken).ConfigureAwait(false);
         }
 
         long copied = 0;
@@ -263,6 +267,10 @@ public sealed class DbaTableCopyEngine
 
         return new DbaTableCopyTableResult(definition.DisplayName, sourceRows, copied, destinationRows, verified);
     }
+
+    private static bool ShouldWriteEmptyPage(IDbaTableCopyDestination destination, DbaTableCopyDefinition definition)
+        => destination is IDbaTableCopyEmptyPageDestination emptyPageDestination &&
+           emptyPageDestination.ShouldWriteEmptyPage(definition);
 
     private static void ValidateOptions(DbaTableCopyOptions options)
     {

@@ -7,7 +7,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>
 /// Provides reusable provider-backed source and destination adapters for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination
+public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination
 {
     private const string SourceAlias = "dbax_source";
     private const string DeduplicationRankColumnPrefix = "__DbaXR_";
@@ -200,6 +200,10 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
             bulkPage.Dispose();
         }
     }
+
+    /// <inheritdoc />
+    public bool ShouldWriteEmptyPage(DbaTableCopyDefinition definition)
+        => _provider == DbaTableCopyProvider.SqlServer && _sqlServerOptions?.AutoCreateTable == true;
 
     private async Task<long?> ExecuteCountAsync(string tableName, DbaTableCopySourceOptions? sourceOptions, CancellationToken cancellationToken)
     {
