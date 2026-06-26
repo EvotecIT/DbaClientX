@@ -168,7 +168,8 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
-        Assert.Contains("Refusing to copy provider table", exception.Message);
+        Assert.Contains("unqualified", exception.Message);
+        Assert.Contains("default schema is unknown", exception.Message);
     }
 
     [Fact]
@@ -330,6 +331,32 @@ public class DbaProviderTableCopyRunnerTests
             Options = new DbaTableCopyOptions
             {
                 ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("unqualified", exception.Message);
+        Assert.Contains("default schema is unknown", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_RejectsUnqualifiedSqlServerSelfCopyWhenDefaultSchemaIsUnknown()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "app.Rows", new[] { "Id" })
             }
         };
 

@@ -241,7 +241,7 @@ public partial class SqlServer
 
     private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
-        bulkCopy.DestinationTableName = destinationTable;
+        bulkCopy.DestinationTableName = ResolveBulkCopyDestinationTableName(destinationTable, options);
         if (batchSize.HasValue)
         {
             bulkCopy.BatchSize = batchSize.Value;
@@ -406,6 +406,11 @@ public partial class SqlServer
             }
         }
     }
+
+    private static string ResolveBulkCopyDestinationTableName(string destinationTable, SqlServerBulkInsertOptions? options)
+        => options?.AutoCreateTable == true
+            ? SqlServerDestinationTable.Parse(destinationTable).QuotedFullName
+            : destinationTable;
 
     private static bool ContainsColumn(DataTable table, string columnName)
     {

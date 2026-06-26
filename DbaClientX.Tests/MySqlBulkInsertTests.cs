@@ -180,6 +180,21 @@ public class MySqlBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithLocalInfileConnectionOption_IsAllowedForBulkCopy()
+    {
+        using var mySql = new CaptureBulkCopyMySql();
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        const string connectionString = "Server=h;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=true";
+
+        mySql.BulkInsert(connectionString, table, "Dest");
+
+        Assert.Equal("Dest", mySql.Destination);
+        Assert.Equal(1, mySql.SyncDisposeCalls);
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_WithConnectionString_UsesConnectionStringOverload()
     {
         using var mySql = new CaptureBulkCopyMySql();

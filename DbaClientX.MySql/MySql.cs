@@ -13,6 +13,8 @@ namespace DBAClientX;
 /// </summary>
 public partial class MySql : DatabaseClientBase
 {
+    private static readonly IReadOnlyCollection<string> BulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "LoadLocalInfile" };
+
     /// <summary>
     /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.
     /// </summary>
@@ -132,8 +134,11 @@ public partial class MySql : DatabaseClientBase
         => new MySqlConnectionStringBuilder(connectionString).ConnectionString;
 
     private static void ValidateConnectionString(string connectionString)
+        => ValidateConnectionString(connectionString, allowedUnsupportedOptions: null);
+
+    private static void ValidateConnectionString(string connectionString, IReadOnlyCollection<string>? allowedUnsupportedOptions)
     {
-        var validationResult = DbaConnectionFactory.Validate("mysql", connectionString);
+        var validationResult = DbaConnectionFactory.Validate("mysql", connectionString, allowedUnsupportedOptions);
         if (!validationResult.IsValid)
         {
             throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionString));

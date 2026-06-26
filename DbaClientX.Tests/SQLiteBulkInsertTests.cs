@@ -1,5 +1,6 @@
 using System.Data;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -165,6 +166,15 @@ public class SQLiteBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_ResolveRowsPerBatch_CapsByParameterLimit()
+    {
+        Assert.Equal(9, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: null, columnCount: 100));
+        Assert.Equal(9, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: 50, columnCount: 100));
+        Assert.Equal(5, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: 5, columnCount: 100));
+        Assert.Equal(1, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: null, columnCount: 2000));
+    }
+
+    [Fact]
     public void BulkInsert_QuotesDestinationTableName()
     {
         var path = Path.GetTempFileName();
@@ -231,5 +241,12 @@ public class SQLiteBulkInsertTests
         {
             File.Delete(path);
         }
+    }
+
+    private static int InvokeResolveRowsPerBatch(int totalRows, int? batchSize, int columnCount)
+    {
+        var method = typeof(DBAClientX.SQLite).GetMethod("ResolveRowsPerBatch", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DBAClientX.SQLite), "ResolveRowsPerBatch");
+        return (int)method.Invoke(null, new object?[] { totalRows, batchSize, columnCount })!;
     }
 }

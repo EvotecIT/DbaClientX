@@ -148,7 +148,7 @@ public partial class SqlServer
             builder.Append("        ")
                 .Append(QuoteSqlServerIdentifier(destinationColumnName))
                 .Append(' ')
-                .Append(GetSqlServerColumnType(column))
+                .Append(GetSqlServerColumnType(column, table))
                 .Append(column.AllowDBNull ? " NULL" : " NOT NULL");
 
             if (index + 1 < table.Columns.Count)
@@ -164,7 +164,7 @@ public partial class SqlServer
         return builder.ToString();
     }
 
-    private static string GetSqlServerColumnType(DataColumn column)
+    private static string GetSqlServerColumnType(DataColumn column, DataTable table)
     {
         var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType;
         if (type == typeof(string))
@@ -216,7 +216,7 @@ public partial class SqlServer
 
         if (type == typeof(decimal))
         {
-            return "decimal(38,10)";
+            return $"decimal(38,{GetDecimalScale(column, table)})";
         }
 
         if (type == typeof(DateTime))
@@ -250,6 +250,23 @@ public partial class SqlServer
         }
 
         return "nvarchar(max)";
+    }
+
+    private static int GetDecimalScale(DataColumn column, DataTable table)
+    {
+        var scale = 0;
+        foreach (DataRow row in table.Rows)
+        {
+            if (row.RowState == DataRowState.Deleted || row[column] is not decimal value)
+            {
+                continue;
+            }
+
+            var bits = decimal.GetBits(value);
+            scale = Math.Max(scale, (bits[3] >> 16) & 0x7F);
+        }
+
+        return Math.Min(scale, 28);
     }
 
     private static string QuoteSqlServerIdentifier(string identifier)

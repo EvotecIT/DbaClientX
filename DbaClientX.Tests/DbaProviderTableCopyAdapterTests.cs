@@ -693,12 +693,12 @@ public class DbaProviderTableCopyAdapterTests
             Source = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.SqlServer,
-                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True"
+                ConnectionString = "Server=.;Database=tempdb;Integrated Security=True;Current Schema=dbo"
             },
             Destination = new DbaProviderTableCopyAdapterOptions
             {
                 Provider = DbaTableCopyProvider.SqlServer,
-                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True"
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Current Schema=dbo"
             },
             Definitions = new[]
             {

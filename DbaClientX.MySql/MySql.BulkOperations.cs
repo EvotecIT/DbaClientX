@@ -40,7 +40,7 @@ public partial class MySql
         int? batchSize = null,
         int? bulkCopyTimeout = null)
     {
-        ValidateConnectionString(connectionString);
+        ValidateConnectionString(connectionString, BulkCopyAllowedUnsupportedOptions);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;
@@ -116,7 +116,7 @@ public partial class MySql
         int? bulkCopyTimeout = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateConnectionString(connectionString);
+        ValidateConnectionString(connectionString, BulkCopyAllowedUnsupportedOptions);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;

@@ -10,6 +10,7 @@ namespace DBAClientX;
 public partial class SQLite
 {
     private const int DefaultBulkInsertBatchSize = 500;
+    internal const int BulkInsertParameterLimit = 999;
 
     private void BulkInsertCore(
         string database,
@@ -43,7 +44,7 @@ public partial class SQLite
             }
 
             var columns = GetColumns(table);
-            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
+            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize, columns.Length);
 
             SqliteCommand? command = null;
             var preparedRowsPerBatch = 0;
@@ -159,7 +160,7 @@ public partial class SQLite
             }
 
             var columns = GetColumns(table);
-            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
+            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize, columns.Length);
 
             SqliteCommand? command = null;
             var preparedRowsPerBatch = 0;
@@ -310,19 +311,25 @@ public partial class SQLite
         return NormalizeConnectionString(database);
     }
 
-    private static int ResolveRowsPerBatch(int totalRows, int? batchSize)
+    internal static int ResolveRowsPerBatch(int totalRows, int? batchSize, int columnCount)
     {
         if (totalRows <= 0)
         {
             return 1;
         }
 
-        if (batchSize.HasValue && batchSize.Value > 0)
+        if (columnCount <= 0)
         {
-            return batchSize.Value;
+            throw new ArgumentOutOfRangeException(nameof(columnCount), "Column count must be greater than zero.");
         }
 
-        return Math.Min(totalRows, DefaultBulkInsertBatchSize);
+        var parameterLimitedRows = Math.Max(1, BulkInsertParameterLimit / columnCount);
+        if (batchSize.HasValue && batchSize.Value > 0)
+        {
+            return Math.Min(batchSize.Value, parameterLimitedRows);
+        }
+
+        return Math.Min(totalRows, Math.Min(DefaultBulkInsertBatchSize, parameterLimitedRows));
     }
 
     private static string BuildBulkInsertStatement(string destinationTable, DataColumn[] columns, int rowsPerBatch)

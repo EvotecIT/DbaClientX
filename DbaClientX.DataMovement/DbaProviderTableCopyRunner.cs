@@ -80,6 +80,8 @@ public sealed class DbaProviderTableCopyRunner
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
+            ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
+            ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
             ValidatePostgreSqlTableNameIsUnambiguous(request.Source, definition.SourceName);
             ValidatePostgreSqlTableNameIsUnambiguous(request.Destination, definition.DestinationName);
 
@@ -158,7 +160,7 @@ public sealed class DbaProviderTableCopyRunner
 
     private static InvalidOperationException CreateAmbiguousSqlServerTableException(string tableName)
         => new(
-            $"Refusing to clear destination while SQL Server table '{tableName}' is unqualified and the connection default schema is unknown. " +
+            $"Refusing to guard SQL Server table '{tableName}' because the table name is unqualified and the connection default schema is unknown. " +
             "Schema-qualify SQL Server source and destination tables, provide a Current Schema connection option, or use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
 
     private static InvalidOperationException CreateAmbiguousPostgreSqlTableException(string tableName)
@@ -173,12 +175,19 @@ public sealed class DbaProviderTableCopyRunner
             return;
         }
 
-        if (options.Provider == DbaTableCopyProvider.SqlServer && string.IsNullOrWhiteSpace(defaultSchema))
+        ValidateSqlServerTableNameIsUnambiguous(options, tableName, defaultSchema);
+
+        ValidatePostgreSqlTableNameIsUnambiguous(options, tableName);
+    }
+
+    private static void ValidateSqlServerTableNameIsUnambiguous(DbaProviderTableCopyAdapterOptions options, string tableName, string? defaultSchema)
+    {
+        if (options.Provider == DbaTableCopyProvider.SqlServer &&
+            DbaProviderTableCopyTargetIdentity.IsUnqualifiedTableName(tableName) &&
+            string.IsNullOrWhiteSpace(defaultSchema))
         {
             throw CreateAmbiguousSqlServerTableException(tableName);
         }
-
-        ValidatePostgreSqlTableNameIsUnambiguous(options, tableName);
     }
 
     private static void ValidatePostgreSqlTableNameIsUnambiguous(DbaProviderTableCopyAdapterOptions options, string tableName)
