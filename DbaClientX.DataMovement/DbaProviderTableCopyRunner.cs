@@ -80,14 +80,22 @@ public sealed class DbaProviderTableCopyRunner
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
-            ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
-            ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
-            ValidatePostgreSqlTableNameIsUnambiguous(request.Source, definition.SourceName);
-            ValidatePostgreSqlTableNameIsUnambiguous(request.Destination, definition.DestinationName);
+            var namesCanOverlap = DbaProviderTableCopyTargetIdentity.TableNamesCanReferToSameObject(
+                request.Source.Provider,
+                definition.SourceName,
+                definition.DestinationName);
+            if (namesCanOverlap)
+            {
+                ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
+                ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
+                ValidatePostgreSqlTableNameIsUnambiguous(request.Source, definition.SourceName);
+                ValidatePostgreSqlTableNameIsUnambiguous(request.Destination, definition.DestinationName);
+            }
 
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
-            if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+            if (namesCanOverlap &&
+                string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
                     $"Refusing to copy provider table '{definition.SourceName}' to itself. " +
@@ -98,24 +106,34 @@ public sealed class DbaProviderTableCopyRunner
 
     private static void ValidateClearDestinationDoesNotRemoveSources(DbaProviderTableCopyRequest request)
     {
-        ValidateClearDestinationTableNamesAreUnambiguous(request);
-
         var sourceDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Source);
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
-        var sourceTables = new HashSet<string>(
-            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema)),
-            StringComparer.Ordinal);
 
-        foreach (var definition in request.Definitions)
+        foreach (var destinationDefinition in request.Definitions)
         {
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
-            if (sourceTables.Contains(destinationTable))
+            foreach (var sourceDefinition in request.Definitions)
             {
-                throw new InvalidOperationException(
-                    $"Refusing to clear destination table '{definition.DestinationName}' because it is also used as a source table in the same provider database. " +
-                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                if (!DbaProviderTableCopyTargetIdentity.TableNamesCanReferToSameObject(
+                        request.Source.Provider,
+                        sourceDefinition.SourceName,
+                        destinationDefinition.DestinationName))
+                {
+                    continue;
+                }
+
+                ValidateClearDestinationTableNameIsUnambiguous(request.Source, sourceDefinition.SourceName, sourceDefaultSchema);
+                ValidateClearDestinationTableNameIsUnambiguous(request.Destination, destinationDefinition.DestinationName, destinationDefaultSchema);
+
+                var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema);
+                var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema);
+                if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to clear destination table '{destinationDefinition.DestinationName}' because it is also used as a source table in the same provider database. " +
+                        "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                }
             }
         }
     }
@@ -131,18 +149,29 @@ public sealed class DbaProviderTableCopyRunner
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var sourceDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Source);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
-        var sourceTables = new HashSet<string>(
-            request.Definitions.Select(definition => DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema)),
-            StringComparer.Ordinal);
-
-        foreach (var definition in request.Definitions)
+        foreach (var destinationDefinition in request.Definitions)
         {
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
-            if (sourceTables.Contains(destinationTable))
+            foreach (var sourceDefinition in request.Definitions)
             {
-                throw new InvalidOperationException(
-                    $"Refusing to clear destination table '{definition.DestinationName}' because it is also used as a source table in the same provider database. " +
-                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                if (!DbaProviderTableCopyTargetIdentity.TableNamesCanReferToSameObject(
+                        request.Source.Provider,
+                        sourceDefinition.SourceName,
+                        destinationDefinition.DestinationName))
+                {
+                    continue;
+                }
+
+                ValidateSqlServerTableNameIsUnambiguous(request.Source, sourceDefinition.SourceName, sourceDefaultSchema);
+                ValidateSqlServerTableNameIsUnambiguous(request.Destination, destinationDefinition.DestinationName, destinationDefaultSchema);
+
+                var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema);
+                var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema);
+                if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to clear destination table '{destinationDefinition.DestinationName}' because it is also used as a source table in the same provider database. " +
+                        "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                }
             }
         }
     }
@@ -214,6 +243,17 @@ public sealed class DbaProviderTableCopyRunner
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
         foreach (var definition in request.Definitions)
         {
+            if (!DbaProviderTableCopyTargetIdentity.TableNamesCanReferToSameObject(
+                    request.Source.Provider,
+                    definition.SourceName,
+                    definition.DestinationName))
+            {
+                continue;
+            }
+
+            ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
+            ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
+
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
@@ -234,9 +274,23 @@ public sealed class DbaProviderTableCopyRunner
 
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
-        foreach (var definition in request.Definitions)
+        for (var index = 0; index < request.Definitions.Count; index++)
         {
-            ValidateClearDestinationTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
+            for (var next = index + 1; next < request.Definitions.Count; next++)
+            {
+                var current = request.Definitions[index];
+                var candidate = request.Definitions[next];
+                if (!DbaProviderTableCopyTargetIdentity.TableNamesCanReferToSameObject(
+                        request.Destination.Provider,
+                        current.DestinationName,
+                        candidate.DestinationName))
+                {
+                    continue;
+                }
+
+                ValidateClearDestinationTableNameIsUnambiguous(request.Destination, current.DestinationName, destinationDefaultSchema);
+                ValidateClearDestinationTableNameIsUnambiguous(request.Destination, candidate.DestinationName, destinationDefaultSchema);
+            }
         }
 
         var duplicate = request.Definitions

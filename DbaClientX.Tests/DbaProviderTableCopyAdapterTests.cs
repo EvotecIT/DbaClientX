@@ -654,8 +654,47 @@ public class DbaProviderTableCopyAdapterTests
                 10
             })!;
 
-        Assert.Contains("__DbaXCRank_62D977CD", query);
-        Assert.DoesNotContain("__DbaXRank", query);
+        Assert.Contains("__DbaXR_", query);
+        Assert.DoesNotContain("__DbaXCRank_62D977CD", query);
+    }
+
+    [Fact]
+    public async Task ReadPageAsync_DeduplicationPreservesSourceColumnNamedLikeRankAlias()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(
+                    sourcePath,
+                    "CREATE TABLE SourceRows (Id INTEGER NOT NULL, ProbeName TEXT NOT NULL, LastCompletedUtcMs INTEGER NOT NULL, \"__DbaXCRank_62D977CD\" TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(
+                    sourcePath,
+                    "INSERT INTO SourceRows (Id, ProbeName, LastCompletedUtcMs, \"__DbaXCRank_62D977CD\") VALUES (1, 'Server1', 10, 'source-a'), (2, 'Server1', 20, 'source-b');");
+            }
+
+            var adapter = new DbaProviderTableCopyAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + sourcePath,
+                new[] { "ProbeName" });
+            var definition = new DbaTableCopyDefinition(
+                "SourceRows",
+                "DestinationRows",
+                new[] { "ProbeName" },
+                SourceOptions: new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtcMs" }));
+
+            using var page = await adapter.ReadPageAsync(new DbaTableCopyPageRequest(definition, 0, 10));
+
+            Assert.Equal(1, page.Rows.Count);
+            Assert.Contains("__DbaXCRank_62D977CD", page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+            Assert.Equal("source-b", page.Rows[0]["__DbaXCRank_62D977CD"]);
+            Assert.DoesNotContain(page.Columns.Cast<DataColumn>(), static column => column.ColumnName.StartsWith("__DbaXR_", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+        }
     }
 
     [Fact]
@@ -677,7 +716,6 @@ public class DbaProviderTableCopyAdapterTests
     [Fact]
     public void BuildPageQuery_OracleDeduplicationRankAliasFitsLegacyIdentifierLimit()
     {
-        const string rankAlias = "__DbaXCRank_62D977CD";
         var adapter = new DbaProviderTableCopyAdapter(
             DbaTableCopyProvider.Oracle,
             "Data Source=oracle;User Id=u;Password=p",
@@ -696,8 +734,11 @@ public class DbaProviderTableCopyAdapterTests
                 10
             })!;
 
-        Assert.True(rankAlias.Length <= 30);
-        Assert.Contains($"\"{rankAlias}\"", query);
+        var rankAliasStart = query.IndexOf("\"__DbaXR_", StringComparison.Ordinal);
+        Assert.True(rankAliasStart >= 0);
+        var rankAliasEnd = query.IndexOf('"', rankAliasStart + 1);
+        Assert.True(rankAliasEnd > rankAliasStart);
+        Assert.True(rankAliasEnd - rankAliasStart - 1 <= 30);
         Assert.DoesNotContain("__DbaXCopyRank_62D977CD8E7A4BC08D1A73B5197F33D4", query);
     }
 

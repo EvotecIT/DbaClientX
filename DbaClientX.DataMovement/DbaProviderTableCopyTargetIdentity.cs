@@ -92,6 +92,17 @@ internal static class DbaProviderTableCopyTargetIdentity
     internal static bool IsUnqualifiedTableName(string tableName)
         => SplitTableName(tableName).Length == 1;
 
+    internal static bool TableNamesCanReferToSameObject(DbaTableCopyProvider provider, string sourceTableName, string destinationTableName)
+        => string.Equals(NormalizeTableLeafName(provider, sourceTableName), NormalizeTableLeafName(provider, destinationTableName), StringComparison.Ordinal);
+
+    private static string NormalizeTableLeafName(DbaTableCopyProvider provider, string tableName)
+    {
+        var parts = SplitTableName(tableName);
+        return parts.Length == 0
+            ? string.Empty
+            : NormalizeTableSegment(provider, parts[parts.Length - 1]);
+    }
+
     internal static string NormalizeEffectiveTableTarget(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema)
     {
         var parts = SplitTableName(tableName);
@@ -212,7 +223,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             var searchPath =
                 ReadRawConnectionStringValue(options.ConnectionString, "Search Path", "SearchPath", "Current Schema") ??
                 ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
-            return string.IsNullOrWhiteSpace(searchPath) || HasAmbiguousPostgreSqlSearchPath(searchPath!);
+            return string.IsNullOrWhiteSpace(searchPath) || HasAmbiguousPostgreSqlSearchPath(UnquoteConnectionStringValue(searchPath!));
         }
         catch (ArgumentException)
         {
@@ -548,6 +559,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             return ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User") ?? "public";
         }
 
+        searchPath = UnquoteConnectionStringValue(searchPath!);
         var username = ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
         foreach (var segment in SplitPostgreSqlSearchPath(searchPath!))
         {
@@ -606,16 +618,20 @@ internal static class DbaProviderTableCopyTargetIdentity
         var segments = SplitPostgreSqlSearchPath(searchPath)
             .Where(static segment => segment.Length > 0)
             .ToArray();
-        for (var index = 0; index < segments.Length; index++)
+        return segments.Length != 1;
+    }
+
+    private static string UnquoteConnectionStringValue(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '\'' &&
+            trimmed[trimmed.Length - 1] == '\'')
         {
-            if (string.Equals(segments[index], "$user", StringComparison.OrdinalIgnoreCase) &&
-                segments.Skip(index + 1).Any(static segment => segment.Length > 0))
-            {
-                return true;
-            }
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("''", "'");
         }
 
-        return false;
+        return trimmed;
     }
 
     private static string? ReadRawConnectionStringValue(string connectionString, params string[] keys)
@@ -642,26 +658,36 @@ internal static class DbaProviderTableCopyTargetIdentity
     private static IEnumerable<string> SplitConnectionStringEntries(string connectionString)
     {
         var start = 0;
-        var quoted = false;
+        var quote = '\0';
         for (var index = 0; index < connectionString.Length; index++)
         {
             var value = connectionString[index];
-            if (value == '"')
+            if (quote == '\0')
             {
-                if (quoted && index + 1 < connectionString.Length && connectionString[index + 1] == '"')
+                if (value is '"' or '\'')
+                {
+                    quote = value;
+                    continue;
+                }
+
+                if (value == ';')
+                {
+                    yield return connectionString.Substring(start, index - start);
+                    start = index + 1;
+                }
+
+                continue;
+            }
+
+            if (value == quote)
+            {
+                if (index + 1 < connectionString.Length && connectionString[index + 1] == quote)
                 {
                     index++;
                     continue;
                 }
 
-                quoted = !quoted;
-                continue;
-            }
-
-            if (value == ';' && !quoted)
-            {
-                yield return connectionString.Substring(start, index - start);
-                start = index + 1;
+                quote = '\0';
             }
         }
 

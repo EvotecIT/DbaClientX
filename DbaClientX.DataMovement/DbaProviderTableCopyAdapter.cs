@@ -9,7 +9,7 @@ namespace DBAClientX.DataMovement;
 public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination
 {
     private const string SourceAlias = "dbax_source";
-    private const string DeduplicationRankColumn = "__DbaXCRank_62D977CD";
+    private const string DeduplicationRankColumnPrefix = "__DbaXR_";
 
     private readonly DbaTableCopyProvider _provider;
     private readonly string _connectionString;
@@ -91,9 +91,10 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         }
 
         if (request.Definition.SourceOptions?.HasDeduplication == true &&
-            table.Columns.Contains(DeduplicationRankColumn))
+            table.Columns.Count > 0 &&
+            IsDeduplicationRankColumn(table.Columns[table.Columns.Count - 1].ColumnName))
         {
-            table.Columns.Remove(DeduplicationRankColumn);
+            table.Columns.RemoveAt(table.Columns.Count - 1);
         }
 
         table.TableName = request.Definition.DestinationName;
@@ -380,7 +381,8 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
         var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: true);
         var winnerOrder = BuildDeduplicationWinnerOrderClause(sourceOptions);
         var outerOrder = BuildOrderByClause(orderByColumns ?? sourceOptions.DeduplicateByColumns);
-        var rank = QuoteSyntheticIdentifier(DeduplicationRankColumn);
+        var rankColumn = CreateDeduplicationRankColumn();
+        var rank = QuoteSyntheticIdentifier(rankColumn);
         var rankedSource =
             $"SELECT {SourceAlias}.*, ROW_NUMBER() OVER (PARTITION BY {keyColumns} ORDER BY {winnerOrder}) AS {rank} " +
             $"FROM {quotedTable} {SourceAlias}";
@@ -755,6 +757,12 @@ public sealed class DbaProviderTableCopyAdapter : IDbaTableCopySource, IDbaTable
 
         return false;
     }
+
+    private static bool IsDeduplicationRankColumn(string columnName)
+        => columnName.StartsWith(DeduplicationRankColumnPrefix, StringComparison.Ordinal);
+
+    private static string CreateDeduplicationRankColumn()
+        => DeduplicationRankColumnPrefix + Guid.NewGuid().ToString("N").Substring(0, 16);
 
     private string ResolveSQLiteConnectionString()
     {
