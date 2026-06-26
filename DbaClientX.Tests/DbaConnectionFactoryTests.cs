@@ -49,22 +49,26 @@ public class DbaConnectionFactoryTests
         Assert.Contains("database", result.Message.ToLowerInvariant());
     }
 
-    [Fact]
-    public void Validate_UnsupportedOption()
+    [Theory]
+    [InlineData("AllowLoadLocalInfile")]
+    [InlineData("Allow Load Local Infile")]
+    public void Validate_UnsupportedOption(string option)
     {
-        var result = DbaConnectionFactory.Validate("mysql", "Server=.;Database=app;AllowLoadLocalInfile=true");
+        var result = DbaConnectionFactory.Validate("mysql", $"Server=.;Database=app;{option}=true");
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
-        Assert.Equal("AllowLoadLocalInfile", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(option, result.Details, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("disabled", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
     }
 
-    [Fact]
-    public void Validate_AllowedUnsupportedOption_StillRunsRemainingValidation()
+    [Theory]
+    [InlineData("AllowLoadLocalInfile")]
+    [InlineData("Allow Load Local Infile")]
+    public void Validate_AllowedUnsupportedOption_StillRunsRemainingValidation(string option)
     {
         var result = DbaConnectionFactory.Validate(
             "mysql",
-            "Server=dbhost;Database=app;AllowLoadLocalInfile=true",
-            new[] { "AllowLoadLocalInfile" });
+            $"Server=dbhost;Database=app;{option}=true",
+            new[] { option });
 
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
         Assert.Equal("SslMode", result.Details);

@@ -202,7 +202,7 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public async Task CopyAsync_BlocksSameSqlServerTableWithCaseOnlyAliasBeforeConnecting()
+    public void ValidateSameProviderTableCopy_AllowsSqlServerCaseOnlyTableDifference()
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -226,8 +226,7 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
-        Assert.Contains("Refusing to clear destination table", exception.Message);
+        InvokeValidateSameProviderTableCopy(request);
     }
 
     [Fact]
@@ -366,6 +365,30 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void ValidateSameProviderTableCopy_AllowsUnqualifiedSqlServerSameTableOnDifferentServers()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=prod;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=staging;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "Id" })
+            }
+        };
+
+        InvokeValidateSameProviderTableCopy(request);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksExplicitMySqlCrossDatabaseSameTableClearBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -447,11 +470,12 @@ public class DbaProviderTableCopyRunnerTests
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("AllowLoadLocalInfile=true", exception.Message);
+        Assert.Contains("Allow Load Local Infile=true", exception.Message);
     }
 
     [Theory]
     [InlineData("AllowLoadLocalInfile=true")]
-    [InlineData("LoadLocalInfile=1")]
+    [InlineData("Allow Load Local Infile=1")]
     public void ValidateDestinationBulkCopyRequirements_AllowsMySqlDestinationWithLocalInfile(string option)
     {
         var request = new DbaProviderTableCopyRequest
@@ -473,6 +497,31 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         InvokeValidateDestinationBulkCopyRequirements(request);
+    }
+
+    [Fact]
+    public void ValidateDestinationBulkCopyRequirements_RejectsUnsupportedMySqlLoadLocalInfileAlias()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=app;User ID=writer;Password=two;SslMode=Required;LoadLocalInfile=true"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateDestinationBulkCopyRequirements(request));
+        Assert.Contains("AllowLoadLocalInfile=true", exception.Message);
     }
 
     [Fact]
@@ -1065,7 +1114,7 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.Equal(onePart, currentDatabaseQualified);
         Assert.NotEqual(onePart, otherDatabaseQualified);
-        Assert.Equal(onePart, lowerCaseTable);
+        Assert.NotEqual(onePart, lowerCaseTable);
     }
 
     [Fact]

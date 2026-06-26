@@ -521,14 +521,14 @@ public class DbaProviderTableCopyAdapterBaseTests
     {
         var adapter = CreateAdapter(
             DbaTableCopyProvider.MySql,
-            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True;LoadLocalInfile=True");
+            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True;Allow Load Local Infile=True");
 
         var normalized = InvokeResolveMySqlRegularOperationConnectionString(adapter);
 
         Assert.Contains("Server=localhost", normalized, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Database=db", normalized, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("AllowLoadLocalInfile", normalized, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("LoadLocalInfile", normalized, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Allow Load Local Infile", normalized, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

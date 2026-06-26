@@ -97,7 +97,7 @@ public static class DbaConnectionFactory
     private static readonly Dictionary<string, string> DisallowedOptions = new(StringComparer.OrdinalIgnoreCase)
     {
         ["AllowLoadLocalInfile"] = "Loading local files is disabled for security reasons.",
-        ["LoadLocalInfile"] = "Loading local files is disabled for security reasons.",
+        ["Allow Load Local Infile"] = "Loading local files is disabled for security reasons.",
         ["Use Procedure Bodies"] = "Using procedure bodies is disallowed due to injection risk."
     };
 

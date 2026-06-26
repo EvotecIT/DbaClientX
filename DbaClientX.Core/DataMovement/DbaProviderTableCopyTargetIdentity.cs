@@ -48,7 +48,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         if (provider == DbaTableCopyProvider.SqlServer &&
             parts.Length == 3 &&
             !string.IsNullOrWhiteSpace(currentDatabase) &&
-            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizeSqlServerTableDatabaseQualifier(currentDatabase), StringComparison.Ordinal))
+            string.Equals(NormalizeSqlServerTableDatabaseQualifier(parts[0].Value), NormalizeSqlServerTableDatabaseQualifier(currentDatabase), StringComparison.Ordinal))
         {
             parts = parts.Skip(1).ToArray();
         }
@@ -398,7 +398,7 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.SqlServer)
         {
-            return segment.Value.ToLowerInvariant();
+            return segment.Value;
         }
 
         return segment.Value.ToLowerInvariant();

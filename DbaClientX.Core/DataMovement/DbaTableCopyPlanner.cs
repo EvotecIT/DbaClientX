@@ -291,7 +291,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName)
     {
         var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new Dictionary<string, TValue>(GetComparer(global) ?? GetComparer(scopedValues));
+        var result = new Dictionary<string, TValue>(GetComparerOrDefault(global, scopedValues));
         if (global != null)
         {
             foreach (var entry in global)
@@ -326,7 +326,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName)
     {
         var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new HashSet<string>(global ?? Array.Empty<string>(), GetComparer(global) ?? GetComparer(scopedValues));
+        var result = new HashSet<string>(global ?? Array.Empty<string>(), GetComparerOrDefault(global, scopedValues));
         if (hasScopedValues)
         {
             foreach (var value in scopedValues!)
@@ -379,15 +379,25 @@ public static class DbaTableCopyPlanner
             ? mapped
             : sourceColumnName;
 
-    private static IEqualityComparer<string> GetComparer<TValue>(IReadOnlyDictionary<string, TValue>? source)
+    private static IEqualityComparer<string> GetComparerOrDefault<TValue>(
+        IReadOnlyDictionary<string, TValue>? global,
+        IReadOnlyDictionary<string, TValue>? scoped)
+        => GetComparer(global) ?? GetComparer(scoped) ?? StringComparer.Ordinal;
+
+    private static IEqualityComparer<string> GetComparerOrDefault(
+        IReadOnlyCollection<string>? global,
+        IReadOnlyCollection<string>? scoped)
+        => GetComparer(global) ?? GetComparer(scoped) ?? StringComparer.Ordinal;
+
+    private static IEqualityComparer<string>? GetComparer<TValue>(IReadOnlyDictionary<string, TValue>? source)
         => source is Dictionary<string, TValue> dictionary
             ? dictionary.Comparer
-            : StringComparer.Ordinal;
+            : null;
 
-    private static IEqualityComparer<string> GetComparer(IReadOnlyCollection<string>? source)
+    private static IEqualityComparer<string>? GetComparer(IReadOnlyCollection<string>? source)
         => source is HashSet<string> hashSet
             ? hashSet.Comparer
-            : StringComparer.Ordinal;
+            : null;
 
     private static bool IsGenerated(DbaColumnInfo column)
         => !string.IsNullOrWhiteSpace(column.GeneratedExpression) ||

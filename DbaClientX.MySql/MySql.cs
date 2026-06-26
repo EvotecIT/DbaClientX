@@ -13,7 +13,7 @@ namespace DBAClientX;
 /// </summary>
 public partial class MySql : DatabaseClientBase
 {
-    private static readonly IReadOnlyCollection<string> BulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "LoadLocalInfile" };
+    private static readonly IReadOnlyCollection<string> BulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "Allow Load Local Infile" };
 
     /// <summary>
     /// Default upper bound for concurrent query execution in <see cref="RunQueriesInParallel"/>.

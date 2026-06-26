@@ -103,6 +103,28 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DefersInitialDestinationCountWhenDestinationCreatesOnWrite()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new MemoryTableCopyDestination
+        {
+            ThrowOnCountBeforeWrite = true,
+            WriteEmptyPages = true
+        };
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") });
+
+        Assert.Equal(1, destination.CountCalls);
+        Assert.Equal(2, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(2, result.DestinationRows);
+        Assert.True(result.Verified);
+    }
+
+    [Fact]
     public async Task CopyAsync_ClearsDestinationTablesInReverseOrderBeforeCopying()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -705,6 +727,10 @@ public class DbaTableCopyEngineTests
 
         public string? ThrowOnCountDestinationName { get; init; }
 
+        public bool ThrowOnCountBeforeWrite { get; init; }
+
+        public int CountCalls { get; private set; }
+
         public bool ThrowOnValidatePage { get; init; }
 
         public int ValidatePageCalls { get; private set; }
@@ -740,9 +766,15 @@ public class DbaTableCopyEngineTests
 
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
+            CountCalls++;
             if (string.Equals(definition.DestinationName, ThrowOnCountDestinationName, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("Destination count failed.");
+            }
+
+            if (ThrowOnCountBeforeWrite && WriteOrder.Count == 0)
+            {
+                throw new InvalidOperationException("Destination count before write failed.");
             }
 
             return Task.FromResult<long?>(_destinationRowCountOverride ?? Rows.Rows.Count);

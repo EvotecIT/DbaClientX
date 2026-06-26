@@ -113,7 +113,8 @@ public sealed class DbaProviderTableCopyRunner
                     sourceDefaultSchema,
                     destinationDefaultSchema,
                     sourceTable,
-                    destinationTable);
+                    destinationTable,
+                    normalizedTargetsIncludeProviderIdentity: false);
 
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
@@ -134,7 +135,7 @@ public sealed class DbaProviderTableCopyRunner
         }
 
         throw new InvalidOperationException(
-            "MySQL destination bulk copies require AllowLoadLocalInfile=true or LoadLocalInfile=true in the destination connection string. " +
+            "MySQL destination bulk copies require AllowLoadLocalInfile=true or Allow Load Local Infile=true in the destination connection string. " +
             "Set one of these options before copying to MySQL, especially when ClearDestination is enabled.");
     }
 
@@ -148,7 +149,7 @@ public sealed class DbaProviderTableCopyRunner
             };
 
             return IsEnabledConnectionStringOption(builder, "AllowLoadLocalInfile") ||
-                   IsEnabledConnectionStringOption(builder, "LoadLocalInfile");
+                   IsEnabledConnectionStringOption(builder, "Allow Load Local Infile");
         }
         catch (ArgumentException)
         {
@@ -203,7 +204,8 @@ public sealed class DbaProviderTableCopyRunner
                     sourceDefaultSchema,
                     destinationDefaultSchema,
                     sourceTable,
-                    destinationTable);
+                    destinationTable,
+                    normalizedTargetsIncludeProviderIdentity: false);
 
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
@@ -251,7 +253,8 @@ public sealed class DbaProviderTableCopyRunner
                     sourceDefaultSchema,
                     destinationDefaultSchema,
                     sourceTable,
-                    destinationTable);
+                    destinationTable,
+                    normalizedTargetsIncludeProviderIdentity: true);
 
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
@@ -351,7 +354,8 @@ public sealed class DbaProviderTableCopyRunner
                 sourceDefaultSchema,
                 destinationDefaultSchema,
                 sourceTable,
-                destinationTable);
+                destinationTable,
+                normalizedTargetsIncludeProviderIdentity: true);
 
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
@@ -415,21 +419,32 @@ public sealed class DbaProviderTableCopyRunner
         string? sourceDefaultSchema,
         string? destinationDefaultSchema,
         string normalizedSourceTable,
-        string normalizedDestinationTable)
+        string normalizedDestinationTable,
+        bool normalizedTargetsIncludeProviderIdentity)
     {
-        if (!CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+        if (!CanSkipAmbiguityCheckForDifferentTarget(
                 source.Provider,
                 sourceTableName,
                 destinationTableName,
                 normalizedSourceTable,
-                normalizedDestinationTable))
+                normalizedDestinationTable,
+                normalizedTargetsIncludeProviderIdentity))
         {
             ValidateSqlServerTableNameIsUnambiguous(source, sourceTableName, sourceDefaultSchema);
             ValidateSqlServerTableNameIsUnambiguous(destination, destinationTableName, destinationDefaultSchema);
         }
 
-        ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
-        ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+        if (!CanSkipAmbiguityCheckForDifferentTarget(
+                source.Provider,
+                sourceTableName,
+                destinationTableName,
+                normalizedSourceTable,
+                normalizedDestinationTable,
+                normalizedTargetsIncludeProviderIdentity))
+        {
+            ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
+            ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+        }
     }
 
     private static void ValidateClearDestinationTableNamesOnlyWhenTargetsCanOverlap(
@@ -440,31 +455,58 @@ public sealed class DbaProviderTableCopyRunner
         string? sourceDefaultSchema,
         string? destinationDefaultSchema,
         string normalizedSourceTable,
-        string normalizedDestinationTable)
+        string normalizedDestinationTable,
+        bool normalizedTargetsIncludeProviderIdentity)
     {
-        if (!CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+        if (!CanSkipAmbiguityCheckForDifferentTarget(
                 source.Provider,
                 sourceTableName,
                 destinationTableName,
                 normalizedSourceTable,
-                normalizedDestinationTable))
+                normalizedDestinationTable,
+                normalizedTargetsIncludeProviderIdentity))
         {
             ValidateClearDestinationTableNameIsUnambiguous(source, sourceTableName, sourceDefaultSchema);
             ValidateClearDestinationTableNameIsUnambiguous(destination, destinationTableName, destinationDefaultSchema);
         }
 
-        ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
-        ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+        if (!CanSkipAmbiguityCheckForDifferentTarget(
+                source.Provider,
+                sourceTableName,
+                destinationTableName,
+                normalizedSourceTable,
+                normalizedDestinationTable,
+                normalizedTargetsIncludeProviderIdentity))
+        {
+            ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
+            ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+        }
     }
 
-    private static bool CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+    private static bool CanSkipAmbiguityCheckForDifferentTarget(
         DbaTableCopyProvider provider,
         string sourceTableName,
         string destinationTableName,
         string normalizedSourceTable,
-        string normalizedDestinationTable)
-        => provider == DbaTableCopyProvider.SqlServer &&
-           !string.Equals(normalizedSourceTable, normalizedDestinationTable, StringComparison.Ordinal) &&
-           (DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, sourceTableName) ||
-            DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, destinationTableName));
+        string normalizedDestinationTable,
+        bool normalizedTargetsIncludeProviderIdentity)
+    {
+        if (string.Equals(normalizedSourceTable, normalizedDestinationTable, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (normalizedTargetsIncludeProviderIdentity)
+        {
+            return true;
+        }
+
+        return provider switch
+        {
+            DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql =>
+                DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, sourceTableName) ||
+                DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, destinationTableName),
+            _ => false
+        };
+    }
 }

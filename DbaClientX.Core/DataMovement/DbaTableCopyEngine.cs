@@ -155,7 +155,9 @@ public sealed class DbaTableCopyEngine
         var sourceRows = preflight == null
             ? await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
             : preflight.SourceRows;
-        var initialDestinationRows = options.VerifyRowCounts && !options.ClearDestination
+        var initialDestinationRows = options.VerifyRowCounts &&
+                                     !options.ClearDestination &&
+                                     !ShouldWriteEmptyPage(destination, definition)
             ? await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
             : null;
         if (sourceRows == 0)

@@ -267,6 +267,45 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_PreservesScopedOnlyColumnMappingComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Users", "display_name", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                MatchDestinationColumns = true,
+                TableColumnMappings = new Dictionary<string, IReadOnlyDictionary<string, string>>
+                {
+                    ["dbo.Users"] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["displayname"] = "display_name"
+                    }
+                },
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "DisplayName" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("display_name", definition.ColumnMappings["DisplayName"]);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_PreservesColumnTypeConversionComparer()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
@@ -376,6 +415,33 @@ public class DbaTableCopyPlannerTests
         Assert.NotNull(definition.ExcludedColumns);
         Assert.Contains("Helper", definition.ExcludedColumns);
         Assert.Contains("Scratch", definition.ExcludedColumns);
+        Assert.DoesNotContain("DisplayName", definition.ExcludedColumns);
+    }
+
+    [Fact]
+    public void BuildPlan_PreservesScopedOnlyExcludedColumnComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Helper", "nvarchar(128)", 1),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                TableExcludedColumns = new Dictionary<string, IReadOnlyCollection<string>>
+                {
+                    ["dbo.Users"] = new HashSet<string>(new[] { "helper" }, StringComparer.OrdinalIgnoreCase)
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ExcludedColumns);
+        Assert.Contains("Helper", definition.ExcludedColumns);
         Assert.DoesNotContain("DisplayName", definition.ExcludedColumns);
     }
 

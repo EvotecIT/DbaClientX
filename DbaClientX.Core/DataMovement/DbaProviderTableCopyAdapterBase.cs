@@ -406,7 +406,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     {
         var builder = new DbConnectionStringBuilder { ConnectionString = ConnectionString };
         RemoveConnectionStringOption(builder, "AllowLoadLocalInfile");
-        RemoveConnectionStringOption(builder, "LoadLocalInfile");
+        RemoveConnectionStringOption(builder, "Allow Load Local Infile");
         return builder.ConnectionString;
     }
 

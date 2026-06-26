@@ -16,7 +16,7 @@ namespace DBAClientX.PowerShell;
 /// </summary>
 internal static class PowerShellHelpers
 {
-    internal static readonly IReadOnlyCollection<string> MySqlBulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "LoadLocalInfile" };
+    internal static readonly IReadOnlyCollection<string> MySqlBulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "Allow Load Local Infile" };
 
     /// <summary>
     /// Converts a Hashtable of parameters (as supplied from PowerShell) into a nullable

@@ -127,7 +127,7 @@ $rows | Write-DbaXTableData `
 
 $rows | Write-DbaXTableData `
     -Provider MySql `
-    -ConnectionString 'Server=localhost;Database=app;User ID=user;Password=secret;SslMode=Required' `
+    -ConnectionString 'Server=localhost;Database=app;User ID=user;Password=secret;SslMode=Required;AllowLoadLocalInfile=true' `
     -DestinationTable 'import_customers' `
     -BatchSize 5000
 
