@@ -423,6 +423,57 @@ public class DbaTableCopyEngineTests
         Assert.Equal("Lower", destination.Rows.Rows[0]["name"]);
     }
 
+    [Fact]
+    public async Task CopyAsync_ExcludesColumnsUsingSuppliedCollectionComparer()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("Id", typeof(int));
+        sourceTable.Columns.Add("Helper", typeof(string));
+        sourceTable.Rows.Add(1, "Skip");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ExcludedColumns: new HashSet<string>(new[] { "helper" }, StringComparer.OrdinalIgnoreCase))
+            });
+
+        Assert.Equal(new[] { "Id" }, destination.Rows.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+    }
+
+    [Fact]
+    public async Task CopyAsync_AppliesColumnTypeConversionsUsingSuppliedDictionaryComparer()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("ScoreText", typeof(string));
+        sourceTable.Rows.Add("42");
+        var source = new MemoryTableCopySource(sourceTable);
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition(
+                    "SourceRows",
+                    "DestinationRows",
+                    ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["scoretext"] = DbaTableCopyColumnType.Int32
+                    })
+            });
+
+        Assert.Equal(typeof(int), destination.Rows.Columns["ScoreText"]!.DataType);
+        Assert.Equal(42, destination.Rows.Rows[0]["ScoreText"]);
+    }
+
     [Theory]
     [InlineData(0, null, null)]
     [InlineData(100, 0, null)]

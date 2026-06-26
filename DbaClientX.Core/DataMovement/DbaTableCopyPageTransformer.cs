@@ -15,9 +15,9 @@ internal static class DbaTableCopyPageTransformer
             return page;
         }
 
-        var excluded = new HashSet<string>(
-            definition.ExcludedColumns ?? Array.Empty<string>(),
-            StringComparer.Ordinal);
+        var excluded = definition.ExcludedColumns is { Count: > 0 }
+            ? ToHashSet(definition.ExcludedColumns)
+            : new HashSet<string>(StringComparer.Ordinal);
         var mappings = definition.ColumnMappings is { Count: > 0 }
             ? ToDictionary(definition.ColumnMappings)
             : null;
@@ -90,7 +90,7 @@ internal static class DbaTableCopyPageTransformer
 
     private static Dictionary<string, TValue> ToDictionary<TValue>(IReadOnlyDictionary<string, TValue> source)
     {
-        var result = new Dictionary<string, TValue>(StringComparer.Ordinal);
+        var result = new Dictionary<string, TValue>(GetComparer(source));
         foreach (var entry in source)
         {
             result[entry.Key] = entry.Value;
@@ -98,6 +98,27 @@ internal static class DbaTableCopyPageTransformer
 
         return result;
     }
+
+    private static HashSet<string> ToHashSet(IReadOnlyCollection<string> source)
+    {
+        var result = new HashSet<string>(GetComparer(source));
+        foreach (var value in source)
+        {
+            result.Add(value);
+        }
+
+        return result;
+    }
+
+    private static IEqualityComparer<string> GetComparer<TValue>(IReadOnlyDictionary<string, TValue> source)
+        => source is Dictionary<string, TValue> dictionary
+            ? dictionary.Comparer
+            : StringComparer.Ordinal;
+
+    private static IEqualityComparer<string> GetComparer(IReadOnlyCollection<string> source)
+        => source is HashSet<string> hashSet
+            ? hashSet.Comparer
+            : StringComparer.Ordinal;
 
     private static void AddDestinationColumn(
         DataTable table,

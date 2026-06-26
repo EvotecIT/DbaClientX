@@ -201,7 +201,12 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
             var sourceAlias = GetProviderAlias(SourceProvider);
             var destinationAlias = GetProviderAlias(DestinationProvider);
-            if (!PowerShellHelpers.TryValidateConnection(this, sourceAlias, SourceConnectionString, _errorAction) ||
+            if (!PowerShellHelpers.TryValidateConnection(
+                    this,
+                    sourceAlias,
+                    SourceConnectionString,
+                    _errorAction,
+                    allowedUnsupportedOptions: SourceProvider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null) ||
                 !PowerShellHelpers.TryValidateConnection(
                     this,
                     destinationAlias,
@@ -331,7 +336,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 OrderBy,
                 DestinationTable,
                 ConvertColumnMap(),
-                NormalizeColumnNames(ExcludeColumn),
+                NormalizeExcludedColumnNames(ExcludeColumn),
                 BuildColumnTypeConversions(),
                 BuildSourceOptions())
         };
@@ -450,7 +455,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             return null;
         }
 
-        var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (DictionaryEntry entry in ColumnMap)
         {
             var source = entry.Key?.ToString();
@@ -478,6 +483,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             .Select(static column => column.Trim())
             .ToArray();
         return normalized is { Length: > 0 } ? normalized : null;
+    }
+
+    private static IReadOnlyCollection<string>? NormalizeExcludedColumnNames(string[]? columns)
+    {
+        var normalized = columns?
+            .Where(static column => !string.IsNullOrWhiteSpace(column))
+            .Select(static column => column.Trim())
+            .ToArray();
+        return normalized is { Length: > 0 }
+            ? new HashSet<string>(normalized, StringComparer.OrdinalIgnoreCase)
+            : null;
     }
 
     private Dictionary<string, DbaTableCopyColumnType>? BuildColumnTypeConversions()

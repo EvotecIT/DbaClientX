@@ -42,6 +42,39 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'PassThru'
     }
 
+    it 'allows MySQL local infile options on source validation for regular reads' {
+        $destination = Join-Path $TestDrive 'mysql-source-validation.db'
+
+        {
+            Copy-DbaXTableData `
+                -SourceProvider MySql `
+                -SourceConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true' `
+                -SourceTable SourceRows `
+                -DestinationProvider SQLite `
+                -DestinationConnectionString "Data Source=$destination" `
+                -DestinationTable DestinationRows `
+                -OrderBy Id `
+                -WhatIf `
+                -ErrorAction Stop | Out-Null
+        } | Should -Not -Throw
+    }
+
+    it 'preserves case-sensitive copy column map entries' {
+        $cmdlet = [DBAClientX.PowerShell.CmdletCopyDbaXTableData]::new()
+        $columnMap = [hashtable]::new([StringComparer]::Ordinal)
+        $columnMap['Name'] = 'DisplayName'
+        $columnMap['name'] = 'displayname'
+        $cmdlet.ColumnMap = $columnMap
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+        $method = [DBAClientX.PowerShell.CmdletCopyDbaXTableData].GetMethod('ConvertColumnMap', $binding)
+
+        $mappings = $method.Invoke($cmdlet, [object[]] @())
+
+        $mappings.Count | Should -Be 2
+        $mappings['Name'] | Should -Be 'DisplayName'
+        $mappings['name'] | Should -Be 'displayname'
+    }
+
     it 'copies multiple planned SQLite table definitions' {
         $source = Join-Path $TestDrive 'source-planned.db'
         $destination = Join-Path $TestDrive 'destination-planned.db'
