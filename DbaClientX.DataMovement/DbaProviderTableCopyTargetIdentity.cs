@@ -857,9 +857,14 @@ internal static class DbaProviderTableCopyTargetIdentity
                 return false;
             }
 
+            var directoryPath = directory!;
             var fileName = "dbax_case_probe_" + Guid.NewGuid().ToString("N");
-            var probePath = Path.Combine(directory, fileName);
-            var alternatePath = Path.Combine(directory, fileName.ToUpperInvariant());
+            var separator = directoryPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+                            directoryPath.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+                ? string.Empty
+                : Path.DirectorySeparatorChar.ToString();
+            var probePath = directoryPath + separator + fileName;
+            var alternatePath = directoryPath + separator + fileName.ToUpperInvariant();
             File.WriteAllText(probePath, string.Empty);
             try
             {
