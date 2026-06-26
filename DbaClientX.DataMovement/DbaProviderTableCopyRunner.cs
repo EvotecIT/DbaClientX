@@ -1,3 +1,5 @@
+using System.Data.Common;
+
 namespace DBAClientX.DataMovement;
 
 /// <summary>
@@ -32,6 +34,7 @@ public sealed class DbaProviderTableCopyRunner
 
         ValidateSameProviderTableCopy(request);
         ValidateClearDestinationDefinitionsAreUnique(request);
+        ValidateDestinationBulkCopyRequirements(request);
 
         var source = new DbaProviderTableCopyAdapter(request.Source);
         var destination = new DbaProviderTableCopyAdapter(request.Destination);
@@ -106,6 +109,55 @@ public sealed class DbaProviderTableCopyRunner
                 }
             }
         }
+    }
+
+    private static void ValidateDestinationBulkCopyRequirements(DbaProviderTableCopyRequest request)
+    {
+        if (request.Destination.Provider != DbaTableCopyProvider.MySql ||
+            HasEnabledMySqlLocalInfileOption(request.Destination.ConnectionString))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "MySQL destination bulk copies require AllowLoadLocalInfile=true or LoadLocalInfile=true in the destination connection string. " +
+            "Set one of these options before copying to MySQL, especially when ClearDestination is enabled.");
+    }
+
+    private static bool HasEnabledMySqlLocalInfileOption(string connectionString)
+    {
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString.Trim()
+            };
+
+            return IsEnabledConnectionStringOption(builder, "AllowLoadLocalInfile") ||
+                   IsEnabledConnectionStringOption(builder, "LoadLocalInfile");
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsEnabledConnectionStringOption(DbConnectionStringBuilder builder, string key)
+    {
+        if (!builder.TryGetValue(key, out var value) || value == null)
+        {
+            return false;
+        }
+
+        if (value is bool boolean)
+        {
+            return boolean;
+        }
+
+        var text = value.ToString();
+        return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "1", StringComparison.Ordinal);
     }
 
     private static void ValidateClearDestinationDoesNotRemoveSources(DbaProviderTableCopyRequest request)

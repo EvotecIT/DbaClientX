@@ -420,6 +420,62 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_RejectsMySqlDestinationWithoutLocalInfileBeforeClearing()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=app;User ID=writer;Password=two;SslMode=Required"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            },
+            AllowSameProviderTableCopy = true
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("AllowLoadLocalInfile=true", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("AllowLoadLocalInfile=true")]
+    [InlineData("LoadLocalInfile=1")]
+    public void ValidateDestinationBulkCopyRequirements_AllowsMySqlDestinationWithLocalInfile(string option)
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = $"Server=localhost;Database=app;User ID=writer;Password=two;SslMode=Required;{option}"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "Id" })
+            }
+        };
+
+        InvokeValidateDestinationBulkCopyRequirements(request);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSameMySqlDatabaseWithCaseOnlyConnectionDifferenceBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -1413,6 +1469,20 @@ public class DbaProviderTableCopyRunnerTests
     {
         var method = typeof(DbaProviderTableCopyRunner).GetMethod("ValidateSameProviderTableCopy", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyRunner), "ValidateSameProviderTableCopy");
+        try
+        {
+            method.Invoke(null, new object?[] { request });
+        }
+        catch (System.Reflection.TargetInvocationException exception) when (exception.InnerException != null)
+        {
+            throw exception.InnerException;
+        }
+    }
+
+    private static void InvokeValidateDestinationBulkCopyRequirements(DbaProviderTableCopyRequest request)
+    {
+        var method = typeof(DbaProviderTableCopyRunner).GetMethod("ValidateDestinationBulkCopyRequirements", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyRunner), "ValidateDestinationBulkCopyRequirements");
         try
         {
             method.Invoke(null, new object?[] { request });

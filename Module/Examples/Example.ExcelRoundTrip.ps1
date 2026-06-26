@@ -9,6 +9,8 @@ param(
     [switch] $KeepArtifacts
 )
 
+# Requires DbaClientX and PSWriteOffice commands to be imported in the current session.
+
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
 }
