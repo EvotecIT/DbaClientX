@@ -167,7 +167,7 @@ public class MySqlBulkInsertTests
     public void BulkInsert_WithConnectionString_UsesConnectionStringOverload()
     {
         using var mySql = new CaptureBulkCopyMySql();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Rows.Add(1);
         var connectionString = DBAClientX.MySql.BuildConnectionString("h", "db", "u", "p");
@@ -183,7 +183,7 @@ public class MySqlBulkInsertTests
     public void BulkInsert_WithLocalInfileConnectionOption_IsAllowedForBulkCopy()
     {
         using var mySql = new CaptureBulkCopyMySql();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Rows.Add(1);
         const string connectionString = "Server=h;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=true";
@@ -198,7 +198,7 @@ public class MySqlBulkInsertTests
     public async Task BulkInsertAsync_WithConnectionString_UsesConnectionStringOverload()
     {
         using var mySql = new CaptureBulkCopyMySql();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Rows.Add(1);
         var connectionString = DBAClientX.MySql.BuildConnectionString("h", "db", "u", "p");
@@ -214,7 +214,7 @@ public class MySqlBulkInsertTests
     public void BulkInsert_WithTransactionNotStarted_Throws()
     {
         using var mySql = new DBAClientX.MySql();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         Assert.Throws<DBAClientX.DbaTransactionException>(() => mySql.BulkInsert("h", "db", "u", "p", table, "Dest", useTransaction: true));
     }
