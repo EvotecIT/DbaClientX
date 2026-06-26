@@ -367,6 +367,34 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_UsesConfiguredDestinationColumnComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "Users", "displayname", "text", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                DestinationSchema = "archive",
+                DestinationColumnNameComparer = StringComparer.OrdinalIgnoreCase
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Null(definition.ExcludedColumns);
+        Assert.DoesNotContain(plan.Warnings, warning => warning.Code == "MissingDestinationColumn");
+    }
+
+    [Fact]
     public void BuildPlan_KeepsTableMetadataGroupsCaseSensitive()
     {
         var sourceTables = new[] { new DbaTableInfo("archive", "Users", DbaTableKind.Table) };

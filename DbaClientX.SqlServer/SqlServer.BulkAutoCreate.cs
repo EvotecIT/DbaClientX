@@ -255,6 +255,7 @@ public partial class SqlServer
     private static int GetDecimalScale(DataColumn column, DataTable table)
     {
         var scale = 0;
+        var hasValue = false;
         foreach (DataRow row in table.Rows)
         {
             if (row.RowState == DataRowState.Deleted || row[column] is not decimal value)
@@ -264,6 +265,12 @@ public partial class SqlServer
 
             var bits = decimal.GetBits(value);
             scale = Math.Max(scale, (bits[3] >> 16) & 0x7F);
+            hasValue = true;
+        }
+
+        if (!hasValue)
+        {
+            return 28;
         }
 
         return Math.Min(scale, 28);

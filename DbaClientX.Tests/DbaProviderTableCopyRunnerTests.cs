@@ -285,6 +285,30 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void ValidateSameProviderTableCopy_AllowsExplicitSqlServerSameDatabaseTableOnDifferentServers()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=prod;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=staging;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("App.dbo.Rows", "App.dbo.Rows", new[] { "Id" })
+            }
+        };
+
+        InvokeValidateSameProviderTableCopy(request);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksExplicitMySqlCrossDatabaseSameTableClearBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest

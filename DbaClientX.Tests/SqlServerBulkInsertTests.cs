@@ -224,6 +224,23 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithAutoCreateTable_UsesSafeDecimalScaleWithoutSampleValues()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(decimal));
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            AutoCreateTable = true
+        };
+
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
+
+        var createTable = sqlServer.SetupCommands[0].CommandText;
+        Assert.Contains("[Amount] decimal(38,28) NULL", createTable);
+    }
+
+    [Fact]
     public void BulkInsert_SetsOptionsAndMappings()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();

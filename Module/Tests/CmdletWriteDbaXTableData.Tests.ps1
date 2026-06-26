@@ -330,6 +330,36 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'infers object pipeline column types for SQL Server auto-create' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            [pscustomobject]@{
+                Id = 1
+                Amount = [decimal]'12.34'
+                CreatedUtc = [datetime]'2026-06-26T09:00:00Z'
+            } | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -AutoCreateTable | Out-Null
+
+            $script:lastBulkTable.Columns['Id'].DataType.FullName | Should -Be 'System.Int32'
+            $script:lastBulkTable.Columns['Amount'].DataType.FullName | Should -Be 'System.Decimal'
+            $script:lastBulkTable.Columns['CreatedUtc'].DataType.FullName | Should -Be 'System.DateTime'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
     it 'treats an empty pipeline as a no-op' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

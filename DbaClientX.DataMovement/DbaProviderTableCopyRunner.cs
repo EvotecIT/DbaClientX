@@ -54,11 +54,11 @@ public sealed class DbaProviderTableCopyRunner
 
         if (!string.Equals(sourceIdentity, destinationIdentity, StringComparison.Ordinal))
         {
-            ValidateExplicitCrossDatabaseSelfCopies(request);
+            ValidateExplicitCrossDatabaseSelfCopies(request, sourceIdentity, destinationIdentity);
 
             if (request.Options?.ClearDestination == true)
             {
-                ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(request);
+                ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(request, sourceIdentity, destinationIdentity);
             }
 
             return;
@@ -138,7 +138,10 @@ public sealed class DbaProviderTableCopyRunner
         }
     }
 
-    private static void ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(DbaProviderTableCopyRequest request)
+    private static void ValidateClearDestinationDoesNotRemoveExplicitCrossDatabaseSources(
+        DbaProviderTableCopyRequest request,
+        string sourceIdentity,
+        string destinationIdentity)
     {
         if (request.Source.Provider is not (DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql))
         {
@@ -164,8 +167,8 @@ public sealed class DbaProviderTableCopyRunner
                 ValidateSqlServerTableNameIsUnambiguous(request.Source, sourceDefinition.SourceName, sourceDefaultSchema);
                 ValidateSqlServerTableNameIsUnambiguous(request.Destination, destinationDefinition.DestinationName, destinationDefaultSchema);
 
-                var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema);
-                var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema);
+                var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
+                var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
@@ -229,7 +232,10 @@ public sealed class DbaProviderTableCopyRunner
         }
     }
 
-    private static void ValidateExplicitCrossDatabaseSelfCopies(DbaProviderTableCopyRequest request)
+    private static void ValidateExplicitCrossDatabaseSelfCopies(
+        DbaProviderTableCopyRequest request,
+        string sourceIdentity,
+        string destinationIdentity)
     {
         if (request.AllowSameProviderTableCopy ||
             request.Source.Provider is not (DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql))
@@ -254,8 +260,8 @@ public sealed class DbaProviderTableCopyRunner
             ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
             ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
 
-            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
-            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
+            var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
+            var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(

@@ -48,7 +48,10 @@ public static class DbaTableCopyPlanner
                 continue;
             }
 
-            var destinationColumnsForTable = ResolveDestinationColumns(destinationColumnGroups, destinationTableName);
+            var destinationColumnsForTable = ResolveDestinationColumns(
+                destinationColumnGroups,
+                destinationTableName,
+                options.DestinationColumnNameComparer ?? StringComparer.Ordinal);
             var definition = BuildDefinition(
                 table,
                 sourceTableName,
@@ -193,7 +196,8 @@ public static class DbaTableCopyPlanner
 
     private static IReadOnlyDictionary<string, DbaColumnInfo>? ResolveDestinationColumns(
         IReadOnlyDictionary<string, IReadOnlyList<DbaColumnInfo>>? destinationColumnGroups,
-        string destinationTableName)
+        string destinationTableName,
+        IEqualityComparer<string> columnNameComparer)
     {
         if (destinationColumnGroups == null)
         {
@@ -203,8 +207,8 @@ public static class DbaTableCopyPlanner
         var parts = SplitName(destinationTableName);
         var key = TableKey(parts.Schema, parts.Name);
         return destinationColumnGroups.TryGetValue(key, out var columns)
-            ? columns.ToDictionary(static column => column.Name, static column => column, StringComparer.Ordinal)
-            : new Dictionary<string, DbaColumnInfo>(StringComparer.Ordinal);
+            ? columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer)
+            : new Dictionary<string, DbaColumnInfo>(columnNameComparer);
     }
 
     private static IReadOnlyList<string>? ResolveOrderBy(

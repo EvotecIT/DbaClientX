@@ -58,6 +58,9 @@ public sealed class DbaTableCopyPlanOptions
     /// <summary>When destination column metadata is supplied, exclude source columns that do not map to a destination column.</summary>
     public bool MatchDestinationColumns { get; init; } = true;
 
+    /// <summary>Comparer used when matching planned destination column names against destination metadata. Defaults to ordinal matching.</summary>
+    public IEqualityComparer<string>? DestinationColumnNameComparer { get; init; }
+
     /// <summary>Optional predicate for domain-specific table filtering before definitions are created.</summary>
     public Func<DbaTableInfo, bool>? TablePredicate { get; init; }
 }

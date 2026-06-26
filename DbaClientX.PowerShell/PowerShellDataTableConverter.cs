@@ -270,7 +270,7 @@ internal static class PowerShellDataTableConverter
             : new DataTable(tableName);
         foreach (var column in columns)
         {
-            table.Columns.Add(column, typeof(object));
+            table.Columns.Add(column, InferColumnType(rows, column));
         }
 
         foreach (var rowValues in rows)
@@ -287,6 +287,32 @@ internal static class PowerShellDataTableConverter
         }
 
         return table;
+    }
+
+    private static Type InferColumnType(IReadOnlyList<IDictionary<string, object?>> rows, string column)
+    {
+        Type? inferred = null;
+        foreach (var row in rows)
+        {
+            if (!row.TryGetValue(column, out var value) || value == null || value == DBNull.Value)
+            {
+                continue;
+            }
+
+            var valueType = value.GetType();
+            if (inferred == null)
+            {
+                inferred = valueType;
+                continue;
+            }
+
+            if (inferred != valueType)
+            {
+                return typeof(object);
+            }
+        }
+
+        return inferred ?? typeof(object);
     }
 
     private static IDictionary<string, object?> GetProperties(object? item)

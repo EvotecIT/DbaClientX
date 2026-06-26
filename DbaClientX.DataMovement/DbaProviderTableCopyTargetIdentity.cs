@@ -104,6 +104,9 @@ internal static class DbaProviderTableCopyTargetIdentity
     }
 
     internal static string NormalizeEffectiveTableTarget(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema)
+        => NormalizeEffectiveTableTarget(provider, tableName, currentDatabase, defaultSchema, targetIdentity: null);
+
+    internal static string NormalizeEffectiveTableTarget(DbaTableCopyProvider provider, string tableName, string? currentDatabase, string? defaultSchema, string? targetIdentity)
     {
         var parts = SplitTableName(tableName);
         var database = currentDatabase;
@@ -136,8 +139,32 @@ internal static class DbaProviderTableCopyTargetIdentity
         }
 
         return provider.ToString().ToLowerInvariant() +
+            "|target=" + NormalizeEffectiveTargetIdentity(provider, targetIdentity) +
             "|database=" + NormalizeProviderDatabasePart(provider, database) +
             ";table=" + string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
+    }
+
+    private static string NormalizeEffectiveTargetIdentity(DbaTableCopyProvider provider, string? targetIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(targetIdentity))
+        {
+            return string.Empty;
+        }
+
+        var normalized = targetIdentity!.Trim();
+        if (provider == DbaTableCopyProvider.SqlServer)
+        {
+            var databaseIndex = normalized.IndexOf(";database=", StringComparison.OrdinalIgnoreCase);
+            return databaseIndex >= 0 ? normalized.Substring(0, databaseIndex) : normalized;
+        }
+
+        if (provider == DbaTableCopyProvider.MySql)
+        {
+            var databaseIndex = normalized.IndexOf(";database=", StringComparison.OrdinalIgnoreCase);
+            return databaseIndex >= 0 ? normalized.Substring(0, databaseIndex) : normalized;
+        }
+
+        return normalized;
     }
 
     private static IdentifierSegment CreateDefaultSchemaSegment(string defaultSchema)
