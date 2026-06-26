@@ -84,22 +84,26 @@ public sealed class DbaProviderTableCopyRunner
                 request.Source.Provider,
                 definition.SourceName,
                 definition.DestinationName);
-            if (namesCanOverlap)
-            {
-                ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
-                ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
-                ValidatePostgreSqlTableNameIsUnambiguous(request.Source, definition.SourceName);
-                ValidatePostgreSqlTableNameIsUnambiguous(request.Destination, definition.DestinationName);
-            }
-
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
-            if (namesCanOverlap &&
-                string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+            if (namesCanOverlap)
             {
-                throw new InvalidOperationException(
-                    $"Refusing to copy provider table '{definition.SourceName}' to itself. " +
-                    "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
+                    request.Source,
+                    request.Destination,
+                    definition.SourceName,
+                    definition.DestinationName,
+                    sourceDefaultSchema,
+                    destinationDefaultSchema,
+                    sourceTable,
+                    destinationTable);
+
+                if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to copy provider table '{definition.SourceName}' to itself. " +
+                        "Use AllowSameProviderTableCopy only when the caller intentionally owns that behavior.");
+                }
             }
         }
     }
@@ -123,11 +127,18 @@ public sealed class DbaProviderTableCopyRunner
                     continue;
                 }
 
-                ValidateClearDestinationTableNameIsUnambiguous(request.Source, sourceDefinition.SourceName, sourceDefaultSchema);
-                ValidateClearDestinationTableNameIsUnambiguous(request.Destination, destinationDefinition.DestinationName, destinationDefaultSchema);
-
                 var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema);
                 var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema);
+                ValidateClearDestinationTableNamesOnlyWhenTargetsCanOverlap(
+                    request.Source,
+                    request.Destination,
+                    sourceDefinition.SourceName,
+                    destinationDefinition.DestinationName,
+                    sourceDefaultSchema,
+                    destinationDefaultSchema,
+                    sourceTable,
+                    destinationTable);
+
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
@@ -164,11 +175,18 @@ public sealed class DbaProviderTableCopyRunner
                     continue;
                 }
 
-                ValidateSqlServerTableNameIsUnambiguous(request.Source, sourceDefinition.SourceName, sourceDefaultSchema);
-                ValidateSqlServerTableNameIsUnambiguous(request.Destination, destinationDefinition.DestinationName, destinationDefaultSchema);
-
                 var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
                 var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
+                ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
+                    request.Source,
+                    request.Destination,
+                    sourceDefinition.SourceName,
+                    destinationDefinition.DestinationName,
+                    sourceDefaultSchema,
+                    destinationDefaultSchema,
+                    sourceTable,
+                    destinationTable);
+
                 if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
                 {
                     throw new InvalidOperationException(
@@ -257,11 +275,18 @@ public sealed class DbaProviderTableCopyRunner
                 continue;
             }
 
-            ValidateSqlServerTableNameIsUnambiguous(request.Source, definition.SourceName, sourceDefaultSchema);
-            ValidateSqlServerTableNameIsUnambiguous(request.Destination, definition.DestinationName, destinationDefaultSchema);
-
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
+            ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
+                request.Source,
+                request.Destination,
+                definition.SourceName,
+                definition.DestinationName,
+                sourceDefaultSchema,
+                destinationDefaultSchema,
+                sourceTable,
+                destinationTable);
+
             if (string.Equals(sourceTable, destinationTable, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
@@ -315,4 +340,65 @@ public sealed class DbaProviderTableCopyRunner
                 "Each cleared destination table must be unique.");
         }
     }
+
+    private static void ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
+        DbaProviderTableCopyAdapterOptions source,
+        DbaProviderTableCopyAdapterOptions destination,
+        string sourceTableName,
+        string destinationTableName,
+        string? sourceDefaultSchema,
+        string? destinationDefaultSchema,
+        string normalizedSourceTable,
+        string normalizedDestinationTable)
+    {
+        if (!CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+                source.Provider,
+                sourceTableName,
+                destinationTableName,
+                normalizedSourceTable,
+                normalizedDestinationTable))
+        {
+            ValidateSqlServerTableNameIsUnambiguous(source, sourceTableName, sourceDefaultSchema);
+            ValidateSqlServerTableNameIsUnambiguous(destination, destinationTableName, destinationDefaultSchema);
+        }
+
+        ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
+        ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+    }
+
+    private static void ValidateClearDestinationTableNamesOnlyWhenTargetsCanOverlap(
+        DbaProviderTableCopyAdapterOptions source,
+        DbaProviderTableCopyAdapterOptions destination,
+        string sourceTableName,
+        string destinationTableName,
+        string? sourceDefaultSchema,
+        string? destinationDefaultSchema,
+        string normalizedSourceTable,
+        string normalizedDestinationTable)
+    {
+        if (!CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+                source.Provider,
+                sourceTableName,
+                destinationTableName,
+                normalizedSourceTable,
+                normalizedDestinationTable))
+        {
+            ValidateClearDestinationTableNameIsUnambiguous(source, sourceTableName, sourceDefaultSchema);
+            ValidateClearDestinationTableNameIsUnambiguous(destination, destinationTableName, destinationDefaultSchema);
+        }
+
+        ValidatePostgreSqlTableNameIsUnambiguous(source, sourceTableName);
+        ValidatePostgreSqlTableNameIsUnambiguous(destination, destinationTableName);
+    }
+
+    private static bool CanSkipAmbiguityCheckForDifferentSqlServerDatabase(
+        DbaTableCopyProvider provider,
+        string sourceTableName,
+        string destinationTableName,
+        string normalizedSourceTable,
+        string normalizedDestinationTable)
+        => provider == DbaTableCopyProvider.SqlServer &&
+           !string.Equals(normalizedSourceTable, normalizedDestinationTable, StringComparison.Ordinal) &&
+           (DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, sourceTableName) ||
+            DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, destinationTableName));
 }

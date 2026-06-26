@@ -314,6 +314,34 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void ValidateSameProviderTableCopy_AllowsExplicitSqlServerDifferentDatabaseSourceToUnqualifiedDestination()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Archive.dbo.Rows", "Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        InvokeValidateSameProviderTableCopy(request);
+    }
+
+    [Fact]
     public void ValidateSameProviderTableCopy_AllowsExplicitSqlServerSameDatabaseTableOnDifferentServers()
     {
         var request = new DbaProviderTableCopyRequest
@@ -384,6 +412,31 @@ public class DbaProviderTableCopyRunnerTests
             Definitions = new[]
             {
                 new DbaTableCopyDefinition("Shared.Rows", "Shared.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameMySqlDatabaseWithCaseOnlyConnectionDifferenceBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=App;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Database=app;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "Id" })
             }
         };
 
@@ -1126,26 +1179,38 @@ public class DbaProviderTableCopyRunnerTests
         Assert.Contains("dbax=blue.db", identity, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData(DbaTableCopyProvider.PostgreSql, "Host=localhost;Database=App;Username=u;Password=p", "Host=LOCALHOST;Database=app;Username=u;Password=p")]
-    [InlineData(DbaTableCopyProvider.MySql, "Server=localhost;Database=App;User ID=u;Password=p", "Server=LOCALHOST;Database=app;User ID=u;Password=p")]
-    public void TryCreate_ProviderIdentityPreservesCaseSensitiveDatabaseNames(
-        DbaTableCopyProvider provider,
-        string firstConnectionString,
-        string secondConnectionString)
+    [Fact]
+    public void TryCreate_PostgreSqlIdentityPreservesCaseSensitiveDatabaseNames()
     {
         var first = new DbaProviderTableCopyAdapterOptions
         {
-            Provider = provider,
-            ConnectionString = firstConnectionString
+            Provider = DbaTableCopyProvider.PostgreSql,
+            ConnectionString = "Host=localhost;Database=App;Username=u;Password=p"
         };
         var second = new DbaProviderTableCopyAdapterOptions
         {
-            Provider = provider,
-            ConnectionString = secondConnectionString
+            Provider = DbaTableCopyProvider.PostgreSql,
+            ConnectionString = "Host=LOCALHOST;Database=app;Username=u;Password=p"
         };
 
         Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
+    }
+
+    [Fact]
+    public void TryCreate_MySqlIdentityFoldsCaseOnlyDatabaseNames()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.MySql,
+            ConnectionString = "Server=localhost;Database=App;User ID=u;Password=p"
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.MySql,
+            ConnectionString = "Server=LOCALHOST;Database=app;User ID=u;Password=p"
+        };
+
+        Assert.Equal(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
     }
 
     [Fact]

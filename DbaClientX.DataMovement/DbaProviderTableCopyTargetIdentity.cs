@@ -92,6 +92,17 @@ internal static class DbaProviderTableCopyTargetIdentity
     internal static bool IsUnqualifiedTableName(string tableName)
         => SplitTableName(tableName).Length == 1;
 
+    internal static bool HasExplicitDatabaseQualifier(DbaTableCopyProvider provider, string tableName)
+    {
+        var parts = SplitTableName(tableName);
+        return provider switch
+        {
+            DbaTableCopyProvider.SqlServer => parts.Length == 3,
+            DbaTableCopyProvider.MySql => parts.Length == 2,
+            _ => false
+        };
+    }
+
     internal static bool TableNamesCanReferToSameObject(DbaTableCopyProvider provider, string sourceTableName, string destinationTableName)
         => string.Equals(NormalizeTableLeafName(provider, sourceTableName), NormalizeTableLeafName(provider, destinationTableName), StringComparison.Ordinal);
 
@@ -828,7 +839,7 @@ internal static class DbaProviderTableCopyTargetIdentity
     }
 
     private static string NormalizeProviderDatabasePart(DbaTableCopyProvider provider, string? database)
-        => provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql
+        => provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.PostgreSql
             ? database?.Trim() ?? string.Empty
             : NormalizePart(database);
 
