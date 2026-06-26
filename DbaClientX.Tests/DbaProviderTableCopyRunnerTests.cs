@@ -1260,6 +1260,52 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void TryCreate_SQLiteIdentityResolvesFileSymlinkToTarget()
+    {
+        var directory = Path.Join(Path.GetTempPath(), "dbax-symlink-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var target = Path.Join(directory, "target.db");
+            var link = Path.Join(directory, "link.db");
+            File.WriteAllText(target, string.Empty);
+            try
+            {
+                File.CreateSymbolicLink(link, target);
+            }
+            catch (IOException)
+            {
+                return;
+            }
+            catch (NotSupportedException)
+            {
+                return;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return;
+            }
+
+            var targetOptions = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=" + target
+            };
+            var linkOptions = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=" + link
+            };
+
+            Assert.Equal(InvokeTryCreateIdentity(targetOptions), InvokeTryCreateIdentity(linkOptions));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TryCreate_PostgreSqlIdentityPreservesCaseSensitiveDatabaseNames()
     {
         var first = new DbaProviderTableCopyAdapterOptions

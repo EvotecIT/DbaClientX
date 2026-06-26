@@ -552,6 +552,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
             if (message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("invalid object name", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("relation", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("schema", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("view", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||

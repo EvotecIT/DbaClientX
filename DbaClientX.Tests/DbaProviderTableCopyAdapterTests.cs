@@ -621,6 +621,7 @@ public class DbaProviderTableCopyAdapterBaseTests
 
     [Theory]
     [InlineData("relation \"missing\" does not exist", true)]
+    [InlineData("schema \"missing_schema\" does not exist", true)]
     [InlineData("no such table: MissingRows", true)]
     [InlineData("invalid object name 'dbo.MissingRows'.", true)]
     [InlineData("function lower(integer) does not exist", false)]

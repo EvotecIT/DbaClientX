@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.IO;
 
 namespace DBAClientX.DataMovement;
 
@@ -494,7 +495,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             return true;
         }
 
-        identity = "sqlite|path=" + NormalizePath(dataSource, preserveCaseOnCaseSensitiveFileSystem: true);
+        identity = "sqlite|path=" + NormalizeSQLiteFilePath(dataSource);
         return true;
     }
 
@@ -878,6 +879,38 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     private static string NormalizePath(string path)
         => NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: false);
+
+    private static string NormalizeSQLiteFilePath(string path)
+    {
+#if NET6_0_OR_GREATER
+        try
+        {
+            var normalized = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (File.Exists(normalized))
+            {
+                var target = File.ResolveLinkTarget(normalized, returnFinalTarget: true);
+                if (target != null)
+                {
+                    return NormalizePath(target.FullName, preserveCaseOnCaseSensitiveFileSystem: true);
+                }
+            }
+        }
+        catch (ArgumentException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+#endif
+
+        return NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: true);
+    }
 
     private static string NormalizePath(string path, bool preserveCaseOnCaseSensitiveFileSystem)
     {
