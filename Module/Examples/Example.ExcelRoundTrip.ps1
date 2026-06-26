@@ -6,45 +6,11 @@ param(
     [string] $ExcelPath = (Join-Path $PWD 'DbaClientXExcelRoundTrip.xlsx'),
     [string] $WorksheetName = 'Rows',
     [int] $RowCount = 100,
-    [string] $ModulePath,
     [switch] $KeepArtifacts
 )
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
-}
-
-$requiredCommands = @(
-    'Invoke-DbaXNonQuery',
-    'Invoke-DbaXQuery',
-    'Write-DbaXTableData',
-    'Export-OfficeExcel',
-    'Import-OfficeExcel'
-)
-
-if (-not $ModulePath) {
-    $moduleRoot = Split-Path -Parent $PSScriptRoot
-    $ModulePath = Join-Path $moduleRoot 'DbaClientX.psd1'
-}
-
-if (Test-Path -LiteralPath $ModulePath) {
-    Import-Module $ModulePath -Force
-} elseif (-not (Get-Command Invoke-DbaXQuery -ErrorAction SilentlyContinue)) {
-    throw "DbaClientX module path '$ModulePath' was not found and DbaClientX commands are not already available."
-}
-
-if (-not (Get-Command Export-OfficeExcel -ErrorAction SilentlyContinue)) {
-    Import-Module PSWriteOffice -ErrorAction SilentlyContinue
-}
-
-foreach ($command in $requiredCommands) {
-    if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-        if ($command -like '*OfficeExcel') {
-            throw "Command '$command' was not found. Install or import PSWriteOffice before running this example."
-        }
-
-        throw "Command '$command' was not found after importing DbaClientX from '$ModulePath'."
-    }
 }
 
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
@@ -125,6 +91,19 @@ try {
         -ReturnType DataSet `
         -ErrorAction Stop
 
+    $sourceRows = [int] $verification.Tables[0].Rows[0]['SourceRows']
+    $destinationRows = [int] $verification.Tables[1].Rows[0]['DestinationRows']
+
+    $hasMismatch = $rows.Count -ne $RowCount -or
+        $excelTable.Rows.Count -ne $RowCount -or
+        $writeResult.Rows -ne $RowCount -or
+        $sourceRows -ne $RowCount -or
+        $destinationRows -ne $RowCount
+
+    if ($hasMismatch) {
+        throw "Round-trip row count mismatch. Exported=$($rows.Count), Imported=$($excelTable.Rows.Count), Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
+    }
+
     [pscustomobject]@{
         Server = $Server
         Database = $Database
@@ -134,8 +113,8 @@ try {
         ExportedRows = $rows.Count
         ImportedRows = $excelTable.Rows.Count
         WrittenRows = $writeResult.Rows
-        SourceRows = [int] $verification.Tables[0].Rows[0]['SourceRows']
-        DestinationRows = [int] $verification.Tables[1].Rows[0]['DestinationRows']
+        SourceRows = $sourceRows
+        DestinationRows = $destinationRows
     }
 }
 finally {
