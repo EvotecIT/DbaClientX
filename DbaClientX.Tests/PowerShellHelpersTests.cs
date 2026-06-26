@@ -103,6 +103,51 @@ public class PowerShellHelpersTests
         Assert.Contains("Server", warnings[0], StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("AllowLoadLocalInfile=true")]
+    [InlineData("Allow Load Local Infile=1")]
+    public void HasEnabledMySqlLocalInfileOption_AcceptsSupportedEnabledOptions(string option)
+    {
+        var enabled = PowerShellHelpers.HasEnabledMySqlLocalInfileOption(
+            $"Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;{option}");
+
+        Assert.True(enabled);
+    }
+
+    [Theory]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required")]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=false")]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;LoadLocalInfile=true")]
+    public void HasEnabledMySqlLocalInfileOption_RejectsMissingDisabledOrUnsupportedOptions(string connectionString)
+    {
+        var enabled = PowerShellHelpers.HasEnabledMySqlLocalInfileOption(connectionString);
+
+        Assert.False(enabled);
+    }
+
+    [Fact]
+    public void TryRequireMySqlBulkCopyLocalInfile_StopPreference_ThrowsTerminatingError()
+    {
+        var cmdlet = new FakeCmdlet();
+        ErrorRecord? terminatingError = null;
+
+        var exception = Assert.Throws<TestTerminatingErrorException>(() =>
+            PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(
+                cmdlet,
+                "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required",
+                ActionPreference.Stop,
+                _ => { },
+                error =>
+                {
+                    terminatingError = error;
+                    throw new TestTerminatingErrorException(error);
+                }));
+
+        Assert.Equal("MySqlLocalInfileRequired", exception.ErrorRecord.FullyQualifiedErrorId);
+        Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
+        Assert.Same(terminatingError, exception.ErrorRecord);
+    }
+
     [Fact]
     public void ResolveSqlServerCredential_UsesIntegratedSecurity_WhenNoCredentialsProvided()
     {

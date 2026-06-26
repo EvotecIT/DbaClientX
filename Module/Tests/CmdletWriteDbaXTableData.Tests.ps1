@@ -234,6 +234,37 @@ describe 'Write-DbaXTableData cmdlet' {
         } | Should -Throw -ExpectedMessage '*Server*'
     }
 
+    it 'rejects MySQL provider bulk writes when local infile is not enabled' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:bulkInsertReached = $false
+        $prop.SetValue($null, [scriptblock]{
+            $script:bulkInsertReached = $true
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            {
+                $table | Write-DbaXTableData `
+                    -Provider MySql `
+                    -ConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required' `
+                    -DestinationTable Import `
+                    -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
+
+            $script:bulkInsertReached | Should -BeFalse
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:bulkInsertReached = $null
+        }
+    }
+
     it 'normalizes PostgreSQL object columns before provider bulk writes' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)

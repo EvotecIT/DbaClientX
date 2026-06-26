@@ -21,7 +21,7 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Write object pipeline data to PostgreSQL.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>$rows | Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' -DestinationTable public.import_data -BatchSize 5000</code>
+/// <code>$rows | Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret;SslMode=Require' -DestinationTable public.import_data -BatchSize 5000</code>
 /// <para>Converts the objects to a DataTable and writes them with the PostgreSQL COPY-backed provider.</para>
 /// </example>
 [Cmdlet(VerbsCommunications.Write, "DbaXTableData", SupportsShouldProcess = true)]
@@ -158,6 +158,12 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                     ConnectionString,
                     _errorAction,
                     allowedUnsupportedOptions: Provider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null))
+            {
+                return;
+            }
+
+            if (Provider == DbaXBulkProvider.MySql &&
+                !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
             {
                 return;
             }

@@ -121,7 +121,7 @@ The cmdlet stays the same; change the provider and connection string.
 ```powershell
 $rows | Write-DbaXTableData `
     -Provider PostgreSql `
-    -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' `
+    -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret;SslMode=Require' `
     -DestinationTable 'public.import_customers' `
     -BatchSize 5000
 

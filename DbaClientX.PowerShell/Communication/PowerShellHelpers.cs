@@ -113,6 +113,74 @@ internal static class PowerShellHelpers
         return false;
     }
 
+    internal static bool TryRequireMySqlBulkCopyLocalInfile(
+        PSCmdlet cmdlet,
+        string connectionString,
+        ActionPreference errorAction,
+        Action<string>? writeWarning = null,
+        Action<ErrorRecord>? throwTerminatingError = null)
+    {
+        if (HasEnabledMySqlLocalInfileOption(connectionString))
+        {
+            return true;
+        }
+
+        writeWarning ??= cmdlet is AsyncPSCmdlet asyncCmdlet
+            ? asyncCmdlet.WriteWarning
+            : cmdlet.WriteWarning;
+        throwTerminatingError ??= cmdlet.ThrowTerminatingError;
+
+        const string message =
+            "MySQL bulk writes require AllowLoadLocalInfile=true or Allow Load Local Infile=true in the connection string. " +
+            "Set one of these options before using Write-DbaXTableData with -Provider MySql.";
+        if (errorAction == ActionPreference.Stop)
+        {
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), "MySqlLocalInfileRequired", ErrorCategory.InvalidArgument, connectionString));
+        }
+        else
+        {
+            writeWarning(message);
+        }
+
+        return false;
+    }
+
+    internal static bool HasEnabledMySqlLocalInfileOption(string connectionString)
+    {
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString.Trim()
+            };
+
+            return IsEnabledConnectionStringOption(builder, "AllowLoadLocalInfile") ||
+                   IsEnabledConnectionStringOption(builder, "Allow Load Local Infile");
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsEnabledConnectionStringOption(DbConnectionStringBuilder builder, string key)
+    {
+        if (!builder.TryGetValue(key, out var value) || value == null)
+        {
+            return false;
+        }
+
+        if (value is bool boolean)
+        {
+            return boolean;
+        }
+
+        var text = value.ToString();
+        return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "1", StringComparison.Ordinal);
+    }
+
     internal static async Task<T?> InvokeOverrideAsync<T>(ScriptBlock overrideBlock, params object?[] args)
     {
         var result = Unwrap(overrideBlock.InvokeReturnAsIs(args));
