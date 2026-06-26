@@ -140,9 +140,14 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         return provider.ToString().ToLowerInvariant() +
             "|target=" + NormalizeEffectiveTargetIdentity(provider, targetIdentity) +
-            "|database=" + NormalizeProviderDatabasePart(provider, database) +
+            "|database=" + NormalizeEffectiveTableDatabasePart(provider, database) +
             ";table=" + string.Join(".", parts.Select(part => NormalizeTableSegment(provider, part)));
     }
+
+    private static string NormalizeEffectiveTableDatabasePart(DbaTableCopyProvider provider, string? database)
+        => provider == DbaTableCopyProvider.SqlServer
+            ? NormalizePart(database)
+            : NormalizeProviderDatabasePart(provider, database);
 
     private static string NormalizeEffectiveTargetIdentity(DbaTableCopyProvider provider, string? targetIdentity)
     {

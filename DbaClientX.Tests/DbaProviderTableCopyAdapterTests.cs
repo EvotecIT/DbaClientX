@@ -560,7 +560,7 @@ public class DbaProviderTableCopyAdapterTests
     }
 
     [Fact]
-    public void BulkPage_PostgreSqlPreservesSimpleColumnCaseForQuotedDestinationTable()
+    public void BulkPage_PostgreSqlFoldsSimpleColumnNamesForQuotedDestinationTable()
     {
         var adapter = new DbaProviderTableCopyAdapter(
             DbaTableCopyProvider.PostgreSql,
@@ -571,7 +571,7 @@ public class DbaProviderTableCopyAdapterTests
 
         var normalized = InvokeNormalizePostgreSqlBulkPage(adapter, page, "\"Public\".\"Users\"");
 
-        Assert.Equal(new[] { "DisplayName", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        Assert.Equal(new[] { "displayname", "CreatedUtc" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
     }
 
     [Fact]
