@@ -262,7 +262,7 @@ public class SqlServerBulkInsertTests
     public void BulkInsert_SetsOptionsAndMappings()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("Name", typeof(string));
         table.Rows.Add(1, "test");
