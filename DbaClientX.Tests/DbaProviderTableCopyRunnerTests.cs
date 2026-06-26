@@ -202,6 +202,35 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameSqlServerTableWithCaseOnlyAliasBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Database=App;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=App;Integrated Security=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("dbo.Rows", "App.dbo.rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaProviderTableCopyRunner().CopyAsync(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksExplicitSqlServerCrossDatabaseSameTableClearBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -787,7 +816,7 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.Equal(onePart, currentDatabaseQualified);
         Assert.NotEqual(onePart, otherDatabaseQualified);
-        Assert.NotEqual(onePart, lowerCaseTable);
+        Assert.Equal(onePart, lowerCaseTable);
     }
 
     [Fact]
@@ -879,7 +908,7 @@ public class DbaProviderTableCopyRunnerTests
         var firstIdentity = InvokeTryCreateIdentity(first);
         var secondIdentity = InvokeTryCreateIdentity(second);
 
-        if (Path.DirectorySeparatorChar == '\\')
+        if (InvokeUsesCaseInsensitivePaths(Path.GetTempPath()))
         {
             Assert.Equal(firstIdentity, secondIdentity);
         }
@@ -1163,5 +1192,15 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.True(created);
         return Assert.IsType<string>(arguments[1]);
+    }
+
+    private static bool InvokeUsesCaseInsensitivePaths(string path)
+    {
+        var type = typeof(DbaProviderTableCopyRunner).Assembly.GetType("DBAClientX.DataMovement.DbaProviderTableCopyTargetIdentity")
+            ?? throw new InvalidOperationException("DbaProviderTableCopyTargetIdentity type was not found.");
+        var method = type.GetMethod("UsesCaseInsensitivePaths", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(type.FullName, "UsesCaseInsensitivePaths");
+
+        return (bool)method.Invoke(null, new object?[] { path })!;
     }
 }

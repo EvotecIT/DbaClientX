@@ -49,7 +49,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         if (provider == DbaTableCopyProvider.SqlServer &&
             parts.Length == 3 &&
             !string.IsNullOrWhiteSpace(currentDatabase) &&
-            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizeProviderDatabasePart(provider, currentDatabase), StringComparison.Ordinal))
+            string.Equals(NormalizeTableSegment(provider, parts[0]), NormalizeSqlServerTableDatabaseQualifier(currentDatabase), StringComparison.Ordinal))
         {
             parts = parts.Skip(1).ToArray();
         }
@@ -345,7 +345,7 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.SqlServer)
         {
-            return segment.Value;
+            return segment.Value.ToLowerInvariant();
         }
 
         return segment.Value.ToLowerInvariant();
@@ -774,6 +774,9 @@ internal static class DbaProviderTableCopyTargetIdentity
             ? database?.Trim() ?? string.Empty
             : NormalizePart(database);
 
+    private static string NormalizeSqlServerTableDatabaseQualifier(string? database)
+        => NormalizePart(database);
+
     internal static bool IsSQLiteConnectionString(string value)
         => SplitConnectionStringEntries(value).Any(static entry =>
         {
@@ -810,26 +813,129 @@ internal static class DbaProviderTableCopyTargetIdentity
         try
         {
             var normalized = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths(normalized)
                 ? normalized
                 : normalized.ToLowerInvariant();
         }
         catch (ArgumentException)
         {
-            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths(path)
                 ? path.Trim()
                 : NormalizePart(path);
         }
         catch (NotSupportedException)
         {
-            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths()
+            return preserveCaseOnCaseSensitiveFileSystem && !UsesCaseInsensitivePaths(path)
                 ? path.Trim()
                 : NormalizePart(path);
         }
     }
 
-    private static bool UsesCaseInsensitivePaths()
-        => Path.DirectorySeparatorChar == '\\';
+    private static bool UsesCaseInsensitivePaths(string path)
+    {
+        if (Path.DirectorySeparatorChar == '\\')
+        {
+            return true;
+        }
+
+        if (TryDetectCaseInsensitiveDirectory(path, out var caseInsensitive))
+        {
+            return caseInsensitive;
+        }
+
+        return System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX);
+    }
+
+    private static bool TryDetectCaseInsensitiveDirectory(string path, out bool caseInsensitive)
+    {
+        caseInsensitive = false;
+        try
+        {
+            var directory = ResolveExistingDirectory(path);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return false;
+            }
+
+            var fileName = "dbax_case_probe_" + Guid.NewGuid().ToString("N");
+            var probePath = Path.Combine(directory, fileName);
+            var alternatePath = Path.Combine(directory, fileName.ToUpperInvariant());
+            File.WriteAllText(probePath, string.Empty);
+            try
+            {
+                caseInsensitive = File.Exists(alternatePath);
+                return true;
+            }
+            finally
+            {
+                DeleteProbeFile(probePath);
+                if (!string.Equals(probePath, alternatePath, StringComparison.Ordinal))
+                {
+                    DeleteProbeFile(alternatePath);
+                }
+            }
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string? ResolveExistingDirectory(string path)
+    {
+        var trimmed = path.Trim();
+        var directory = Directory.Exists(trimmed)
+            ? trimmed
+            : Path.GetDirectoryName(trimmed);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            directory = Directory.GetCurrentDirectory();
+        }
+
+        while (!string.IsNullOrWhiteSpace(directory) && !Directory.Exists(directory))
+        {
+            var parent = Path.GetDirectoryName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(parent, directory, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            directory = parent;
+        }
+
+        return string.IsNullOrWhiteSpace(directory) ? null : directory;
+    }
+
+    private static void DeleteProbeFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup for a temporary case-sensitivity probe.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup for a temporary case-sensitivity probe.
+        }
+    }
 
     private static string NormalizePart(string? value)
         => value == null ? string.Empty : value.Trim().ToLowerInvariant();
