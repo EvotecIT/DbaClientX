@@ -307,6 +307,43 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_MatchesThreePartDestinationMappingsToSchemaTableMetadata()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Rows", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Rows", "Id", "int", 1),
+            Column("dbo", "Rows", "DisplayName", "nvarchar(128)", 2)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Rows", "Id", "int", 1),
+            Column("dbo", "Rows", "DisplayName", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["dbo.Rows"] = "Archive.dbo.Rows"
+                },
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Rows"] = new[] { "Id" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("Archive.dbo.Rows", definition.DestinationName);
+        Assert.Null(definition.ExcludedColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_DoesNotApplyCaseDifferentScopedTableMappings()
     {
         var sourceTables = new[]

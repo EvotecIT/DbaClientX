@@ -211,9 +211,24 @@ public static class DbaTableCopyPlanner
 
         var parts = SplitName(destinationTableName);
         var key = TableKey(parts.Schema, parts.Name);
-        return destinationColumnGroups.TryGetValue(key, out var columns)
-            ? columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer)
-            : new Dictionary<string, DbaColumnInfo>(columnNameComparer);
+        if (destinationColumnGroups.TryGetValue(key, out var columns))
+        {
+            return columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer);
+        }
+
+        var pathParts = DbaIdentifierPath.SplitSegments(destinationTableName);
+        if (pathParts.Count > 2)
+        {
+            var metadataSchema = DbaIdentifierPath.UnquoteSegment(pathParts[pathParts.Count - 2]);
+            var metadataTable = DbaIdentifierPath.UnquoteSegment(pathParts[pathParts.Count - 1]);
+            var metadataKey = TableKey(metadataSchema, metadataTable);
+            if (destinationColumnGroups.TryGetValue(metadataKey, out columns))
+            {
+                return columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer);
+            }
+        }
+
+        return new Dictionary<string, DbaColumnInfo>(columnNameComparer);
     }
 
     private static IReadOnlyList<string>? ResolveOrderBy(
