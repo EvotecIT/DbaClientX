@@ -84,9 +84,9 @@ public static class DbaTableCopyPlanner
         var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name);
         var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
         var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name);
-        var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), StringComparer.Ordinal);
+        var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), GetComparer(scopedExclusions));
         var includedSourceColumns = new List<DbaColumnInfo>();
-        var effectiveMappings = new Dictionary<string, string>(StringComparer.Ordinal);
+        var effectiveMappings = new Dictionary<string, string>(GetComparer(scopedMappings));
 
         foreach (var sourceColumn in sourceColumns.OrderBy(static column => column.Ordinal))
         {
@@ -275,7 +275,8 @@ public static class DbaTableCopyPlanner
         string qualifiedTableName,
         string unqualifiedTableName)
     {
-        var result = new Dictionary<string, TValue>(StringComparer.Ordinal);
+        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
+        var result = new Dictionary<string, TValue>(hasScopedValues ? GetComparer(scopedValues!) : GetComparer(global));
         if (global != null)
         {
             foreach (var entry in global)
@@ -283,9 +284,9 @@ public static class DbaTableCopyPlanner
                 result[entry.Key] = entry.Value;
             }
         }
-        if (TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null)
+        if (hasScopedValues)
         {
-            foreach (var entry in scopedValues)
+            foreach (var entry in scopedValues!)
             {
                 result[entry.Key] = entry.Value;
             }
@@ -309,10 +310,11 @@ public static class DbaTableCopyPlanner
         string qualifiedTableName,
         string unqualifiedTableName)
     {
-        var result = new HashSet<string>(global ?? Array.Empty<string>(), StringComparer.Ordinal);
-        if (TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null)
+        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
+        var result = new HashSet<string>(global ?? Array.Empty<string>(), hasScopedValues ? GetComparer(scopedValues!) : GetComparer(global));
+        if (hasScopedValues)
         {
-            foreach (var value in scopedValues)
+            foreach (var value in scopedValues!)
             {
                 result.Add(value);
             }
@@ -361,6 +363,16 @@ public static class DbaTableCopyPlanner
         => mappings != null && mappings.TryGetValue(sourceColumnName, out var mapped)
             ? mapped
             : sourceColumnName;
+
+    private static IEqualityComparer<string> GetComparer<TValue>(IReadOnlyDictionary<string, TValue>? source)
+        => source is Dictionary<string, TValue> dictionary
+            ? dictionary.Comparer
+            : StringComparer.Ordinal;
+
+    private static IEqualityComparer<string> GetComparer(IReadOnlyCollection<string>? source)
+        => source is HashSet<string> hashSet
+            ? hashSet.Comparer
+            : StringComparer.Ordinal;
 
     private static bool IsGenerated(DbaColumnInfo column)
         => !string.IsNullOrWhiteSpace(column.GeneratedExpression) ||

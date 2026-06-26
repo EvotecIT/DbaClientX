@@ -197,6 +197,91 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_PreservesColumnMappingComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("archive", "Users", "ProbeDisplayName", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                DestinationSchema = "archive",
+                ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["displayname"] = "ProbeDisplayName"
+                },
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "DisplayName" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("ProbeDisplayName", definition.ColumnMappings["DisplayName"]);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_PreservesColumnTypeConversionComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "IsEnabled", "int", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["isenabled"] = DbaTableCopyColumnType.Boolean
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnTypeConversions);
+        Assert.Equal(DbaTableCopyColumnType.Boolean, definition.ColumnTypeConversions["IsEnabled"]);
+    }
+
+    [Fact]
+    public void BuildPlan_PreservesExcludedColumnComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1),
+            Column("dbo", "Users", "Helper", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                ExcludedColumns = new HashSet<string>(new[] { "helper" }, StringComparer.OrdinalIgnoreCase)
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ExcludedColumns);
+        Assert.Contains("Helper", definition.ExcludedColumns);
+        Assert.DoesNotContain("DisplayName", definition.ExcludedColumns);
+    }
+
+    [Fact]
     public void BuildPlan_PreservesQualifiedTableMappingWhenDestinationSchemaIsSet()
     {
         var sourceTables = new[] { new DbaTableInfo("src", "Customers", DbaTableKind.Table) };
