@@ -595,6 +595,34 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void ValidatePage_MySqlRequiresLocalInfileBeforeClearDestination()
+    {
+        var adapter = CreateAdapter(
+            DbaTableCopyProvider.MySql,
+            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required");
+        using var page = new DataTable("Users");
+        page.Columns.Add("Id", typeof(int));
+        page.Rows.Add(1);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => adapter.ValidatePage(new DbaTableCopyDefinition("Users", "Users"), page));
+
+        Assert.Contains("AllowLoadLocalInfile=true", exception.Message);
+    }
+
+    [Fact]
+    public void ValidatePage_MySqlAllowsLocalInfileBeforeClearDestination()
+    {
+        var adapter = CreateAdapter(
+            DbaTableCopyProvider.MySql,
+            "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True");
+        using var page = new DataTable("Users");
+        page.Columns.Add("Id", typeof(int));
+        page.Rows.Add(1);
+
+        adapter.ValidatePage(new DbaTableCopyDefinition("Users", "Users"), page);
+    }
+
+    [Fact]
     public void BulkDestinationName_OracleQuotesDestinationPath()
     {
         var adapter = CreateAdapter(

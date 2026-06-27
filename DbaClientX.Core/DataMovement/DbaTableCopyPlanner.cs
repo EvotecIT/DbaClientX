@@ -129,7 +129,7 @@ public static class DbaTableCopyPlanner
                 else
                 {
                     effectiveDestinationColumnName = options.IdentifierProvider.HasValue
-                        ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(destinationColumn.Name, options.IdentifierProvider)
+                        ? FormatBulkDestinationColumnName(destinationColumn.Name, options.IdentifierProvider)
                         : destinationColumn.Name;
                 }
             }
@@ -393,6 +393,11 @@ public static class DbaTableCopyPlanner
         => mappings != null && mappings.TryGetValue(sourceColumnName, out var mapped)
             ? mapped
             : sourceColumnName;
+
+    private static string FormatBulkDestinationColumnName(string columnName, DbaTableCopyProvider? provider)
+        => provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.Oracle
+            ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(columnName, provider)
+            : columnName;
 
     private static bool SourceSchemaMatches(string? tableSchema, string sourceSchema, DbaTableCopyProvider? provider)
         => string.Equals(

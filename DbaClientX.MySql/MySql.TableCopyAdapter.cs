@@ -51,6 +51,19 @@ public sealed class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
     }
 
     /// <inheritdoc />
+    public override void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
+    {
+        if (HasEnabledMySqlLocalInfileOption(ConnectionString))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "MySQL destination bulk copies require AllowLoadLocalInfile=true or Allow Load Local Infile=true in the destination connection string. " +
+            "Set one of these options before copying to MySQL, especially when ClearDestination is enabled.");
+    }
+
+    /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
         using var mySql = new MySql();

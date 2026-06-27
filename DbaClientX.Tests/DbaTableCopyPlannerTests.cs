@@ -507,6 +507,72 @@ public class DbaTableCopyPlannerTests
         Assert.Empty(plan.Warnings);
     }
 
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void BuildPlan_KeepsNonSimpleBulkColumnNamesLiteralForNonFoldingProviders(DbaTableCopyProvider provider)
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Rows", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Rows", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Rows", "Display Name", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider,
+                DestinationColumnNameComparer = StringComparer.OrdinalIgnoreCase,
+                ColumnMappings = new Dictionary<string, string>
+                {
+                    ["DisplayName"] = "Display Name"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("Display Name", definition.ColumnMappings["DisplayName"]);
+    }
+
+    [Fact]
+    public void BuildPlan_QuotesNonSimpleBulkColumnNamesForPostgreSql()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "rows", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "rows", "displayname", "text", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("public", "rows", "Display Name", "text", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.PostgreSql,
+                ColumnMappings = new Dictionary<string, string>
+                {
+                    ["displayname"] = "Display Name"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("\"Display Name\"", definition.ColumnMappings["displayname"]);
+    }
+
     [Fact]
     public void BuildPlan_DoesNotApplyCaseDifferentScopedTableMappings()
     {

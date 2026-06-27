@@ -124,7 +124,7 @@ public sealed class DbaTableCopyEngine
         {
             cancellationToken.ThrowIfCancellationRequested();
             var definition = definitions[index];
-            var destinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+            var destinationRows = await CountDestinationRowsBeforeClearAsync(destination, definition, cancellationToken).ConfigureAwait(false);
             if (!destinationRows.HasValue &&
                 HasNonEmptySource(preflight[index]) &&
                 !ShouldWriteEmptyPage(destination, definition))
@@ -138,6 +138,21 @@ public sealed class DbaTableCopyEngine
 
     private static bool HasNonEmptySource(DbaTableCopyPreflight? preflight)
         => preflight?.SourceRows > 0 || preflight?.FirstPage?.Rows.Count > 0;
+
+    private static async Task<long?> CountDestinationRowsBeforeClearAsync(
+        IDbaTableCopyDestination destination,
+        DbaTableCopyDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception) when (ShouldWriteEmptyPage(destination, definition))
+        {
+            return null;
+        }
+    }
 
     private static void PreflightTransform(
         DataTable page,

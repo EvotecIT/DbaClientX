@@ -83,7 +83,10 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
 
     /// <inheritdoc />
     public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-        => ExecuteNonQueryIgnoreMissingAsync($"DELETE FROM {QuotePath(definition.DestinationName)}", cancellationToken);
+        => ExecuteNonQueryIgnoreMissingAsync(
+            $"DELETE FROM {QuotePath(definition.DestinationName)}",
+            allowMissing: ShouldWriteEmptyPage(definition),
+            cancellationToken);
 
     /// <inheritdoc />
     public abstract Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default);
@@ -139,15 +142,15 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     /// <summary>Executes a non-query SQL statement using the concrete provider.</summary>
     protected abstract Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken);
 
-    private async Task ExecuteNonQueryIgnoreMissingAsync(string query, CancellationToken cancellationToken)
+    private async Task ExecuteNonQueryIgnoreMissingAsync(string query, bool allowMissing, CancellationToken cancellationToken)
     {
         try
         {
             await ExecuteNonQueryAsync(query, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
+        catch (Exception ex) when ((_treatMissingTablesAsEmpty || allowMissing) && IsMissingTableException(ex))
         {
-            // Missing tables are intentionally ignored when the caller opted into schema-version tolerant copies.
+            // Missing tables are intentionally ignored for tolerant copies and auto-create destinations.
             return;
         }
     }
@@ -413,6 +416,12 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         RemoveConnectionStringOption(builder, "Allow Load Local Infile");
         return builder.ConnectionString;
     }
+
+    /// <summary>
+    /// Returns true when a MySQL connection string explicitly enables the local infile option required by MySqlBulkCopy.
+    /// </summary>
+    protected static bool HasEnabledMySqlLocalInfileOption(string connectionString)
+        => DbaMySqlBulkCopyOptions.HasEnabledLocalInfile(connectionString);
 
     private static void RemoveConnectionStringOption(DbConnectionStringBuilder builder, string optionName)
     {
