@@ -296,7 +296,7 @@ public sealed class DbaTableCopyEngine
         {
             return await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
         }
-        catch (InvalidOperationException) when (ShouldWriteEmptyPage(destination, definition))
+        catch (Exception) when (ShouldWriteEmptyPage(destination, definition))
         {
             return null;
         }

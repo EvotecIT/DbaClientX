@@ -478,7 +478,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             return null;
         }
 
-        var mappings = new Dictionary<string, string>(StringComparer.Ordinal);
+        var mappings = new Dictionary<string, string>(PowerShellHelpers.GetHashtableComparer(ColumnMap));
         foreach (DictionaryEntry entry in ColumnMap)
         {
             var source = entry.Key?.ToString();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Management.Automation;
 using DBAClientX.Invoker;
@@ -146,6 +147,33 @@ public class PowerShellHelpersTests
         Assert.Equal("MySqlLocalInfileRequired", exception.ErrorRecord.FullyQualifiedErrorId);
         Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
         Assert.Same(terminatingError, exception.ErrorRecord);
+    }
+
+    [Fact]
+    public void GetHashtableComparer_UsesIgnoreCaseForPowerShellHashtableLiterals()
+    {
+        var hashtable = new Hashtable(StringComparer.OrdinalIgnoreCase)
+        {
+            ["displayname"] = "Name"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.True(comparer.Equals("displayname", "DisplayName"));
+    }
+
+    [Fact]
+    public void GetHashtableComparer_UsesOrdinalForExplicitCaseSensitiveHashtables()
+    {
+        var hashtable = new Hashtable(StringComparer.Ordinal)
+        {
+            ["Name"] = "DisplayName",
+            ["name"] = "displayname"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.False(comparer.Equals("Name", "name"));
     }
 
     [Fact]

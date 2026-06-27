@@ -75,6 +75,17 @@ describe 'Copy-DbaXTableData cmdlet' {
         $mappings['name'] | Should -Be 'displayname'
     }
 
+    it 'preserves case-insensitive copy column map entries from PowerShell hashtable literals' {
+        $cmdlet = [DBAClientX.PowerShell.CmdletCopyDbaXTableData]::new()
+        $cmdlet.ColumnMap = @{ displayname = 'Name' }
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+        $method = [DBAClientX.PowerShell.CmdletCopyDbaXTableData].GetMethod('ConvertColumnMap', $binding)
+
+        $mappings = $method.Invoke($cmdlet, [object[]] @())
+
+        $mappings['DisplayName'] | Should -Be 'Name'
+    }
+
     it 'copies multiple planned SQLite table definitions' {
         $source = Join-Path $TestDrive 'source-planned.db'
         $destination = Join-Path $TestDrive 'destination-planned.db'

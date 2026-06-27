@@ -31,6 +31,30 @@ internal static class PowerShellHelpers
                 .Where(de => de.Key != null)
                 .ToDictionary(de => de.Key!.ToString()!, de => (object?)de.Value);
 
+    internal static StringComparer GetHashtableComparer(Hashtable values)
+    {
+        foreach (DictionaryEntry entry in values)
+        {
+            var key = entry.Key?.ToString();
+            if (string.IsNullOrEmpty(key))
+            {
+                continue;
+            }
+
+            var sourceKey = key!;
+            var alternateKey = sourceKey.Any(char.IsLower)
+                ? sourceKey.ToUpperInvariant()
+                : sourceKey.ToLowerInvariant();
+            if (!string.Equals(sourceKey, alternateKey, StringComparison.Ordinal) &&
+                values.ContainsKey(alternateKey))
+            {
+                return StringComparer.OrdinalIgnoreCase;
+            }
+        }
+
+        return StringComparer.Ordinal;
+    }
+
     internal static IReadOnlyList<DbParameter>? ToDbParameters(
         IDictionary<string, object?>? parameters,
         Func<string, object?, DbParameter> factory)
