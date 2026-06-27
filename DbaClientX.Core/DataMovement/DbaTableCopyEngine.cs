@@ -148,7 +148,7 @@ public sealed class DbaTableCopyEngine
         {
             return await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception) when (ShouldWriteEmptyPage(destination, definition))
+        catch (Exception ex) when (ShouldSuppressDestinationCountFailure(destination, definition, ex))
         {
             return null;
         }
@@ -287,7 +287,7 @@ public sealed class DbaTableCopyEngine
                 if (options.ClearDestination)
                 {
                     verified = sourceRows.HasValue
-                        ? sourceRows.Value == destinationRows.Value
+                        ? copied == sourceRows.Value && sourceRows.Value == destinationRows.Value
                         : copied == destinationRows.Value;
                 }
                 else if (initialDestinationRows.HasValue)
@@ -321,7 +321,7 @@ public sealed class DbaTableCopyEngine
         {
             return await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception) when (ShouldWriteEmptyPage(destination, definition))
+        catch (Exception ex) when (ShouldSuppressDestinationCountFailure(destination, definition, ex))
         {
             return null;
         }
@@ -330,6 +330,14 @@ public sealed class DbaTableCopyEngine
     private static bool ShouldWriteEmptyPage(IDbaTableCopyDestination destination, DbaTableCopyDefinition definition)
         => destination is IDbaTableCopyEmptyPageDestination emptyPageDestination &&
            emptyPageDestination.ShouldWriteEmptyPage(definition);
+
+    private static bool ShouldSuppressDestinationCountFailure(
+        IDbaTableCopyDestination destination,
+        DbaTableCopyDefinition definition,
+        Exception exception)
+        => ShouldWriteEmptyPage(destination, definition) &&
+           destination is IDbaTableCopyMissingTableClassifier missingTableClassifier &&
+           missingTableClassifier.IsMissingTableException(exception);
 
     private static void ValidateOptions(DbaTableCopyOptions options)
     {

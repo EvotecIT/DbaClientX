@@ -108,7 +108,7 @@ public class DbaTableCopyEngineTests
         var source = new MemoryTableCopySource(CreateRows(2));
         var destination = new MemoryTableCopyDestination
         {
-            ThrowOnCountBeforeWrite = true,
+            ThrowMissingTableOnCountBeforeWrite = true,
             WriteEmptyPages = true
         };
 
@@ -439,7 +439,7 @@ public class DbaTableCopyEngineTests
         var source = new MemoryTableCopySource(CreateRows(2));
         var destination = new MemoryTableCopyDestination
         {
-            ThrowOnCountBeforeWrite = true,
+            ThrowMissingTableOnCountBeforeWrite = true,
             WriteEmptyPages = true
         };
 
@@ -465,7 +465,7 @@ public class DbaTableCopyEngineTests
         var source = new MemoryTableCopySource(CreateRows(2));
         var destination = new MemoryTableCopyDestination
         {
-            ThrowOnCountBeforeWrite = true,
+            ThrowMissingTableOnCountBeforeWrite = true,
             WriteEmptyPages = true
         };
 
@@ -492,7 +492,7 @@ public class DbaTableCopyEngineTests
         var source = new MemoryTableCopySource(CreateRows(2));
         var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 1)
         {
-            ThrowOnCountBeforeWrite = true,
+            ThrowMissingTableOnCountBeforeWrite = true,
             WriteEmptyPages = true
         };
 
@@ -510,6 +510,55 @@ public class DbaTableCopyEngineTests
         Assert.Equal(2, result.SourceRows);
         Assert.Equal(2, result.CopiedRows);
         Assert.Equal(1, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_DoesNotSuppressNonMissingDestinationCountFailureBeforeClear()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination
+        {
+            ThrowOnCountBeforeWrite = true,
+            WriteEmptyPages = true
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = true
+            }));
+
+        Assert.Contains("Destination count before write failed.", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_ClearDestinationVerificationRequiresCopiedRowsToMatchKnownSourceRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2))
+        {
+            SourceRowCountOverride = 3
+        };
+        var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 3);
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Equal(3, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(3, result.DestinationRows);
     }
 
     [Fact]
@@ -965,7 +1014,7 @@ public class DbaTableCopyEngineTests
         }
     }
 
-    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination
+    private sealed class MemoryTableCopyDestination : IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination, IDbaTableCopyMissingTableClassifier
     {
         private readonly long? _destinationRowCountOverride;
 
@@ -985,6 +1034,8 @@ public class DbaTableCopyEngineTests
         public string? NullCountDestinationName { get; init; }
 
         public bool ThrowOnCountBeforeWrite { get; init; }
+
+        public bool ThrowMissingTableOnCountBeforeWrite { get; init; }
 
         public int CountCalls { get; private set; }
 
@@ -1034,6 +1085,11 @@ public class DbaTableCopyEngineTests
                 return Task.FromResult<long?>(null);
             }
 
+            if (ThrowMissingTableOnCountBeforeWrite && WriteOrder.Count == 0)
+            {
+                throw new InvalidOperationException("no such table: DestinationRows");
+            }
+
             if (ThrowOnCountBeforeWrite && WriteOrder.Count == 0)
             {
                 throw new InvalidOperationException("Destination count before write failed.");
@@ -1053,5 +1109,8 @@ public class DbaTableCopyEngineTests
 
         public bool ShouldWriteEmptyPage(DbaTableCopyDefinition definition)
             => WriteEmptyPages;
+
+        public bool IsMissingTableException(Exception exception)
+            => exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
     }
 }

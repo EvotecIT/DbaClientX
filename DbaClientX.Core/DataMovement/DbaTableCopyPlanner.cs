@@ -84,7 +84,7 @@ public static class DbaTableCopyPlanner
         var scopedMappings = MergeScopedDictionary(options.ColumnMappings, options.TableColumnMappings, sourceTableName, table.Name);
         var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name);
         var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
-        var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name);
+        var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name, options.IdentifierProvider);
         var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), GetComparer(scopedExclusions));
         var includedSourceColumns = new List<DbaColumnInfo>();
         var effectiveMappings = new Dictionary<string, string>(GetComparer(scopedMappings));
@@ -245,7 +245,7 @@ public static class DbaTableCopyPlanner
         TryResolveScopedValue(options.OrderByColumns, sourceTableName, table.Name, out var explicitOrder);
         if (explicitOrder != null && explicitOrder.Count > 0)
         {
-            return explicitOrder;
+            return NormalizePlanSegments(explicitOrder, options.IdentifierProvider);
         }
 
         var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), StringComparer.Ordinal);
@@ -295,12 +295,12 @@ public static class DbaTableCopyPlanner
     }
 
     private static IEqualityComparer<string> GetTableKeyComparer(DbaTableCopyProvider? provider)
-        => provider == DbaTableCopyProvider.SqlServer
+        => provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.SQLite
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
 
     private static IEqualityComparer<string> GetDefaultColumnNameComparer(DbaTableCopyProvider? provider)
-        => provider == DbaTableCopyProvider.SqlServer
+        => provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
 
@@ -334,10 +334,13 @@ public static class DbaTableCopyPlanner
         DbaTableCopySourceOptions? global,
         IReadOnlyDictionary<string, DbaTableCopySourceOptions>? scoped,
         string qualifiedTableName,
-        string unqualifiedTableName)
-        => TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValue)
+        string unqualifiedTableName,
+        DbaTableCopyProvider? provider)
+        => NormalizeSourceOptions(
+            TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValue)
             ? scopedValue
-            : global;
+            : global,
+            provider);
 
     private static IReadOnlyCollection<string>? MergeScopedCollection(
         IReadOnlyCollection<string>? global,
@@ -405,10 +408,30 @@ public static class DbaTableCopyPlanner
             : columnName;
 
     private static bool SourceSchemaMatches(string? tableSchema, string sourceSchema, DbaTableCopyProvider? provider)
-        => string.Equals(
+        => GetTableKeyComparer(provider).Equals(
             SourceSchemaKey(tableSchema, provider),
-            SourceSchemaKey(NormalizeSourceSchemaFilter(sourceSchema, provider), provider),
-            StringComparison.Ordinal);
+            SourceSchemaKey(NormalizeSourceSchemaFilter(sourceSchema, provider), provider));
+
+    private static DbaTableCopySourceOptions? NormalizeSourceOptions(DbaTableCopySourceOptions? options, DbaTableCopyProvider? provider)
+    {
+        if (options == null)
+        {
+            return null;
+        }
+
+        return options with
+        {
+            DeduplicateByColumns = NormalizePlanSegments(options.DeduplicateByColumns, provider),
+            DeduplicateOrderByColumns = NormalizePlanSegments(options.DeduplicateOrderByColumns, provider)
+        };
+    }
+
+    private static IReadOnlyList<string>? NormalizePlanSegments(IReadOnlyList<string>? columns, DbaTableCopyProvider? provider)
+        => columns == null
+            ? null
+            : provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.Oracle
+                ? columns.Select(column => DbaIdentifierPath.QuotePlanSegmentPreservingCase(column, provider)).ToArray()
+                : columns;
 
     private static string SourceSchemaKey(string? schema, DbaTableCopyProvider? provider)
         => TableKey(schema, "__dbax_schema_filter__", provider);

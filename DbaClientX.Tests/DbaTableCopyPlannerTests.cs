@@ -647,6 +647,25 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_FiltersSqlServerSourceSchemaCaseInsensitively()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Rows", DbaTableKind.Table) };
+        var sourceColumns = new[] { Column("dbo", "Rows", "Id", "int", 1) };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer,
+                SourceSchema = "DBO"
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("dbo.Rows", definition.SourceName);
+    }
+
+    [Fact]
     public void BuildPlan_DelimitsMetadataNamesThatContainDots()
     {
         var sourceTables = new[] { new DbaTableInfo("tenant.v1", "Probe.Results", DbaTableKind.Table) };
@@ -819,6 +838,37 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_MatchesSQLiteTableMetadataGroupsCaseInsensitively()
+    {
+        var sourceTables = new[] { new DbaTableInfo("main", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("main", "Users", "DisplayName", "TEXT", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("main", "users", "displayname", "TEXT", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SQLite,
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "DisplayName" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Null(definition.ExcludedColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_MatchesSqlServerDestinationMetadataColumnsCaseInsensitivelyByDefault()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
@@ -844,6 +894,93 @@ public class DbaTableCopyPlannerTests
         Assert.NotNull(definition.ColumnMappings);
         Assert.Equal("displayname", definition.ColumnMappings["DisplayName"]);
         Assert.DoesNotContain(plan.Warnings, warning => warning.Code == "MissingDestinationColumn");
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void BuildPlan_MatchesProviderDestinationMetadataColumnsCaseInsensitivelyByDefault(DbaTableCopyProvider provider)
+    {
+        var sourceTables = new[] { new DbaTableInfo("main", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("main", "Users", "DisplayName", "TEXT", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("main", "Users", "displayname", "TEXT", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("displayname", definition.ColumnMappings["DisplayName"]);
+        Assert.DoesNotContain(plan.Warnings, warning => warning.Code == "MissingDestinationColumn");
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    public void BuildPlan_QuotesExplicitProviderOrderColumns(DbaTableCopyProvider provider)
+    {
+        var sourceTables = new[] { new DbaTableInfo("app", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("app", "Users", "CreatedUtc", "timestamp", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider,
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "CreatedUtc" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal(new[] { "\"CreatedUtc\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    public void BuildPlan_QuotesProviderDeduplicationColumns(DbaTableCopyProvider provider)
+    {
+        var sourceTables = new[] { new DbaTableInfo("app", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("app", "Users", "Email", "text", 1),
+            Column("app", "Users", "CreatedUtc", "timestamp", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider,
+                SourceOptions = new DbaTableCopySourceOptions(
+                    new[] { "Email" },
+                    new[] { "CreatedUtc" })
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.SourceOptions);
+        Assert.Equal(new[] { "\"Email\"" }, definition.SourceOptions.DeduplicateByColumns);
+        Assert.Equal(new[] { "\"CreatedUtc\"" }, definition.SourceOptions.DeduplicateOrderByColumns);
     }
 
     [Fact]
