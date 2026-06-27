@@ -81,9 +81,21 @@ public static class DbaTableCopyPlanner
         DbaTableCopyPlanOptions options,
         ICollection<DbaTableCopyPlanWarning> warnings)
     {
-        var scopedMappings = MergeScopedDictionary(options.ColumnMappings, options.TableColumnMappings, sourceTableName, table.Name);
+        var scopedMappings = MergeScopedDictionary(
+            options.ColumnMappings,
+            options.TableColumnMappings,
+            sourceTableName,
+            table.Name,
+            options.IdentifierProvider,
+            GetDefaultColumnNameComparer(options.IdentifierProvider));
         var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name, options.IdentifierProvider);
-        var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
+        var scopedConversions = MergeScopedDictionary(
+            options.ColumnTypeConversions,
+            options.TableColumnTypeConversions,
+            sourceTableName,
+            table.Name,
+            options.IdentifierProvider,
+            GetDefaultColumnNameComparer(options.IdentifierProvider));
         var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name, options.IdentifierProvider);
         var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), GetComparer(scopedExclusions));
         var includedSourceColumns = new List<DbaColumnInfo>();
@@ -192,7 +204,7 @@ public static class DbaTableCopyPlanner
 
     private static string ResolveDestinationTableName(DbaTableInfo sourceTable, DbaTableCopyPlanOptions options)
     {
-        if (TryResolveScopedValue(options.TableMappings, QualifyName(sourceTable.Schema, sourceTable.Name), sourceTable.Name, out var mapped) &&
+        if (TryResolveScopedValue(options.TableMappings, QualifyName(sourceTable.Schema, sourceTable.Name), sourceTable.Name, options.IdentifierProvider, out var mapped) &&
             !string.IsNullOrWhiteSpace(mapped))
         {
             return ResolveMappedDestinationTableName(mapped!, sourceTable, options);
@@ -203,8 +215,13 @@ public static class DbaTableCopyPlanner
 
     private static string ResolveMappedDestinationTableName(string mapped, DbaTableInfo sourceTable, DbaTableCopyPlanOptions options)
         => DbaIdentifierPath.SplitSegments(mapped).Count > 1
-            ? mapped
+            ? NormalizeQualifiedMappedDestinationTableName(mapped, options.IdentifierProvider)
             : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped, options.IdentifierProvider);
+
+    private static string NormalizeQualifiedMappedDestinationTableName(string mapped, DbaTableCopyProvider? provider)
+        => provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.Oracle
+            ? string.Join(".", DbaIdentifierPath.SplitSegments(mapped).Select(segment => DbaIdentifierPath.QuotePlanSegmentPreservingCase(segment, provider)))
+            : mapped;
 
     private static IReadOnlyDictionary<string, DbaColumnInfo>? ResolveDestinationColumns(
         IReadOnlyDictionary<string, IReadOnlyList<DbaColumnInfo>>? destinationColumnGroups,
@@ -246,7 +263,7 @@ public static class DbaTableCopyPlanner
         IReadOnlyDictionary<string, IReadOnlyList<DbaIndexInfo>>? sourceIndexGroups,
         DbaTableCopyPlanOptions options)
     {
-        TryResolveScopedValue(options.OrderByColumns, sourceTableName, table.Name, out var explicitOrder);
+        TryResolveScopedValue(options.OrderByColumns, sourceTableName, table.Name, options.IdentifierProvider, out var explicitOrder);
         if (explicitOrder != null && explicitOrder.Count > 0)
         {
             return NormalizePlanSegments(explicitOrder, options.IdentifierProvider);
@@ -312,10 +329,12 @@ public static class DbaTableCopyPlanner
         IReadOnlyDictionary<string, TValue>? global,
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, TValue>>? scoped,
         string qualifiedTableName,
-        string unqualifiedTableName)
+        string unqualifiedTableName,
+        DbaTableCopyProvider? provider,
+        IEqualityComparer<string>? defaultComparer = null)
     {
-        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new Dictionary<string, TValue>(GetComparerOrDefault(global, scopedValues));
+        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, provider, out var scopedValues) && scopedValues != null;
+        var result = new Dictionary<string, TValue>(GetComparerOrDefault(global, scopedValues, defaultComparer));
         if (global != null)
         {
             foreach (var entry in global)
@@ -353,7 +372,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName,
         DbaTableCopyProvider? provider)
     {
-        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
+        var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, provider, out var scopedValues) && scopedValues != null;
         var result = new HashSet<string>(
             global ?? Array.Empty<string>(),
             GetComparerOrDefault(global, scopedValues) ?? GetDefaultColumnNameComparer(provider));
@@ -372,6 +391,7 @@ public static class DbaTableCopyPlanner
         IReadOnlyDictionary<string, TValue>? values,
         string qualifiedTableName,
         string unqualifiedTableName,
+        DbaTableCopyProvider? provider,
         out TValue? value)
     {
         if (values == null)
@@ -400,8 +420,38 @@ public static class DbaTableCopyPlanner
             return true;
         }
 
+        if (provider.HasValue && GetExplicitComparer(values) == null)
+        {
+            foreach (var entry in values)
+            {
+                if (ProviderTableNamesEqual(entry.Key, qualifiedTableName, provider) ||
+                    ProviderTableNamesEqual(entry.Key, unqualifiedTableName, provider))
+                {
+                    value = entry.Value;
+                    return true;
+                }
+            }
+        }
+
         value = default;
         return false;
+    }
+
+    private static bool TryResolveScopedValue<TValue>(
+        IReadOnlyDictionary<string, TValue>? values,
+        string qualifiedTableName,
+        string unqualifiedTableName,
+        out TValue? value)
+        => TryResolveScopedValue(values, qualifiedTableName, unqualifiedTableName, provider: null, out value);
+
+    private static bool ProviderTableNamesEqual(string candidate, string expected, DbaTableCopyProvider? provider)
+    {
+        var candidateParts = SplitName(candidate);
+        var expectedParts = SplitName(expected);
+        var comparer = GetTableKeyComparer(provider);
+        return comparer.Equals(
+            TableKey(candidateParts.Schema, candidateParts.Name, provider),
+            TableKey(expectedParts.Schema, expectedParts.Name, provider));
     }
 
     private static string ResolveDestinationColumnName(string sourceColumnName, IReadOnlyDictionary<string, string>? mappings)
@@ -467,8 +517,9 @@ public static class DbaTableCopyPlanner
 
     private static IEqualityComparer<string> GetComparerOrDefault<TValue>(
         IReadOnlyDictionary<string, TValue>? global,
-        IReadOnlyDictionary<string, TValue>? scoped)
-        => GetComparer(global) ?? GetComparer(scoped) ?? StringComparer.Ordinal;
+        IReadOnlyDictionary<string, TValue>? scoped,
+        IEqualityComparer<string>? defaultComparer = null)
+        => GetExplicitComparer(global) ?? GetExplicitComparer(scoped) ?? defaultComparer ?? StringComparer.Ordinal;
 
     private static IEqualityComparer<string>? GetComparerOrDefault(
         IReadOnlyCollection<string>? global,
@@ -479,6 +530,12 @@ public static class DbaTableCopyPlanner
         => source is Dictionary<string, TValue> dictionary
             ? dictionary.Comparer
             : null;
+
+    private static IEqualityComparer<string>? GetExplicitComparer<TValue>(IReadOnlyDictionary<string, TValue>? source)
+    {
+        var comparer = GetComparer(source);
+        return ReferenceEquals(comparer, EqualityComparer<string>.Default) ? null : comparer;
+    }
 
     private static IEqualityComparer<string>? GetComparer(IReadOnlyCollection<string>? source)
         => source is HashSet<string> hashSet

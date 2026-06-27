@@ -1486,6 +1486,24 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void TryCreate_SQLiteIdentityParsesFullUriModeAndCache()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbax-fulluri-memory-" + Guid.NewGuid().ToString("N") + ".db");
+        var connectionStringOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + path + ";Mode=Memory;Cache=Shared"
+        };
+        var fullUriOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared"
+        };
+
+        Assert.Equal(InvokeTryCreateIdentity(connectionStringOptions), InvokeTryCreateIdentity(fullUriOptions));
+    }
+
+    [Fact]
     public void TryCreate_PostgreSqlIdentityPreservesCaseSensitiveDatabaseNames()
     {
         var first = new DbaProviderTableCopyAdapterOptions

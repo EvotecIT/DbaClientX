@@ -476,6 +476,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             {
                 ConnectionString = connectionString.Trim()
             };
+            TranslateSQLiteFullUriIdentityOptions(builder);
             dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
             mode = ReadConnectionStringValue(builder, "Mode");
             cache = ReadConnectionStringValue(builder, "Cache");
@@ -503,6 +504,68 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         identity = "sqlite|path=" + NormalizeSQLiteFilePath(ResolveSQLiteFilePath(dataSource));
         return true;
+    }
+
+    private static void TranslateSQLiteFullUriIdentityOptions(DbConnectionStringBuilder builder)
+    {
+        if (!builder.TryGetValue("FullUri", out var value) || value == null)
+        {
+            return;
+        }
+
+        builder.Remove("FullUri");
+        var uriText = value.ToString();
+        if (Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile)
+        {
+            builder["Data Source"] = uri.LocalPath;
+            ApplySQLiteFullUriIdentityQueryOptions(builder, uri);
+        }
+        else
+        {
+            builder["Data Source"] = uriText;
+        }
+    }
+
+    private static void ApplySQLiteFullUriIdentityQueryOptions(DbConnectionStringBuilder builder, Uri uri)
+    {
+        if (string.IsNullOrEmpty(uri.Query) || uri.Query.Length <= 1)
+        {
+            return;
+        }
+
+        foreach (var part in uri.Query.Substring(1).Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = part.IndexOf('=');
+            var key = Uri.UnescapeDataString(separator < 0 ? part : part.Substring(0, separator));
+            var value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
+            ApplySQLiteFullUriIdentityOption(builder, key, value);
+        }
+    }
+
+    private static void ApplySQLiteFullUriIdentityOption(DbConnectionStringBuilder builder, string key, string value)
+    {
+        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
+        {
+            if (builder.ContainsKey("Mode"))
+            {
+                return;
+            }
+
+            builder["Mode"] = value switch
+            {
+                _ when string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase) => "ReadOnly",
+                _ when string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase) => "ReadWrite",
+                _ when string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase) => "ReadWriteCreate",
+                _ when string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase) => "Memory",
+                _ => value
+            };
+            return;
+        }
+
+        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase) && !builder.ContainsKey("Cache"))
+        {
+            builder["Cache"] = value;
+        }
     }
 
     private static bool TryCreateSqlServerIdentity(string connectionString, out string identity)

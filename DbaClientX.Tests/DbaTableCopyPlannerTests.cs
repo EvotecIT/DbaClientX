@@ -197,6 +197,60 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_UsesProviderCasingForScopedTableMappings()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1, isIdentity: true)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer,
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["dbo.users"] = "archive.Rows"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("archive.Rows", definition.DestinationName);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "\"Archive\".\"Users\"")]
+    [InlineData(DbaTableCopyProvider.Oracle, "\"Archive\".\"Users\"")]
+    public void BuildPlan_QuotesQualifiedProviderTableMappings(DbaTableCopyProvider provider, string expectedDestination)
+    {
+        var sourceTables = new[] { new DbaTableInfo("app", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("app", "Users", "Id", "int", 1, isIdentity: true)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider,
+                TableMappings = new Dictionary<string, string>
+                {
+                    ["Users"] = "Archive.Users"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal(expectedDestination, definition.DestinationName);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_PreservesColumnMappingComparer()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
@@ -217,6 +271,45 @@ public class DbaTableCopyPlannerTests
             {
                 DestinationSchema = "archive",
                 ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["displayname"] = "ProbeDisplayName"
+                },
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "DisplayName" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("ProbeDisplayName", definition.ColumnMappings["DisplayName"]);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void BuildPlan_UsesProviderCasingForColumnMappingsByDefault(DbaTableCopyProvider provider)
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Users", "ProbeDisplayName", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = provider,
+                ColumnMappings = new Dictionary<string, string>
                 {
                     ["displayname"] = "ProbeDisplayName"
                 },
