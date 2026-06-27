@@ -1,8 +1,8 @@
 # DbaClientX data movement
 
-DbaClientX is the reusable database access layer for .NET and PowerShell code that needs to query, stage, or bulk-load data. Keep higher-level tools focused on their domain work, then hand tabular data to DbaClientX for provider-specific writes.
+Use this guide when a script or service needs to move rows into or between databases. Keep higher-level tools focused on their own domain work, then hand tabular data to DbaClientX for provider-specific writes.
 
-Common flows:
+Pick the flow that matches the job:
 
 - SQL Server staging tables for reports, inventories, or synchronization jobs.
 - PSWriteOffice import/export jobs that read Excel into `DataTable` objects and bulk-write them to a database.
@@ -10,7 +10,7 @@ Common flows:
 - Table-to-table migrations between provider connections, such as SQLite history stores moving into SQL Server.
 - .NET services that should reference provider packages through DbaClientX instead of repeating provider-specific connection and bulk-copy code.
 
-## SQL Server smoke test
+## Prove SQL Server Writes On A Workstation
 
 Use `tempdb` first when validating a workstation or runner. The example creates a unique table, writes regular PowerShell objects through `Write-DbaXTableData`, verifies the row count, and drops the table.
 
@@ -68,7 +68,7 @@ finally {
 }
 ```
 
-## Moving data from files
+## Move Rows From A File Into A Database
 
 Prefer a real tabular shape at the boundary. `Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects.
 
@@ -83,17 +83,17 @@ Import-OfficeExcel .\Customers.xlsx -AsDataTable |
 
 If the upstream library is OfficeIMO or another .NET component, keep the reusable document/file-format work there, return `DataTable` or `IDataReader`, and let DbaClientX own the database write.
 
-For a runnable SQL Server to Excel to SQL Server flow, use:
+Run this when you want to prove the full SQL Server -> Excel -> SQL Server path:
 
 ```powershell
 .\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 ```
 
-That example exports SQL Server rows to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, bulk-writes the data through DbaClientX, and verifies row counts.
+That example exports SQL Server rows to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, bulk-writes the data through DbaClientX, and fails if the exported, imported, written, source, and destination row counts do not match.
 
-## SQL Server bulk options
+## Load A SQL Server Staging Table
 
-SQL Server bulk loads can use the same thin DbaClientX path while opting into provider-specific behavior when the destination requires it:
+Start with the default `Write-DbaXTableData` path, then add SQL Server options only when the destination table needs them:
 
 ```powershell
 Write-DbaXTableData `
@@ -110,11 +110,24 @@ Write-DbaXTableData `
     -PassThru
 ```
 
-`-AutoCreateTable`, `-ColumnMap`, `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, `-KeepNulls`, and `-NotifyAfter` are SQL Server-specific. Other providers reject those switches instead of silently ignoring them. `-AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape; existing tables are left unchanged.
+Use these options for the matching SQL Server requirement:
+
+| Requirement | Parameter |
+| --- | --- |
+| Create a missing schema/table from the incoming tabular shape | `-AutoCreateTable` |
+| Rename source columns for the destination table | `-ColumnMap` |
+| Take a bulk-update table lock during the load | `-TableLock` |
+| Enforce constraints during the bulk copy | `-CheckConstraints` |
+| Fire insert triggers during the bulk copy | `-FireTriggers` |
+| Preserve incoming identity values | `-KeepIdentity` |
+| Preserve incoming nulls instead of destination defaults | `-KeepNulls` |
+| Report progress during longer imports | `-NotifyAfter` |
+
+These switches are SQL Server-specific. Other providers reject them instead of silently ignoring them. `-AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape; existing tables are left unchanged.
 
 PowerShell input conversion is intentionally small. `TimeSpan` values are preserved as scalar values, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. When a source format needs richer coercion, keep that logic in the owning file-format library and pass DbaClientX a shaped `DataTable`, `IDataReader`, or object stream.
 
-## Other providers
+## Write To Another Provider
 
 The cmdlet stays the same; change the provider and connection string.
 
@@ -145,7 +158,7 @@ $rows | Write-DbaXTableData `
 
 Provider-specific behavior, package versions, connection validation, retry conventions, and bulk-write implementation belong in DbaClientX. Consumer scripts should only own source data selection, destination table naming, and credentials.
 
-## Copying table data between providers
+## Copy A Table Between Providers
 
 Use `Copy-DbaXTableData` when both sides are database tables and DbaClientX should own the read, page, bulk-write, progress, and row-count verification loop. This is the friendly PowerShell surface over the reusable `DBAClientX.DataMovement.DbaTableCopyEngine` in `DbaClientX.Core`.
 
@@ -180,7 +193,7 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
-When providers differ in type affinity or destination schema, shape each page before the bulk write. This is useful for TestimoX-style SQLite to SQL Server history migrations where SQLite helper columns should be dropped, identity columns should be omitted, and numeric flags should become SQL Server `bit` values:
+When providers differ in type affinity or destination schema, shape each page before the bulk write. Use this shape for SQLite to SQL Server history migrations where SQLite helper columns should be dropped, identity columns should be omitted, and numeric flags should become SQL Server `bit` values:
 
 ```powershell
 Copy-DbaXTableData `
@@ -383,7 +396,7 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
-## Benchmarking
+## Benchmark SQL Server Imports
 
 Use the benchmark example for repeatable local SQL Server import evidence without adding benchmark-only dependencies to the repo:
 

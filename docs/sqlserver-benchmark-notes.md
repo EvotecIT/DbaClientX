@@ -34,12 +34,17 @@ For deeper performance work, run each command in separate PowerShell processes a
 
 ## SQL Server import controls
 
-DbaClientX exposes the SQL Server import controls that are useful for reusable staging and migration work while keeping the default path small:
+Keep the default import path small. Add SQL Server controls only when the destination table requires them:
 
-- `AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape.
-- `ColumnMap` maps source column names to different destination column names through `Write-DbaXTableData -ColumnMap` and provider-level `SqlServerBulkInsertOptions.ColumnMappings`.
-- SQL Server bulk-copy options are exposed for `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, and `KeepNulls`.
-- `NotifyAfter` and progress reporting are available for long-running SQL Server imports.
-- PowerShell input conversion preserves `TimeSpan` scalar values, treats scalar input as a `Value` column, and expands a single enumerable input into rows.
+| When you need to... | Use |
+| --- | --- |
+| Create the missing destination schema/table from the incoming `DataTable` shape | `Write-DbaXTableData -AutoCreateTable` |
+| Rename source columns for the destination table | `Write-DbaXTableData -ColumnMap` or `SqlServerBulkInsertOptions.ColumnMappings` |
+| Ask SQL Server for a table lock during the load | `-TableLock` |
+| Enforce constraints or fire triggers during the load | `-CheckConstraints` / `-FireTriggers` |
+| Preserve incoming identity values or nulls | `-KeepIdentity` / `-KeepNulls` |
+| Show progress for a longer import | `-NotifyAfter` |
+
+PowerShell input conversion is deliberately small: `TimeSpan` values stay scalar, scalar input becomes a `Value` column, and a single enumerable input expands into rows.
 
 File-format-specific conversion should stay in the owning file-format library. DbaClientX should receive a shaped `DataTable`, `IDataReader`, or object stream and own the provider write.

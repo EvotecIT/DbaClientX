@@ -9,7 +9,14 @@ param(
     [switch] $KeepArtifacts
 )
 
-# Requires DbaClientX and PSWriteOffice commands to be imported in the current session.
+# Use this example to prove the SQL Server -> Excel -> SQL Server workflow:
+# DbaClientX reads source rows, PSWriteOffice writes and reads the workbook,
+# and DbaClientX writes the imported DataTable back to SQL Server.
+# Example:
+#   .\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
+
+Import-Module DbaClientX -Force
+Import-Module PSWriteOffice -Force
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'

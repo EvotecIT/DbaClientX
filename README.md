@@ -57,14 +57,16 @@ Use it when you need:
 
 ## Data Movement
 
-| Scenario | PowerShell surface | Reusable .NET owner |
-| --- | --- | --- |
-| Write objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported data to a table | `Write-DbaXTableData` | Provider `BulkInsert` implementations |
-| SQL Server staging import with table creation, column mapping, locks, identity/null preservation, triggers, constraints, and progress | `Write-DbaXTableData -Provider SqlServer` | `SqlServerBulkInsertOptions` |
-| Copy tables between selected providers | `Copy-DbaXTableData` | `DbaProviderTableCopyRunner` in `DBAClientX.Core` plus provider-owned adapters |
-| Export SQL rows to Excel and import them back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX for database work, PSWriteOffice/OfficeIMO for workbook work |
+Start with the job you need to finish:
 
-The thin PowerShell layer maps friendly parameters into provider-owned C# APIs. Database behavior belongs in DbaClientX; Excel/document behavior belongs in PSWriteOffice and OfficeIMO.
+| You need to... | Use this | Keep this owner boundary |
+| --- | --- | --- |
+| Write PowerShell objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported rows to a table | `Write-DbaXTableData` | DbaClientX provider packages own the database write |
+| Load a SQL Server staging table and let the command create the table, map columns, lock the table, preserve identities/nulls, fire triggers, check constraints, or report progress | `Write-DbaXTableData -Provider SqlServer` | SQL Server-specific knobs map to `SqlServerBulkInsertOptions` |
+| Copy one or more tables between database providers | `Copy-DbaXTableData` | `DBAClientX.Core` owns the copy contracts/runner; provider packages own concrete adapters |
+| Export SQL rows to Excel and import the workbook back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns workbook work |
+
+The PowerShell layer is intentionally thin: it maps friendly parameters to provider-owned C# APIs. Put repeatable database behavior in DbaClientX and keep consumer scripts focused on choosing source data, destination names, and credentials.
 
 ## Install
 
@@ -142,7 +144,7 @@ Get-DbaXMetadata `
 
 ### Write Table Data
 
-`Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular PowerShell objects from the pipeline. This makes it useful for staging-table imports and direct table writes.
+Use `Write-DbaXTableData` when the data is already in PowerShell and the next step is a database table. The command accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects from the pipeline.
 
 ```powershell
 $rows = @(
@@ -159,7 +161,7 @@ $rows | Write-DbaXTableData `
     -PassThru
 ```
 
-With PSWriteOffice:
+Import rows from Excel with PSWriteOffice, then hand the `DataTable` to DbaClientX for the database write:
 
 ```powershell
 Import-OfficeExcel .\Users.xlsx -AsDataTable |
@@ -170,15 +172,15 @@ Import-OfficeExcel .\Users.xlsx -AsDataTable |
         -BatchSize 5000
 ```
 
-Excel round trip:
+Run the full SQL Server -> Excel -> SQL Server round trip when you want to prove both sides together:
 
 ```powershell
 .\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 ```
 
-The example queries SQL Server rows, exports them to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, writes it to SQL Server with `-AutoCreateTable`, and verifies source/destination row counts.
+The example creates SQL Server source rows, exports them to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, writes it to SQL Server with `-AutoCreateTable`, and fails if any row count does not match.
 
-SQL Server-specific import controls:
+When the destination table has SQL Server-specific requirements, opt into the needed knobs explicitly:
 
 ```powershell
 $customerTable | Write-DbaXTableData `
@@ -194,7 +196,7 @@ $customerTable | Write-DbaXTableData `
     -PassThru
 ```
 
-PowerShell object conversion keeps common tabular inputs simple: `TimeSpan` values are treated as scalar values, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. For file-format-specific conversion rules, keep the conversion in the owning library and pass DbaClientX a `DataTable`, `IDataReader`, or object stream.
+Keep file-format conversion in the owning library. DbaClientX does small PowerShell input shaping: `TimeSpan` values stay scalar, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. For richer Excel, CSV, JSON, or document rules, shape the data first and pass DbaClientX a `DataTable`, `IDataReader`, or object stream.
 
 ### Use Transactions
 
@@ -217,7 +219,7 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 
 ## SQL Server Benchmark Snapshot
 
-These are local `localhost` / `tempdb` measurements gathered with [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1). The benchmark creates isolated tables, uses explicit `DataTable` input, verifies row counts after every run, and drops its tables unless `-KeepTables` is used.
+Use the benchmark script when you want repeatable local evidence for SQL Server imports. It creates isolated tables in the target database, uses explicit `DataTable` input, verifies row counts after every run, and drops the tables unless `-KeepTables` is used.
 
 ```powershell
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 5000 -Iterations 3 -BatchSize 5000
@@ -234,7 +236,7 @@ These are local `localhost` / `tempdb` measurements gathered with [`Module/Examp
 | 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
 | 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
 
-Benchmark numbers are workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the script in the environment that matters.
+Treat the numbers below as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the script in the environment that matters.
 
 ## .NET Usage
 

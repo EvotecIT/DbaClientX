@@ -5,6 +5,11 @@ param(
     [switch] $KeepTable
 )
 
+# Use this example to verify that the installed DbaClientX module can write
+# PowerShell objects into SQL Server and read the loaded row count back.
+# Example:
+#   .\Example.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 100
+
 Import-Module DbaClientX -Force
 
 $tableName = 'DbaClientXDataMovement_' + ([guid]::NewGuid().ToString('N').Substring(0, 12))

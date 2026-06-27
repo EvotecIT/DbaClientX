@@ -7,6 +7,14 @@ param(
     [switch] $KeepSqlTable
 )
 
+# Use this example when you need a repeatable table-copy shape:
+# SQLite source -> SQLite destination by default, or SQLite -> SQL Server
+# with -CopyToSqlServer. It maps column names, drops a helper column, converts
+# simple types, clears the destination, and verifies the copied row count.
+# Example:
+#   .\Example.CopyTableData.ps1 -RowCount 100
+#   .\Example.CopyTableData.ps1 -CopyToSqlServer -Server localhost -Database tempdb -RowCount 100
+
 Import-Module DbaClientX -Force
 
 $temporaryPath = [System.IO.Path]::GetTempPath()

@@ -8,6 +8,13 @@ param(
     [switch] $KeepTables
 )
 
+# Use this benchmark for repeatable local SQL Server import evidence.
+# It creates isolated tables, writes the same DataTable through DbaClientX and
+# any optional comparison commands already installed, verifies row counts, and removes tables unless
+# -KeepTables is used.
+# Example:
+#   .\Benchmark.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 5000 -Iterations 3 -BatchSize 5000
+
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
 }
