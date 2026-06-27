@@ -103,6 +103,7 @@ public sealed class DbaProviderTableCopyRunner
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema);
             if (namesCanOverlap)
             {
+                ValidateDatabaseQualifiedTableNamesAreUnambiguous(request.Source.Provider, definition.SourceName, definition.DestinationName, sourceDatabase, destinationDatabase);
                 ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
                     request.Source,
                     request.Destination,
@@ -158,6 +159,7 @@ public sealed class DbaProviderTableCopyRunner
 
                 var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema);
                 var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeTableName(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema);
+                ValidateDatabaseQualifiedTableNamesAreUnambiguous(request.Source.Provider, sourceDefinition.SourceName, destinationDefinition.DestinationName, sourceDatabase, destinationDatabase);
                 ValidateClearDestinationTableNamesOnlyWhenTargetsCanOverlap(
                     request.Source,
                     request.Destination,
@@ -207,6 +209,7 @@ public sealed class DbaProviderTableCopyRunner
 
                 var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, sourceDefinition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
                 var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, destinationDefinition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
+                ValidateDatabaseQualifiedTableNamesAreUnambiguous(request.Source.Provider, sourceDefinition.SourceName, destinationDefinition.DestinationName, sourceDatabase, destinationDatabase);
                 ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
                     request.Source,
                     request.Destination,
@@ -248,6 +251,11 @@ public sealed class DbaProviderTableCopyRunner
         => new(
             $"Refusing to guard PostgreSQL table '{tableName}' because the connection omits Search Path and the table name is unqualified. " +
             "Schema-qualify PostgreSQL source and destination tables or provide an explicit Search Path.");
+
+    private static InvalidOperationException CreateAmbiguousDatabaseQualifiedTableException(DbaTableCopyProvider provider, string qualifiedTableName, string otherTableName)
+        => new(
+            $"Refusing to guard {provider} table '{qualifiedTableName}' against '{otherTableName}' because one side has an explicit database qualifier and the other connection current database is unknown. " +
+            "Provide an explicit database in the connection string or qualify both table names with different databases.");
 
     private static void ValidateClearDestinationTableNameIsUnambiguous(DbaProviderTableCopyAdapterOptions options, string tableName, string? defaultSchema)
     {
@@ -308,6 +316,7 @@ public sealed class DbaProviderTableCopyRunner
 
             var sourceTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Source.Provider, definition.SourceName, sourceDatabase, sourceDefaultSchema, sourceIdentity);
             var destinationTable = DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(request.Destination.Provider, definition.DestinationName, destinationDatabase, destinationDefaultSchema, destinationIdentity);
+            ValidateDatabaseQualifiedTableNamesAreUnambiguous(request.Source.Provider, definition.SourceName, definition.DestinationName, sourceDatabase, destinationDatabase);
             ValidateAmbiguousTableNamesOnlyWhenTargetsCanOverlap(
                 request.Source,
                 request.Destination,
@@ -463,12 +472,36 @@ public sealed class DbaProviderTableCopyRunner
             return true;
         }
 
-        return provider switch
+        return false;
+    }
+
+    private static void ValidateDatabaseQualifiedTableNamesAreUnambiguous(
+        DbaTableCopyProvider provider,
+        string sourceTableName,
+        string destinationTableName,
+        string? sourceDatabase,
+        string? destinationDatabase)
+    {
+        if (provider is not (DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql))
         {
-            DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql =>
-                DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, sourceTableName) ||
-                DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, destinationTableName),
-            _ => false
-        };
+            return;
+        }
+
+        var sourceQualified = DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, sourceTableName);
+        var destinationQualified = DbaProviderTableCopyTargetIdentity.HasExplicitDatabaseQualifier(provider, destinationTableName);
+        if (sourceQualified == destinationQualified)
+        {
+            return;
+        }
+
+        if (sourceQualified && string.IsNullOrWhiteSpace(destinationDatabase))
+        {
+            throw CreateAmbiguousDatabaseQualifiedTableException(provider, sourceTableName, destinationTableName);
+        }
+
+        if (destinationQualified && string.IsNullOrWhiteSpace(sourceDatabase))
+        {
+            throw CreateAmbiguousDatabaseQualifiedTableException(provider, destinationTableName, sourceTableName);
+        }
     }
 }

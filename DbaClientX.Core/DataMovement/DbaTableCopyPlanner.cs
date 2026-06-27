@@ -133,6 +133,10 @@ public static class DbaTableCopyPlanner
                         : destinationColumn.Name;
                 }
             }
+            else if (options.IdentifierProvider.HasValue)
+            {
+                effectiveDestinationColumnName = FormatBulkDestinationColumnName(destinationColumnName, options.IdentifierProvider);
+            }
 
             includedSourceColumns.Add(sourceColumn);
             if (!string.Equals(sourceColumn.Name, effectiveDestinationColumnName, StringComparison.Ordinal))
@@ -248,7 +252,7 @@ public static class DbaTableCopyPlanner
             return NormalizePlanSegments(explicitOrder, options.IdentifierProvider);
         }
 
-        var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), StringComparer.Ordinal);
+        var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), GetDefaultColumnNameComparer(options.IdentifierProvider));
         var tableKey = TableKey(table.Schema, table.Name, options.IdentifierProvider);
         if (sourceIndexGroups != null && sourceIndexGroups.TryGetValue(tableKey, out var indexes))
         {

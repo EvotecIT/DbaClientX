@@ -574,6 +574,29 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_QuotesPostgreSqlSourceOnlyMixedCaseColumns()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "users", "Id", "integer", 1, isIdentity: true),
+            Column("public", "users", "CreatedUtc", "timestamp", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions { IdentifierProvider = DbaTableCopyProvider.PostgreSql });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("\"Id\"", definition.ColumnMappings["Id"]);
+        Assert.Equal("\"CreatedUtc\"", definition.ColumnMappings["CreatedUtc"]);
+        Assert.Equal(new[] { "\"Id\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_DoesNotApplyCaseDifferentScopedTableMappings()
     {
         var sourceTables = new[]
@@ -1007,6 +1030,37 @@ public class DbaTableCopyPlannerTests
 
         var definition = Assert.Single(plan.Definitions);
         Assert.Equal(new[] { "\"Id\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_MatchesIndexColumnsWithProviderCasingRules()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("dbo", "Users", "PK_Users")
+            {
+                Column = "id",
+                Ordinal = 1,
+                IsPrimaryKey = true,
+                IsUnique = true
+            }
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            indexes,
+            options: new DbaTableCopyPlanOptions { IdentifierProvider = DbaTableCopyProvider.SqlServer });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal(new[] { "id" }, definition.OrderByColumns);
         Assert.Empty(plan.Warnings);
     }
 

@@ -343,7 +343,7 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public void ValidateSameProviderTableCopy_AllowsExplicitSqlServerDifferentDatabaseSourceToUnqualifiedDestination()
+    public void ValidateSameProviderTableCopy_BlocksExplicitSqlServerDatabaseSourceToUnqualifiedDestination()
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -367,7 +367,39 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        InvokeValidateSameProviderTableCopy(request);
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateSameProviderTableCopy(request));
+        Assert.Contains("unqualified", exception.Message);
+        Assert.Contains("default schema is unknown", exception.Message);
+    }
+
+    [Fact]
+    public void ValidateSameProviderTableCopy_BlocksExplicitSqlServerDatabaseSourceWhenCurrentDatabaseIsUnknown()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=.;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Archive.dbo.Rows", "dbo.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateSameProviderTableCopy(request));
+        Assert.Contains("explicit database qualifier", exception.Message);
+        Assert.Contains("current database is unknown", exception.Message);
     }
 
     [Fact]
