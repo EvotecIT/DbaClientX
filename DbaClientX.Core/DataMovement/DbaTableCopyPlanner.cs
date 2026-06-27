@@ -422,14 +422,12 @@ public static class DbaTableCopyPlanner
 
         if (provider.HasValue && GetExplicitComparer(values) == null)
         {
-            foreach (var entry in values)
+            foreach (var entry in values.Where(entry =>
+                         ProviderTableNamesEqual(entry.Key, qualifiedTableName, provider) ||
+                         ProviderTableNamesEqual(entry.Key, unqualifiedTableName, provider)))
             {
-                if (ProviderTableNamesEqual(entry.Key, qualifiedTableName, provider) ||
-                    ProviderTableNamesEqual(entry.Key, unqualifiedTableName, provider))
-                {
-                    value = entry.Value;
-                    return true;
-                }
+                value = entry.Value;
+                return true;
             }
         }
 
