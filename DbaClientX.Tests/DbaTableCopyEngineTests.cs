@@ -27,7 +27,7 @@ public class DbaTableCopyEngineTests
             });
 
         Assert.True(destination.ClearCalled);
-        Assert.Equal(new[] { 3, 3, 3 }, source.RequestedPageSizes);
+        Assert.Equal(new[] { 3, 3, 1 }, source.RequestedPageSizes);
         Assert.Equal(new long[] { 0, 3, 6 }, source.RequestedOffsets);
         Assert.Equal(7, destination.Rows.Rows.Count);
         Assert.Equal(7, result.CopiedRows);
@@ -100,6 +100,76 @@ public class DbaTableCopyEngineTests
         Assert.Equal(0, result.SourceRows);
         Assert.Equal(0, result.CopiedRows);
         Assert.Equal(0, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_CopiesRowsFromStaleZeroCountSchemaPage()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2))
+        {
+            SourceRowCountOverride = 0
+        };
+        var destination = new MemoryTableCopyDestination { WriteEmptyPages = true };
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { PageSize = 1 });
+
+        Assert.Equal(new long[] { 0, 1, 2 }, source.RequestedOffsets);
+        Assert.Equal(2, destination.Rows.Rows.Count);
+        Assert.Null(result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(2, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BoundsReadsToKnownSourceRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(4))
+        {
+            SourceRowCountOverride = 2
+        };
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { PageSize = 3 });
+
+        Assert.Equal(new long[] { 0 }, source.RequestedOffsets);
+        Assert.Equal(new[] { 2 }, source.RequestedPageSizes);
+        Assert.Equal(2, destination.Rows.Rows.Count);
+        Assert.Equal(2, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BoundsPreflightReadToKnownSourceRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(4))
+        {
+            SourceRowCountOverride = 2
+        };
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions
+            {
+                PageSize = 3,
+                ClearDestination = true
+            });
+
+        Assert.Equal(new long[] { 0 }, source.RequestedOffsets);
+        Assert.Equal(new[] { 2 }, source.RequestedPageSizes);
+        Assert.Equal(2, destination.Rows.Rows.Count);
+        Assert.Equal(2, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
     }
 
     [Fact]

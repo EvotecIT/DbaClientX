@@ -1074,6 +1074,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSameMySqlDbAliasQualifiedTableBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;DB=app;User ID=reader;Password=one;AllowLoadLocalInfile=true"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;DB=app;User ID=writer;Password=two;AllowLoadLocalInfile=true"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "app.Rows", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public void NormalizeTableName_PostgreSqlRespectsQuotedIdentifierSemantics()
     {
         var ordinary = InvokeNormalizeTableName(DbaTableCopyProvider.PostgreSql, "users");
@@ -1208,6 +1233,31 @@ public class DbaProviderTableCopyRunnerTests
             {
                 Provider = DbaTableCopyProvider.Oracle,
                 ConnectionString = "Data Source=oracle;User Id=app;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Users", "APP.Users", new[] { "Id" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameOracleUserIdAliasSchemaTableBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.Oracle,
+                ConnectionString = "Data Source=oracle;UserID=app;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.Oracle,
+                ConnectionString = "Data Source=oracle;UserID=app;Password=two"
             },
             Definitions = new[]
             {

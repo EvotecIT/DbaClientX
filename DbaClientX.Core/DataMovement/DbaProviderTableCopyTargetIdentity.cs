@@ -209,8 +209,8 @@ internal static class DbaProviderTableCopyTargetIdentity
             {
                 DbaTableCopyProvider.SqlServer => ReadConnectionStringValue(builder, "Initial Catalog", "Database"),
                 DbaTableCopyProvider.PostgreSql => ReadPostgreSqlDatabase(builder),
-                DbaTableCopyProvider.MySql => ReadConnectionStringValue(builder, "Database", "Initial Catalog"),
-                DbaTableCopyProvider.Oracle => ReadConnectionStringValue(builder, "User ID", "User Id", "UID", "Username", "User"),
+                DbaTableCopyProvider.MySql => ReadConnectionStringValue(builder, "Database", "Initial Catalog", "DB"),
+                DbaTableCopyProvider.Oracle => ReadConnectionStringValue(builder, "User ID", "User Id", "UserID", "UID", "Username", "User"),
                 _ => null
             };
         }
@@ -563,7 +563,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             var host = ReadConnectionStringValue(builder, "Host", "Server", "Data Source", "Address", "Addr", "Network Address");
             var database = provider == DbaTableCopyProvider.PostgreSql
                 ? ReadPostgreSqlDatabase(builder)
-                : ReadConnectionStringValue(builder, "Database", "Initial Catalog");
+                : ReadConnectionStringValue(builder, "Database", "Initial Catalog", "DB");
             var port = NormalizeProviderPort(provider, ReadConnectionStringValue(builder, "Port"));
             if (!string.IsNullOrWhiteSpace(host) || !string.IsNullOrWhiteSpace(database))
             {
@@ -798,6 +798,7 @@ internal static class DbaProviderTableCopyTargetIdentity
            string.Equals(key, "Pwd", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "User ID", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "User Id", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "UserID", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "Username", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "User", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "UID", StringComparison.OrdinalIgnoreCase);
