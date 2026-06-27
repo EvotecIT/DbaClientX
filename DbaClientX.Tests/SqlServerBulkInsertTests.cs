@@ -418,6 +418,29 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithOptions_AppliesColumnMappingsWithConfiguredComparer()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("DisplayName", typeof(string));
+        table.Rows.Add(1, "Upper");
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["displayname"] = "Name"
+            }
+        };
+
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options);
+
+        Assert.Equal(2, sqlServer.Mappings.Count);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "DisplayName" && m.Destination == "Name");
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_WithOptions_AppliesBulkCopyOptionsMappingsAndNotifyAfter()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();

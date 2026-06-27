@@ -178,7 +178,7 @@ public static class DbaTableCopyPlanner
         }
 
         if (!string.IsNullOrWhiteSpace(options.SourceSchema) &&
-            !string.Equals(table.Schema, options.SourceSchema, StringComparison.Ordinal))
+            !SourceSchemaMatches(table.Schema, options.SourceSchema!, options.IdentifierProvider))
         {
             return false;
         }
@@ -382,6 +382,37 @@ public static class DbaTableCopyPlanner
         => mappings != null && mappings.TryGetValue(sourceColumnName, out var mapped)
             ? mapped
             : sourceColumnName;
+
+    private static bool SourceSchemaMatches(string? tableSchema, string sourceSchema, DbaTableCopyProvider? provider)
+        => string.Equals(
+            SourceSchemaKey(tableSchema, provider),
+            SourceSchemaKey(NormalizeSourceSchemaFilter(sourceSchema, provider), provider),
+            StringComparison.Ordinal);
+
+    private static string SourceSchemaKey(string? schema, DbaTableCopyProvider? provider)
+        => TableKey(schema, "__dbax_schema_filter__", provider);
+
+    private static string NormalizeSourceSchemaFilter(string schema, DbaTableCopyProvider? provider)
+    {
+        var trimmed = schema.Trim();
+        if (IsDelimitedSegment(trimmed))
+        {
+            return trimmed;
+        }
+
+        return provider switch
+        {
+            DbaTableCopyProvider.Oracle => trimmed.ToUpperInvariant(),
+            DbaTableCopyProvider.PostgreSql => trimmed.ToLowerInvariant(),
+            _ => trimmed
+        };
+    }
+
+    private static bool IsDelimitedSegment(string segment)
+        => segment.Length >= 2 &&
+           ((segment[0] == '"' && segment[segment.Length - 1] == '"') ||
+            (segment[0] == '[' && segment[segment.Length - 1] == ']') ||
+            (segment[0] == '`' && segment[segment.Length - 1] == '`'));
 
     private static IEqualityComparer<string> GetComparerOrDefault<TValue>(
         IReadOnlyDictionary<string, TValue>? global,

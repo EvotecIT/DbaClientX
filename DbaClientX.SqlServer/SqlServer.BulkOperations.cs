@@ -266,7 +266,7 @@ public partial class SqlServer
         var columnMappings = options?.ColumnMappings;
         if (columnMappings?.Count > 0)
         {
-            var normalizedMappings = new Dictionary<string, string>(StringComparer.Ordinal);
+            var normalizedMappings = new Dictionary<string, string>(GetComparer(columnMappings));
             var destinationColumns = new HashSet<string>(StringComparer.Ordinal);
             foreach (var mapping in columnMappings)
             {
@@ -388,7 +388,7 @@ public partial class SqlServer
                 throw new ArgumentException("Column mapping destination cannot be null or whitespace.", nameof(columnMappings));
             }
 
-            if (!ContainsColumn(table, mapping.Key))
+            if (!ContainsColumn(table, mapping.Key, columnMappings))
             {
                 throw new ArgumentException($"Column mapping source '{mapping.Key}' does not exist in the source table.", nameof(columnMappings));
             }
@@ -412,11 +412,12 @@ public partial class SqlServer
             ? SqlServerDestinationTable.Parse(destinationTable).QuotedFullName
             : destinationTable;
 
-    private static bool ContainsColumn(DataTable table, string columnName)
+    private static bool ContainsColumn(DataTable table, string columnName, IDictionary<string, string> columnMappings)
     {
+        var comparer = GetComparer(columnMappings);
         foreach (DataColumn column in table.Columns)
         {
-            if (string.Equals(column.ColumnName, columnName, StringComparison.Ordinal))
+            if (comparer.Equals(column.ColumnName, columnName))
             {
                 return true;
             }
@@ -424,4 +425,9 @@ public partial class SqlServer
 
         return false;
     }
+
+    private static IEqualityComparer<string> GetComparer(IDictionary<string, string> source)
+        => source is Dictionary<string, string> dictionary
+            ? dictionary.Comparer
+            : StringComparer.Ordinal;
 }

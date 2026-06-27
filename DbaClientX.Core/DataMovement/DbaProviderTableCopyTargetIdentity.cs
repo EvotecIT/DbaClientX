@@ -394,12 +394,12 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (provider == DbaTableCopyProvider.MySql)
         {
-            return segment.Value;
+            return segment.Value.ToLowerInvariant();
         }
 
         if (provider == DbaTableCopyProvider.SqlServer)
         {
-            return segment.Value;
+            return segment.Value.ToLowerInvariant();
         }
 
         return segment.Value.ToLowerInvariant();

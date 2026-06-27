@@ -202,7 +202,7 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public void ValidateSameProviderTableCopy_AllowsSqlServerCaseOnlyTableDifference()
+    public void ValidateSameProviderTableCopy_BlocksSqlServerCaseOnlyTableDifference()
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -226,7 +226,8 @@ public class DbaProviderTableCopyRunnerTests
             }
         };
 
-        InvokeValidateSameProviderTableCopy(request);
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateSameProviderTableCopy(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
     }
 
     [Fact]
@@ -1081,14 +1082,14 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
-    public void NormalizeTableName_MySqlPreservesTableNameCase()
+    public void NormalizeTableName_MySqlFoldsTableNameCaseForSafety()
     {
         var rows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "Rows", "app");
         var lowerRows = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "rows", "app");
         var currentDatabaseQualified = InvokeNormalizeTableName(DbaTableCopyProvider.MySql, "app.Rows", "app");
 
         Assert.Equal(rows, currentDatabaseQualified);
-        Assert.NotEqual(rows, lowerRows);
+        Assert.Equal(rows, lowerRows);
     }
 
     [Fact]
@@ -1114,7 +1115,7 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.Equal(onePart, currentDatabaseQualified);
         Assert.NotEqual(onePart, otherDatabaseQualified);
-        Assert.NotEqual(onePart, lowerCaseTable);
+        Assert.Equal(onePart, lowerCaseTable);
     }
 
     [Fact]

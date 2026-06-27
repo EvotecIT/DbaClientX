@@ -562,6 +562,25 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_FiltersOracleSourceSchemaWithProviderFolding()
+    {
+        var sourceTables = new[] { new DbaTableInfo("APP", "ROWS", DbaTableKind.Table) };
+        var sourceColumns = new[] { Column("APP", "ROWS", "ID", "number", 1) };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                SourceSchema = "app",
+                IdentifierProvider = DbaTableCopyProvider.Oracle
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("APP.\"ROWS\"", definition.SourceName);
+    }
+
+    [Fact]
     public void BuildPlan_DelimitsMetadataNamesThatContainDots()
     {
         var sourceTables = new[] { new DbaTableInfo("tenant.v1", "Probe.Results", DbaTableKind.Table) };
