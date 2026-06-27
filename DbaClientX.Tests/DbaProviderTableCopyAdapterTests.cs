@@ -91,6 +91,43 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public async Task CopyAsync_CopiesRowsFromSQLiteFullUriConnectionString()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        var destinationPath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');");
+            }
+
+            var source = CreateAdapter(
+                DbaTableCopyProvider.SQLite,
+                "FullUri=" + new Uri(sourcePath).AbsoluteUri,
+                new[] { "Id" });
+            var destination = CreateAdapter(
+                DbaTableCopyProvider.SQLite,
+                "Data Source=" + destinationPath);
+
+            var result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(destinationPath);
+        }
+    }
+
+    [Fact]
     public async Task CopyAsync_SQLiteBulkWritePreservesDotsInsideQuotedDestinationSegments()
     {
         var sourcePath = CreateTempDatabasePath();

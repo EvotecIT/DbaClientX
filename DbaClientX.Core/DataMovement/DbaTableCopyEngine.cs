@@ -126,7 +126,7 @@ public sealed class DbaTableCopyEngine
             var definition = definitions[index];
             var destinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
             if (!destinationRows.HasValue &&
-                preflight[index]?.SourceRows > 0 &&
+                HasNonEmptySource(preflight[index]) &&
                 !ShouldWriteEmptyPage(destination, definition))
             {
                 throw new InvalidOperationException(
@@ -135,6 +135,9 @@ public sealed class DbaTableCopyEngine
             }
         }
     }
+
+    private static bool HasNonEmptySource(DbaTableCopyPreflight? preflight)
+        => preflight?.SourceRows > 0 || preflight?.FirstPage?.Rows.Count > 0;
 
     private static void PreflightTransform(
         DataTable page,

@@ -260,6 +260,35 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void ValidateSameProviderTableCopy_BlocksSqlServerThreePartSelfCopyWhenCredentialsDiffer()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Server=localhost;User ID=reader;Password=one;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;User ID=writer;Password=two;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("App.dbo.Rows", "App.dbo.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateSameProviderTableCopy(request));
+        Assert.Contains("Refusing to clear destination table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksExplicitSqlServerCrossDatabaseSameTableClearBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -1373,6 +1402,29 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
+    }
+
+    [Fact]
+    public void TryCreate_SqlServerIdentityIgnoresCredentialsWhenDatabaseIsOmitted()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Server=localhost;User ID=reader;Password=one"
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Data Source=localhost;User ID=writer;Password=two"
+        };
+        var otherServer = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SqlServer,
+            ConnectionString = "Data Source=other;User ID=reader;Password=one"
+        };
+
+        Assert.Equal(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(second));
+        Assert.NotEqual(InvokeTryCreateIdentity(first), InvokeTryCreateIdentity(otherServer));
     }
 
     [Fact]

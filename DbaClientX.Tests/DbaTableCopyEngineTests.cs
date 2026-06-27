@@ -291,6 +291,32 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenSourceCountUnknownButFirstPageHasRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1))
+        {
+            ReturnUnknownSourceRowCount = true
+        };
+        var destination = new MemoryTableCopyDestination
+        {
+            NullCountDestinationName = "MissingRows"
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("MissingRows", "MissingRows"),
+                new DbaTableCopyDefinition("ExistingRows", "ExistingRows")
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("could not be counted before ClearDestination", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_RejectsDuplicateClearDestinationsBeforePreflight()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -798,6 +824,8 @@ public class DbaTableCopyEngineTests
 
         public long? SourceRowCountOverride { get; init; }
 
+        public bool ReturnUnknownSourceRowCount { get; init; }
+
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         {
             CountCalls++;
@@ -806,7 +834,7 @@ public class DbaTableCopyEngineTests
                 throw new InvalidOperationException("Count failed.");
             }
 
-            return Task.FromResult<long?>(SourceRowCountOverride ?? _rows.Rows.Count);
+            return Task.FromResult<long?>(ReturnUnknownSourceRowCount ? null : SourceRowCountOverride ?? _rows.Rows.Count);
         }
 
         public Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)

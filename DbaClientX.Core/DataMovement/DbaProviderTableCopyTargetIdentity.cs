@@ -524,6 +524,12 @@ internal static class DbaProviderTableCopyTargetIdentity
                 return true;
             }
 
+            if (!string.IsNullOrWhiteSpace(server))
+            {
+                identity = "sqlserver|server=" + NormalizeSqlServerName(server);
+                return true;
+            }
+
             identity = "sqlserver|" + NormalizeConnectionString(builder);
             return true;
         }
