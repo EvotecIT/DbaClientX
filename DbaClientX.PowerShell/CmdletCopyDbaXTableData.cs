@@ -230,16 +230,13 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
             var startedAt = DateTimeOffset.UtcNow;
             var stopwatch = Stopwatch.StartNew();
-            var bufferedProgress = IsDesktopPowerShell() ? new List<DbaTableCopyProgress>() : null;
+            var bufferedProgress = new List<DbaTableCopyProgress>();
             var result = CopyAsync(definitions, bufferedProgress).GetAwaiter().GetResult();
             stopwatch.Stop();
 
-            if (bufferedProgress != null)
+            foreach (var progress in bufferedProgress)
             {
-                foreach (var progress in bufferedProgress)
-                {
-                    WriteTableCopyProgress(progress);
-                }
+                WriteTableCopyProgress(progress);
             }
 
             CompleteProgress();
@@ -283,7 +280,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
     }
 
-    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress>? bufferedProgress)
+    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> bufferedProgress)
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -310,7 +307,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 BulkCopyTimeout = BulkCopyTimeout,
                 ClearDestination = ClearDestination.IsPresent,
                 VerifyRowCounts = !NoVerify.IsPresent,
-                Progress = bufferedProgress == null ? WriteTableCopyProgress : bufferedProgress.Add
+                Progress = bufferedProgress.Add
             }
         };
 
@@ -598,15 +595,6 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         {
             RecordType = ProgressRecordType.Completed
         });
-    }
-
-    private static bool IsDesktopPowerShell()
-    {
-#if NETFRAMEWORK
-        return true;
-#else
-        return false;
-#endif
     }
 
     private static DbaTableCopyProvider ToTableCopyProvider(DbaXBulkProvider provider)

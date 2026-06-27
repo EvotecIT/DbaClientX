@@ -272,7 +272,8 @@ internal static class DbaProviderTableCopyTargetIdentity
             var searchPath =
                 ReadRawConnectionStringValue(options.ConnectionString, "Search Path", "SearchPath", "Current Schema") ??
                 ReadConnectionStringValue(builder, "Search Path", "SearchPath", "Current Schema");
-            return string.IsNullOrWhiteSpace(searchPath) || HasAmbiguousPostgreSqlSearchPath(UnquoteConnectionStringValue(searchPath!));
+            var username = ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
+            return string.IsNullOrWhiteSpace(searchPath) || HasAmbiguousPostgreSqlSearchPath(UnquoteConnectionStringValue(searchPath!), username);
         }
         catch (ArgumentException)
         {
@@ -470,6 +471,7 @@ internal static class DbaProviderTableCopyTargetIdentity
         string dataSource;
         string? mode = null;
         string? cache = null;
+        string? pooling = null;
         if (IsSQLiteConnectionString(connectionString))
         {
             var builder = new DbConnectionStringBuilder
@@ -480,6 +482,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
             mode = ReadConnectionStringValue(builder, "Mode");
             cache = ReadConnectionStringValue(builder, "Cache");
+            pooling = ReadConnectionStringValue(builder, "Pooling");
         }
         else
         {
@@ -499,6 +502,12 @@ internal static class DbaProviderTableCopyTargetIdentity
 
         if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
         {
+            if (IsSQLitePoolingEnabled(pooling))
+            {
+                identity = "sqlite|mode=pooled-memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
+                return true;
+            }
+
             return false;
         }
 
@@ -666,6 +675,9 @@ internal static class DbaProviderTableCopyTargetIdentity
         return null;
     }
 
+    private static bool IsSQLitePoolingEnabled(string? pooling)
+        => bool.TryParse(pooling, out var enabled) && enabled;
+
     private static string? ReadPostgreSqlDatabase(DbConnectionStringBuilder builder)
         => ReadConnectionStringValue(builder, "Database")
            ?? ReadConnectionStringValue(builder, "Username", "User ID", "User Id", "UID", "User");
@@ -734,12 +746,15 @@ internal static class DbaProviderTableCopyTargetIdentity
         yield return NormalizeSearchPathSegment(searchPath.Substring(start));
     }
 
-    private static bool HasAmbiguousPostgreSqlSearchPath(string searchPath)
+    private static bool HasAmbiguousPostgreSqlSearchPath(string searchPath, string? username)
     {
         var segments = SplitPostgreSqlSearchPath(searchPath)
             .Where(static segment => segment.Length > 0)
             .ToArray();
-        return segments.Length != 1;
+        return segments.Length != 1 ||
+               (segments.Length == 1 &&
+                string.Equals(segments[0], "$user", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(username));
     }
 
     private static string UnquoteConnectionStringValue(string value)

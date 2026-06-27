@@ -1052,6 +1052,35 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksClearDestinationPostgreSqlUnresolvedUserOnlySearchPath()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Password=one;Search Path=$user"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Password=two;Search Path=$user"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("Rows", "Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("omits Search Path", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksClearDestinationPostgreSqlFallbackSchemaSearchPath()
     {
         var request = new DbaProviderTableCopyRequest
@@ -1424,6 +1453,27 @@ public class DbaProviderTableCopyRunnerTests
 
         Assert.Equal(firstIdentity, secondIdentity);
         Assert.Contains("mode=memory", firstIdentity, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryCreate_SQLiteIdentityAcceptsPooledDefaultMemoryDatabase()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=:memory:;Pooling=True"
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Pooling=True;Data Source=:memory:"
+        };
+
+        var firstIdentity = InvokeTryCreateIdentity(first);
+        var secondIdentity = InvokeTryCreateIdentity(second);
+
+        Assert.Equal(firstIdentity, secondIdentity);
+        Assert.Contains("mode=pooled-memory", firstIdentity, StringComparison.Ordinal);
     }
 
     [Fact]
