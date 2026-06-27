@@ -903,6 +903,35 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_KeepsSqlServerDestinationMetadataColumnsUnquoted()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1, isIdentity: true),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions { IdentifierProvider = DbaTableCopyProvider.SqlServer });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("dbo.Users", definition.SourceName);
+        Assert.Equal("dbo.Users", definition.DestinationName);
+        Assert.Equal(new[] { "Id" }, definition.OrderByColumns);
+        Assert.Null(definition.ColumnMappings);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_QuotesProviderReservedMetadataIdentifiers()
     {
         var sourceTables = new[] { new DbaTableInfo("public", "order", DbaTableKind.Table) };

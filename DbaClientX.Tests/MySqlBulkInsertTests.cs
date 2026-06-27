@@ -114,6 +114,7 @@ public class MySqlBulkInsertTests
 
         Assert.Equal(60, mySql.Timeout);
         Assert.Equal("Dest", mySql.Destination);
+        Assert.Contains("AllowLoadLocalInfile=true", mySql.ConnectionString, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, mySql.SyncDisposeCalls);
         Assert.Equal(0, mySql.AsyncDisposeCalls);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
@@ -136,6 +137,7 @@ public class MySqlBulkInsertTests
 
         Assert.Equal(30, mySql.Timeout);
         Assert.Equal("Dest", mySql.Destination);
+        Assert.Contains("AllowLoadLocalInfile=true", mySql.ConnectionString, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, mySql.SyncDisposeCalls);
         Assert.Equal(1, mySql.AsyncDisposeCalls);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");

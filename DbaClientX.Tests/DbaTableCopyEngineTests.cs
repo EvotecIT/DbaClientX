@@ -335,6 +335,29 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_AllowsQuotedAndUnquotedClearDestinations()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("\"Rows\"", "\"Rows\""),
+                new DbaTableCopyDefinition("Rows", "Rows")
+            },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = false
+            });
+
+        Assert.Equal(new[] { "Rows", "\"Rows\"" }, destination.ClearOrder);
+    }
+
+    [Fact]
     public async Task CopyAsync_VerifiesAppendAgainstInitialDestinationRows()
     {
         var source = new MemoryTableCopySource(CreateRows(2));

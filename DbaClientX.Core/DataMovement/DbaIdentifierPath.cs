@@ -26,6 +26,11 @@ internal static class DbaIdentifierPath
 
         if (IsSimplePlanSegment(trimmed))
         {
+            if (provider is DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite)
+            {
+                return trimmed;
+            }
+
             if (provider == DbaTableCopyProvider.Oracle)
             {
                 return string.Equals(trimmed, trimmed.ToUpperInvariant(), StringComparison.Ordinal) &&

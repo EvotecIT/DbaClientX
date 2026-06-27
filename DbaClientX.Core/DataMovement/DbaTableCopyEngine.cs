@@ -338,7 +338,18 @@ public sealed class DbaTableCopyEngine
     }
 
     private static string NormalizeDestinationNameForDuplicateCheck(string destinationName)
-        => DbaIdentifierPath.NormalizeForDuplicateCheck(destinationName);
+        => string.Join(".", DbaIdentifierPath.SplitSegments(destinationName).Select(NormalizeSegmentForDuplicateCheck));
+
+    private static string NormalizeSegmentForDuplicateCheck(string segment)
+    {
+        var trimmed = segment.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
+        {
+            return "\"" + trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"").Replace("\"", "\"\"") + "\"";
+        }
+
+        return DbaIdentifierPath.UnquoteSegment(trimmed);
+    }
 
     private sealed record DbaTableCopyPreflight(long? SourceRows, DataTable? FirstPage);
 }
