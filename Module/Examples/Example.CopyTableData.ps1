@@ -15,8 +15,9 @@ if (-not $env:DBACLIENTX_DEVELOPMENT_PATH -and (Test-Path $releasePath)) {
 
 Import-Module (Join-Path $moduleRoot 'DbaClientX.psd1') -Force
 
-$sourceDatabase = Join-Path $env:TEMP ('DbaClientXCopySource-' + [guid]::NewGuid() + '.db')
-$sqliteDestination = Join-Path $env:TEMP ('DbaClientXCopyDestination-' + [guid]::NewGuid() + '.db')
+$temporaryPath = [System.IO.Path]::GetTempPath()
+$sourceDatabase = Join-Path $temporaryPath ('DbaClientXCopySource-' + [guid]::NewGuid() + '.db')
+$sqliteDestination = Join-Path $temporaryPath ('DbaClientXCopyDestination-' + [guid]::NewGuid() + '.db')
 $sqlTable = 'dbo.DbaClientXCopy_' + ([guid]::NewGuid().ToString('N').Substring(0, 10))
 $sqlConnectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
 

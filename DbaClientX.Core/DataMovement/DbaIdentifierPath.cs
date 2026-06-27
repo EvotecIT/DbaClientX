@@ -14,6 +14,9 @@ internal static class DbaIdentifierPath
     }
 
     public static string QuotePlanSegmentPreservingCase(string segment)
+        => QuotePlanSegmentPreservingCase(segment, provider: null);
+
+    public static string QuotePlanSegmentPreservingCase(string segment, DbaTableCopyProvider? provider)
     {
         var trimmed = segment.Trim();
         if (IsDelimitedSegment(trimmed))
@@ -21,9 +24,22 @@ internal static class DbaIdentifierPath
             return trimmed;
         }
 
-        return IsSimplePlanSegment(trimmed) && string.Equals(trimmed, trimmed.ToLowerInvariant(), StringComparison.Ordinal)
-            ? trimmed
-            : "\"" + trimmed.Replace("\"", "\"\"") + "\"";
+        if (IsSimplePlanSegment(trimmed))
+        {
+            if (provider == DbaTableCopyProvider.Oracle)
+            {
+                return string.Equals(trimmed, trimmed.ToUpperInvariant(), StringComparison.Ordinal)
+                    ? trimmed
+                    : "\"" + trimmed.Replace("\"", "\"\"") + "\"";
+            }
+
+            if (string.Equals(trimmed, trimmed.ToLowerInvariant(), StringComparison.Ordinal))
+            {
+                return trimmed;
+            }
+        }
+
+        return "\"" + trimmed.Replace("\"", "\"\"") + "\"";
     }
 
     public static string UnquoteSegment(string segment)

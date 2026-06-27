@@ -826,6 +826,48 @@ public class DbaTableCopyPlannerTests
         Assert.Equal("public.\"Users\"", definition.DestinationName);
     }
 
+    [Fact]
+    public void BuildPlan_QuotesLowercaseOracleMetadataIdentifiers()
+    {
+        var sourceTables = new[] { new DbaTableInfo("app", "orders", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("app", "orders", "id", "NUMBER", 1, isIdentity: true),
+            Column("app", "orders", "name", "VARCHAR2", 2)
+        };
+        var destinationColumns = new[]
+        {
+            Column("app", "orders", "id", "NUMBER", 1),
+            Column("app", "orders", "name", "VARCHAR2", 2)
+        };
+        var indexes = new[]
+        {
+            new DbaIndexInfo("app", "orders", "pk_orders")
+            {
+                Column = "id",
+                Ordinal = 1,
+                IsPrimaryKey = true,
+                IsUnique = true
+            }
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            indexes,
+            destinationColumns,
+            new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.Oracle
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("\"app\".\"orders\"", definition.SourceName);
+        Assert.Equal("\"app\".\"orders\"", definition.DestinationName);
+        Assert.Equal(new[] { "\"id\"" }, definition.OrderByColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
     private static DbaColumnInfo Column(
         string schema,
         string table,

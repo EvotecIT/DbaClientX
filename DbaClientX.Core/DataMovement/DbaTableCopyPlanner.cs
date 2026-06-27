@@ -29,16 +29,16 @@ public static class DbaTableCopyPlanner
 
         options ??= new DbaTableCopyPlanOptions();
         var warnings = new List<DbaTableCopyPlanWarning>();
-        var sourceColumnGroups = GroupColumns(sourceColumns);
-        var destinationColumnGroups = destinationColumns == null ? null : GroupColumns(destinationColumns);
-        var sourceIndexGroups = sourceIndexes == null ? null : GroupIndexes(sourceIndexes);
+        var sourceColumnGroups = GroupColumns(sourceColumns, options.IdentifierProvider);
+        var destinationColumnGroups = destinationColumns == null ? null : GroupColumns(destinationColumns, options.IdentifierProvider);
+        var sourceIndexGroups = sourceIndexes == null ? null : GroupIndexes(sourceIndexes, options.IdentifierProvider);
         var definitions = new List<DbaTableCopyDefinition>();
 
         foreach (var table in sourceTables.Where(table => ShouldIncludeTable(table, options)))
         {
-            var sourceTableName = QualifyName(table.Schema, table.Name);
+            var sourceTableName = QualifyName(table.Schema, table.Name, options.IdentifierProvider);
             var destinationTableName = ResolveDestinationTableName(table, options);
-            var sourceTableKey = TableKey(table.Schema, table.Name);
+            var sourceTableKey = TableKey(table.Schema, table.Name, options.IdentifierProvider);
             if (!sourceColumnGroups.TryGetValue(sourceTableKey, out var tableSourceColumns) || tableSourceColumns.Count == 0)
             {
                 warnings.Add(new DbaTableCopyPlanWarning(
@@ -51,6 +51,7 @@ public static class DbaTableCopyPlanner
             var destinationColumnsForTable = ResolveDestinationColumns(
                 destinationColumnGroups,
                 destinationTableName,
+                options.IdentifierProvider,
                 options.DestinationColumnNameComparer ?? StringComparer.Ordinal);
             var definition = BuildDefinition(
                 table,
@@ -191,17 +192,18 @@ public static class DbaTableCopyPlanner
             return ResolveMappedDestinationTableName(mapped!, sourceTable, options);
         }
 
-        return QualifyName(options.DestinationSchema ?? sourceTable.Schema, sourceTable.Name);
+        return QualifyName(options.DestinationSchema ?? sourceTable.Schema, sourceTable.Name, options.IdentifierProvider);
     }
 
     private static string ResolveMappedDestinationTableName(string mapped, DbaTableInfo sourceTable, DbaTableCopyPlanOptions options)
         => DbaIdentifierPath.SplitSegments(mapped).Count > 1
             ? mapped
-            : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped);
+            : QualifyName(options.DestinationSchema ?? sourceTable.Schema, mapped, options.IdentifierProvider);
 
     private static IReadOnlyDictionary<string, DbaColumnInfo>? ResolveDestinationColumns(
         IReadOnlyDictionary<string, IReadOnlyList<DbaColumnInfo>>? destinationColumnGroups,
         string destinationTableName,
+        DbaTableCopyProvider? identifierProvider,
         IEqualityComparer<string> columnNameComparer)
     {
         if (destinationColumnGroups == null)
@@ -210,7 +212,7 @@ public static class DbaTableCopyPlanner
         }
 
         var parts = SplitName(destinationTableName);
-        var key = TableKey(parts.Schema, parts.Name);
+        var key = TableKey(parts.Schema, parts.Name, identifierProvider);
         if (destinationColumnGroups.TryGetValue(key, out var columns))
         {
             return columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer);
@@ -221,7 +223,7 @@ public static class DbaTableCopyPlanner
         {
             var metadataSchema = DbaIdentifierPath.UnquoteSegment(pathParts[pathParts.Count - 2]);
             var metadataTable = DbaIdentifierPath.UnquoteSegment(pathParts[pathParts.Count - 1]);
-            var metadataKey = TableKey(metadataSchema, metadataTable);
+            var metadataKey = TableKey(metadataSchema, metadataTable, identifierProvider);
             if (destinationColumnGroups.TryGetValue(metadataKey, out columns))
             {
                 return columns.ToDictionary(static column => column.Name, static column => column, columnNameComparer);
@@ -245,14 +247,14 @@ public static class DbaTableCopyPlanner
         }
 
         var sourceNames = new HashSet<string>(sourceColumns.Select(static column => column.Name), StringComparer.Ordinal);
-        var tableKey = TableKey(table.Schema, table.Name);
+        var tableKey = TableKey(table.Schema, table.Name, options.IdentifierProvider);
         if (sourceIndexGroups != null && sourceIndexGroups.TryGetValue(tableKey, out var indexes))
         {
             var keyColumns = indexes
                 .Where(static index => index.IsPrimaryKey && index.IsIncluded != true && !string.IsNullOrWhiteSpace(index.Column))
                 .OrderBy(static index => index.Ordinal)
                 .Where(index => sourceNames.Contains(index.Column!))
-                .Select(static index => DbaIdentifierPath.QuotePlanSegmentPreservingCase(index.Column!))
+                .Select(index => DbaIdentifierPath.QuotePlanSegmentPreservingCase(index.Column!, options.IdentifierProvider))
                 .ToArray();
             if (keyColumns.Length > 0)
             {
@@ -263,22 +265,22 @@ public static class DbaTableCopyPlanner
         var identityColumns = sourceColumns
             .Where(static column => column.IsIdentity == true)
             .OrderBy(static column => column.Ordinal)
-            .Select(static column => DbaIdentifierPath.QuotePlanSegmentPreservingCase(column.Name))
+            .Select(column => DbaIdentifierPath.QuotePlanSegmentPreservingCase(column.Name, options.IdentifierProvider))
             .ToArray();
         return identityColumns.Length > 0 ? identityColumns : null;
     }
 
-    private static Dictionary<string, IReadOnlyList<DbaColumnInfo>> GroupColumns(IEnumerable<DbaColumnInfo> columns)
+    private static Dictionary<string, IReadOnlyList<DbaColumnInfo>> GroupColumns(IEnumerable<DbaColumnInfo> columns, DbaTableCopyProvider? optionsProvider)
         => columns
-            .GroupBy(static column => TableKey(column.Schema, column.Table), StringComparer.Ordinal)
+            .GroupBy(column => TableKey(column.Schema, column.Table, optionsProvider), StringComparer.Ordinal)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaColumnInfo>)group.OrderBy(static column => column.Ordinal).ToArray(),
                 StringComparer.Ordinal);
 
-    private static Dictionary<string, IReadOnlyList<DbaIndexInfo>> GroupIndexes(IEnumerable<DbaIndexInfo> indexes)
+    private static Dictionary<string, IReadOnlyList<DbaIndexInfo>> GroupIndexes(IEnumerable<DbaIndexInfo> indexes, DbaTableCopyProvider? optionsProvider)
         => indexes
-            .GroupBy(static index => TableKey(index.Schema, index.Table), StringComparer.Ordinal)
+            .GroupBy(index => TableKey(index.Schema, index.Table, optionsProvider), StringComparer.Ordinal)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaIndexInfo>)group.ToArray(),
@@ -406,12 +408,18 @@ public static class DbaTableCopyPlanner
            (string.Equals(column.DataType, "timestamp", StringComparison.OrdinalIgnoreCase) && column.MaxLength == 8);
 
     private static string QualifyName(string? schema, string name)
+        => QualifyName(schema, name, provider: null);
+
+    private static string QualifyName(string? schema, string name, DbaTableCopyProvider? provider)
         => string.IsNullOrWhiteSpace(schema)
-            ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(name)
-            : DbaIdentifierPath.QuotePlanSegmentPreservingCase(schema!) + "." + DbaIdentifierPath.QuotePlanSegmentPreservingCase(name);
+            ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(name, provider)
+            : DbaIdentifierPath.QuotePlanSegmentPreservingCase(schema!, provider) + "." + DbaIdentifierPath.QuotePlanSegmentPreservingCase(name, provider);
 
     private static string TableKey(string? schema, string name)
         => QualifyName(schema, name);
+
+    private static string TableKey(string? schema, string name, DbaTableCopyProvider? optionsProvider)
+        => QualifyName(schema, name, optionsProvider);
 
     private static (string? Schema, string Name) SplitName(string tableName)
     {

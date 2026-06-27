@@ -63,4 +63,7 @@ public sealed class DbaTableCopyPlanOptions
 
     /// <summary>Optional predicate for domain-specific table filtering before definitions are created.</summary>
     public Func<DbaTableInfo, bool>? TablePredicate { get; init; }
+
+    /// <summary>Provider whose identifier folding rules should be used when quoting metadata-derived names.</summary>
+    public DbaTableCopyProvider? IdentifierProvider { get; init; }
 }
