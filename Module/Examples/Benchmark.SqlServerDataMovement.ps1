@@ -18,14 +18,8 @@ if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
 
-$moduleRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent $moduleRoot
-$releasePath = Join-Path $repoRoot 'DbaClientX.PowerShell\bin\Release'
 if (-not $ModulePath) {
-    $ModulePath = Join-Path $moduleRoot 'DbaClientX.psd1'
-}
-if (-not $env:DBACLIENTX_DEVELOPMENT_PATH -and (Test-Path $releasePath)) {
-    $env:DBACLIENTX_DEVELOPMENT_PATH = $releasePath
+    $ModulePath = 'DbaClientX'
 }
 
 Import-Module $ModulePath -Force

@@ -7,13 +7,7 @@ param(
     [switch] $KeepSqlTable
 )
 
-$moduleRoot = Split-Path -Parent $PSScriptRoot
-$releasePath = Join-Path (Split-Path -Parent $moduleRoot) 'DbaClientX.PowerShell\bin\Release'
-if (-not $env:DBACLIENTX_DEVELOPMENT_PATH -and (Test-Path $releasePath)) {
-    $env:DBACLIENTX_DEVELOPMENT_PATH = $releasePath
-}
-
-Import-Module (Join-Path $moduleRoot 'DbaClientX.psd1') -Force
+Import-Module DbaClientX -Force
 
 $temporaryPath = [System.IO.Path]::GetTempPath()
 $sourceDatabase = Join-Path $temporaryPath ('DbaClientXCopySource-' + [guid]::NewGuid() + '.db')
