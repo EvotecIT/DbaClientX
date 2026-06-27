@@ -54,7 +54,7 @@ public sealed class DbaTableCopyEngine
 
         if (options.ClearDestination)
         {
-            await PreflightDestinationAsync(destination, copyDefinitions, cancellationToken).ConfigureAwait(false);
+            await PreflightDestinationAsync(destination, copyDefinitions, preflight!, cancellationToken).ConfigureAwait(false);
 
             for (var index = copyDefinitions.Length - 1; index >= 0; index--)
             {
@@ -117,12 +117,22 @@ public sealed class DbaTableCopyEngine
     private static async Task PreflightDestinationAsync(
         IDbaTableCopyDestination destination,
         IReadOnlyList<DbaTableCopyDefinition> definitions,
+        IReadOnlyList<DbaTableCopyPreflight?> preflight,
         CancellationToken cancellationToken)
     {
-        foreach (var definition in definitions)
+        for (var index = 0; index < definitions.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+            var definition = definitions[index];
+            var destinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+            if (!destinationRows.HasValue &&
+                preflight[index]?.SourceRows > 0 &&
+                !ShouldWriteEmptyPage(destination, definition))
+            {
+                throw new InvalidOperationException(
+                    $"Destination table '{definition.DestinationName}' could not be counted before ClearDestination. " +
+                    "Missing destination tables are safe only for empty sources or destinations that can create the table before writing.");
+            }
         }
     }
 
@@ -155,11 +165,12 @@ public sealed class DbaTableCopyEngine
         var sourceRows = preflight == null
             ? await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
             : preflight.SourceRows;
-        var initialDestinationRows = options.VerifyRowCounts &&
-                                     !options.ClearDestination &&
-                                     !ShouldWriteEmptyPage(destination, definition)
-            ? await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false)
-            : null;
+        var initialDestinationRows = await CountInitialDestinationRowsAsync(
+                destination,
+                definition,
+                options,
+                cancellationToken)
+            .ConfigureAwait(false);
         if (sourceRows == 0)
         {
             var emptyPage = preflight?.FirstPage;
@@ -268,6 +279,27 @@ public sealed class DbaTableCopyEngine
         }
 
         return new DbaTableCopyTableResult(definition.DisplayName, sourceRows, copied, destinationRows, verified);
+    }
+
+    private static async Task<long?> CountInitialDestinationRowsAsync(
+        IDbaTableCopyDestination destination,
+        DbaTableCopyDefinition definition,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (!options.VerifyRowCounts || options.ClearDestination)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) when (ShouldWriteEmptyPage(destination, definition))
+        {
+            return null;
+        }
     }
 
     private static bool ShouldWriteEmptyPage(IDbaTableCopyDestination destination, DbaTableCopyDefinition definition)

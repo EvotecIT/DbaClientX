@@ -443,6 +443,19 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void BuildPageQuery_PostgreSqlQuotesReservedIdentifiers()
+    {
+        var adapter = CreateAdapter(
+            DbaTableCopyProvider.PostgreSql,
+            "Host=localhost;Database=db;Username=u;Password=p",
+            new[] { "user" });
+
+        var query = InvokeBuildPageQuery(adapter, "public.order", 0, 10);
+
+        Assert.Equal("SELECT * FROM public.\"order\" ORDER BY \"user\" LIMIT 10 OFFSET 0", query);
+    }
+
+    [Fact]
     public void BuildPageQuery_SqlServerPreservesDotsInsideBracketedIdentifiers()
     {
         var adapter = CreateAdapter(
@@ -466,6 +479,19 @@ public class DbaProviderTableCopyAdapterBaseTests
         var query = InvokeBuildPageQuery(adapter, "\"App\".\"Users\"", 0, 10);
 
         Assert.Equal("SELECT * FROM \"App\".\"Users\" ORDER BY \"CreatedUtc\" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
+    }
+
+    [Fact]
+    public void BuildPageQuery_OracleQuotesReservedIdentifiers()
+    {
+        var adapter = CreateAdapter(
+            DbaTableCopyProvider.Oracle,
+            "Data Source=oracle;User Id=u;Password=p",
+            new[] { "ORDER" });
+
+        var query = InvokeBuildPageQuery(adapter, "app.USER", 0, 10);
+
+        Assert.Equal("SELECT * FROM APP.\"USER\" ORDER BY \"ORDER\" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", query);
     }
 
     [Fact]

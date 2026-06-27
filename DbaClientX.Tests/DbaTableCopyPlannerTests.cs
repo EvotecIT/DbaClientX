@@ -868,6 +868,60 @@ public class DbaTableCopyPlannerTests
         Assert.Empty(plan.Warnings);
     }
 
+    [Fact]
+    public void BuildPlan_QuotesPostgreSqlDestinationMetadataColumnsThatPreserveCase()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "users", "id", "integer", 1, isIdentity: true),
+            Column("public", "users", "displayname", "text", 2)
+        };
+        var destinationColumns = new[]
+        {
+            Column("public", "users", "id", "integer", 1),
+            Column("public", "users", "DisplayName", "text", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.PostgreSql,
+                ColumnMappings = new Dictionary<string, string>
+                {
+                    ["displayname"] = "DisplayName"
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("\"DisplayName\"", definition.ColumnMappings["displayname"]);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_QuotesProviderReservedMetadataIdentifiers()
+    {
+        var sourceTables = new[] { new DbaTableInfo("public", "order", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("public", "order", "user", "text", 1, isIdentity: true)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions { IdentifierProvider = DbaTableCopyProvider.PostgreSql });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Equal("public.\"order\"", definition.SourceName);
+        Assert.Equal("public.\"order\"", definition.DestinationName);
+        Assert.Equal(new[] { "\"user\"" }, definition.OrderByColumns);
+    }
+
     private static DbaColumnInfo Column(
         string schema,
         string table,

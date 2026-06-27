@@ -237,7 +237,7 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
 
         var createTable = sqlServer.SetupCommands[0].CommandText;
-        Assert.Contains("[Amount] decimal(38,28) NULL", createTable);
+        Assert.Contains("[Amount] decimal(38,18) NULL", createTable);
     }
 
     [Fact]
@@ -255,7 +255,25 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
 
         var createTable = sqlServer.SetupCommands[0].CommandText;
-        Assert.Contains("[Amount] decimal(38,28) NULL", createTable);
+        Assert.Contains("[Amount] decimal(38,0) NULL", createTable);
+    }
+
+    [Fact]
+    public void BulkInsert_WithAutoCreateTable_UsesDecimalScaleThatSupportsLargeIntegerParts()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(decimal));
+        table.Rows.Add(decimal.Parse("1234567890123.1234567890123456", CultureInfo.InvariantCulture));
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            AutoCreateTable = true
+        };
+
+        sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
+
+        var createTable = sqlServer.SetupCommands[0].CommandText;
+        Assert.Contains("[Amount] decimal(38,16) NULL", createTable);
     }
 
     [Fact]

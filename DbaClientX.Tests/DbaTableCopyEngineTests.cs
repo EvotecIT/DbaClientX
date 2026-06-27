@@ -117,7 +117,7 @@ public class DbaTableCopyEngineTests
             destination,
             new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") });
 
-        Assert.Equal(1, destination.CountCalls);
+        Assert.Equal(2, destination.CountCalls);
         Assert.Equal(2, result.SourceRows);
         Assert.Equal(2, result.CopiedRows);
         Assert.Equal(2, result.DestinationRows);
@@ -268,6 +268,29 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DoesNotClearDestinationWhenDestinationIsMissingForNonEmptySource()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination
+        {
+            NullCountDestinationName = "MissingRows"
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[]
+            {
+                new DbaTableCopyDefinition("MissingRows", "MissingRows"),
+                new DbaTableCopyDefinition("ExistingRows", "ExistingRows")
+            },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Contains("could not be counted before ClearDestination", exception.Message);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_RejectsDuplicateClearDestinationsBeforePreflight()
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -334,6 +357,55 @@ public class DbaTableCopyEngineTests
         Assert.Equal(2, result.SourceRows);
         Assert.Equal(2, result.CopiedRows);
         Assert.Equal(3, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_VerifiesExistingAutoCreateDestinationAgainstInitialRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new MemoryTableCopyDestination { WriteEmptyPages = true };
+        destination.Rows.Columns.Add("Id", typeof(int));
+        destination.Rows.Columns.Add("DisplayName", typeof(string));
+        destination.Rows.Rows.Add(100, "Existing");
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.Equal(2, destination.CountCalls);
+        Assert.True(result.Verified);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(3, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_FailsAppendVerificationForExistingAutoCreateDestinationMismatch()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 7) { WriteEmptyPages = true };
+        destination.Rows.Columns.Add("Id", typeof(int));
+        destination.Rows.Columns.Add("DisplayName", typeof(string));
+        destination.Rows.Rows.Add(100, "Existing");
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(7, result.DestinationRows);
     }
 
     [Fact]
@@ -727,6 +799,8 @@ public class DbaTableCopyEngineTests
 
         public string? ThrowOnCountDestinationName { get; init; }
 
+        public string? NullCountDestinationName { get; init; }
+
         public bool ThrowOnCountBeforeWrite { get; init; }
 
         public int CountCalls { get; private set; }
@@ -770,6 +844,11 @@ public class DbaTableCopyEngineTests
             if (string.Equals(definition.DestinationName, ThrowOnCountDestinationName, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("Destination count failed.");
+            }
+
+            if (string.Equals(definition.DestinationName, NullCountDestinationName, StringComparison.Ordinal))
+            {
+                return Task.FromResult<long?>(null);
             }
 
             if (ThrowOnCountBeforeWrite && WriteOrder.Count == 0)

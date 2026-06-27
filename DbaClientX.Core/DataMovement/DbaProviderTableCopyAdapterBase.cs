@@ -49,7 +49,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
 
     /// <inheritdoc />
     public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-        => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, cancellationToken);
+        => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, treatMissingAsEmpty: true, cancellationToken);
 
     /// <inheritdoc />
     public async Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
@@ -89,7 +89,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     public abstract Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default);
 
     Task<long?> IDbaTableCopyDestination.CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
-        => ExecuteCountAsync(definition.DestinationName, null, cancellationToken);
+        => ExecuteCountAsync(definition.DestinationName, null, treatMissingAsEmpty: false, cancellationToken);
 
     /// <inheritdoc />
     public virtual void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
@@ -100,7 +100,11 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     public virtual bool ShouldWriteEmptyPage(DbaTableCopyDefinition definition)
         => false;
 
-    private async Task<long?> ExecuteCountAsync(string tableName, DbaTableCopySourceOptions? sourceOptions, CancellationToken cancellationToken)
+    private async Task<long?> ExecuteCountAsync(
+        string tableName,
+        DbaTableCopySourceOptions? sourceOptions,
+        bool treatMissingAsEmpty,
+        CancellationToken cancellationToken)
     {
         object? result;
         try
@@ -109,7 +113,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         }
         catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
         {
-            return 0;
+            return treatMissingAsEmpty ? 0 : null;
         }
 
         return result == null || result == DBNull.Value
@@ -465,7 +469,8 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     }
 
     private static string QuoteOracleIdentifier(string identifier)
-        => IsOracleSimpleIdentifier(identifier)
+        => IsOracleSimpleIdentifier(identifier) &&
+           !DbaIdentifierPath.IsReservedIdentifier(identifier, DbaTableCopyProvider.Oracle)
             ? identifier.ToUpperInvariant()
             : "\"" + identifier.Replace("\"", "\"\"") + "\"";
 
@@ -494,7 +499,8 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_' or >= '0' and <= '9' or '$' or '#';
 
     private static string QuotePostgreSqlIdentifier(string identifier)
-        => IsPostgreSqlSimpleIdentifier(identifier)
+        => IsPostgreSqlSimpleIdentifier(identifier) &&
+           !DbaIdentifierPath.IsReservedIdentifier(identifier, DbaTableCopyProvider.PostgreSql)
             ? identifier.ToLowerInvariant()
             : "\"" + identifier.Replace("\"", "\"\"") + "\"";
 

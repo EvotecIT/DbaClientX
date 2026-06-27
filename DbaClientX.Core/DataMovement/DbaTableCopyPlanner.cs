@@ -128,7 +128,9 @@ public static class DbaTableCopyPlanner
                 }
                 else
                 {
-                    effectiveDestinationColumnName = destinationColumn.Name;
+                    effectiveDestinationColumnName = options.IdentifierProvider.HasValue
+                        ? DbaIdentifierPath.QuotePlanSegmentPreservingCase(destinationColumn.Name, options.IdentifierProvider)
+                        : destinationColumn.Name;
                 }
             }
 
