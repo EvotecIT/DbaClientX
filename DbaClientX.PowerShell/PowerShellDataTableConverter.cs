@@ -118,7 +118,7 @@ internal static class PowerShellDataTableConverter
         var columns = GetDataRecordColumns(firstRecord);
         foreach (var column in columns)
         {
-            table.Columns.Add(column.TableName, typeof(object));
+            table.Columns.Add(column.TableName, column.FieldType);
         }
 
         foreach (var item in items)

@@ -491,15 +491,15 @@ internal static class DbaProviderTableCopyTargetIdentity
             return false;
         }
 
-        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         if (string.Equals(mode, "Memory", StringComparison.OrdinalIgnoreCase))
         {
             identity = "sqlite|mode=memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
             return true;
+        }
+
+        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
         }
 
         identity = "sqlite|path=" + NormalizeSQLiteFilePath(ResolveSQLiteFilePath(dataSource));

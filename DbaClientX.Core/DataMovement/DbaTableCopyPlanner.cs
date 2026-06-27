@@ -360,7 +360,7 @@ public static class DbaTableCopyPlanner
         string unqualifiedTableName,
         DbaTableCopyProvider? provider)
         => NormalizeSourceOptions(
-            TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValue)
+            TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, provider, out var scopedValue)
             ? scopedValue
             : global,
             provider);

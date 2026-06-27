@@ -1406,6 +1406,27 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void TryCreate_SQLiteIdentityAcceptsPooledSharedMemoryDatabase()
+    {
+        var first = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=:memory:;Mode=Memory;Cache=Shared;Pooling=True"
+        };
+        var second = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=:memory:;Cache=Shared;Pooling=True;Mode=Memory"
+        };
+
+        var firstIdentity = InvokeTryCreateIdentity(first);
+        var secondIdentity = InvokeTryCreateIdentity(second);
+
+        Assert.Equal(firstIdentity, secondIdentity);
+        Assert.Contains("mode=memory", firstIdentity, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryCreate_SQLiteIdentityAcceptsRawPathContainingEqualsSign()
     {
         var path = Path.Join(Path.GetTempPath(), "dbax=blue.db");

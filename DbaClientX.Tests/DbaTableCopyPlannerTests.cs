@@ -1385,6 +1385,36 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_MatchesProviderCasedTableSourceOptions()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "Id", "int", 1, isIdentity: true),
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer,
+                TableSourceOptions = new Dictionary<string, DbaTableCopySourceOptions>
+                {
+                    ["dbo.users"] = new(new[] { "DisplayName" }, new[] { "Id" }, DeduplicateCaseInsensitive: true)
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.SourceOptions);
+        Assert.Equal(new[] { "DisplayName" }, definition.SourceOptions.DeduplicateByColumns);
+        Assert.Equal(new[] { "Id" }, definition.SourceOptions.DeduplicateOrderByColumns);
+        Assert.True(definition.SourceOptions.DeduplicateCaseInsensitive);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_QuotesProviderReservedMetadataIdentifiers()
     {
         var sourceTables = new[] { new DbaTableInfo("public", "order", DbaTableKind.Table) };
