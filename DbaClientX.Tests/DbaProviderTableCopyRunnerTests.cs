@@ -1110,6 +1110,35 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksClearDestinationPostgreSqlDoubleQuotedSearchPathValue()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=app;Password=one;Search Path=\"tenant, public\""
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Database=Monitoring;Username=app;Password=two;Search Path=\"tenant, public\""
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("tenant.Rows", "Rows", new[] { "id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("omits Search Path", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSameMySqlTargetWhenDefaultPortIsOmittedBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -1572,6 +1601,24 @@ public class DbaProviderTableCopyRunnerTests
         };
 
         Assert.Equal(InvokeTryCreateIdentity(connectionStringOptions), InvokeTryCreateIdentity(fullUriOptions));
+    }
+
+    [Fact]
+    public void TryCreate_SQLiteIdentityParsesDataSourceUriModeAndCache()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbax-datasource-uri-memory-" + Guid.NewGuid().ToString("N") + ".db");
+        var connectionStringOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + path + ";Mode=Memory;Cache=Shared"
+        };
+        var uriOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared"
+        };
+
+        Assert.Equal(InvokeTryCreateIdentity(connectionStringOptions), InvokeTryCreateIdentity(uriOptions));
     }
 
     [Fact]

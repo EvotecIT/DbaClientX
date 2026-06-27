@@ -479,6 +479,7 @@ internal static class DbaProviderTableCopyTargetIdentity
                 ConnectionString = connectionString.Trim()
             };
             TranslateSQLiteFullUriIdentityOptions(builder);
+            TranslateSQLiteDataSourceUriIdentityOptions(builder);
             dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
             mode = ReadConnectionStringValue(builder, "Mode");
             cache = ReadConnectionStringValue(builder, "Cache");
@@ -533,6 +534,24 @@ internal static class DbaProviderTableCopyTargetIdentity
         {
             builder["Data Source"] = uriText;
         }
+    }
+
+    private static void TranslateSQLiteDataSourceUriIdentityOptions(DbConnectionStringBuilder builder)
+    {
+        var key = FindConnectionStringKey(builder, "Data Source", "DataSource", "Filename");
+        if (key == null || builder[key] == null)
+        {
+            return;
+        }
+
+        var uriText = builder[key]?.ToString();
+        if (!Uri.TryCreate(uriText, UriKind.Absolute, out var uri) || !uri.IsFile)
+        {
+            return;
+        }
+
+        builder[key] = uri.LocalPath;
+        ApplySQLiteFullUriIdentityQueryOptions(builder, uri);
     }
 
     private static void ApplySQLiteFullUriIdentityQueryOptions(DbConnectionStringBuilder builder, Uri uri)
@@ -675,6 +694,19 @@ internal static class DbaProviderTableCopyTargetIdentity
         return null;
     }
 
+    private static string? FindConnectionStringKey(DbConnectionStringBuilder builder, params string[] keys)
+    {
+        foreach (var candidate in keys)
+        {
+            if (builder.ContainsKey(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private static bool IsSQLitePoolingEnabled(string? pooling)
         => bool.TryParse(pooling, out var enabled) && enabled;
 
@@ -765,6 +797,14 @@ internal static class DbaProviderTableCopyTargetIdentity
             trimmed[trimmed.Length - 1] == '\'')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("''", "'");
+        }
+
+        if (trimmed.Length >= 2 &&
+            trimmed[0] == '"' &&
+            trimmed[trimmed.Length - 1] == '"' &&
+            trimmed.Contains(','))
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
         return trimmed;
