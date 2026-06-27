@@ -389,6 +389,31 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_MatchesExcludedColumnsWithProviderDefaultComparer()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1),
+            Column("dbo", "Users", "Helper", "nvarchar(128)", 2)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer,
+                ExcludedColumns = new[] { "helper" }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ExcludedColumns);
+        Assert.Contains("Helper", definition.ExcludedColumns);
+        Assert.DoesNotContain("DisplayName", definition.ExcludedColumns);
+    }
+
+    [Fact]
     public void BuildPlan_PreservesGlobalExcludedColumnComparerWhenScopedMappingsExist()
     {
         var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };

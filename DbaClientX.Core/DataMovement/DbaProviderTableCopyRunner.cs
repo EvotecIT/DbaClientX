@@ -346,6 +346,7 @@ public sealed class DbaProviderTableCopyRunner
 
         var destinationDatabase = DbaProviderTableCopyTargetIdentity.GetCurrentDatabase(request.Destination);
         var destinationDefaultSchema = DbaProviderTableCopyTargetIdentity.GetDefaultSchema(request.Destination);
+        DbaProviderTableCopyTargetIdentity.TryCreate(request.Destination, out var destinationIdentity);
         for (var index = 0; index < request.Definitions.Count; index++)
         {
             for (var next = index + 1; next < request.Definitions.Count; next++)
@@ -360,6 +361,12 @@ public sealed class DbaProviderTableCopyRunner
                     continue;
                 }
 
+                ValidateDatabaseQualifiedTableNamesAreUnambiguous(
+                    request.Destination.Provider,
+                    current.DestinationName,
+                    candidate.DestinationName,
+                    destinationDatabase,
+                    destinationDatabase);
                 ValidateClearDestinationTableNameIsUnambiguous(request.Destination, current.DestinationName, destinationDefaultSchema);
                 ValidateClearDestinationTableNameIsUnambiguous(request.Destination, candidate.DestinationName, destinationDefaultSchema);
             }
@@ -367,11 +374,12 @@ public sealed class DbaProviderTableCopyRunner
 
         var duplicate = request.Definitions
             .GroupBy(
-                definition => DbaProviderTableCopyTargetIdentity.NormalizeTableName(
+                definition => DbaProviderTableCopyTargetIdentity.NormalizeEffectiveTableTarget(
                     request.Destination.Provider,
                     definition.DestinationName,
                     destinationDatabase,
-                    destinationDefaultSchema),
+                    destinationDefaultSchema,
+                    destinationIdentity),
                 StringComparer.Ordinal)
             .FirstOrDefault(static group => group.Count() > 1);
         if (duplicate != null)

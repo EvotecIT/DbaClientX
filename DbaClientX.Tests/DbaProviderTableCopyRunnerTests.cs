@@ -803,6 +803,31 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSamePostgreSqlTargetWhenDefaultPortAliasIsUsedBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;PortNumber=5432;Database=Monitoring;Username=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.PostgreSql,
+                ConnectionString = "Host=localhost;Port=5432;Database=Monitoring;Username=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("public.probeindex", "public.probeindex", new[] { "probename" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_BlocksSamePostgreSqlPublicSchemaAliasesBeforeConnecting()
     {
         var request = new DbaProviderTableCopyRequest
@@ -1064,6 +1089,31 @@ public class DbaProviderTableCopyRunnerTests
             {
                 Provider = DbaTableCopyProvider.MySql,
                 ConnectionString = "Server=localhost;Database=Monitoring;User ID=reader;Password=one"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Port=3306;Database=Monitoring;User ID=writer;Password=two"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("probeindex", "probeindex", new[] { "probename" })
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("Refusing to copy provider table", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_BlocksSameMySqlTargetWhenDefaultPortAliasIsUsedBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.MySql,
+                ConnectionString = "Server=localhost;Port No=3306;Database=Monitoring;User ID=reader;Password=one"
             },
             Destination = new DbaProviderTableCopyAdapterOptions
             {
@@ -1655,6 +1705,36 @@ public class DbaProviderTableCopyRunnerTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
         Assert.Contains("unqualified", exception.Message);
         Assert.Contains("default schema is unknown", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_RejectsAmbiguousSqlServerClearDestinationDuplicatesWhenCurrentDatabaseIsUnknown()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("SourceRows", "Archive.dbo.Rows", new[] { "Id" }),
+                new DbaTableCopyDefinition("OtherRows", "dbo.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("Refusing to guard SqlServer table", exception.Message);
     }
 
     private static void DeleteIfExists(string path)

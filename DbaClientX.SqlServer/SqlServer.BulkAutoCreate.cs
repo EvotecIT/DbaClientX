@@ -253,58 +253,7 @@ public partial class SqlServer
     }
 
     private static string GetSqlServerDecimalColumnType(DataColumn column)
-    {
-        var maxScale = -1;
-        var maxIntegerDigits = 1;
-        var table = column.Table;
-        if (table == null)
-        {
-            return "decimal(38,18)";
-        }
-
-        foreach (DataRow row in table.Rows)
-        {
-            if (row[column] == DBNull.Value)
-            {
-                continue;
-            }
-
-            var value = (decimal)row[column];
-            maxScale = Math.Max(maxScale, GetDecimalScale(value));
-            maxIntegerDigits = Math.Max(maxIntegerDigits, GetDecimalIntegerDigits(value));
-        }
-
-        if (maxScale < 0)
-        {
-            return "decimal(38,18)";
-        }
-
-        var scale = maxScale == 0
-            ? 0
-            : Math.Min(maxScale, Math.Max(0, 38 - maxIntegerDigits));
-        return $"decimal(38,{scale})";
-    }
-
-    private static int GetDecimalScale(decimal value)
-        => (decimal.GetBits(value)[3] >> 16) & 0x7F;
-
-    private static int GetDecimalIntegerDigits(decimal value)
-    {
-        var integer = decimal.Truncate(Math.Abs(value));
-        if (integer == 0)
-        {
-            return 1;
-        }
-
-        var digits = 0;
-        while (integer >= 1)
-        {
-            integer = decimal.Truncate(integer / 10);
-            digits++;
-        }
-
-        return digits;
-    }
+        => "decimal(38,18)";
 
     private static string QuoteSqlServerIdentifier(string identifier)
     {

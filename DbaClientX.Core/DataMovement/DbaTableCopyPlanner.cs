@@ -82,7 +82,7 @@ public static class DbaTableCopyPlanner
         ICollection<DbaTableCopyPlanWarning> warnings)
     {
         var scopedMappings = MergeScopedDictionary(options.ColumnMappings, options.TableColumnMappings, sourceTableName, table.Name);
-        var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name);
+        var scopedExclusions = MergeScopedCollection(options.ExcludedColumns, options.TableExcludedColumns, sourceTableName, table.Name, options.IdentifierProvider);
         var scopedConversions = MergeScopedDictionary(options.ColumnTypeConversions, options.TableColumnTypeConversions, sourceTableName, table.Name);
         var scopedSourceOptions = ResolveScopedSourceOptions(options.SourceOptions, options.TableSourceOptions, sourceTableName, table.Name, options.IdentifierProvider);
         var excludedColumns = new HashSet<string>(scopedExclusions ?? Array.Empty<string>(), GetComparer(scopedExclusions));
@@ -350,10 +350,13 @@ public static class DbaTableCopyPlanner
         IReadOnlyCollection<string>? global,
         IReadOnlyDictionary<string, IReadOnlyCollection<string>>? scoped,
         string qualifiedTableName,
-        string unqualifiedTableName)
+        string unqualifiedTableName,
+        DbaTableCopyProvider? provider)
     {
         var hasScopedValues = TryResolveScopedValue(scoped, qualifiedTableName, unqualifiedTableName, out var scopedValues) && scopedValues != null;
-        var result = new HashSet<string>(global ?? Array.Empty<string>(), GetComparerOrDefault(global, scopedValues));
+        var result = new HashSet<string>(
+            global ?? Array.Empty<string>(),
+            GetComparerOrDefault(global, scopedValues) ?? GetDefaultColumnNameComparer(provider));
         if (hasScopedValues)
         {
             foreach (var value in scopedValues!)
@@ -467,10 +470,10 @@ public static class DbaTableCopyPlanner
         IReadOnlyDictionary<string, TValue>? scoped)
         => GetComparer(global) ?? GetComparer(scoped) ?? StringComparer.Ordinal;
 
-    private static IEqualityComparer<string> GetComparerOrDefault(
+    private static IEqualityComparer<string>? GetComparerOrDefault(
         IReadOnlyCollection<string>? global,
         IReadOnlyCollection<string>? scoped)
-        => GetComparer(global) ?? GetComparer(scoped) ?? StringComparer.Ordinal;
+        => GetComparer(global) ?? GetComparer(scoped);
 
     private static IEqualityComparer<string>? GetComparer<TValue>(IReadOnlyDictionary<string, TValue>? source)
         => source is Dictionary<string, TValue> dictionary

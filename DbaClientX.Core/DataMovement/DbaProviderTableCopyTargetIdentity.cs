@@ -564,7 +564,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             var database = provider == DbaTableCopyProvider.PostgreSql
                 ? ReadPostgreSqlDatabase(builder)
                 : ReadConnectionStringValue(builder, "Database", "Initial Catalog", "DB");
-            var port = NormalizeProviderPort(provider, ReadConnectionStringValue(builder, "Port"));
+            var port = NormalizeProviderPort(provider, ReadConnectionStringValue(builder, "Port", "PortNumber", "Port No", "Port Number"));
             if (!string.IsNullOrWhiteSpace(host) || !string.IsNullOrWhiteSpace(database))
             {
                 identity = providerName +
