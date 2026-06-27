@@ -230,8 +230,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
             var startedAt = DateTimeOffset.UtcNow;
             var stopwatch = Stopwatch.StartNew();
-            var result = CopyAsync(definitions).GetAwaiter().GetResult();
+            var bufferedProgress = IsDesktopPowerShell() ? new List<DbaTableCopyProgress>() : null;
+            var result = CopyAsync(definitions, bufferedProgress).GetAwaiter().GetResult();
             stopwatch.Stop();
+
+            if (bufferedProgress != null)
+            {
+                foreach (var progress in bufferedProgress)
+                {
+                    WriteTableCopyProgress(progress);
+                }
+            }
 
             CompleteProgress();
             if (!result.Verified)
@@ -274,7 +283,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
     }
 
-    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions)
+    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress>? bufferedProgress)
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -301,7 +310,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 BulkCopyTimeout = BulkCopyTimeout,
                 ClearDestination = ClearDestination.IsPresent,
                 VerifyRowCounts = !NoVerify.IsPresent,
-                Progress = WriteTableCopyProgress
+                Progress = bufferedProgress == null ? WriteTableCopyProgress : bufferedProgress.Add
             }
         };
 
@@ -589,6 +598,15 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         {
             RecordType = ProgressRecordType.Completed
         });
+    }
+
+    private static bool IsDesktopPowerShell()
+    {
+#if NETFRAMEWORK
+        return true;
+#else
+        return false;
+#endif
     }
 
     private static DbaTableCopyProvider ToTableCopyProvider(DbaXBulkProvider provider)

@@ -102,7 +102,7 @@ public class OracleBulkInsertTests
     public void BulkInsert_SetsOptionsAndMappings()
     {
         using var oracle = new CaptureBulkCopyOracle();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("Name", typeof(string));
         table.Rows.Add(1, "a");
@@ -144,7 +144,7 @@ public class OracleBulkInsertTests
     public void BulkInsert_StripsPlannerQuotesFromDestinationMappings()
     {
         using var oracle = new CaptureBulkCopyOracle();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("\"id\"", typeof(int));
         table.Columns.Add("\"DisplayName\"", typeof(string));
         table.Rows.Add(1, "a");
