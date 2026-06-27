@@ -524,6 +524,26 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithCaseOnlyDuplicateMappedDestinationColumns_Throws()
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("A", typeof(int));
+        table.Columns.Add("B", typeof(int));
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["A"] = "Name",
+                ["B"] = "name"
+            }
+        };
+
+        var exception = Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options));
+        Assert.Contains("duplicate destination column 'name'", exception.Message);
+    }
+
+    [Fact]
     public void BulkInsert_WithConnectionString_UsesConnectionStringOverload()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();

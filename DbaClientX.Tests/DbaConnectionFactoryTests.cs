@@ -215,6 +215,15 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
+    public void Validate_SqliteFullUri_Succeeds()
+    {
+        var result = DbaConnectionFactory.Validate("sqlite", "FullUri=file:///C:/Temp/dbaclientx-test.db");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void Validate_Success()
     {
         var result = DbaConnectionFactory.Validate("sqlserver", "Server=.;Database=app;");

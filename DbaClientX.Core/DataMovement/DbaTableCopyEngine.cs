@@ -280,9 +280,10 @@ public sealed class DbaTableCopyEngine
                     verified = (!sourceRows.HasValue || copied == sourceRows.Value) &&
                                destinationRows.Value == initialDestinationRows.Value + copied;
                 }
-                else if (!sourceRows.HasValue)
+                else
                 {
-                    verified = destinationRows.Value == copied;
+                    verified = (!sourceRows.HasValue || copied == sourceRows.Value) &&
+                               destinationRows.Value == copied;
                 }
             }
         }

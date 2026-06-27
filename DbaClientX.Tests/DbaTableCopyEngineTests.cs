@@ -460,6 +460,32 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_FailsAutoCreateVerificationWhenInitialCountFailsAndFinalRowsDoNotMatchCopiedRows()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 1)
+        {
+            ThrowOnCountBeforeWrite = true,
+            WriteEmptyPages = true
+        };
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Equal(2, result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(1, result.DestinationRows);
+    }
+
+    [Fact]
     public async Task CopyAsync_FailsAppendVerificationForExistingAutoCreateDestinationMismatch()
     {
         var source = new MemoryTableCopySource(CreateRows(2));

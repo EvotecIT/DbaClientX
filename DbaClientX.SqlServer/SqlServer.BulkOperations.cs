@@ -267,7 +267,7 @@ public partial class SqlServer
         if (columnMappings?.Count > 0)
         {
             var normalizedMappings = new Dictionary<string, string>(GetComparer(columnMappings));
-            var destinationColumns = new HashSet<string>(StringComparer.Ordinal);
+            var destinationColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var mapping in columnMappings)
             {
                 normalizedMappings[mapping.Key] = mapping.Value;
@@ -394,7 +394,7 @@ public partial class SqlServer
             }
         }
 
-        var destinationColumns = new HashSet<string>(StringComparer.Ordinal);
+        var destinationColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (DataColumn column in table.Columns)
         {
             var destinationColumn = columnMappings.TryGetValue(column.ColumnName, out var mappedColumn)

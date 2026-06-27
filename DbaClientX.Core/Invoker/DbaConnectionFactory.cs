@@ -70,7 +70,7 @@ public static class DbaConnectionFactory
         ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
         ["sqlite"] = new("sqlite", new List<string[]>
         {
-            new[] { "Data Source", "DataSource", "Filename" }
+            new[] { "Data Source", "DataSource", "Filename", "FullUri" }
         }, ValidateSqlitePath),
         ["oracle"] = new("oracle", new List<string[]>
         {
@@ -239,7 +239,7 @@ public static class DbaConnectionFactory
 
     private static ConnectionValidationResult? ValidateSqlitePath(DbConnectionStringBuilder builder)
     {
-        foreach (var key in new[] { "Data Source", "DataSource", "Filename" })
+        foreach (var key in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
         {
             if (builder.ContainsKey(key) && builder[key] is string path)
             {
