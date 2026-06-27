@@ -323,6 +323,11 @@ public partial class SQLite
             throw new ArgumentOutOfRangeException(nameof(columnCount), "Column count must be greater than zero.");
         }
 
+        if (columnCount > BulkInsertParameterLimit)
+        {
+            throw new ArgumentOutOfRangeException(nameof(columnCount), $"SQLite bulk insert supports at most {BulkInsertParameterLimit} columns per row.");
+        }
+
         var parameterLimitedRows = Math.Max(1, BulkInsertParameterLimit / columnCount);
         if (batchSize.HasValue && batchSize.Value > 0)
         {

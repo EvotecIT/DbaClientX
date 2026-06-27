@@ -230,14 +230,8 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
             var startedAt = DateTimeOffset.UtcNow;
             var stopwatch = Stopwatch.StartNew();
-            var progressEvents = new List<DbaTableCopyProgress>();
-            var result = CopyAsync(definitions, progressEvents).GetAwaiter().GetResult();
+            var result = CopyAsync(definitions).GetAwaiter().GetResult();
             stopwatch.Stop();
-
-            foreach (var progress in progressEvents)
-            {
-                WriteTableCopyProgress(progress);
-            }
 
             CompleteProgress();
             if (!result.Verified)
@@ -280,7 +274,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
     }
 
-    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> progressEvents)
+    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions)
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -307,7 +301,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 BulkCopyTimeout = BulkCopyTimeout,
                 ClearDestination = ClearDestination.IsPresent,
                 VerifyRowCounts = !NoVerify.IsPresent,
-                Progress = progressEvents.Add
+                Progress = WriteTableCopyProgress
             }
         };
 

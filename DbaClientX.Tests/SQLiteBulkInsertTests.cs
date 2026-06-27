@@ -171,7 +171,28 @@ public class SQLiteBulkInsertTests
         Assert.Equal(9, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: null, columnCount: 100));
         Assert.Equal(9, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: 50, columnCount: 100));
         Assert.Equal(5, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: 5, columnCount: 100));
-        Assert.Equal(1, InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: null, columnCount: 2000));
+        Assert.Throws<TargetInvocationException>(() => InvokeResolveRowsPerBatch(totalRows: 1000, batchSize: null, columnCount: 2000));
+    }
+
+    [Fact]
+    public void BulkInsert_WithFullUriConnectionString_InsertsRows()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
+
+            var table = CreateTable(2);
+            sqlite.BulkInsertWithConnectionString("FullUri=" + new Uri(path).AbsoluteUri + ";Pooling=False", table, "Dest");
+
+            var count = sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(2L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
     }
 
     [Fact]

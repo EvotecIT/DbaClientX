@@ -807,7 +807,6 @@ public class DbaTableCopyPlannerTests
             options: new DbaTableCopyPlanOptions
             {
                 IdentifierProvider = DbaTableCopyProvider.SqlServer,
-                DestinationColumnNameComparer = StringComparer.OrdinalIgnoreCase,
                 OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
                 {
                     ["Users"] = new[] { "DisplayName" }
@@ -817,6 +816,34 @@ public class DbaTableCopyPlannerTests
         var definition = Assert.Single(plan.Definitions);
         Assert.Null(definition.ExcludedColumns);
         Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
+    public void BuildPlan_MatchesSqlServerDestinationMetadataColumnsCaseInsensitivelyByDefault()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "Users", "displayname", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.NotNull(definition.ColumnMappings);
+        Assert.Equal("displayname", definition.ColumnMappings["DisplayName"]);
+        Assert.DoesNotContain(plan.Warnings, warning => warning.Code == "MissingDestinationColumn");
     }
 
     [Fact]

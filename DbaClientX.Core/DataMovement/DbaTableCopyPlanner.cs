@@ -52,7 +52,7 @@ public static class DbaTableCopyPlanner
                 destinationColumnGroups,
                 destinationTableName,
                 options.IdentifierProvider,
-                options.DestinationColumnNameComparer ?? StringComparer.Ordinal);
+                options.DestinationColumnNameComparer ?? GetDefaultColumnNameComparer(options.IdentifierProvider));
             var definition = BuildDefinition(
                 table,
                 sourceTableName,
@@ -295,6 +295,11 @@ public static class DbaTableCopyPlanner
     }
 
     private static IEqualityComparer<string> GetTableKeyComparer(DbaTableCopyProvider? provider)
+        => provider == DbaTableCopyProvider.SqlServer
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private static IEqualityComparer<string> GetDefaultColumnNameComparer(DbaTableCopyProvider? provider)
         => provider == DbaTableCopyProvider.SqlServer
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;

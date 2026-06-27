@@ -52,6 +52,7 @@ public class DbaConnectionFactoryTests
     [Theory]
     [InlineData("AllowLoadLocalInfile")]
     [InlineData("Allow Load Local Infile")]
+    [InlineData("LoadLocalInfile")]
     public void Validate_UnsupportedOption(string option)
     {
         var result = DbaConnectionFactory.Validate("mysql", $"Server=.;Database=app;{option}=true");
@@ -63,6 +64,7 @@ public class DbaConnectionFactoryTests
     [Theory]
     [InlineData("AllowLoadLocalInfile")]
     [InlineData("Allow Load Local Infile")]
+    [InlineData("LoadLocalInfile")]
     public void Validate_AllowedUnsupportedOption_StillRunsRemainingValidation(string option)
     {
         var result = DbaConnectionFactory.Validate(

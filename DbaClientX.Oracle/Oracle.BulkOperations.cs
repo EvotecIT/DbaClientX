@@ -200,9 +200,14 @@ public partial class Oracle
 
         foreach (DataColumn column in table.Columns)
         {
-            bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
+            bulkCopy.ColumnMappings.Add(column.ColumnName, UnquotePlannerSegment(column.ColumnName));
         }
     }
+
+    private static string UnquotePlannerSegment(string value)
+        => value.Length >= 2 && value[0] == '"' && value[value.Length - 1] == '"'
+            ? value.Substring(1, value.Length - 2).Replace("\"\"", "\"")
+            : value;
 
     /// <summary>
     /// Creates an <see cref="OracleConnection"/> for the provided connection string.
