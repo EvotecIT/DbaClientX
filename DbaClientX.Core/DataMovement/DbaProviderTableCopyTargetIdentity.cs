@@ -696,12 +696,9 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     private static string? FindConnectionStringKey(DbConnectionStringBuilder builder, params string[] keys)
     {
-        foreach (var candidate in keys)
+        foreach (var candidate in keys.Where(builder.ContainsKey))
         {
-            if (builder.ContainsKey(candidate))
-            {
-                return candidate;
-            }
+            return candidate;
         }
 
         return null;
