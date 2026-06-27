@@ -495,7 +495,7 @@ internal static class DbaProviderTableCopyTargetIdentity
             return true;
         }
 
-        identity = "sqlite|path=" + NormalizeSQLiteFilePath(dataSource);
+        identity = "sqlite|path=" + NormalizeSQLiteFilePath(ResolveSQLiteFilePath(dataSource));
         return true;
     }
 
@@ -910,6 +910,17 @@ internal static class DbaProviderTableCopyTargetIdentity
 #endif
 
         return NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: true);
+    }
+
+    private static string ResolveSQLiteFilePath(string path)
+    {
+        var trimmed = path.Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.IsFile)
+        {
+            return uri.LocalPath;
+        }
+
+        return trimmed;
     }
 
     private static string NormalizePath(string path, bool preserveCaseOnCaseSensitiveFileSystem)

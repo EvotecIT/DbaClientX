@@ -1307,6 +1307,24 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public void TryCreate_SQLiteIdentityCanonicalizesFullUriFilePath()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbax-fulluri-" + Guid.NewGuid().ToString("N") + ".db");
+        var pathOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "Data Source=" + path
+        };
+        var uriOptions = new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.SQLite,
+            ConnectionString = "FullUri=" + new Uri(path).AbsoluteUri
+        };
+
+        Assert.Equal(InvokeTryCreateIdentity(pathOptions), InvokeTryCreateIdentity(uriOptions));
+    }
+
+    [Fact]
     public void TryCreate_PostgreSqlIdentityPreservesCaseSensitiveDatabaseNames()
     {
         var first = new DbaProviderTableCopyAdapterOptions
