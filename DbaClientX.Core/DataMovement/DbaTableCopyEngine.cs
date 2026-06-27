@@ -267,16 +267,22 @@ public sealed class DbaTableCopyEngine
         if (options.VerifyRowCounts)
         {
             destinationRows = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
-            if (sourceRows.HasValue && destinationRows.HasValue)
+            if (destinationRows.HasValue)
             {
                 if (options.ClearDestination)
                 {
-                    verified = sourceRows.Value == destinationRows.Value;
+                    verified = sourceRows.HasValue
+                        ? sourceRows.Value == destinationRows.Value
+                        : copied == destinationRows.Value;
                 }
                 else if (initialDestinationRows.HasValue)
                 {
-                    verified = copied == sourceRows.Value &&
+                    verified = (!sourceRows.HasValue || copied == sourceRows.Value) &&
                                destinationRows.Value == initialDestinationRows.Value + copied;
+                }
+                else if (!sourceRows.HasValue)
+                {
+                    verified = destinationRows.Value == copied;
                 }
             }
         }

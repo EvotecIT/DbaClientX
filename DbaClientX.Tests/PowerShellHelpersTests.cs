@@ -177,6 +177,20 @@ public class PowerShellHelpersTests
     }
 
     [Fact]
+    public void GetHashtableComparer_UsesOrdinalForUpperAndLowerCaseSensitiveKeys()
+    {
+        var hashtable = new Hashtable(StringComparer.Ordinal)
+        {
+            ["NAME"] = "DisplayName",
+            ["name"] = "displayname"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.False(comparer.Equals("NAME", "name"));
+    }
+
+    [Fact]
     public void ResolveSqlServerCredential_UsesIntegratedSecurity_WhenNoCredentialsProvided()
     {
         var result = PowerShellHelpers.ResolveSqlServerCredential(string.Empty, string.Empty, null);

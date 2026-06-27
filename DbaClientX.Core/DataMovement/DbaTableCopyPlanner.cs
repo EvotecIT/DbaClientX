@@ -273,20 +273,31 @@ public static class DbaTableCopyPlanner
     }
 
     private static Dictionary<string, IReadOnlyList<DbaColumnInfo>> GroupColumns(IEnumerable<DbaColumnInfo> columns, DbaTableCopyProvider? optionsProvider)
-        => columns
-            .GroupBy(column => TableKey(column.Schema, column.Table, optionsProvider), StringComparer.Ordinal)
+    {
+        var comparer = GetTableKeyComparer(optionsProvider);
+        return columns
+            .GroupBy(column => TableKey(column.Schema, column.Table, optionsProvider), comparer)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaColumnInfo>)group.OrderBy(static column => column.Ordinal).ToArray(),
-                StringComparer.Ordinal);
+                comparer);
+    }
 
     private static Dictionary<string, IReadOnlyList<DbaIndexInfo>> GroupIndexes(IEnumerable<DbaIndexInfo> indexes, DbaTableCopyProvider? optionsProvider)
-        => indexes
-            .GroupBy(index => TableKey(index.Schema, index.Table, optionsProvider), StringComparer.Ordinal)
+    {
+        var comparer = GetTableKeyComparer(optionsProvider);
+        return indexes
+            .GroupBy(index => TableKey(index.Schema, index.Table, optionsProvider), comparer)
             .ToDictionary(
                 static group => group.Key,
                 static group => (IReadOnlyList<DbaIndexInfo>)group.ToArray(),
-                StringComparer.Ordinal);
+                comparer);
+    }
+
+    private static IEqualityComparer<string> GetTableKeyComparer(DbaTableCopyProvider? provider)
+        => provider == DbaTableCopyProvider.SqlServer
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
 
     private static IReadOnlyDictionary<string, TValue>? MergeScopedDictionary<TValue>(
         IReadOnlyDictionary<string, TValue>? global,

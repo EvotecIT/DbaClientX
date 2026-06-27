@@ -33,6 +33,24 @@ internal static class PowerShellHelpers
 
     internal static StringComparer GetHashtableComparer(Hashtable values)
     {
+        var keys = values
+            .Cast<DictionaryEntry>()
+            .Select(static entry => entry.Key?.ToString())
+            .Where(static key => !string.IsNullOrEmpty(key))
+            .Select(static key => key!)
+            .ToArray();
+        for (var index = 0; index < keys.Length; index++)
+        {
+            for (var otherIndex = index + 1; otherIndex < keys.Length; otherIndex++)
+            {
+                if (!string.Equals(keys[index], keys[otherIndex], StringComparison.Ordinal) &&
+                    string.Equals(keys[index], keys[otherIndex], StringComparison.OrdinalIgnoreCase))
+                {
+                    return StringComparer.Ordinal;
+                }
+            }
+        }
+
         foreach (DictionaryEntry entry in values)
         {
             var key = entry.Key?.ToString();

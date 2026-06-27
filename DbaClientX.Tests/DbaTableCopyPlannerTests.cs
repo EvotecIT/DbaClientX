@@ -722,6 +722,38 @@ public class DbaTableCopyPlannerTests
     }
 
     [Fact]
+    public void BuildPlan_MatchesSqlServerTableMetadataGroupsCaseInsensitively()
+    {
+        var sourceTables = new[] { new DbaTableInfo("dbo", "Users", DbaTableKind.Table) };
+        var sourceColumns = new[]
+        {
+            Column("dbo", "Users", "DisplayName", "nvarchar(128)", 1)
+        };
+        var destinationColumns = new[]
+        {
+            Column("dbo", "users", "displayname", "nvarchar(128)", 1)
+        };
+
+        var plan = DbaTableCopyPlanner.BuildPlan(
+            sourceTables,
+            sourceColumns,
+            destinationColumns: destinationColumns,
+            options: new DbaTableCopyPlanOptions
+            {
+                IdentifierProvider = DbaTableCopyProvider.SqlServer,
+                DestinationColumnNameComparer = StringComparer.OrdinalIgnoreCase,
+                OrderByColumns = new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Users"] = new[] { "DisplayName" }
+                }
+            });
+
+        var definition = Assert.Single(plan.Definitions);
+        Assert.Null(definition.ExcludedColumns);
+        Assert.Empty(plan.Warnings);
+    }
+
+    [Fact]
     public void BuildPlan_QuotesMixedCaseMetadataOrderColumns()
     {
         var sourceTables = new[] { new DbaTableInfo("public", "Users", DbaTableKind.Table) };

@@ -512,6 +512,59 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_ClearDestinationVerificationUsesCopiedRowsWhenSourceCountUnknown()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2))
+        {
+            ReturnUnknownSourceRowCount = true
+        };
+        var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 1);
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = true,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Null(result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(1, result.DestinationRows);
+    }
+
+    [Fact]
+    public async Task CopyAsync_AppendVerificationUsesCopiedRowsWhenSourceCountUnknown()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2))
+        {
+            ReturnUnknownSourceRowCount = true
+        };
+        var destination = new MemoryTableCopyDestination(destinationRowCountOverride: 5);
+        destination.Rows.Columns.Add("Id", typeof(int));
+        destination.Rows.Columns.Add("DisplayName", typeof(string));
+        destination.Rows.Rows.Add(100, "Existing");
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions
+            {
+                ClearDestination = false,
+                VerifyRowCounts = true
+            });
+
+        Assert.False(result.Verified);
+        Assert.Null(result.SourceRows);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(5, result.DestinationRows);
+    }
+
+    [Fact]
     public async Task CopyAsync_AppliesColumnMappingsExclusionsAndTypeConversions()
     {
         var sourceTable = new DataTable("SourceRows");
