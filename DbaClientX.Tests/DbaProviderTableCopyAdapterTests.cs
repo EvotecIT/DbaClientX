@@ -2,6 +2,7 @@ using System.Data;
 using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
+using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
@@ -125,6 +126,28 @@ public class DbaProviderTableCopyAdapterBaseTests
             DeleteIfExists(sourcePath);
             DeleteIfExists(destinationPath);
         }
+    }
+
+    [Fact]
+    public void SQLiteTableCopyAdapter_PreservesExplicitPoolingOption()
+    {
+        var adapter = new SQLiteTableCopyAdapter("Data Source=:memory:;Mode=Memory;Cache=Shared;Pooling=True");
+
+        var connectionString = InvokeResolveSQLiteConnectionString(adapter);
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+
+        Assert.True(builder.Pooling);
+    }
+
+    [Fact]
+    public void SQLiteTableCopyAdapter_DefaultsPoolingOffWhenOptionIsAbsent()
+    {
+        var adapter = new SQLiteTableCopyAdapter("Data Source=:memory:;Mode=Memory;Cache=Shared");
+
+        var connectionString = InvokeResolveSQLiteConnectionString(adapter);
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+
+        Assert.False(builder.Pooling);
     }
 
     [Fact]
@@ -916,6 +939,14 @@ public class DbaProviderTableCopyAdapterBaseTests
     {
         var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("ResolveMySqlRegularOperationConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveMySqlRegularOperationConnectionString");
+
+        return (string)method.Invoke(adapter, Array.Empty<object?>())!;
+    }
+
+    private static string InvokeResolveSQLiteConnectionString(SQLiteTableCopyAdapter adapter)
+    {
+        var method = typeof(SQLiteTableCopyAdapter).GetMethod("ResolveSQLiteConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(SQLiteTableCopyAdapter), "ResolveSQLiteConnectionString");
 
         return (string)method.Invoke(adapter, Array.Empty<object?>())!;
     }

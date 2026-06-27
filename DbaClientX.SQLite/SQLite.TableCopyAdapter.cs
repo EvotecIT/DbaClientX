@@ -89,31 +89,23 @@ public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
             return SQLite.BuildConnectionString(ConnectionString);
         }
 
-        var builder = new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(ConnectionString))
+        var translatedConnectionString = SQLite.TranslateSQLiteFullUri(ConnectionString);
+        var builder = new SqliteConnectionStringBuilder(translatedConnectionString);
+        if (!HasConnectionStringKey(translatedConnectionString, "Pooling"))
         {
-            Pooling = false
-        };
+            builder.Pooling = false;
+        }
 
         return builder.ConnectionString;
     }
 
-    private static string TranslateSQLiteFullUri(string connectionString)
+    private static bool HasConnectionStringKey(string connectionString, string key)
     {
         var builder = new DbConnectionStringBuilder
         {
             ConnectionString = connectionString
         };
-        if (!builder.TryGetValue("FullUri", out var value) || value == null)
-        {
-            return connectionString;
-        }
-
-        builder.Remove("FullUri");
-        var uriText = value.ToString();
-        builder["Data Source"] = Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile
-            ? uri.LocalPath
-            : uriText;
-        return builder.ConnectionString;
+        return builder.ContainsKey(key);
     }
 
     private static bool IsSQLiteConnectionString(string value)

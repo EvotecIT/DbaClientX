@@ -121,7 +121,13 @@ internal static class DbaProviderTableCopyTargetIdentity
     {
         var parts = SplitTableName(tableName);
         var database = currentDatabase;
-        if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 3)
+        if (provider == DbaTableCopyProvider.SQLite &&
+            parts.Length == 2 &&
+            string.Equals(NormalizeTableSegment(provider, parts[0]), "main", StringComparison.Ordinal))
+        {
+            parts = parts.Skip(1).ToArray();
+        }
+        else if (provider == DbaTableCopyProvider.SqlServer && parts.Length == 3)
         {
             database = parts[0].Value;
             parts = parts.Skip(1).ToArray();

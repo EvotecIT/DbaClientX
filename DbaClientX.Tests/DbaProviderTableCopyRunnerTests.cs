@@ -1677,6 +1677,36 @@ public class DbaProviderTableCopyRunnerTests
     }
 
     [Fact]
+    public async Task CopyAsync_BlocksSQLiteMainQualifiedDuplicateClearDestinationsBeforeConnecting()
+    {
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SqlServer,
+                ConnectionString = "Data Source=localhost;Initial Catalog=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=:memory:"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("SourceRows", "Rows", new[] { "Id" }),
+                new DbaTableCopyDefinition("OtherRows", "main.Rows", new[] { "Id" })
+            },
+            Options = new DbaTableCopyOptions
+            {
+                ClearDestination = true
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRunner().CopyAsync(request));
+        Assert.Contains("multiple definitions targeting destination", exception.Message);
+    }
+
+    [Fact]
     public async Task CopyAsync_RejectsUnqualifiedSqlServerDestinationClearWhenDefaultSchemaIsUnknown()
     {
         var request = new DbaProviderTableCopyRequest

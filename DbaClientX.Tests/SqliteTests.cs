@@ -67,6 +67,19 @@ public class SqliteTests
         Assert.Throws<ArgumentException>(() => sqlite.Query(":memory:", " "));
     }
 
+    [Fact]
+    public void NormalizeConnectionString_PreservesFullUriModeAndCacheOptions()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-options.db");
+        var connectionString = InvokeNormalizeConnectionString("FullUri=" + new Uri(path).AbsoluteUri + "?mode=ro&cache=shared");
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
     private class OutputDictionarySqlite : DBAClientX.SQLite
     {
         public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
@@ -855,5 +868,13 @@ public class SqliteTests
         var connection = field.GetValue(sqlite) as SqliteConnection;
         Assert.NotNull(connection);
         return connection;
+    }
+
+    private static string InvokeNormalizeConnectionString(string connectionString)
+    {
+        var method = typeof(DBAClientX.SQLite).GetMethod("NormalizeConnectionString", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DBAClientX.SQLite), "NormalizeConnectionString");
+
+        return (string)method.Invoke(null, new object?[] { connectionString })!;
     }
 }
