@@ -1,4 +1,5 @@
 using System;
+using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
@@ -119,7 +120,26 @@ public partial class SQLite : DatabaseClientBase
         BuildConnectionString(database, readOnly, busyTimeoutMs: null);
 
     private static string NormalizeConnectionString(string connectionString)
-        => new SqliteConnectionStringBuilder(connectionString).ToString();
+        => new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString)).ToString();
+
+    private static string TranslateSQLiteFullUri(string connectionString)
+    {
+        var builder = new DbConnectionStringBuilder
+        {
+            ConnectionString = connectionString
+        };
+        if (!builder.TryGetValue("FullUri", out var value) || value == null)
+        {
+            return connectionString;
+        }
+
+        builder.Remove("FullUri");
+        var uriText = value.ToString();
+        builder["Data Source"] = Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile
+            ? uri.LocalPath
+            : uriText;
+        return builder.ConnectionString;
+    }
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)
     {

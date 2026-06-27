@@ -21,6 +21,14 @@ internal static class PowerShellDataTableConverter
             .Select(Unwrap)
             .ToList();
 
+        if (items.Count == 1 && ShouldExpandSingleEnumerableInput(items[0]))
+        {
+            items = ((IEnumerable)items[0]!)
+                .Cast<object?>()
+                .Select(Unwrap)
+                .ToList();
+        }
+
         if (items.Count == 0)
         {
             return string.IsNullOrWhiteSpace(tableName)
@@ -262,7 +270,7 @@ internal static class PowerShellDataTableConverter
             : new DataTable(tableName);
         foreach (var column in columns)
         {
-            table.Columns.Add(column, typeof(object));
+            table.Columns.Add(column, InferColumnType(rows, column));
         }
 
         foreach (var rowValues in rows)
@@ -279,6 +287,32 @@ internal static class PowerShellDataTableConverter
         }
 
         return table;
+    }
+
+    private static Type InferColumnType(IReadOnlyList<IDictionary<string, object?>> rows, string column)
+    {
+        Type? inferred = null;
+        foreach (var row in rows)
+        {
+            if (!row.TryGetValue(column, out var value) || value == null || value == DBNull.Value)
+            {
+                continue;
+            }
+
+            var valueType = value.GetType();
+            if (inferred == null)
+            {
+                inferred = valueType;
+                continue;
+            }
+
+            if (inferred != valueType)
+            {
+                return typeof(object);
+            }
+        }
+
+        return inferred ?? typeof(object);
     }
 
     private static IDictionary<string, object?> GetProperties(object? item)
@@ -298,7 +332,7 @@ internal static class PowerShellDataTableConverter
             {
                 if (entry.Key != null)
                 {
-                    values[entry.Key.ToString()!] = entry.Value;
+                    values[entry.Key.ToString()!] = UnwrapValue(entry.Value);
                 }
             }
 
@@ -312,7 +346,7 @@ internal static class PowerShellDataTableConverter
                       property.MemberType == PSMemberTypes.Property) &&
                      !string.IsNullOrWhiteSpace(property.Name)))
         {
-            result[property.Name] = property.Value;
+            result[property.Name] = UnwrapValue(property.Value);
         }
 
         return result;
@@ -330,6 +364,19 @@ internal static class PowerShellDataTableConverter
             ? psObject.BaseObject
             : psObject;
     }
+
+    private static object? UnwrapValue(object? value)
+        => value is PSObject psObject ? psObject.BaseObject : value;
+
+    private static bool ShouldExpandSingleEnumerableInput(object? item)
+        => item is IEnumerable &&
+           item is not string &&
+           item is not byte[] &&
+           item is not DataTable &&
+           item is not DataView &&
+           item is not IDataReader &&
+           item is not IDataRecord &&
+           item is not IDictionary;
 
     private static bool IsScalarValue(object? item)
     {

@@ -1,5 +1,6 @@
 using System.Data;
 using System.Management.Automation;
+using DBAClientX.DataMovement;
 
 namespace DBAClientX.PowerShell;
 
@@ -12,9 +13,15 @@ namespace DBAClientX.PowerShell;
 /// <para>Loads the workbook rows as a DataTable and sends them through the SQL Server bulk-copy provider.</para>
 /// </example>
 /// <example>
+/// <summary>Create a SQL Server staging table from incoming columns.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>$rows | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable staging.Import -AutoCreateTable -TableLock</code>
+/// <para>Creates the destination schema and table when needed, then writes the rows through SQL Server bulk copy.</para>
+/// </example>
+/// <example>
 /// <summary>Write object pipeline data to PostgreSQL.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>$rows | Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' -DestinationTable public.import_data -BatchSize 5000</code>
+/// <code>$rows | Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret;SslMode=Require' -DestinationTable public.import_data -BatchSize 5000</code>
 /// <para>Converts the objects to a DataTable and writes them with the PostgreSQL COPY-backed provider.</para>
 /// </example>
 [Cmdlet(VerbsCommunications.Write, "DbaXTableData", SupportsShouldProcess = true)]
@@ -52,6 +59,38 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     /// <summary>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</summary>
     [Parameter]
     public int? BulkCopyTimeout { get; set; }
+
+    /// <summary>SQL Server-only mapping from source column names to destination column names.</summary>
+    [Parameter]
+    public Hashtable? ColumnMap { get; set; }
+
+    /// <summary>SQL Server-only option to acquire a bulk update lock for the duration of the copy.</summary>
+    [Parameter]
+    public SwitchParameter TableLock { get; set; }
+
+    /// <summary>SQL Server-only option to check destination constraints during the copy.</summary>
+    [Parameter]
+    public SwitchParameter CheckConstraints { get; set; }
+
+    /// <summary>SQL Server-only option to fire insert triggers during the copy.</summary>
+    [Parameter]
+    public SwitchParameter FireTriggers { get; set; }
+
+    /// <summary>SQL Server-only option to preserve identity values from the source data.</summary>
+    [Parameter]
+    public SwitchParameter KeepIdentity { get; set; }
+
+    /// <summary>SQL Server-only option to preserve null values from the source data.</summary>
+    [Parameter]
+    public SwitchParameter KeepNulls { get; set; }
+
+    /// <summary>SQL Server-only option to create the destination schema and table when they do not already exist.</summary>
+    [Parameter]
+    public SwitchParameter AutoCreateTable { get; set; }
+
+    /// <summary>SQL Server-only number of rows copied between progress updates.</summary>
+    [Parameter]
+    public int? NotifyAfter { get; set; }
 
     /// <summary>Writes a small result object with provider, destination table, and row count.</summary>
     [Parameter]
@@ -91,29 +130,63 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 return;
             }
 
-            if (!ShouldProcess(DestinationTable, $"Bulk write {_input.Count} input item(s) using {Provider}"))
+            if (!ShouldProcess(DestinationTable, $"Bulk write input using {Provider}"))
             {
                 return;
             }
 
             var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
+            if (table.Rows.Count == 0 && !ShouldWriteSchemaOnlyTable())
+            {
+                if (PassThru.IsPresent)
+                {
+                    WriteObject(new PSObject(new
+                    {
+                        Provider,
+                        DestinationTable,
+                        Rows = 0
+                    }));
+                }
+
+                return;
+            }
+
             var providerAlias = GetProviderAlias(Provider);
-            if (!PowerShellHelpers.TryValidateConnection(this, providerAlias, ConnectionString, _errorAction))
+            if (!PowerShellHelpers.TryValidateConnection(
+                    this,
+                    providerAlias,
+                    ConnectionString,
+                    _errorAction,
+                    allowedUnsupportedOptions: Provider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null))
             {
                 return;
             }
 
+            if (Provider == DbaXBulkProvider.MySql &&
+                !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
+            {
+                return;
+            }
+
+            var startedAt = DateTimeOffset.UtcNow;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            var bulkTable = PrepareProviderBulkTable(table);
+            using var disposableBulkTable = ReferenceEquals(bulkTable, table) ? null : bulkTable;
             if (BulkInsertOverride != null)
             {
                 BulkInsertOverride.InvokeWithContext(
                     functionsToDefine: null,
                     variablesToDefine: null,
-                    args: new object?[] { this, table });
+                    args: new object?[] { this, bulkTable, BuildSqlServerOptions(bulkTable) });
             }
             else
             {
-                InvokeProviderBulkInsert(table);
+                InvokeProviderBulkInsert(bulkTable);
             }
+
+            timer.Stop();
+
+            CompleteProgressIfNeeded();
 
             if (PassThru.IsPresent)
             {
@@ -121,7 +194,10 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 {
                     Provider,
                     DestinationTable,
-                    Rows = table.Rows.Count
+                    Rows = table.Rows.Count,
+                    StartedAt = startedAt,
+                    CompletedAt = DateTimeOffset.UtcNow,
+                    ElapsedMilliseconds = Math.Round(timer.Elapsed.TotalMilliseconds, 2)
                 }));
             }
         }
@@ -134,6 +210,9 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
         }
     }
+
+    private bool ShouldWriteSchemaOnlyTable()
+        => Provider == DbaXBulkProvider.SqlServer && AutoCreateTable.IsPresent;
 
     private void ValidateOptions()
     {
@@ -151,6 +230,16 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         {
             throw new PSArgumentException("SQLite bulk inserts do not support BulkCopyTimeout.", nameof(BulkCopyTimeout));
         }
+
+        if (NotifyAfter.HasValue && NotifyAfter.Value <= 0)
+        {
+            throw new PSArgumentException("NotifyAfter must be greater than zero.", nameof(NotifyAfter));
+        }
+
+        if (Provider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
+        {
+            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, AutoCreateTable, and NotifyAfter are only supported for the SqlServer provider.");
+        }
     }
 
     private void InvokeProviderBulkInsert(DataTable table)
@@ -160,13 +249,26 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             case DbaXBulkProvider.SqlServer:
                 using (var sqlServer = new DBAClientX.SqlServer())
                 {
-                    sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    var sqlServerOptions = BuildSqlServerOptions(table);
+                    if (sqlServerOptions == null)
+                    {
+                        sqlServer.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    }
+                    else
+                    {
+                        sqlServer.BulkInsert(ConnectionString, table, DestinationTable, sqlServerOptions, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    }
                 }
                 break;
             case DbaXBulkProvider.PostgreSql:
                 using (var postgreSql = new DBAClientX.PostgreSql())
                 {
-                    postgreSql.BulkInsert(ConnectionString, table, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+                    postgreSql.BulkInsert(
+                        ConnectionString,
+                        table,
+                        DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(DestinationTable),
+                        batchSize: BatchSize,
+                        bulkCopyTimeout: BulkCopyTimeout);
                 }
                 break;
             case DbaXBulkProvider.MySql:
@@ -202,4 +304,91 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             DbaXBulkProvider.SQLite => "sqlite",
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
+
+    private DataTable PrepareProviderBulkTable(DataTable table)
+        => Provider == DbaXBulkProvider.PostgreSql
+            ? DbaPostgreSqlBulkCopyNormalizer.NormalizePage(table, DestinationTable)
+            : table;
+
+    private SqlServerBulkInsertOptions? BuildSqlServerOptions(DataTable table)
+    {
+        if (Provider != DbaXBulkProvider.SqlServer || !HasSqlServerOnlyOptions())
+        {
+            return null;
+        }
+
+        return SqlServerBulkInsertOptionFactory.Create(
+            TableLock.IsPresent,
+            CheckConstraints.IsPresent,
+            FireTriggers.IsPresent,
+            KeepIdentity.IsPresent,
+            KeepNulls.IsPresent,
+            AutoCreateTable.IsPresent,
+            ConvertColumnMap(),
+            NotifyAfter,
+            NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied) : null);
+    }
+
+    private bool HasSqlServerOnlyOptions()
+        => ColumnMap is { Count: > 0 } ||
+           TableLock.IsPresent ||
+           CheckConstraints.IsPresent ||
+           FireTriggers.IsPresent ||
+           KeepIdentity.IsPresent ||
+           KeepNulls.IsPresent ||
+           AutoCreateTable.IsPresent ||
+           NotifyAfter.HasValue;
+
+    private Dictionary<string, string>? ConvertColumnMap()
+    {
+        if (ColumnMap is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var mappings = new Dictionary<string, string>(PowerShellHelpers.GetHashtableComparer(ColumnMap));
+        foreach (DictionaryEntry entry in ColumnMap)
+        {
+            var source = entry.Key?.ToString();
+            var destination = entry.Value?.ToString();
+            if (string.IsNullOrWhiteSpace(source))
+            {
+                throw new PSArgumentException("ColumnMap source column names cannot be null or whitespace.", nameof(ColumnMap));
+            }
+
+            if (string.IsNullOrWhiteSpace(destination))
+            {
+                throw new PSArgumentException("ColumnMap destination column names cannot be null or whitespace.", nameof(ColumnMap));
+            }
+
+            mappings[source!] = destination!;
+        }
+
+        return mappings;
+    }
+
+    private void WriteRowsCopiedProgress(int totalRows, long rowsCopied)
+    {
+        var progress = new ProgressRecord(1, $"Writing {DestinationTable}", $"{rowsCopied} row(s) copied")
+        {
+            PercentComplete = totalRows > 0
+                ? Math.Min(100, (int)Math.Round(rowsCopied * 100d / totalRows))
+                : 100
+        };
+
+        WriteProgress(progress);
+    }
+
+    private void CompleteProgressIfNeeded()
+    {
+        if (!NotifyAfter.HasValue)
+        {
+            return;
+        }
+
+        WriteProgress(new ProgressRecord(1, $"Writing {DestinationTable}", "Complete")
+        {
+            RecordType = ProgressRecordType.Completed
+        });
+    }
 }

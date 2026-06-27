@@ -25,7 +25,7 @@ public partial class MySql
     {
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var connectionString = BuildBulkCopyConnectionString(host, database, username, password);
         BulkInsert(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout);
     }
 
@@ -40,7 +40,7 @@ public partial class MySql
         int? batchSize = null,
         int? bulkCopyTimeout = null)
     {
-        ValidateConnectionString(connectionString);
+        ValidateConnectionString(connectionString, BulkCopyAllowedUnsupportedOptions);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;
@@ -100,7 +100,7 @@ public partial class MySql
     {
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
-        var connectionString = BuildConnectionString(host, database, username, password);
+        var connectionString = BuildBulkCopyConnectionString(host, database, username, password);
         await BulkInsertAsync(connectionString, table, destinationTable, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
     }
 
@@ -116,7 +116,7 @@ public partial class MySql
         int? bulkCopyTimeout = null,
         CancellationToken cancellationToken = default)
     {
-        ValidateConnectionString(connectionString);
+        ValidateConnectionString(connectionString, BulkCopyAllowedUnsupportedOptions);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout);
 
         MySqlConnection? connection = null;
@@ -193,6 +193,13 @@ public partial class MySql
         {
             bulkCopy.ColumnMappings.Add(new MySqlBulkCopyColumnMapping(column.Ordinal, column.ColumnName, null));
         }
+    }
+
+    private static string BuildBulkCopyConnectionString(string host, string database, string username, string password)
+    {
+        var connectionString = BuildConnectionString(host, database, username, password);
+        var separator = connectionString.EndsWith(";", StringComparison.Ordinal) ? string.Empty : ";";
+        return connectionString + separator + "AllowLoadLocalInfile=true";
     }
 
     /// <summary>

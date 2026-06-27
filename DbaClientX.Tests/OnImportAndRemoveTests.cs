@@ -2,6 +2,9 @@ using System;
 using System.Management.Automation;
 using System.Reflection;
 using System.Runtime.InteropServices;
+#if NET5_0_OR_GREATER
+using System.Runtime.Loader;
+#endif
 using DBAClientX.PowerShell;
 using Xunit;
 
@@ -43,22 +46,31 @@ public class OnImportAndRemoveTests
         var stateField = typeof(OnModuleImportAndRemove).GetField(
             "_defaultAlcResolvingRegistered",
             BindingFlags.NonPublic | BindingFlags.Static);
+        var nativeStateField = typeof(OnModuleImportAndRemove).GetField(
+            "_nativeDllResolvingRegistered",
+            BindingFlags.NonPublic | BindingFlags.Static);
 
         Assert.NotNull(stateField);
+        Assert.NotNull(nativeStateField);
         stateField!.SetValue(null, 0);
+        nativeStateField!.SetValue(null, 0);
 
         var sut = new OnModuleImportAndRemove();
         sut.OnImport();
         Assert.Equal(1, stateField.GetValue(null));
+        Assert.Equal(1, nativeStateField.GetValue(null));
 
         sut.OnImport();
         Assert.Equal(1, stateField.GetValue(null));
+        Assert.Equal(1, nativeStateField.GetValue(null));
 
         sut.OnRemove(null!);
         Assert.Equal(0, stateField.GetValue(null));
+        Assert.Equal(0, nativeStateField.GetValue(null));
 
         sut.OnRemove(null!);
         Assert.Equal(0, stateField.GetValue(null));
+        Assert.Equal(0, nativeStateField.GetValue(null));
     }
 
     [Fact]
@@ -107,6 +119,48 @@ public class OnImportAndRemoveTests
                 Directory.Delete(root, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public void GetNativeLibraryNames_AddsPlatformSpecificExtension()
+    {
+        var method = typeof(OnModuleImportAndRemove).GetMethod(
+            "GetNativeLibraryNames",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var result = ((IEnumerable<string>)method!.Invoke(null, new object[] { "Microsoft.Data.SqlClient.SNI" })!)
+            .ToArray();
+
+        Assert.Contains("Microsoft.Data.SqlClient.SNI", result);
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            Assert.Contains("Microsoft.Data.SqlClient.SNI.dll", result);
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            Assert.Contains("libMicrosoft.Data.SqlClient.SNI.dylib", result);
+        }
+        else
+        {
+            Assert.Contains("libMicrosoft.Data.SqlClient.SNI.so", result);
+        }
+    }
+
+    [Fact]
+    public void GetNativeResolverLoadContexts_IncludesActualModuleLoadContext()
+    {
+        var method = typeof(OnModuleImportAndRemove).GetMethod(
+            "GetNativeResolverLoadContexts",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        var result = ((IEnumerable<AssemblyLoadContext>)method!.Invoke(null, Array.Empty<object>())!)
+            .ToArray();
+        var moduleContext = AssemblyLoadContext.GetLoadContext(typeof(OnModuleImportAndRemove).Assembly);
+
+        Assert.NotNull(moduleContext);
+        Assert.Contains(AssemblyLoadContext.Default, result);
+        Assert.Contains(OnModuleImportAndRemove.LoadContext, result);
+        Assert.Contains(moduleContext!, result);
     }
 #endif
 }
