@@ -30,7 +30,7 @@ jobs:
             - name: Setup PowerShell modules
               shell: pwsh
               run: |
-                  Install-Module PSPublishModule -MinimumVersion 3.0.38.10 -Force -Scope CurrentUser -AllowClobber
+                  Install-Module PSPublishModule -MinimumVersion 3.0.38 -Force -Scope CurrentUser -AllowClobber
 
             - name: Refresh module manifest
               shell: pwsh
@@ -143,7 +143,7 @@ jobs:
                       Register-PSRepository -Default
                   }
                   Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-                  Install-Module -Name PSPublishModule -Repository PSGallery -MinimumVersion 3.0.38.10 -Force -SkipPublisherCheck -AllowClobber
+                  Install-Module -Name PSPublishModule -Repository PSGallery -MinimumVersion 3.0.38 -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
