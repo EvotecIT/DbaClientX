@@ -1,4 +1,16 @@
-﻿Import-Module PSPublishModule -Force -ErrorAction Stop
+param(
+    [Alias('ConfigurationGateMode')]
+    [ValidateSet('Manifest', 'Build', 'Publish')]
+    [string] $RunMode = 'Build',
+
+    [bool] $SignModule = $false,
+
+    [string] $PowerShellGalleryApiKeyPath = 'C:\Support\Important\PowerShellGalleryAPI.txt',
+
+    [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
+)
+
+Import-Module PSPublishModule -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' {
     # Usual defaults as per standard module
@@ -76,21 +88,31 @@ Build-Module -ModuleName 'DbaClientX' {
 
     $newConfigurationBuildSplat = @{
         Enable                            = $true
-        SignModule                        = if ([string]::IsNullOrWhiteSpace($Env:SignModule)) { $true } else { [bool]::Parse($Env:SignModule) }
+        SignModule                        = $SignModule
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
         CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
         DeleteTargetModuleBeforeBuild     = $true
-        NETProjectPath                    = "$PSScriptRoot\..\..\DbaClientX.PowerShell"
+        NETProjectPath                    = 'DbaClientX.PowerShell\DbaClientX.PowerShell.csproj'
         ResolveBinaryConflicts            = $true
-        ResolveBinaryConflictsName        = 'DbaClientX.PowerShell'
-        NETProjectName                    = 'DbaClientX.PowerShell'
-        NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
+        ResolveBinaryConflictsName        = 'DBAClientX.PowerShell'
+        NETProjectName                    = 'DBAClientX.PowerShell'
+        NETBinaryModule                   = 'DBAClientX.PowerShell.dll'
         NETBinaryModuleDocumentation      = $true
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
         NETHandleAssemblyWithSameName     = $true
         NETAssemblyLoadContext            = $true
+        NETAssemblyTypeAcceleratorMode    = 'Assembly'
+        NETAssemblyTypeAcceleratorAssemblies = @(
+            'DbaClientX.Core'
+            'DbaClientX.SqlServer'
+            'DbaClientX.MySql'
+            'DbaClientX.Oracle'
+            'DbaClientX.PostgreSql'
+            'DbaClientX.SQLite'
+            'DBAClientX.PowerShell'
+        )
         NETHandleRuntimes                 = $true
         NETIgnoreLibraryOnLoad            = @(
             'Microsoft.Data.SqlClient.SNI.arm64.dll'
@@ -100,15 +122,23 @@ Build-Module -ModuleName 'DbaClientX' {
         )
         DotSourceLibraries                = $true
         DotSourceClasses                  = $true
-        RefreshPSD1Only                   = if ([string]::IsNullOrWhiteSpace($Env:RefreshPSD1Only)) { $false } else { [bool]::Parse($Env:RefreshPSD1Only) }
+        NETDevelopmentBinaries            = $true
+        NETDevelopmentBinariesMode        = 'Environment'
+        NETDevelopmentBinariesPath        = 'DbaClientX.PowerShell\bin'
+        NETDevelopmentSourceBootstrapperMode = 'ReplaceSingleFile'
     }
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    New-ConfigurationArtefact -Type Unpacked -Enable -Path "$PSScriptRoot\..\Artefacts\Unpacked" #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
-    New-ConfigurationArtefact -Type Packed -Enable -Path "$PSScriptRoot\..\Artefacts\Packed" -IncludeTagName
+    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath 'Build\project.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -PublishGitHub
+    New-ConfigurationRelease -StageRoot 'Module\Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'DbaClientX.Core' -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
+
+    New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Module\Artefacts\Unpacked' #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
+    New-ConfigurationArtefact -Type Packed -Enable -Path 'Module\Artefacts\Packed' -IncludeTagName
 
     # global options for publishing to github/psgallery
-    #New-ConfigurationPublish -Type PowerShellGallery -FilePath 'C:\Support\Important\PowerShellGalleryAPI.txt' -Enabled:$true
-    #New-ConfigurationPublish -Type GitHub -FilePath 'C:\Support\Important\GitHubAPI.txt' -UserName 'EvotecIT' -Enabled:$true -GenerateReleaseNotes -OverwriteTagName '{ModuleName}-v{ModuleVersionWithPreRelease}'
+    New-ConfigurationPublish -Type PowerShellGallery -FilePath $PowerShellGalleryApiKeyPath -Enabled:$false
+    New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -Enabled:$false -RepositoryName 'DbaClientX' -OverwriteTagName 'DbaClientX-PowerShellModule.<TagModuleVersionWithPreRelease>'
+
+    New-ConfigurationGate -Mode $RunMode
 } -ExitCode
