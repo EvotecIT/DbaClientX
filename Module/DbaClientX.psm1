@@ -829,11 +829,7 @@ if (-not $PowerForgeDevelopmentBinaryLoaded) {
             & $ImportModule -Force -Assembly ($Type.Assembly)
         }
     } catch {
-        if ($ErrorActionPreference -eq 'Stop') {
-            throw
-        } else {
-            Write-Warning -Message "Importing module $Library failed. Fix errors before continuing. Error: $($_.Exception.Message)"
-        }
+        throw "Importing module $Library failed. Fix errors before continuing. Error: $($_.Exception.Message)"
     }
 
     if ($PSEdition -ne 'Core') {
