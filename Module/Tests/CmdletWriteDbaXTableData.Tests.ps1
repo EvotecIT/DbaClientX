@@ -109,6 +109,14 @@ describe 'Write-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DestinationTable'
         $parameters | Should -Contain 'BatchSize'
         $parameters | Should -Contain 'BulkCopyTimeout'
+        $parameters | Should -Contain 'ColumnMap'
+        $parameters | Should -Contain 'TableLock'
+        $parameters | Should -Contain 'CheckConstraints'
+        $parameters | Should -Contain 'FireTriggers'
+        $parameters | Should -Contain 'KeepIdentity'
+        $parameters | Should -Contain 'KeepNulls'
+        $parameters | Should -Contain 'AutoCreateTable'
+        $parameters | Should -Contain 'NotifyAfter'
         $parameters | Should -Contain 'PassThru'
     }
 
@@ -151,6 +159,221 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'passes explicit DataTable input to the provider bulk layer' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject $table | Out-Null
+
+            $script:lastBulkTable.Rows.Count | Should -Be 1
+            $script:lastBulkTable.Columns['Name'] | Should -Not -BeNullOrEmpty
+            $script:lastBulkTable.Rows[0]['Name'] | Should -Be 'Alpha'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
+    it 'allows MySQL local infile for provider bulk writes without skipping validation' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkInsert = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkInsert = [pscustomobject]@{
+                Provider = $cmdlet.Provider.ToString()
+                Rows = $table.Rows.Count
+            }
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            $connectionString = 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true'
+            $table | Write-DbaXTableData -Provider MySql -ConnectionString $connectionString -DestinationTable Import | Out-Null
+
+            $script:lastBulkInsert.Provider | Should -Be 'MySql'
+            $script:lastBulkInsert.Rows | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkInsert = $null
+        }
+    }
+
+    it 'keeps MySQL local infile validation from bypassing required settings' {
+        $table = [System.Data.DataTable]::new('Input')
+        $null = $table.Columns.Add('Name', [string])
+        $row = $table.NewRow()
+        $row['Name'] = 'Alpha'
+        $table.Rows.Add($row)
+
+        {
+            $table | Write-DbaXTableData `
+                -Provider MySql `
+                -ConnectionString 'AllowLoadLocalInfile=true' `
+                -DestinationTable Import `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*Server*'
+    }
+
+    it 'rejects MySQL provider bulk writes when local infile is not enabled' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:bulkInsertReached = $false
+        $prop.SetValue($null, [scriptblock]{
+            $script:bulkInsertReached = $true
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            {
+                $table | Write-DbaXTableData `
+                    -Provider MySql `
+                    -ConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required' `
+                    -DestinationTable Import `
+                    -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
+
+            $script:bulkInsertReached | Should -BeFalse
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:bulkInsertReached = $null
+        }
+    }
+
+    it 'normalizes PostgreSQL object columns before provider bulk writes' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            [pscustomobject]@{
+                Id = 1
+                DisplayName = 'Alpha'
+            } | Write-DbaXTableData `
+                -Provider PostgreSql `
+                -ConnectionString 'Host=localhost;Database=app;Username=user;Password=password;SslMode=Require' `
+                -DestinationTable public.ImportData | Out-Null
+
+            $columnNames = @($script:lastBulkTable.Columns | ForEach-Object ColumnName)
+            $columnNames | Should -Contain 'id'
+            $columnNames | Should -Contain 'displayname'
+            @($columnNames | Where-Object { $_ -ceq 'DisplayName' }) | Should -BeNullOrEmpty
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
+    it 'passes SQL Server bulk options to the provider bulk layer' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkOptions = $options
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $table.Rows.Add($row)
+
+            $table | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -ColumnMap @{ Name = 'DisplayName' } `
+                -TableLock `
+                -KeepIdentity `
+                -KeepNulls `
+                -AutoCreateTable `
+                -NotifyAfter 10 | Out-Null
+
+            $script:lastBulkOptions | Should -Not -BeNullOrEmpty
+            $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
+            $script:lastBulkOptions.AutoCreateTable | Should -BeTrue
+            $script:lastBulkOptions.NotifyAfter | Should -Be 10
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::TableLock) | Should -Not -Be 0
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepIdentity) | Should -Not -Be 0
+            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepNulls) | Should -Not -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkOptions = $null
+        }
+    }
+
+    it 'preserves case-sensitive SQL Server column map entries' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkOptions = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkOptions = $options
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+            $null = $table.Columns.Add('name', [string])
+            $row = $table.NewRow()
+            $row['Name'] = 'Alpha'
+            $row['name'] = 'Beta'
+            $table.Rows.Add($row)
+
+            $columnMap = [hashtable]::new([StringComparer]::Ordinal)
+            $columnMap['Name'] = 'DisplayName'
+            $columnMap['name'] = 'displayname'
+
+            $table | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -ColumnMap $columnMap | Out-Null
+
+            $script:lastBulkOptions | Should -Not -BeNullOrEmpty
+            $script:lastBulkOptions.ColumnMappings.Count | Should -Be 2
+            $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
+            $script:lastBulkOptions.ColumnMappings['name'] | Should -Be 'displayname'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkOptions = $null
+        }
+    }
+
     it 'converts object pipeline input to a DataTable' {
         $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
         $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
@@ -169,7 +392,38 @@ describe 'Write-DbaXTableData cmdlet' {
             $script:lastBulkTable.Rows.Count | Should -Be 2
             $script:lastBulkTable.Columns['Id'] | Should -Not -BeNullOrEmpty
             $script:lastBulkTable.Columns['Name'] | Should -Not -BeNullOrEmpty
+            $script:lastBulkTable.Rows[0]['Id'].GetType().FullName | Should -Be 'System.Int32'
             $script:lastBulkTable.Rows[1]['Name'] | Should -Be 'Beta'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkTable = $null
+        }
+    }
+
+    it 'infers object pipeline column types for SQL Server auto-create' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkTable = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table)
+            $script:lastBulkTable = $table
+        })
+
+        try {
+            [pscustomobject]@{
+                Id = 1
+                Amount = [decimal]'12.34'
+                CreatedUtc = [datetime]'2026-06-26T09:00:00Z'
+            } | Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -AutoCreateTable | Out-Null
+
+            $script:lastBulkTable.Columns['Id'].DataType.FullName | Should -Be 'System.Int32'
+            $script:lastBulkTable.Columns['Amount'].DataType.FullName | Should -Be 'System.Decimal'
+            $script:lastBulkTable.Columns['CreatedUtc'].DataType.FullName | Should -Be 'System.DateTime'
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastBulkTable = $null
@@ -190,6 +444,56 @@ describe 'Write-DbaXTableData cmdlet' {
             $null = $table.Columns.Add('Name', [string])
 
             $result = $table | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -PassThru
+
+            $script:bulkCalls | Should -Be 0
+            $result.Rows | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:bulkCalls = 0
+        }
+    }
+
+    it 'passes zero-row DataTable input to SQL Server auto-create' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastBulkInsert = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $table, $options)
+            $script:lastBulkInsert = [pscustomobject]@{
+                Rows = $table.Rows.Count
+                ColumnCount = $table.Columns.Count
+                AutoCreateTable = $options.AutoCreateTable
+            }
+        })
+
+        try {
+            $table = [System.Data.DataTable]::new('Input')
+            $null = $table.Columns.Add('Name', [string])
+
+            $result = Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject $table -AutoCreateTable -PassThru
+
+            $script:lastBulkInsert.Rows | Should -Be 0
+            $script:lastBulkInsert.ColumnCount | Should -Be 1
+            $script:lastBulkInsert.AutoCreateTable | Should -BeTrue
+            $result.Rows | Should -Be 0
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastBulkInsert = $null
+        }
+    }
+
+    it 'treats explicit empty collections as a no-op' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:bulkCalls = 0
+        $prop.SetValue($null, [scriptblock]{
+            $script:bulkCalls++
+        })
+
+        try {
+            $result = Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=s;Database=db;Encrypt=True' -DestinationTable dbo.Import -InputObject @() -PassThru
 
             $script:bulkCalls | Should -Be 0
             $result.Rows | Should -Be 0
@@ -403,6 +707,13 @@ describe 'Write-DbaXTableData cmdlet' {
         {
             [pscustomobject]@{ Id = 1 } |
                 Write-DbaXTableData -Provider SQLite -ConnectionString 'Data Source=C:\Temp\bulk-test.db' -DestinationTable Import -BulkCopyTimeout 30 -ErrorAction Stop
+        } | Should -Throw
+    }
+
+    it 'rejects SQL Server bulk options for other providers' {
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Write-DbaXTableData -Provider PostgreSql -ConnectionString 'Host=localhost;Database=app' -DestinationTable Import -TableLock -ErrorAction Stop
         } | Should -Throw
     }
 }

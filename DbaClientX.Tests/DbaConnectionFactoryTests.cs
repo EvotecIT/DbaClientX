@@ -49,13 +49,31 @@ public class DbaConnectionFactoryTests
         Assert.Contains("database", result.Message.ToLowerInvariant());
     }
 
-    [Fact]
-    public void Validate_UnsupportedOption()
+    [Theory]
+    [InlineData("AllowLoadLocalInfile")]
+    [InlineData("Allow Load Local Infile")]
+    [InlineData("LoadLocalInfile")]
+    public void Validate_UnsupportedOption(string option)
     {
-        var result = DbaConnectionFactory.Validate("mysql", "Server=.;Database=app;AllowLoadLocalInfile=true");
+        var result = DbaConnectionFactory.Validate("mysql", $"Server=.;Database=app;{option}=true");
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
-        Assert.Equal("AllowLoadLocalInfile", result.Details, StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(option, result.Details, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("disabled", DbaConnectionFactory.ToUserMessage(result).ToLowerInvariant());
+    }
+
+    [Theory]
+    [InlineData("AllowLoadLocalInfile")]
+    [InlineData("Allow Load Local Infile")]
+    [InlineData("LoadLocalInfile")]
+    public void Validate_AllowedUnsupportedOption_StillRunsRemainingValidation(string option)
+    {
+        var result = DbaConnectionFactory.Validate(
+            "mysql",
+            $"Server=dbhost;Database=app;{option}=true",
+            new[] { option });
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("SslMode", result.Details);
     }
 
     [Theory]
@@ -196,6 +214,15 @@ public class DbaConnectionFactoryTests
         var result = DbaConnectionFactory.Validate("sqlite", "Mode=ReadOnly");
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
         Assert.Contains("data source", result.Message.ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Validate_SqliteFullUri_Succeeds()
+    {
+        var result = DbaConnectionFactory.Validate("sqlite", "FullUri=file:///C:/Temp/dbaclientx-test.db");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
     }
 
     [Fact]

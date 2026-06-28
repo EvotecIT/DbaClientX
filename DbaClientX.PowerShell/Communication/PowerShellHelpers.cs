@@ -16,6 +16,8 @@ namespace DBAClientX.PowerShell;
 /// </summary>
 internal static class PowerShellHelpers
 {
+    internal static readonly IReadOnlyCollection<string> MySqlBulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "Allow Load Local Infile" };
+
     /// <summary>
     /// Converts a Hashtable of parameters (as supplied from PowerShell) into a nullable
     /// dictionary with string keys and nullable object values, filtering out null keys.
@@ -28,6 +30,48 @@ internal static class PowerShellHelpers
                 .Cast<DictionaryEntry>()
                 .Where(de => de.Key != null)
                 .ToDictionary(de => de.Key!.ToString()!, de => (object?)de.Value);
+
+    internal static StringComparer GetHashtableComparer(Hashtable values)
+    {
+        var keys = values
+            .Cast<DictionaryEntry>()
+            .Select(static entry => entry.Key?.ToString())
+            .Where(static key => !string.IsNullOrEmpty(key))
+            .Select(static key => key!)
+            .ToArray();
+        for (var index = 0; index < keys.Length; index++)
+        {
+            for (var otherIndex = index + 1; otherIndex < keys.Length; otherIndex++)
+            {
+                if (!string.Equals(keys[index], keys[otherIndex], StringComparison.Ordinal) &&
+                    string.Equals(keys[index], keys[otherIndex], StringComparison.OrdinalIgnoreCase))
+                {
+                    return StringComparer.Ordinal;
+                }
+            }
+        }
+
+        foreach (DictionaryEntry entry in values)
+        {
+            var key = entry.Key?.ToString();
+            if (string.IsNullOrEmpty(key))
+            {
+                continue;
+            }
+
+            var sourceKey = key!;
+            var alternateKey = sourceKey.Any(char.IsLower)
+                ? sourceKey.ToUpperInvariant()
+                : sourceKey.ToLowerInvariant();
+            if (!string.Equals(sourceKey, alternateKey, StringComparison.Ordinal) &&
+                values.ContainsKey(alternateKey))
+            {
+                return StringComparer.OrdinalIgnoreCase;
+            }
+        }
+
+        return StringComparer.Ordinal;
+    }
 
     internal static IReadOnlyList<DbParameter>? ToDbParameters(
         IDictionary<string, object?>? parameters,
@@ -84,14 +128,15 @@ internal static class PowerShellHelpers
         string connectionString,
         ActionPreference errorAction,
         Action<string>? writeWarning = null,
-        Action<ErrorRecord>? throwTerminatingError = null)
+        Action<ErrorRecord>? throwTerminatingError = null,
+        IReadOnlyCollection<string>? allowedUnsupportedOptions = null)
     {
         writeWarning ??= cmdlet is AsyncPSCmdlet asyncCmdlet
             ? asyncCmdlet.WriteWarning
             : cmdlet.WriteWarning;
         throwTerminatingError ??= cmdlet.ThrowTerminatingError;
 
-        var result = DbaConnectionFactory.Validate(providerAlias, connectionString);
+        var result = DbaConnectionFactory.Validate(providerAlias, connectionString, allowedUnsupportedOptions);
         if (result.IsValid)
         {
             return true;
@@ -108,6 +153,74 @@ internal static class PowerShellHelpers
         }
 
         return false;
+    }
+
+    internal static bool TryRequireMySqlBulkCopyLocalInfile(
+        PSCmdlet cmdlet,
+        string connectionString,
+        ActionPreference errorAction,
+        Action<string>? writeWarning = null,
+        Action<ErrorRecord>? throwTerminatingError = null)
+    {
+        if (HasEnabledMySqlLocalInfileOption(connectionString))
+        {
+            return true;
+        }
+
+        writeWarning ??= cmdlet is AsyncPSCmdlet asyncCmdlet
+            ? asyncCmdlet.WriteWarning
+            : cmdlet.WriteWarning;
+        throwTerminatingError ??= cmdlet.ThrowTerminatingError;
+
+        const string message =
+            "MySQL bulk writes require AllowLoadLocalInfile=true or Allow Load Local Infile=true in the connection string. " +
+            "Set one of these options before using Write-DbaXTableData with -Provider MySql.";
+        if (errorAction == ActionPreference.Stop)
+        {
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), "MySqlLocalInfileRequired", ErrorCategory.InvalidArgument, connectionString));
+        }
+        else
+        {
+            writeWarning(message);
+        }
+
+        return false;
+    }
+
+    internal static bool HasEnabledMySqlLocalInfileOption(string connectionString)
+    {
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString.Trim()
+            };
+
+            return IsEnabledConnectionStringOption(builder, "AllowLoadLocalInfile") ||
+                   IsEnabledConnectionStringOption(builder, "Allow Load Local Infile");
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsEnabledConnectionStringOption(DbConnectionStringBuilder builder, string key)
+    {
+        if (!builder.TryGetValue(key, out var value) || value == null)
+        {
+            return false;
+        }
+
+        if (value is bool boolean)
+        {
+            return boolean;
+        }
+
+        var text = value.ToString();
+        return string.Equals(text, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(text, "1", StringComparison.Ordinal);
     }
 
     internal static async Task<T?> InvokeOverrideAsync<T>(ScriptBlock overrideBlock, params object?[] args)

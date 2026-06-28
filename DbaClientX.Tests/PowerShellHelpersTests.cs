@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Management.Automation;
 using DBAClientX.Invoker;
@@ -64,6 +65,129 @@ public class PowerShellHelpersTests
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingConnectionString.ToString(), exception.ErrorRecord.FullyQualifiedErrorId);
         Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
         Assert.Same(terminatingError, exception.ErrorRecord);
+    }
+
+    [Fact]
+    public void TryValidateConnection_AllowsScopedUnsupportedOption_WhenExplicitlyPermitted()
+    {
+        var cmdlet = new FakeCmdlet();
+        var warnings = new List<string>();
+
+        var success = PowerShellHelpers.TryValidateConnection(
+            cmdlet,
+            "mysql",
+            "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true",
+            ActionPreference.Continue,
+            warnings.Add,
+            allowedUnsupportedOptions: new[] { "AllowLoadLocalInfile" });
+
+        Assert.True(success);
+        Assert.Empty(warnings);
+    }
+
+    [Fact]
+    public void TryValidateConnection_AllowedUnsupportedOption_DoesNotBypassRemainingValidation()
+    {
+        var cmdlet = new FakeCmdlet();
+        var warnings = new List<string>();
+
+        var success = PowerShellHelpers.TryValidateConnection(
+            cmdlet,
+            "mysql",
+            "AllowLoadLocalInfile=true",
+            ActionPreference.Continue,
+            warnings.Add,
+            allowedUnsupportedOptions: PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions);
+
+        Assert.False(success);
+        Assert.Single(warnings);
+        Assert.Contains("Server", warnings[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("AllowLoadLocalInfile=true")]
+    [InlineData("Allow Load Local Infile=1")]
+    public void HasEnabledMySqlLocalInfileOption_AcceptsSupportedEnabledOptions(string option)
+    {
+        var enabled = PowerShellHelpers.HasEnabledMySqlLocalInfileOption(
+            $"Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;{option}");
+
+        Assert.True(enabled);
+    }
+
+    [Theory]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required")]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=false")]
+    [InlineData("Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;LoadLocalInfile=true")]
+    public void HasEnabledMySqlLocalInfileOption_RejectsMissingDisabledOrUnsupportedOptions(string connectionString)
+    {
+        var enabled = PowerShellHelpers.HasEnabledMySqlLocalInfileOption(connectionString);
+
+        Assert.False(enabled);
+    }
+
+    [Fact]
+    public void TryRequireMySqlBulkCopyLocalInfile_StopPreference_ThrowsTerminatingError()
+    {
+        var cmdlet = new FakeCmdlet();
+        ErrorRecord? terminatingError = null;
+
+        var exception = Assert.Throws<TestTerminatingErrorException>(() =>
+            PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(
+                cmdlet,
+                "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required",
+                ActionPreference.Stop,
+                _ => { },
+                error =>
+                {
+                    terminatingError = error;
+                    throw new TestTerminatingErrorException(error);
+                }));
+
+        Assert.Equal("MySqlLocalInfileRequired", exception.ErrorRecord.FullyQualifiedErrorId);
+        Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
+        Assert.Same(terminatingError, exception.ErrorRecord);
+    }
+
+    [Fact]
+    public void GetHashtableComparer_UsesIgnoreCaseForPowerShellHashtableLiterals()
+    {
+        var hashtable = new Hashtable(StringComparer.OrdinalIgnoreCase)
+        {
+            ["displayname"] = "Name"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.True(comparer.Equals("displayname", "DisplayName"));
+    }
+
+    [Fact]
+    public void GetHashtableComparer_UsesOrdinalForExplicitCaseSensitiveHashtables()
+    {
+        var hashtable = new Hashtable(StringComparer.Ordinal)
+        {
+            ["Name"] = "DisplayName",
+            ["name"] = "displayname"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.False(comparer.Equals("Name", "name"));
+    }
+
+    [Fact]
+    public void GetHashtableComparer_UsesOrdinalForUpperAndLowerCaseSensitiveKeys()
+    {
+        var hashtable = new Hashtable(StringComparer.Ordinal)
+        {
+            ["NAME"] = "DisplayName",
+            ["name"] = "displayname"
+        };
+
+        var comparer = PowerShellHelpers.GetHashtableComparer(hashtable);
+
+        Assert.False(comparer.Equals("NAME", "name"));
     }
 
     [Fact]

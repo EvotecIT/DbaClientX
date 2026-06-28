@@ -10,6 +10,7 @@ namespace DBAClientX;
 public partial class SQLite
 {
     private const int DefaultBulkInsertBatchSize = 500;
+    internal const int BulkInsertParameterLimit = 999;
 
     private void BulkInsertCore(
         string database,
@@ -43,7 +44,7 @@ public partial class SQLite
             }
 
             var columns = GetColumns(table);
-            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
+            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize, columns.Length);
 
             SqliteCommand? command = null;
             var preparedRowsPerBatch = 0;
@@ -159,7 +160,7 @@ public partial class SQLite
             }
 
             var columns = GetColumns(table);
-            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize);
+            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize, columns.Length);
 
             SqliteCommand? command = null;
             var preparedRowsPerBatch = 0;
@@ -310,19 +311,30 @@ public partial class SQLite
         return NormalizeConnectionString(database);
     }
 
-    private static int ResolveRowsPerBatch(int totalRows, int? batchSize)
+    internal static int ResolveRowsPerBatch(int totalRows, int? batchSize, int columnCount)
     {
         if (totalRows <= 0)
         {
             return 1;
         }
 
-        if (batchSize.HasValue && batchSize.Value > 0)
+        if (columnCount <= 0)
         {
-            return batchSize.Value;
+            throw new ArgumentOutOfRangeException(nameof(columnCount), "Column count must be greater than zero.");
         }
 
-        return Math.Min(totalRows, DefaultBulkInsertBatchSize);
+        if (columnCount > BulkInsertParameterLimit)
+        {
+            throw new ArgumentOutOfRangeException(nameof(columnCount), $"SQLite bulk insert supports at most {BulkInsertParameterLimit} columns per row.");
+        }
+
+        var parameterLimitedRows = Math.Max(1, BulkInsertParameterLimit / columnCount);
+        if (batchSize.HasValue && batchSize.Value > 0)
+        {
+            return Math.Min(batchSize.Value, parameterLimitedRows);
+        }
+
+        return Math.Min(totalRows, Math.Min(DefaultBulkInsertBatchSize, parameterLimitedRows));
     }
 
     private static string BuildBulkInsertStatement(string destinationTable, DataColumn[] columns, int rowsPerBatch)
@@ -417,7 +429,7 @@ public partial class SQLite
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
-        var parts = identifierPath.Split('.');
+        var parts = SplitIdentifierPath(identifierPath);
         for (var i = 0; i < parts.Length; i++)
         {
             if (string.IsNullOrWhiteSpace(parts[i]))
@@ -429,6 +441,97 @@ public partial class SQLite
         }
 
         return string.Join(".", parts);
+    }
+
+    private static string[] SplitIdentifierPath(string identifierPath)
+    {
+        var parts = new List<string>();
+        var start = 0;
+        var quote = '\0';
+        for (var index = 0; index < identifierPath.Length; index++)
+        {
+            var value = identifierPath[index];
+            if (quote == '\0')
+            {
+                if (value is '"' or '[' or '`')
+                {
+                    quote = value;
+                    continue;
+                }
+
+                if (value == '.')
+                {
+                    parts.Add(NormalizeIdentifierPathSegment(identifierPath.Substring(start, index - start)));
+                    start = index + 1;
+                }
+
+                continue;
+            }
+
+            if (quote == '"' && value == '"')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '"')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '[' && value == ']')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == ']')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+                continue;
+            }
+
+            if (quote == '`' && value == '`')
+            {
+                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '`')
+                {
+                    index++;
+                    continue;
+                }
+
+                quote = '\0';
+            }
+        }
+
+        if (quote != '\0')
+        {
+            throw new ArgumentException($"Identifier '{identifierPath}' contains an unterminated delimited path segment.", nameof(identifierPath));
+        }
+
+        parts.Add(NormalizeIdentifierPathSegment(identifierPath.Substring(start)));
+        return parts.ToArray();
+    }
+
+    private static string NormalizeIdentifierPathSegment(string segment)
+    {
+        var trimmed = segment.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
+        }
+
+        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
+        }
+
+        if (trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
+        {
+            return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
+        }
+
+        return trimmed;
     }
 
     private static void ApplyBatchValues(SqliteCommand command, DataColumn[] columns, DataTable table, int offset, int rowsPerBatch)

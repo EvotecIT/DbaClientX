@@ -102,7 +102,7 @@ public class OracleBulkInsertTests
     public void BulkInsert_SetsOptionsAndMappings()
     {
         using var oracle = new CaptureBulkCopyOracle();
-        var table = new DataTable();
+        using var table = new DataTable();
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("Name", typeof(string));
         table.Rows.Add(1, "a");
@@ -138,6 +138,21 @@ public class OracleBulkInsertTests
         Assert.Contains(oracle.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(oracle.Mappings, m => m.Source == "Name" && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, oracle.BatchRowCounts);
+    }
+
+    [Fact]
+    public void BulkInsert_StripsPlannerQuotesFromDestinationMappings()
+    {
+        using var oracle = new CaptureBulkCopyOracle();
+        using var table = new DataTable();
+        table.Columns.Add("\"id\"", typeof(int));
+        table.Columns.Add("\"DisplayName\"", typeof(string));
+        table.Rows.Add(1, "a");
+
+        oracle.BulkInsert("h", "svc", "u", "p", table, "Dest");
+
+        Assert.Contains(oracle.Mappings, m => m.Source == "\"id\"" && m.Destination == "id");
+        Assert.Contains(oracle.Mappings, m => m.Source == "\"DisplayName\"" && m.Destination == "DisplayName");
     }
 
     [Fact]
