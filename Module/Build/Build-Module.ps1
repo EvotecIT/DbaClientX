@@ -101,14 +101,24 @@ Build-Module -ModuleName 'DbaClientX' {
         DeleteTargetModuleBeforeBuild     = $true
         NETProjectPath                    = $PowerShellProjectPath
         ResolveBinaryConflicts            = $true
-        ResolveBinaryConflictsName        = 'DbaClientX.PowerShell'
-        NETProjectName                    = 'DbaClientX.PowerShell'
-        NETBinaryModule                   = 'DbaClientX.PowerShell.dll'
+        ResolveBinaryConflictsName        = 'DBAClientX.PowerShell'
+        NETProjectName                    = 'DBAClientX.PowerShell'
+        NETBinaryModule                   = 'DBAClientX.PowerShell.dll'
         NETBinaryModuleDocumentation      = $true
         NETConfiguration                  = 'Release'
         NETFramework                      = 'net472', 'net8.0'
         NETHandleAssemblyWithSameName     = $true
         NETAssemblyLoadContext            = $true
+        NETAssemblyTypeAcceleratorMode    = 'Assembly'
+        NETAssemblyTypeAcceleratorAssemblies = @(
+            'DbaClientX.Core'
+            'DbaClientX.SqlServer'
+            'DbaClientX.MySql'
+            'DbaClientX.Oracle'
+            'DbaClientX.PostgreSql'
+            'DbaClientX.SQLite'
+            'DBAClientX.PowerShell'
+        )
         NETHandleRuntimes                 = $true
         NETIgnoreLibraryOnLoad            = @(
             'Microsoft.Data.SqlClient.SNI.arm64.dll'
@@ -126,7 +136,7 @@ Build-Module -ModuleName 'DbaClientX' {
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath $ProjectBuildConfigPath -Enabled:$false -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -PublishGitHub
+    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath $ProjectBuildConfigPath -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -PublishGitHub
     New-ConfigurationRelease -StageRoot (Join-Path $ModuleRoot 'Artefacts\UploadReady') -VersionSource ProjectBuild -PrimaryProject 'DbaClientX.Core' -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path (Join-Path $ModuleRoot 'Artefacts\Unpacked') #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"

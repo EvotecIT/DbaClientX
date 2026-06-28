@@ -37,11 +37,14 @@ jobs:
               run: |
                   ./Module/Build/Build-Module.ps1 -RunMode Manifest
 
-            - name: Upload refreshed manifest
+            - name: Upload refreshed module entry files
               uses: actions/upload-artifact@v4
               with:
-                  name: psd1
-                  path: Module/DbaClientX.psd1
+                  name: module-entry
+                  path: |
+                      Module/DbaClientX.psd1
+                      Module/DbaClientX.psm1
+                      Module/DbaClientX.Libraries.ps1
 
     test-windows-ps5:
         needs: refresh-psd1
@@ -52,10 +55,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Download manifest
+            - name: Download refreshed module entry files
               uses: actions/download-artifact@v4
               with:
-                  name: psd1
+                  name: module-entry
                   path: .
 
             - name: Setup .NET
@@ -92,10 +95,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Download manifest
+            - name: Download refreshed module entry files
               uses: actions/download-artifact@v4
               with:
-                  name: psd1
+                  name: module-entry
                   path: .
 
             - name: Setup .NET
@@ -165,10 +168,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Download manifest
+            - name: Download refreshed module entry files
               uses: actions/download-artifact@v4
               with:
-                  name: psd1
+                  name: module-entry
                   path: .
 
             - name: Setup .NET
@@ -208,10 +211,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Download manifest
+            - name: Download refreshed module entry files
               uses: actions/download-artifact@v4
               with:
-                  name: psd1
+                  name: module-entry
                   path: .
 
             - name: Setup .NET
