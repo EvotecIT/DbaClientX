@@ -30,14 +30,12 @@ jobs:
             - name: Setup PowerShell modules
               shell: pwsh
               run: |
-                  Install-Module PSPublishModule -Force -Scope CurrentUser -AllowClobber
+                  Install-Module PSPublishModule -MinimumVersion 3.0.38.10 -Force -Scope CurrentUser -AllowClobber
 
             - name: Refresh module manifest
               shell: pwsh
-              env:
-                  RefreshPSD1Only: 'true'
               run: |
-                  ./Module/Build/Build-Module.ps1
+                  ./Module/Build/Build-Module.ps1 -RunMode Manifest
 
             - name: Upload refreshed manifest
               uses: actions/upload-artifact@v4
@@ -142,16 +140,13 @@ jobs:
                       Register-PSRepository -Default
                   }
                   Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-                  Install-Module -Name PSPublishModule -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
+                  Install-Module -Name PSPublishModule -Repository PSGallery -MinimumVersion 3.0.38.10 -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
             - name: Build packaged module
               shell: pwsh
-              env:
-                  RefreshPSD1Only: 'false'
-                  SignModule: 'false'
-              run: ./Module/Build/Build-Module.ps1
+              run: ./Module/Build/Build-Module.ps1 -RunMode Build -SignModule:$false
 
             - name: Run packaged ALC smoke test
               shell: pwsh
