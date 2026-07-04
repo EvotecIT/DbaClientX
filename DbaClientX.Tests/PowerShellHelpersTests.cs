@@ -244,4 +244,30 @@ public class PowerShellHelpersTests
         Assert.Contains("-Credential", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Oracle", exception.Message, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("Stop", ActionPreference.Stop)]
+    [InlineData("continue", ActionPreference.Continue)]
+    public void ToActionPreference_AcceptsStringValues(string value, ActionPreference expected)
+    {
+        var result = CmdletExtensions.ToActionPreference(value, ActionPreference.SilentlyContinue);
+
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void ToActionPreference_AcceptsTypedValues()
+    {
+        var result = CmdletExtensions.ToActionPreference(ActionPreference.Stop, ActionPreference.Continue);
+
+        Assert.Equal(ActionPreference.Stop, result);
+    }
+
+    [Fact]
+    public void ToActionPreference_UsesFallbackForUnsupportedValues()
+    {
+        var result = CmdletExtensions.ToActionPreference("NotAPreference", ActionPreference.Continue);
+
+        Assert.Equal(ActionPreference.Continue, result);
+    }
 }

@@ -1,8 +1,8 @@
 param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
-    [int[]] $RowCount = @(5000),
-    [int[]] $BatchSize = @(5000),
+    [string[]] $RowCount = @('5000'),
+    [string[]] $BatchSize = @('5000'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string] $ModulePath = 'DbaClientX',
@@ -13,12 +13,36 @@ param(
     [switch] $KeepTables
 )
 
-if ($RowCount.Count -eq 0 -or ($RowCount | Where-Object { $_ -lt 1 })) {
-    throw 'RowCount values must be greater than zero.'
+function Convert-BenchmarkIntArgument {
+    param(
+        [Parameter(Mandatory)]
+        [string[]] $Value,
+
+        [Parameter(Mandatory)]
+        [string] $Name
+    )
+
+    $numbers = @(
+        foreach ($entry in $Value) {
+            foreach ($item in ([string] $entry -split ',')) {
+                $trimmed = $item.Trim()
+                if ($trimmed) {
+                    [int] $trimmed
+                }
+            }
+        }
+    )
+
+    if ($numbers.Count -eq 0 -or ($numbers | Where-Object { $_ -lt 1 })) {
+        throw "$Name values must be greater than zero."
+    }
+
+    $numbers
 }
-if ($BatchSize.Count -eq 0 -or ($BatchSize | Where-Object { $_ -lt 1 })) {
-    throw 'BatchSize values must be greater than zero.'
-}
+
+$resolvedRowCount = Convert-BenchmarkIntArgument -Value $RowCount -Name 'RowCount'
+$resolvedBatchSize = Convert-BenchmarkIntArgument -Value $BatchSize -Name 'BatchSize'
+
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -36,8 +60,8 @@ $parameters = @{
     Variable = @{
         Server = $Server
         Database = $Database
-        RowCount = ($RowCount -join ',')
-        BatchSize = ($BatchSize -join ',')
+        RowCount = ($resolvedRowCount -join ',')
+        BatchSize = ($resolvedBatchSize -join ',')
         ModulePath = $ModulePath
         KeepTables = $KeepTables.IsPresent
     }

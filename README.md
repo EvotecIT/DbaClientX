@@ -241,7 +241,11 @@ Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`, which is 
 ```
 
 <!-- sqlserver-data-movement-benchmark:start -->
-Run the SQL Server data-movement benchmark to refresh this comparison table.
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (16ms) | 122.57x (2.00s) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (67ms) | 607.07x (40.66s) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (21ms) | 430.57x (9.19s) | Skipped | DbaClientX fastest |
 <!-- sqlserver-data-movement-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
