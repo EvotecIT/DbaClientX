@@ -398,14 +398,27 @@ Copy-DbaXTableData `
 
 ## Benchmark SQL Server Imports
 
-Use the benchmark example for repeatable local SQL Server import evidence without adding benchmark-only dependencies to the repo:
+Use the benchmark example for repeatable local SQL Server import evidence. The old example path is now a thin wrapper over the PSPublishModule benchmark suite in `Benchmarks/SqlServerDataMovement`.
 
 ```powershell
-.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -RowCount 5000 -Iterations 3
+Install-Module PSPublishModule -MinimumVersion 3.0.42 -Scope CurrentUser
+
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 1000, 5000, 20000 `
+    -BatchSize 5000 `
+    -Iterations 3
 ```
 
-The script always benchmarks `Write-DbaXTableData`. If optional comparison commands are already installed, it adds those runs. Otherwise it reports only DbaClientX results.
+The suite always benchmarks `Write-DbaXTableData`. If optional comparison commands are already installed, it adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` lanes. Otherwise those lanes are skipped by the shared runner instead of being treated as failures.
+
+Use `-Plan` to inspect the resolved benchmark matrix without creating SQL Server tables:
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
+```
 
 Interpret the numbers as local evidence, not a universal ranking. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
 
-The README includes the current local benchmark table. See [`sqlserver-benchmark-notes.md`](sqlserver-benchmark-notes.md) for the rerun command and measurement notes.
+The README includes a benchmark block that the suite can refresh with a normalized comparison table. JSON, CSV, and Markdown artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`.

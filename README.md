@@ -219,24 +219,32 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 
 ## SQL Server Benchmark Snapshot
 
-Use the benchmark script when you want repeatable local evidence for SQL Server imports. It creates isolated tables in the target database, uses explicit `DataTable` input, verifies row counts after every run, and drops the tables unless `-KeepTables` is used.
+Use the SQL Server data-movement benchmark when you want repeatable local evidence for import performance. The benchmark is a PSPublishModule/PowerForge suite: DbaClientX only declares scenarios, provider engines, validation, and the README target; the shared benchmark runner owns timing, warmups, rotated ordering, comparison tables, and JSON/CSV/Markdown artifacts.
 
 ```powershell
-.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 5000 -Iterations 3 -BatchSize 5000
+Install-Module PSPublishModule -MinimumVersion 3.0.42 -Scope CurrentUser
+
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 1000, 5000, 20000 `
+    -BatchSize 5000 `
+    -Iterations 3
 ```
 
-| Rows | Iterations | Command | Elapsed |
-| ---: | ---: | --- | ---: |
-| 1,000 | 1 | DbaClientX `Write-DbaXTableData` | 87.56 ms |
-| 1,000 | 1 | dbatools `Write-DbaDbTableData` | 2.20 s |
-| 5,000 | 1 | DbaClientX `Write-DbaXTableData` | 103.64 ms |
-| 5,000 | 1 | dbatools `Write-DbaDbTableData` | 10.05 s |
-| 5,000 | 3 | DbaClientX `Write-DbaXTableData` | 26.94 ms to 121.67 ms |
-| 5,000 | 3 | dbatools `Write-DbaDbTableData` | 19.12 s to 48.62 s |
-| 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
-| 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
+The suite always benchmarks DbaClientX. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. Successful lanes verify row counts and drop their isolated tables; failed lanes leave their table behind for inspection.
 
-Treat the numbers below as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the script in the environment that matters.
+Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`, which is intentionally ignored by Git. To inspect the matrix without touching SQL Server:
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
+```
+
+<!-- sqlserver-data-movement-benchmark:start -->
+Run the SQL Server data-movement benchmark to refresh this comparison table.
+<!-- sqlserver-data-movement-benchmark:end -->
+
+Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
 
 ## .NET Usage
 
@@ -320,7 +328,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 | Provider libraries | .NET Framework 4.7.2, .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
 | PowerShell binary module | .NET Framework 4.7.2, .NET 8.0 | .NET 8.0 |
 | Examples | .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
-| Benchmarks | .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
+| Benchmarks | Current PowerShell host through PSPublishModule | Current PowerShell host through PSPublishModule |
 
 ## Repository Structure
 
@@ -336,14 +344,14 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 | [`Module`](Module) | PowerShell module manifest, script functions, examples, Pester tests, and build script |
 | [`DbaClientX.Examples`](DbaClientX.Examples) | C# usage examples |
 | [`DbaClientX.Tests`](DbaClientX.Tests) | xUnit tests |
-| [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks) | BenchmarkDotNet scenarios |
+| [`Benchmarks`](Benchmarks) | PSPublishModule/PowerForge benchmark suite specs |
 | [`Build`](Build) | Project release configuration |
 
 ## Examples
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks)
+- Benchmarks: [`Benchmarks`](Benchmarks)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
