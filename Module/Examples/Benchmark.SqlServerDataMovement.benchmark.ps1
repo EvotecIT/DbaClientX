@@ -8,52 +8,12 @@ $outputRoot = if (Test-Path -LiteralPath $readmePath) {
     Join-Path ([System.IO.Path]::GetTempPath()) 'DbaClientX\Benchmarks\SqlServerDataMovement'
 }
 
-function Get-BenchmarkVariable {
-    param(
-        [Parameter(Mandatory)]
-        [string] $Name,
-
-        [string] $Default
-    )
-
-    $value = $BenchmarkVariables[$Name]
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return $Default
-    }
-
-    return [string] $value
-}
-
-function Get-BenchmarkIntValues {
-    param(
-        [Parameter(Mandatory)]
-        [string] $Name,
-
-        [int[]] $Default
-    )
-
-    $value = Get-BenchmarkVariable -Name $Name -Default ''
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        return $Default
-    }
-
-    $value -split ',' | ForEach-Object {
-        $item = $_.Trim()
-        if ($item) {
-            [int] $item
-        }
-    }
-}
-
-function Get-BenchmarkBoolVariable {
-    param(
-        [Parameter(Mandatory)]
-        [string] $Name
-    )
-
-    $value = Get-BenchmarkVariable -Name $Name -Default 'false'
-    $value -in @('1', 'true', 'yes', 'on')
-}
+$server = input Server localhost
+$database = input Database tempdb
+$modulePath = input ModulePath $moduleManifest
+$keepTables = inputBool KeepTables
+$rowCounts = inputInt RowCount 5000
+$batchSizes = inputInt BatchSize 5000
 
 function New-SqlServerBenchmarkDataTable {
     param([int] $Rows)
@@ -104,18 +64,16 @@ CREATE TABLE dbo.$($Run.TableName)
 "@
 }
 
-function Get-SqlServerBenchmarkRowCount {
+function Get-SqlServerBenchmarkIntegrity {
     param([Parameter(Mandatory)] [object] $Run)
 
-    $result = Invoke-DbaXQuery `
+    Invoke-DbaXQuery `
         -Server $Run.Server `
         -Database $Run.Database `
         -TrustServerCertificate `
-        -Query "SELECT COUNT(*) AS [RowsLoaded] FROM dbo.$($Run.TableName);" `
+        -Query "SELECT COUNT(*) AS [RowsLoaded], MIN(Id) AS [MinId], MAX(Id) AS [MaxId], SUM(CAST(Id AS bigint)) AS [IdSum], SUM(CAST(Score AS decimal(38,2))) AS [ScoreSum] FROM dbo.$($Run.TableName);" `
         -ReturnType PSObject `
         -ErrorAction Stop
-
-    [int] $result.RowsLoaded
 }
 
 function Remove-SqlServerBenchmarkTable {
@@ -129,9 +87,6 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
     profile Current -Cleanup KeepOnFailure
 
     caseSource {
-        $rowCounts = Get-BenchmarkIntValues -Name RowCount -Default @(5000)
-        $batchSizes = Get-BenchmarkIntValues -Name BatchSize -Default @(5000)
-
         foreach ($rowCount in $rowCounts) {
             foreach ($batchSize in $batchSizes) {
                 [pscustomobject]@{
@@ -146,10 +101,10 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
     setup {
         param($case, $run)
 
-        $run.Server = Get-BenchmarkVariable -Name Server -Default 'localhost'
-        $run.Database = Get-BenchmarkVariable -Name Database -Default 'tempdb'
-        $run.ModulePath = Get-BenchmarkVariable -Name ModulePath -Default $moduleManifest
-        $run.KeepTables = Get-BenchmarkBoolVariable -Name KeepTables
+        $run.Server = $server
+        $run.Database = $database
+        $run.ModulePath = $modulePath
+        $run.KeepTables = $keepTables
         $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
         $run.TableName = 'DbaClientXBench_{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
         $run.Data = New-SqlServerBenchmarkDataTable -Rows ([int] $case.RowCount)
@@ -247,9 +202,21 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
     validate {
         param($case, $run)
 
-        $run.RowsLoaded = Get-SqlServerBenchmarkRowCount -Run $run
+        $integrity = Get-SqlServerBenchmarkIntegrity -Run $run
+        $run.RowsLoaded = [int] $integrity.RowsLoaded
         if ($run.RowsLoaded -ne [int] $case.RowCount) {
             throw "$($case.Engine) loaded $($run.RowsLoaded) of $($case.RowCount) expected row(s) into dbo.$($run.TableName)."
+        }
+
+        $run.MinId = [int] $integrity.MinId
+        $run.MaxId = [int] $integrity.MaxId
+        $run.IdSum = [long] $integrity.IdSum
+        $run.ScoreSum = [decimal] $integrity.ScoreSum
+        $expectedIdSum = [long] ([int64] $case.RowCount * ([int64] $case.RowCount + 1) / 2)
+        $expectedScoreSum = [decimal] $expectedIdSum * 1.25
+
+        if ($run.MinId -ne 1 -or $run.MaxId -ne [int] $case.RowCount -or $run.IdSum -ne $expectedIdSum -or $run.ScoreSum -ne $expectedScoreSum) {
+            throw "$($case.Engine) wrote unexpected data into dbo.$($run.TableName): MinId=$($run.MinId), MaxId=$($run.MaxId), IdSum=$($run.IdSum), ScoreSum=$($run.ScoreSum)."
         }
 
         if (-not $run.KeepTables) {
@@ -261,6 +228,18 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
         param($case, $run)
 
         $run.RowsLoaded
+    }
+
+    metric IdSum {
+        param($case, $run)
+
+        $run.IdSum
+    }
+
+    metric ScoreSum {
+        param($case, $run)
+
+        $run.ScoreSum
     }
 
     metric RowsPerSecond {

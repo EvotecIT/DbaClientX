@@ -34,7 +34,7 @@ Use `-Plan` to inspect the matrix without touching SQL Server:
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
 ```
 
-The suite always benchmarks DbaClientX `Write-DbaXTableData`. It adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` only when those commands are available. Successful lanes verify the row count and drop their isolated table. Failed lanes keep their table so the failing state can be inspected.
+The suite always benchmarks DbaClientX `Write-DbaXTableData`. It adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` only when those commands are available. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected.
 
 Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`:
 

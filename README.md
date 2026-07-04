@@ -222,7 +222,7 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 Use the SQL Server data-movement benchmark when you want repeatable local evidence for import performance. The benchmark is a PSPublishModule/PowerForge suite: DbaClientX only declares scenarios, provider engines, validation, and the README target; the shared benchmark runner owns timing, warmups, rotated ordering, comparison tables, README block updates, and JSON/CSV/Markdown artifacts.
 
 ```powershell
-Install-Module PSPublishModule -MinimumVersion 3.0.42 -Scope CurrentUser
+Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
 
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `
@@ -232,7 +232,7 @@ Install-Module PSPublishModule -MinimumVersion 3.0.42 -Scope CurrentUser
     -Iterations 3
 ```
 
-The suite always benchmarks DbaClientX. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. Successful lanes verify row counts and drop their isolated tables; failed lanes leave their table behind for inspection.
+The suite always benchmarks DbaClientX. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
 
 The suite rewrites the marker-delimited table below when it runs from a source checkout. Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`, which is intentionally ignored by Git. To inspect the matrix without touching SQL Server:
 
@@ -243,9 +243,9 @@ The suite rewrites the marker-delimited table below when it runs from a source c
 <!-- sqlserver-data-movement-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (20ms) | 106.22x (2.10s) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (70ms) | 580.41x (40.88s) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (25ms) | 483.34x (12.29s) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 107.98x (2.05s) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (83ms) | 462.24x (38.18s) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (25ms) | 389.61x (9.66s) | Skipped | DbaClientX fastest |
 <!-- sqlserver-data-movement-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
