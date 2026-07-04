@@ -82,6 +82,14 @@ function Remove-SqlServerBenchmarkTable {
     Invoke-SqlServerBenchmarkNonQuery -Run $Run -Query "IF OBJECT_ID(N'dbo.$($Run.TableName)', N'U') IS NOT NULL DROP TABLE dbo.$($Run.TableName);"
 }
 
+function Remove-SqlServerBenchmarkWarmupTable {
+    param([Parameter(Mandatory)] [object] $Run)
+
+    if ($Run.Iteration -lt 0 -and -not $Run.KeepTables) {
+        Remove-SqlServerBenchmarkTable -Run $Run
+    }
+}
+
 benchmark 'sqlserver-data-movement' -out $outputRoot {
     policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
     profile Current -Cleanup KeepOnFailure
@@ -151,6 +159,7 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
                 -InputObject $run.Data `
                 -BatchSize ([int] $case.BatchSize) `
                 -ErrorAction Stop | Out-Null
+            Remove-SqlServerBenchmarkWarmupTable -Run $run
         }
     }
 
@@ -175,6 +184,7 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
             }
 
             Write-DbaDbTableData @parameters | Out-Null
+            Remove-SqlServerBenchmarkWarmupTable -Run $run
         }
     }
 
@@ -194,8 +204,12 @@ benchmark 'sqlserver-data-movement' -out $outputRoot {
             if ($command.Parameters.ContainsKey('Force')) {
                 $parameters.Force = $true
             }
+            if ($command.Parameters.ContainsKey('TrustServerCertificate')) {
+                $parameters.TrustServerCertificate = $true
+            }
 
             Write-SqlTableData @parameters | Out-Null
+            Remove-SqlServerBenchmarkWarmupTable -Run $run
         }
     }
 

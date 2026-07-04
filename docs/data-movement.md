@@ -401,7 +401,7 @@ Copy-DbaXTableData `
 Use the benchmark example for repeatable local SQL Server import evidence. The old example path is now a thin wrapper over the PSPublishModule benchmark suite that ships beside it in `Module/Examples`.
 
 ```powershell
-Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
+Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
 
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `
@@ -410,6 +410,8 @@ Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
     -BatchSize 5000 `
     -Iterations 3
 ```
+
+The wrapper imports the installed `DbaClientX` module unless you pass `-ModulePath` or set `$env:DBACLIENTX_BENCHMARK_MODULE_PATH` / `$env:DBACLIENTX_DEVELOPMENT_PATH` for a local source build.
 
 The suite always benchmarks `Write-DbaXTableData`. If optional comparison commands are already installed, it adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` lanes. Otherwise those lanes are skipped by the shared runner instead of being treated as failures. Successful write lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) before their isolated tables are dropped.
 

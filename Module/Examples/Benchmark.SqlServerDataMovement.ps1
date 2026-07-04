@@ -6,8 +6,10 @@ param(
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string] $ModulePath = $(
-        $moduleManifest = Join-Path $PSScriptRoot '..\DbaClientX.psd1'
-        if (Test-Path -LiteralPath $moduleManifest) {
+        if ($env:DBACLIENTX_BENCHMARK_MODULE_PATH) {
+            $env:DBACLIENTX_BENCHMARK_MODULE_PATH
+        } elseif ($env:DBACLIENTX_DEVELOPMENT_PATH) {
+            $moduleManifest = Join-Path $PSScriptRoot '..\DbaClientX.psd1'
             $moduleManifest
         } else {
             'DbaClientX'
@@ -33,7 +35,7 @@ if ($WarmupCount -lt 0) {
     throw 'WarmupCount cannot be negative.'
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.43 -ErrorAction Stop
 
 $benchmarkPath = Join-Path $PSScriptRoot 'Benchmark.SqlServerDataMovement.benchmark.ps1'
 $parameters = @{
