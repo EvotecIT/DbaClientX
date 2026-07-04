@@ -1,8 +1,8 @@
 # SQL Server benchmark notes
 
-The SQL Server data-movement benchmark is a PSPublishModule/PowerForge benchmark suite, not a hand-rolled timing loop. DbaClientX declares the SQL Server scenarios and provider operations in `Module/Examples/Benchmark.SqlServerDataMovement.benchmark.ps1`; the shared runner owns warmup iterations, measured iterations, rotated ordering, normalized artifacts, comparison output, and README block updates.
+The SQL Server data-movement benchmark is a PSPublishModule/PowerForge benchmark suite, not a hand-rolled timing loop. DbaClientX declares the SQL Server scenarios and provider operations in `Module/Examples/Benchmark.SqlServerDataMovement.ps1`; the shared runner owns warmup iterations, measured iterations, rotated ordering, normalized artifacts, comparison output, and README block updates.
 
-Run the compatibility wrapper:
+Run the benchmark:
 
 ```powershell
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
@@ -11,21 +11,6 @@ Run the compatibility wrapper:
     -RowCount 1000, 5000, 20000 `
     -BatchSize 5000 `
     -Iterations 3
-```
-
-Or call the benchmark suite directly:
-
-```powershell
-Invoke-BenchmarkSuite `
-    -Path .\Module\Examples\Benchmark.SqlServerDataMovement.benchmark.ps1 `
-    -Variable @{
-        Server = 'localhost'
-        Database = 'tempdb'
-        RowCount = '1000,5000,20000'
-        BatchSize = '5000'
-        ModulePath = '.\Module\DbaClientX.psd1'
-    } `
-    -IterationCount 3
 ```
 
 Use `-Plan` to inspect the matrix without touching SQL Server:

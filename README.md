@@ -245,9 +245,9 @@ The suite rewrites the marker-delimited table below when it runs from a source c
 <!-- sqlserver-data-movement-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (20ms) | 124.63x (2.55s) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (79ms) | 538.29x (42.79s) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (26ms) | 399.75x (10.51s) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (21ms) | 3.46x (73ms) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (68ms) | 1.92x (131ms) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (28ms) | 2.84x (79ms) | Skipped | DbaClientX fastest |
 <!-- sqlserver-data-movement-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
@@ -356,7 +356,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.benchmark.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.benchmark.ps1)
+- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
@@ -365,7 +365,6 @@ Useful example files:
 - [`Example.QuerySqlServer.ps1`](Module/Examples/Example.QuerySqlServer.ps1)
 - [`Example.SqlServerDataMovement.ps1`](Module/Examples/Example.SqlServerDataMovement.ps1)
 - [`Example.ExcelRoundTrip.ps1`](Module/Examples/Example.ExcelRoundTrip.ps1)
-- [`Benchmark.SqlServerDataMovement.benchmark.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.benchmark.ps1)
 - [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)

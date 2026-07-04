@@ -398,7 +398,7 @@ Copy-DbaXTableData `
 
 ## Benchmark SQL Server Imports
 
-Use the benchmark example for repeatable local SQL Server import evidence. The old example path is now a thin wrapper over the PSPublishModule benchmark suite that ships beside it in `Module/Examples`.
+Use the benchmark example for repeatable local SQL Server import evidence. The example is a thin wrapper over the PSPublishModule benchmark suite.
 
 ```powershell
 Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
