@@ -90,7 +90,8 @@ $settings = {
                 [void] $table.Rows.Add($index, "Row $index", [decimal]($index * 1.25), $CreatedUtc)
             }
 
-            return $table
+            Write-Output -NoEnumerate $table
+            return
         }
 
         if ($InputKind -eq 'PSCustomObject') {
