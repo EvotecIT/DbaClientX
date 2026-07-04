@@ -461,7 +461,21 @@ namespace DbaClientX.DevelopmentModuleLoadContext
     }
 }
 
-$FunctionsToExport = @()
+$PowerForgeSourceModuleRoot = [IO.Path]::Combine($PSScriptRoot, 'Module')
+$Public = @(Get-ChildItem -Path ([IO.Path]::Combine($PowerForgeSourceModuleRoot, 'Public', '*.ps1')) -ErrorAction SilentlyContinue -Recurse)
+$Private = @(Get-ChildItem -Path ([IO.Path]::Combine($PowerForgeSourceModuleRoot, 'Private', '*.ps1')) -ErrorAction SilentlyContinue -Recurse)
+$Classes = @(Get-ChildItem -Path ([IO.Path]::Combine($PowerForgeSourceModuleRoot, 'Classes', '*.ps1')) -ErrorAction SilentlyContinue -Recurse)
+$Enums = @(Get-ChildItem -Path ([IO.Path]::Combine($PowerForgeSourceModuleRoot, 'Enums', '*.ps1')) -ErrorAction SilentlyContinue -Recurse)
+
+foreach ($Import in @($Classes + $Enums + $Private + $Public)) {
+    try {
+        . $Import.FullName
+    } catch {
+        Write-Error -Message "Failed to import function $($Import.FullName): $_"
+    }
+}
+
+$FunctionsToExport = @($Public | ForEach-Object { $_.BaseName })
 $CmdletsToExport = @('Copy-DbaXTableData', 'Get-DbaXMetadata', 'Get-DbaXSqlServerManagement', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXQuery', 'Invoke-DbaXSQLite', 'New-DbaXQuery', 'Write-DbaXTableData')
 $AliasesToExport = @()
 Export-ModuleMember -Function $FunctionsToExport -Alias $AliasesToExport -Cmdlet $CmdletsToExport

@@ -30,7 +30,7 @@ jobs:
             - name: Setup PowerShell modules
               shell: pwsh
               run: |
-                  Install-Module PSPublishModule -MinimumVersion 3.0.38 -Force -Scope CurrentUser -AllowClobber
+                  Install-Module PSPublishModule -MinimumVersion 3.0.43 -Force -Scope CurrentUser -AllowClobber
 
             - name: Refresh module manifest
               shell: pwsh
@@ -59,7 +59,7 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: module-entry
-                  path: .
+                  path: Module
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v4
@@ -99,7 +99,7 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: module-entry
-                  path: .
+                  path: Module
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v4
@@ -143,7 +143,7 @@ jobs:
                       Register-PSRepository -Default
                   }
                   Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-                  Install-Module -Name PSPublishModule -Repository PSGallery -MinimumVersion 3.0.38 -Force -SkipPublisherCheck -AllowClobber
+                  Install-Module -Name PSPublishModule -Repository PSGallery -MinimumVersion 3.0.43 -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
@@ -172,7 +172,7 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: module-entry
-                  path: .
+                  path: Module
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v4
@@ -215,7 +215,7 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: module-entry
-                  path: .
+                  path: Module
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v4

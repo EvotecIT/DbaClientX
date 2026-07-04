@@ -8,6 +8,29 @@ Describe 'Assembly Load Context' {
         $alc | Should -Not -BeNull
         $alc.Name | Should -Be 'DbaClientX.PowerShell'
     }
+
+    It 'exports script functions from the project-root development bootstrapper' -Skip:(-not $IsCoreCLR) {
+        $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+        $rootBootstrapper = [IO.Path]::Combine($repoRoot, 'DbaClientX.psm1')
+        $rootBootstrapperLiteral = $rootBootstrapper.Replace("'", "''")
+
+        $script = @"
+`$ErrorActionPreference = 'Stop'
+`$env:PSModulePath = ((`$env:PSModulePath -split [IO.Path]::PathSeparator) |
+    Where-Object { `$_ -notlike '*Documents*PowerShell*Modules*' -and `$_ -notlike '*Documents*WindowsPowerShell*Modules*' }) -join [IO.Path]::PathSeparator
+Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management -ErrorAction Stop
+`$PSModuleAutoLoadingPreference = 'None'
+`$env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
+Import-Module '$rootBootstrapperLiteral' -Force -ErrorAction Stop
+`$command = Get-Command Invoke-DbaXTransaction -ErrorAction Stop
+if (`$command.Module.Path -ne '$rootBootstrapperLiteral') {
+    throw "Invoke-DbaXTransaction was exported from '`$(`$command.Module.Path)' instead of the project-root bootstrapper."
+}
+"@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+        $output = pwsh -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join [Environment]::NewLine)
+    }
 }
 
 Describe 'Packaged Assembly Load Context' -Tag 'PackagedALC' {

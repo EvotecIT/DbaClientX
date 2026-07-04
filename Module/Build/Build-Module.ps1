@@ -141,4 +141,4 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     New-ConfigurationPublish -Type GitHub -FilePath $GitHubApiKeyPath -UserName 'EvotecIT' -Enabled:$false -RepositoryName 'DbaClientX' -OverwriteTagName 'DbaClientX-PowerShellModule.<TagModuleVersionWithPreRelease>'
 
     New-ConfigurationGate -Mode $RunMode
-}
+} -ExitCode
