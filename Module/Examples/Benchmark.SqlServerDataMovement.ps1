@@ -121,7 +121,7 @@ namespace DbaClientX.Benchmarks
     public sealed class DbaClientXBenchmarkRow
     {
         public int Id { get; set; }
-        public string DisplayName { get; set; } = string.Empty;
+        public string DisplayName { get; set; }
         public decimal Score { get; set; }
         public System.DateTime CreatedUtc { get; set; }
     }
