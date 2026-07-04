@@ -23,7 +23,7 @@ Invoke-BenchmarkSuite `
         Database = 'tempdb'
         RowCount = '1000,5000,20000'
         BatchSize = '5000'
-        ModulePath = '.\Module'
+        ModulePath = '.\Module\DbaClientX.psd1'
     } `
     -IterationCount 3
 ```

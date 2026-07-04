@@ -22,10 +22,10 @@ param(
     [switch] $KeepTables
 )
 
-if ($RowCount.Count -eq 0 -or ($RowCount | Where-Object { $_ -lt 1 })) {
+if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-if ($BatchSize.Count -eq 0 -or ($BatchSize | Where-Object { $_ -lt 1 })) {
+if ($BatchSize.Count -eq 0 -or @($BatchSize | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'BatchSize values must be greater than zero.'
 }
 if ($Iterations -lt 1) {
