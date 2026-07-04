@@ -110,6 +110,10 @@ jobs:
               shell: pwsh
               run: |
                   Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+                  if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+                      Register-PSRepository -Default
+                  }
+                  Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
@@ -190,6 +194,10 @@ jobs:
               shell: pwsh
               run: |
                   Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+                  if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+                      Register-PSRepository -Default
+                  }
+                  Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
@@ -234,6 +242,10 @@ jobs:
               shell: pwsh
               run: |
                   Write-Host "PowerShell Version: $($PSVersionTable.PSVersion)"
+                  if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+                      Register-PSRepository -Default
+                  }
+                  Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
