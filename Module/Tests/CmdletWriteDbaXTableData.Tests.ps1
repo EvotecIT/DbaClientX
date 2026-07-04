@@ -326,9 +326,10 @@ describe 'Write-DbaXTableData cmdlet' {
             $script:lastBulkOptions.ColumnMappings['Name'] | Should -Be 'DisplayName'
             $script:lastBulkOptions.AutoCreateTable | Should -BeTrue
             $script:lastBulkOptions.NotifyAfter | Should -Be 10
-            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::TableLock) | Should -Not -Be 0
-            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepIdentity) | Should -Not -Be 0
-            ([int]$script:lastBulkOptions.BulkCopyOptions -band [int][Microsoft.Data.SqlClient.SqlBulkCopyOptions]::KeepNulls) | Should -Not -Be 0
+            $bulkCopyOptionNames = $script:lastBulkOptions.BulkCopyOptions.ToString() -split ',\s*'
+            $bulkCopyOptionNames | Should -Contain 'TableLock'
+            $bulkCopyOptionNames | Should -Contain 'KeepIdentity'
+            $bulkCopyOptionNames | Should -Contain 'KeepNulls'
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastBulkOptions = $null

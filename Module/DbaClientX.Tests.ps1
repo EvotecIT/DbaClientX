@@ -50,20 +50,11 @@ Write-Color
 $originalDevelopmentPath = $env:DBACLIENTX_DEVELOPMENT_PATH
 $originalDevelopmentFolderCore = $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE
 $originalDevelopmentFolderDefault = $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT
-$moduleBuildRoot = Join-Path $PSScriptRoot '..\Artefacts\PowerShellModuleTests'
-$moduleOutputRoot = Join-Path $moduleBuildRoot 'bin'
+$originalDevelopmentBinaries = $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES
 $targetFramework = if ($PSVersionTable.PSEdition -eq 'Core') { 'net8.0' } else { 'net472' }
-$moduleOutputTarget = Join-Path $moduleOutputRoot $targetFramework
-
-if (Test-Path $moduleBuildRoot) {
-    Remove-Item -Path $moduleBuildRoot -Recurse -Force
-}
 
 try {
-    $null = New-Item -Path $moduleOutputTarget -ItemType Directory -Force
-    $env:DBACLIENTX_DEVELOPMENT_PATH = $moduleOutputRoot
-    $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE = 'net8.0'
-    $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT = 'net472'
+    $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
 
     $buildArgs = @(
         'build'
@@ -73,7 +64,6 @@ try {
         '--framework'
         $targetFramework
         '--no-restore'
-        "-p:OutputPath=$moduleOutputTarget\"
     )
 
     & dotnet @buildArgs
@@ -97,6 +87,7 @@ try {
     $env:DBACLIENTX_DEVELOPMENT_PATH = $originalDevelopmentPath
     $env:DBACLIENTX_DEVELOPMENT_FOLDER_CORE = $originalDevelopmentFolderCore
     $env:DBACLIENTX_DEVELOPMENT_FOLDER_DEFAULT = $originalDevelopmentFolderDefault
+    $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = $originalDevelopmentBinaries
 }
 
 if ($Result.FailedCount -gt 0) {
