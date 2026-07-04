@@ -176,8 +176,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                             foreach (DataRow row in ((DataTable)result).Rows) {
                                 WriteObject(PSObjectConverter.DataRowToPSObject(row));
                             }
-                        } else {
+                        } else if (ReturnType == ReturnType.DataRow) {
                             WriteObject(result, true);
+                        } else {
+                            WriteObject(result);
                         }
                     }
                     return;
@@ -192,8 +194,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                             foreach (DataRow row in ((DataTable)result).Rows) {
                                 WriteObject(PSObjectConverter.DataRowToPSObject(row));
                             }
-                        } else {
+                        } else if (ReturnType == ReturnType.DataRow) {
                             WriteObject(result, true);
+                        } else {
+                            WriteObject(result);
                         }
                     }
                     return;
@@ -244,8 +248,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                     foreach (DataRow row in ((DataTable)result).Rows) {
                         WriteObject(PSObjectConverter.DataRowToPSObject(row));
                     }
-                } else {
+                } else if (ReturnType == ReturnType.DataRow) {
                     WriteObject(result, true);
+                } else {
+                    WriteObject(result);
                 }
             }
         } catch (Exception ex) {

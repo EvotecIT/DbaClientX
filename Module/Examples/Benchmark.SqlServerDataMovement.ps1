@@ -5,6 +5,8 @@ param(
     [int[]] $BatchSize = @(5000),
     [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
     [string[]] $InputKind = @('DataTable', 'PSCustomObject', 'Class'),
+    [ValidateSet('DataTableAll', 'DataSetAll', 'PSObjectAll')]
+    [string[]] $ReadShape = @('DataTableAll', 'PSObjectAll'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string] $ModulePath = $(
@@ -33,6 +35,9 @@ if ($BatchSize.Count -eq 0 -or @($BatchSize | Where-Object { $_ -lt 1 }).Count -
 }
 if ($InputKind.Count -eq 0) {
     throw 'InputKind must contain at least one value.'
+}
+if ($ReadShape.Count -eq 0) {
+    throw 'ReadShape must contain at least one value.'
 }
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
@@ -63,6 +68,7 @@ $settings = {
     $rowCounts = $RowCount
     $batchSizes = $BatchSize
     $inputKinds = $InputKind
+    $readShapes = $ReadShape
     $selectedOperations = if ($Operation) { $Operation } else { @('Write', 'Read') }
 
     function New-DbaClientXBenchmarkData {
@@ -152,6 +158,38 @@ CREATE TABLE dbo.$TableName
         "IF OBJECT_ID(N'dbo.$TableName', N'U') IS NOT NULL DROP TABLE dbo.$TableName;"
     }
 
+    function Get-DbaClientXBenchmarkReadShape {
+        param(
+            [string] $ReadShape,
+            [string] $TableName
+        )
+
+        $query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$TableName ORDER BY Id;"
+        switch ($ReadShape) {
+            'DataSetAll' {
+                [pscustomobject]@{
+                    Query = $query
+                    ReturnType = 'DataSet'
+                    DbatoolsAs = 'DataSet'
+                }
+            }
+            'PSObjectAll' {
+                [pscustomobject]@{
+                    Query = $query
+                    ReturnType = 'PSObject'
+                    DbatoolsAs = 'PSObject'
+                }
+            }
+            default {
+                [pscustomobject]@{
+                    Query = $query
+                    ReturnType = 'DataTable'
+                    DbatoolsAs = 'DataTable'
+                }
+            }
+        }
+    }
+
     function Get-DbaClientXBenchmarkExpectedIntegrity {
         param([int] $RowCount)
 
@@ -239,6 +277,7 @@ CREATE TABLE dbo.$TableName
     $newBenchmarkData = ${function:New-DbaClientXBenchmarkData}
     $getCreateTableQuery = ${function:Get-DbaClientXBenchmarkCreateTableQuery}
     $getDropTableQuery = ${function:Get-DbaClientXBenchmarkDropTableQuery}
+    $getReadShape = ${function:Get-DbaClientXBenchmarkReadShape}
     $getExpectedIntegrity = ${function:Get-DbaClientXBenchmarkExpectedIntegrity}
     $getReadIntegrity = ${function:Get-DbaClientXBenchmarkReadIntegrity}
     $assertIntegrity = ${function:Assert-DbaClientXBenchmarkIntegrity}
@@ -273,6 +312,7 @@ CREATE TABLE dbo.$TableName
                 $run.KeepTables = $keepTables
                 $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
                 $run.TableName = 'DbaClientXBench_Write_{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
+                $run.DropTableQuery = "IF OBJECT_ID(N'dbo.$($run.TableName)', N'U') IS NOT NULL DROP TABLE dbo.$($run.TableName);"
                 $run.Data = & $newBenchmarkData -RowCount ([int] $case.RowCount) -InputKind $case.InputKind -CreatedUtc ([datetime]::UtcNow)
 
                 Import-Module $run.ModulePath -Global -Force -ErrorAction Stop
@@ -325,7 +365,7 @@ CREATE TABLE dbo.$TableName
                         -TableLock `
                         -ErrorAction Stop | Out-Null
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
-                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getDropTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
                 }
             }
@@ -353,7 +393,7 @@ CREATE TABLE dbo.$TableName
 
                     Write-DbaDbTableData @parameters | Out-Null
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
-                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getDropTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
                 }
             }
@@ -381,7 +421,7 @@ CREATE TABLE dbo.$TableName
 
                     Write-SqlTableData @parameters | Out-Null
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
-                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getDropTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
                 }
             }
@@ -412,7 +452,7 @@ CREATE TABLE dbo.$TableName
                 $run.ScoreSum = $actual.ScoreSum
 
                 if (-not $run.KeepTables) {
-                    Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getDropTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+                    Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                 }
             }
 
@@ -459,9 +499,12 @@ CREATE TABLE dbo.$TableName
 
             caseSource {
                 foreach ($rowCount in $rowCounts) {
-                    [pscustomobject]@{
-                        Scenario = "$rowCount rows"
-                        RowCount = $rowCount
+                    foreach ($readShape in $readShapes) {
+                        [pscustomobject]@{
+                            Scenario = "$rowCount rows / $readShape"
+                            RowCount = $rowCount
+                            ReadShape = $readShape
+                        }
                     }
                 }
             }
@@ -476,7 +519,11 @@ CREATE TABLE dbo.$TableName
                 $run.KeepTables = $keepTables
                 $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
                 $run.TableName = 'DbaClientXBench_Read_{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
-                $run.ReadQuery = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.TableName) ORDER BY Id;"
+                $run.DropTableQuery = "IF OBJECT_ID(N'dbo.$($run.TableName)', N'U') IS NOT NULL DROP TABLE dbo.$($run.TableName);"
+                $shape = & $getReadShape -ReadShape $case.ReadShape -TableName $run.TableName
+                $run.ReadQuery = $shape.Query
+                $run.ReturnType = $shape.ReturnType
+                $run.DbatoolsAs = $shape.DbatoolsAs
                 $run.SeedData = & $newBenchmarkData -RowCount ([int] $case.RowCount) -InputKind DataTable -CreatedUtc ([datetime]::UtcNow)
 
                 Import-Module $run.ModulePath -Global -Force -ErrorAction Stop
@@ -524,13 +571,23 @@ CREATE TABLE dbo.$TableName
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                    $run.ReadData = Invoke-DbaXQuery `
-                        -Server $run.Server `
-                        -Database $run.Database `
-                        -TrustServerCertificate `
-                        -Query $run.ReadQuery `
-                        -ReturnType DataTable `
-                        -ErrorAction Stop
+                    if ($run.ReturnType -eq 'DataRow' -or $run.ReturnType -eq 'PSObject') {
+                        $run.ReadData = @(Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $run.ReadQuery `
+                            -ReturnType $run.ReturnType `
+                            -ErrorAction Stop)
+                    } else {
+                        $run.ReadData = Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $run.ReadQuery `
+                            -ReturnType $run.ReturnType `
+                            -ErrorAction Stop
+                    }
                 }
             }
 
@@ -546,13 +603,17 @@ CREATE TABLE dbo.$TableName
                     }
                     $command = Get-Command Invoke-DbaQuery -ErrorAction Stop
                     if ($command.Parameters.ContainsKey('As')) {
-                        $parameters.As = 'DataTable'
+                        $parameters.As = $run.DbatoolsAs
                     }
                     if ($command.Parameters.ContainsKey('EnableException')) {
                         $parameters.EnableException = $true
                     }
 
-                    $run.ReadData = Invoke-DbaQuery @parameters
+                    if ($run.DbatoolsAs -eq 'DataRow' -or $run.DbatoolsAs -eq 'PSObject') {
+                        $run.ReadData = @(Invoke-DbaQuery @parameters)
+                    } else {
+                        $run.ReadData = Invoke-DbaQuery @parameters
+                    }
                 }
             }
 
@@ -569,7 +630,7 @@ CREATE TABLE dbo.$TableName
                 $run.ScoreSum = $actual.ScoreSum
 
                 if (-not $run.KeepTables) {
-                    Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getDropTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+                    Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                 }
             }
 

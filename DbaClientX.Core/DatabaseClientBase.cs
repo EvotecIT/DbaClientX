@@ -1167,15 +1167,20 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
         }
 
-        while (reader.Read())
+        var fieldCount = reader.FieldCount;
+        var values = new object[fieldCount];
+        table.BeginLoadData();
+        try
         {
-            var row = table.NewRow();
-            for (var i = 0; i < reader.FieldCount; i++)
+            while (reader.Read())
             {
-                row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                reader.GetValues(values);
+                table.Rows.Add(values);
             }
-
-            table.Rows.Add(row);
+        }
+        finally
+        {
+            table.EndLoadData();
         }
 
         return table;
@@ -1197,17 +1202,20 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
         }
 
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        var fieldCount = reader.FieldCount;
+        var values = new object[fieldCount];
+        table.BeginLoadData();
+        try
         {
-            var row = table.NewRow();
-            for (var i = 0; i < reader.FieldCount; i++)
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                row[i] = await reader.IsDBNullAsync(i, cancellationToken).ConfigureAwait(false)
-                    ? DBNull.Value
-                    : reader.GetValue(i);
+                reader.GetValues(values);
+                table.Rows.Add(values);
             }
-
-            table.Rows.Add(row);
+        }
+        finally
+        {
+            table.EndLoadData();
         }
 
         return table;
