@@ -219,24 +219,45 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 
 ## SQL Server Benchmark Snapshot
 
-Use the benchmark script when you want repeatable local evidence for SQL Server imports. It creates isolated tables in the target database, uses explicit `DataTable` input, verifies row counts after every run, and drops the tables unless `-KeepTables` is used.
+Use the SQL Server data-movement benchmark when you want repeatable local evidence for import performance. The benchmark is a PSPublishModule/PowerForge suite: DbaClientX only declares scenarios, provider engines, validation, and the README target; the shared benchmark runner owns timing, warmups, rotated ordering, comparison tables, README block updates, and JSON/CSV/Markdown artifacts.
 
 ```powershell
-.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 5000 -Iterations 3 -BatchSize 5000
+Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
+
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 1000, 5000, 20000 `
+    -BatchSize 5000 `
+    -InputKind DataTable, PSCustomObject, Class `
+    -Iterations 3
 ```
 
-| Rows | Iterations | Command | Elapsed |
-| ---: | ---: | --- | ---: |
-| 1,000 | 1 | DbaClientX `Write-DbaXTableData` | 87.56 ms |
-| 1,000 | 1 | dbatools `Write-DbaDbTableData` | 2.20 s |
-| 5,000 | 1 | DbaClientX `Write-DbaXTableData` | 103.64 ms |
-| 5,000 | 1 | dbatools `Write-DbaDbTableData` | 10.05 s |
-| 5,000 | 3 | DbaClientX `Write-DbaXTableData` | 26.94 ms to 121.67 ms |
-| 5,000 | 3 | dbatools `Write-DbaDbTableData` | 19.12 s to 48.62 s |
-| 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
-| 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
+The suite always benchmarks DbaClientX across `DataTable`, `PSCustomObject`, and typed class input shapes. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. The dbatools `DataTable` lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
 
-Treat the numbers below as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the script in the environment that matters.
+By default the wrapper imports the installed `DbaClientX` module. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, or `$env:DBACLIENTX_DEVELOPMENT_PATH` when benchmarking a local source build.
+
+The suite rewrites the marker-delimited table below when it runs from a source checkout. Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`, which is intentionally ignored by Git. To inspect the matrix without touching SQL Server:
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
+```
+
+<!-- sqlserver-data-movement-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| 1000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 9.28x (178ms) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=1000 | Core-7.6.3 | Write | 1.00x (26ms) | 7.29x (188ms) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 6.67x (126ms) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=20000 | Core-7.6.3 | Write | 1.00x (368ms) | 6.72x (2.47s) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=20000 | Core-7.6.3 | Write | 1.00x (33ms) | 3.15x (103ms) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=20000 | Core-7.6.3 | Write | 1.00x (413ms) | 4.87x (2.01s) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=5000 | Core-7.6.3 | Write | 1.00x (52ms) | 10.95x (568ms) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=5000 | Core-7.6.3 | Write | 1.00x (22ms) | 2.28x (50ms) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=5000 | Core-7.6.3 | Write | 1.00x (68ms) | 7.38x (501ms) | Skipped | DbaClientX fastest |
+<!-- sqlserver-data-movement-benchmark:end -->
+
+Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
 
 ## .NET Usage
 
@@ -320,7 +341,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 | Provider libraries | .NET Framework 4.7.2, .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
 | PowerShell binary module | .NET Framework 4.7.2, .NET 8.0 | .NET 8.0 |
 | Examples | .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
-| Benchmarks | .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
+| Benchmarks | Current PowerShell host through PSPublishModule | Current PowerShell host through PSPublishModule |
 
 ## Repository Structure
 
@@ -336,14 +357,13 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 | [`Module`](Module) | PowerShell module manifest, script functions, examples, Pester tests, and build script |
 | [`DbaClientX.Examples`](DbaClientX.Examples) | C# usage examples |
 | [`DbaClientX.Tests`](DbaClientX.Tests) | xUnit tests |
-| [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks) | BenchmarkDotNet scenarios |
 | [`Build`](Build) | Project release configuration |
 
 ## Examples
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`DbaClientX.Benchmarks`](DbaClientX.Benchmarks)
+- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 

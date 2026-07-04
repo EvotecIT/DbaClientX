@@ -15,8 +15,7 @@
   "ExcludeProjects": [
     "DbaClientX.PowerShell",
     "DbaClientX.Tests",
-    "DbaClientX.Examples",
-    "DbaClientX.Benchmarks"
+    "DbaClientX.Examples"
   ],
   "NugetSource": [],
   "IncludePrerelease": false,

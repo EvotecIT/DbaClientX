@@ -304,12 +304,22 @@ internal static class CmdletExtensions
     /// </summary>
     public static ActionPreference ResolveErrorAction(this PSCmdlet cmdlet)
     {
-        var pref = (ActionPreference)cmdlet.SessionState.PSVariable.GetValue("ErrorActionPreference");
+        var pref = ToActionPreference(
+            cmdlet.SessionState.PSVariable.GetValue("ErrorActionPreference"),
+            ActionPreference.Continue);
         if (cmdlet.MyInvocation.BoundParameters.TryGetValue("ErrorAction", out var value) &&
-            value != null && Enum.TryParse(value.ToString(), true, out ActionPreference actionPreference))
+            value != null)
         {
-            pref = actionPreference;
+            pref = ToActionPreference(value, pref);
         }
         return pref;
     }
+
+    internal static ActionPreference ToActionPreference(object? value, ActionPreference fallback)
+        => value switch
+        {
+            ActionPreference actionPreference => actionPreference,
+            string text when Enum.TryParse(text, true, out ActionPreference actionPreference) => actionPreference,
+            _ => fallback
+        };
 }

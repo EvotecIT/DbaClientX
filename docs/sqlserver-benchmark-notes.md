@@ -1,36 +1,36 @@
 # SQL Server benchmark notes
 
-Use `Module/Examples/Benchmark.SqlServerDataMovement.ps1` for local evidence. The script creates isolated tables in the target database, runs each tool for the requested number of iterations, verifies row counts after each write, and drops the tables unless `-KeepTables` is used.
+The SQL Server data-movement benchmark is a PSPublishModule/PowerForge benchmark suite, not a hand-rolled timing loop. DbaClientX declares the SQL Server scenarios and provider operations in `Module/Examples/Benchmark.SqlServerDataMovement.ps1`; the shared runner owns warmup iterations, measured iterations, rotated ordering, normalized artifacts, comparison output, and README block updates.
 
-Example:
+Run the benchmark:
 
 ```powershell
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `
     -Database tempdb `
-    -RowCount 20000 `
-    -Iterations 1 `
-    -BatchSize 5000
+    -RowCount 1000, 5000, 20000 `
+    -BatchSize 5000 `
+    -InputKind DataTable, PSCustomObject, Class `
+    -Iterations 3
 ```
 
-## Local evidence
+Use `-Plan` to inspect the matrix without touching SQL Server:
 
-On the local `localhost` SQL Server used while preparing this branch:
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
+```
 
-| Rows | Iterations | Tool | Elapsed |
-| ---: | ---: | --- | ---: |
-| 1,000 | 1 | DbaClientX `Write-DbaXTableData` | 87.56 ms |
-| 1,000 | 1 | dbatools `Write-DbaDbTableData` | 2.20 s |
-| 5,000 | 1 | DbaClientX `Write-DbaXTableData` | 103.64 ms |
-| 5,000 | 1 | dbatools `Write-DbaDbTableData` | 10.05 s |
-| 5,000 | 3 | DbaClientX `Write-DbaXTableData` | 26.94 ms to 121.67 ms |
-| 5,000 | 3 | dbatools `Write-DbaDbTableData` | 19.12 s to 48.62 s |
-| 20,000 | 1 | DbaClientX `Write-DbaXTableData` | 173.92 ms |
-| 20,000 | 1 | dbatools `Write-DbaDbTableData` | 55.35 s |
+The suite always benchmarks DbaClientX `Write-DbaXTableData` across `DataTable`, `PSCustomObject`, and typed class input shapes. It adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` only when those commands are available. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected.
 
-These are workstation-local measurements, not universal rankings. They include each public cmdlet surface as called by the benchmark. The comparison run used `Connect-DbaInstance -TrustServerCertificate` and a `System.Data.DataTable` input, so it was not failing certificate validation and was not intentionally forced through object-pipeline conversion. The 1,000-row and 5,000-row single-iteration rows above use explicit `-InputObject` for both cmdlets.
+Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`:
 
-For deeper performance work, run each command in separate PowerShell processes and include a raw `SqlBulkCopy` baseline.
+- `samples.json` / `samples.csv`
+- `summary.json` / `summary.csv`
+- `comparison.json` / `comparison.md`
+- `metadata.json`
+- `run-report.json`
+
+Treat all numbers as workstation-local evidence, not universal rankings. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
 
 ## SQL Server import controls
 
