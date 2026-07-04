@@ -3,6 +3,8 @@ param(
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(5000),
     [int[]] $BatchSize = @(5000),
+    [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
+    [string[]] $InputKind = @('DataTable', 'PSCustomObject', 'Class'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string] $ModulePath = $(
@@ -27,6 +29,9 @@ if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt
 }
 if ($BatchSize.Count -eq 0 -or @($BatchSize | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'BatchSize values must be greater than zero.'
+}
+if ($InputKind.Count -eq 0) {
+    throw 'InputKind must contain at least one value.'
 }
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
@@ -55,6 +60,7 @@ $settings = {
     $keepTables = $KeepTables.IsPresent
     $rowCounts = $RowCount
     $batchSizes = $BatchSize
+    $inputKinds = $InputKind
 
     benchmark 'sqlserver-data-movement' -out $outputRoot {
         policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
@@ -63,10 +69,13 @@ $settings = {
         caseSource {
             foreach ($rowCount in $rowCounts) {
                 foreach ($batchSize in $batchSizes) {
-                    [pscustomobject]@{
-                        Scenario = "$rowCount rows / batch $batchSize"
-                        RowCount = $rowCount
-                        BatchSize = $batchSize
+                    foreach ($inputKind in $inputKinds) {
+                        [pscustomobject]@{
+                            Scenario = "$rowCount rows / batch $batchSize / $inputKind"
+                            RowCount = $rowCount
+                            BatchSize = $batchSize
+                            InputKind = $inputKind
+                        }
                     }
                 }
             }
@@ -81,15 +90,56 @@ $settings = {
             $run.KeepTables = $keepTables
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $run.TableName = 'DbaClientXBench_{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
-            $run.Data = [System.Data.DataTable]::new('DbaClientXBenchmark')
-            [void] $run.Data.Columns.Add('Id', [int])
-            [void] $run.Data.Columns.Add('DisplayName', [string])
-            [void] $run.Data.Columns.Add('Score', [decimal])
-            [void] $run.Data.Columns.Add('CreatedUtc', [datetime])
-
             $createdUtc = [datetime]::UtcNow
-            foreach ($index in 1..([int] $case.RowCount)) {
-                [void] $run.Data.Rows.Add($index, "Row $index", [decimal]($index * 1.25), $createdUtc)
+            if ($case.InputKind -eq 'DataTable') {
+                $run.Data = [System.Data.DataTable]::new('DbaClientXBenchmark')
+                [void] $run.Data.Columns.Add('Id', [int])
+                [void] $run.Data.Columns.Add('DisplayName', [string])
+                [void] $run.Data.Columns.Add('Score', [decimal])
+                [void] $run.Data.Columns.Add('CreatedUtc', [datetime])
+
+                foreach ($index in 1..([int] $case.RowCount)) {
+                    [void] $run.Data.Rows.Add($index, "Row $index", [decimal]($index * 1.25), $createdUtc)
+                }
+            } elseif ($case.InputKind -eq 'PSCustomObject') {
+                $rows = [System.Collections.Generic.List[object]]::new()
+                foreach ($index in 1..([int] $case.RowCount)) {
+                    $rows.Add([pscustomobject]@{
+                        Id = $index
+                        DisplayName = "Row $index"
+                        Score = [decimal]($index * 1.25)
+                        CreatedUtc = $createdUtc
+                    })
+                }
+                $run.Data = $rows.ToArray()
+            } else {
+                $rowType = 'DbaClientX.Benchmarks.DbaClientXBenchmarkRow' -as [type]
+                if (-not $rowType) {
+                    Add-Type -TypeDefinition @'
+namespace DbaClientX.Benchmarks
+{
+    public sealed class DbaClientXBenchmarkRow
+    {
+        public int Id { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public decimal Score { get; set; }
+        public System.DateTime CreatedUtc { get; set; }
+    }
+}
+'@
+                    $rowType = 'DbaClientX.Benchmarks.DbaClientXBenchmarkRow' -as [type]
+                }
+
+                $rows = [System.Collections.Generic.List[object]]::new()
+                foreach ($index in 1..([int] $case.RowCount)) {
+                    $row = [System.Activator]::CreateInstance($rowType)
+                    $row.Id = $index
+                    $row.DisplayName = "Row $index"
+                    $row.Score = [decimal]($index * 1.25)
+                    $row.CreatedUtc = $createdUtc
+                    $rows.Add($row)
+                }
+                $run.Data = $rows.ToArray()
             }
 
             Import-Module $run.ModulePath -Global -Force -ErrorAction Stop
@@ -147,6 +197,7 @@ CREATE TABLE dbo.$($run.TableName)
                     -DestinationTable "dbo.$($run.TableName)" `
                     -InputObject $run.Data `
                     -BatchSize ([int] $case.BatchSize) `
+                    -TableLock `
                     -ErrorAction Stop | Out-Null
                 if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
                     Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query "IF OBJECT_ID(N'dbo.$($run.TableName)', N'U') IS NOT NULL DROP TABLE dbo.$($run.TableName);" -ErrorAction Stop | Out-Null

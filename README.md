@@ -229,10 +229,11 @@ Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
     -Database tempdb `
     -RowCount 1000, 5000, 20000 `
     -BatchSize 5000 `
+    -InputKind DataTable, PSCustomObject, Class `
     -Iterations 3
 ```
 
-The suite always benchmarks DbaClientX. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
+The suite always benchmarks DbaClientX across `DataTable`, `PSCustomObject`, and typed class input shapes. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. The dbatools `DataTable` lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
 
 By default the wrapper imports the installed `DbaClientX` module. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, or `$env:DBACLIENTX_DEVELOPMENT_PATH` when benchmarking a local source build.
 
@@ -245,9 +246,15 @@ The suite rewrites the marker-delimited table below when it runs from a source c
 <!-- sqlserver-data-movement-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / batch 5000 | BatchSize=5000, RowCount=1000 | Core-7.6.3 | Write | 1.00x (21ms) | 3.46x (73ms) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 | BatchSize=5000, RowCount=20000 | Core-7.6.3 | Write | 1.00x (68ms) | 1.92x (131ms) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 | BatchSize=5000, RowCount=5000 | Core-7.6.3 | Write | 1.00x (28ms) | 2.84x (79ms) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 9.28x (178ms) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=1000 | Core-7.6.3 | Write | 1.00x (26ms) | 7.29x (188ms) | Skipped | DbaClientX fastest |
+| 1000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 6.67x (126ms) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=20000 | Core-7.6.3 | Write | 1.00x (368ms) | 6.72x (2.47s) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=20000 | Core-7.6.3 | Write | 1.00x (33ms) | 3.15x (103ms) | Skipped | DbaClientX fastest |
+| 20000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=20000 | Core-7.6.3 | Write | 1.00x (413ms) | 4.87x (2.01s) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=5000 | Core-7.6.3 | Write | 1.00x (52ms) | 10.95x (568ms) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=5000 | Core-7.6.3 | Write | 1.00x (22ms) | 2.28x (50ms) | Skipped | DbaClientX fastest |
+| 5000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=5000 | Core-7.6.3 | Write | 1.00x (68ms) | 7.38x (501ms) | Skipped | DbaClientX fastest |
 <!-- sqlserver-data-movement-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.

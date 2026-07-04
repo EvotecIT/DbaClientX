@@ -408,12 +408,13 @@ Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
     -Database tempdb `
     -RowCount 1000, 5000, 20000 `
     -BatchSize 5000 `
+    -InputKind DataTable, PSCustomObject, Class `
     -Iterations 3
 ```
 
 The wrapper imports the installed `DbaClientX` module unless you pass `-ModulePath` or set `$env:DBACLIENTX_BENCHMARK_MODULE_PATH` / `$env:DBACLIENTX_DEVELOPMENT_PATH` for a local source build.
 
-The suite always benchmarks `Write-DbaXTableData`. If optional comparison commands are already installed, it adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` lanes. Otherwise those lanes are skipped by the shared runner instead of being treated as failures. Successful write lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) before their isolated tables are dropped.
+The suite always benchmarks `Write-DbaXTableData` across `DataTable`, `PSCustomObject`, and typed class input shapes. If optional comparison commands are already installed, it adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` lanes. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import. Otherwise those lanes are skipped by the shared runner instead of being treated as failures. Successful write lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) before their isolated tables are dropped.
 
 Use `-Plan` to inspect the resolved benchmark matrix without creating SQL Server tables:
 
