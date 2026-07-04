@@ -227,35 +227,39 @@ Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `
     -Database tempdb `
-    -RowCount 1000, 5000, 20000 `
+    -RowCount 1000, 5000, 20000, 100000 `
     -BatchSize 5000 `
     -InputKind DataTable, PSCustomObject, Class `
     -Iterations 3
 ```
 
-The suite always benchmarks DbaClientX across `DataTable`, `PSCustomObject`, and typed class input shapes. It adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available, and records unavailable lanes as skipped. The dbatools `DataTable` lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
+The suite benchmarks SQL Server writes and reads separately. The write suite covers DbaClientX across `DataTable`, `PSCustomObject`, and typed class input shapes, and adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available. The dbatools `DataTable` write lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
+
+The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery -ReturnType DataTable` with dbatools `Invoke-DbaQuery` when dbatools is available. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
 
 By default the wrapper imports the installed `DbaClientX` module. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, or `$env:DBACLIENTX_DEVELOPMENT_PATH` when benchmarking a local source build.
 
-The suite rewrites the marker-delimited table below when it runs from a source checkout. Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement`, which is intentionally ignored by Git. To inspect the matrix without touching SQL Server:
+The suite rewrites the marker-delimited tables below when it runs from a source checkout. Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`, which are intentionally ignored by Git. To inspect the matrix without touching SQL Server:
 
 ```powershell
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
 ```
 
-<!-- sqlserver-data-movement-benchmark:start -->
-| Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
-| --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 9.28x (178ms) | Skipped | DbaClientX fastest |
-| 1000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=1000 | Core-7.6.3 | Write | 1.00x (26ms) | 7.29x (188ms) | Skipped | DbaClientX fastest |
-| 1000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=1000 | Core-7.6.3 | Write | 1.00x (19ms) | 6.67x (126ms) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=20000 | Core-7.6.3 | Write | 1.00x (368ms) | 6.72x (2.47s) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=20000 | Core-7.6.3 | Write | 1.00x (33ms) | 3.15x (103ms) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=20000 | Core-7.6.3 | Write | 1.00x (413ms) | 4.87x (2.01s) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=5000 | Core-7.6.3 | Write | 1.00x (52ms) | 10.95x (568ms) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=5000 | Core-7.6.3 | Write | 1.00x (22ms) | 2.28x (50ms) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=5000 | Core-7.6.3 | Write | 1.00x (68ms) | 7.38x (501ms) | Skipped | DbaClientX fastest |
-<!-- sqlserver-data-movement-benchmark:end -->
+### Write Benchmark
+
+<!-- sqlserver-data-movement-write-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 100000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=100000 | Core-7.6.3 | Write | 1.00x (564ms) | 530.73x (299.30s) | DbaClientX fastest |
+<!-- sqlserver-data-movement-write-benchmark:end -->
+
+### Read Benchmark
+
+<!-- sqlserver-data-movement-read-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 100000 rows | RowCount=100000 | Core-7.6.3 | Read | 1.00x (245ms) | 0.76x (186ms) | DbaClientX slower than dbatools |
+<!-- sqlserver-data-movement-read-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
 
