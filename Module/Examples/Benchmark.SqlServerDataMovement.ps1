@@ -588,6 +588,9 @@ CREATE TABLE dbo.$TableName
                             -ReturnType $run.ReturnType `
                             -ErrorAction Stop
                     }
+                    if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
+                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
+                    }
                 }
             }
 
@@ -613,6 +616,9 @@ CREATE TABLE dbo.$TableName
                         $run.ReadData = @(Invoke-DbaQuery @parameters)
                     } else {
                         $run.ReadData = Invoke-DbaQuery @parameters
+                    }
+                    if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
+                        Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
                 }
             }
