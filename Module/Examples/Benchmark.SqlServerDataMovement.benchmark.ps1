@@ -1,4 +1,12 @@
-$repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+$sourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+$moduleRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$moduleManifest = Join-Path $moduleRoot 'DbaClientX.psd1'
+$readmePath = Join-Path $sourceRoot 'README.md'
+$outputRoot = if (Test-Path -LiteralPath $readmePath) {
+    Join-Path $sourceRoot 'Ignore\Benchmarks\SqlServerDataMovement'
+} else {
+    Join-Path ([System.IO.Path]::GetTempPath()) 'DbaClientX\Benchmarks\SqlServerDataMovement'
+}
 
 function Get-BenchmarkVariable {
     param(
@@ -47,37 +55,6 @@ function Get-BenchmarkBoolVariable {
     $value -in @('1', 'true', 'yes', 'on')
 }
 
-function Get-SqlServerBenchmarkCommand {
-    param(
-        [Parameter(Mandatory)]
-        [object] $Module,
-
-        [Parameter(Mandatory)]
-        [string] $Name
-    )
-
-    $command = Get-Command -Name $Name -ErrorAction Stop | Where-Object {
-        $_.Module.Path -eq $Module.Path
-    } | Select-Object -First 1
-
-    if (-not $command) {
-        throw "Command $Name was not exported by $($Module.Path)."
-    }
-
-    $command
-}
-
-function Import-SqlServerBenchmarkDbaClientX {
-    param([Parameter(Mandatory)] [object] $Run)
-
-    $module = Import-Module $Run.ModulePath -Force -PassThru -ErrorAction Stop | Select-Object -First 1
-    $Run.DbaClientXCommands = @{
-        InvokeDbaXNonQuery = Get-SqlServerBenchmarkCommand -Module $module -Name 'Invoke-DbaXNonQuery'
-        InvokeDbaXQuery = Get-SqlServerBenchmarkCommand -Module $module -Name 'Invoke-DbaXQuery'
-        WriteDbaXTableData = Get-SqlServerBenchmarkCommand -Module $module -Name 'Write-DbaXTableData'
-    }
-}
-
 function New-SqlServerBenchmarkDataTable {
     param([int] $Rows)
 
@@ -104,15 +81,12 @@ function Invoke-SqlServerBenchmarkNonQuery {
         [string] $Query
     )
 
-    $parameters = @{
-        Server = $Run.Server
-        Database = $Run.Database
-        TrustServerCertificate = $true
-        Query = $Query
-        ErrorAction = 'Stop'
-    }
-
-    & $Run.DbaClientXCommands.InvokeDbaXNonQuery @parameters | Out-Null
+    Invoke-DbaXNonQuery `
+        -Server $Run.Server `
+        -Database $Run.Database `
+        -TrustServerCertificate `
+        -Query $Query `
+        -ErrorAction Stop | Out-Null
 }
 
 function New-SqlServerBenchmarkTable {
@@ -133,16 +107,13 @@ CREATE TABLE dbo.$($Run.TableName)
 function Get-SqlServerBenchmarkRowCount {
     param([Parameter(Mandatory)] [object] $Run)
 
-    $parameters = @{
-        Server = $Run.Server
-        Database = $Run.Database
-        TrustServerCertificate = $true
-        Query = "SELECT COUNT(*) AS [RowsLoaded] FROM dbo.$($Run.TableName);"
-        ReturnType = 'PSObject'
-        ErrorAction = 'Stop'
-    }
-
-    $result = & $Run.DbaClientXCommands.InvokeDbaXQuery @parameters
+    $result = Invoke-DbaXQuery `
+        -Server $Run.Server `
+        -Database $Run.Database `
+        -TrustServerCertificate `
+        -Query "SELECT COUNT(*) AS [RowsLoaded] FROM dbo.$($Run.TableName);" `
+        -ReturnType PSObject `
+        -ErrorAction Stop
 
     [int] $result.RowsLoaded
 }
@@ -153,7 +124,7 @@ function Remove-SqlServerBenchmarkTable {
     Invoke-SqlServerBenchmarkNonQuery -Run $Run -Query "IF OBJECT_ID(N'dbo.$($Run.TableName)', N'U') IS NOT NULL DROP TABLE dbo.$($Run.TableName);"
 }
 
-benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benchmarks\SqlServerDataMovement') {
+benchmark 'sqlserver-data-movement' -out $outputRoot {
     policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
     profile Current -Cleanup KeepOnFailure
 
@@ -177,29 +148,17 @@ benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benc
 
         $run.Server = Get-BenchmarkVariable -Name Server -Default 'localhost'
         $run.Database = Get-BenchmarkVariable -Name Database -Default 'tempdb'
-        $run.ModulePath = Get-BenchmarkVariable -Name ModulePath -Default 'DbaClientX'
+        $run.ModulePath = Get-BenchmarkVariable -Name ModulePath -Default $moduleManifest
         $run.KeepTables = Get-BenchmarkBoolVariable -Name KeepTables
         $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
         $run.TableName = 'DbaClientXBench_{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
         $run.Data = New-SqlServerBenchmarkDataTable -Rows ([int] $case.RowCount)
 
-        Import-SqlServerBenchmarkDbaClientX -Run $run
+        Import-Module $run.ModulePath -Global -Force -ErrorAction Stop
         New-SqlServerBenchmarkTable -Run $run
 
-        if ($case.Engine -eq 'DbaClientX') {
-            $run.WriteParameters = @{
-                Provider = 'SqlServer'
-                ConnectionString = $run.ConnectionString
-                DestinationTable = "dbo.$($run.TableName)"
-                InputObject = $run.Data
-                BatchSize = [int] $case.BatchSize
-                ErrorAction = 'Stop'
-            }
-        } elseif ($case.Engine -eq 'dbatools') {
+        if ($case.Engine -eq 'dbatools') {
             $connectCommand = Get-Command Connect-DbaInstance -ErrorAction Stop
-            $run.DbatoolsWriteCommand = Get-Command Write-DbaDbTableData -ErrorAction Stop
-            $run.DbatoolsSupportsBatchSize = $run.DbatoolsWriteCommand.Parameters.ContainsKey('BatchSize')
-            $run.DbatoolsSupportsEnableException = $run.DbatoolsWriteCommand.Parameters.ContainsKey('EnableException')
             $parameters = @{
                 SqlInstance = $run.Server
                 Database = $run.Database
@@ -209,23 +168,6 @@ benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benc
             }
 
             $run.DbatoolsInstance = Connect-DbaInstance @parameters
-
-            $parameters = @{
-                SqlInstance = $run.DbatoolsInstance
-                Database = $run.Database
-                Schema = 'dbo'
-                Table = $run.TableName
-                InputObject = $run.Data
-            }
-
-            if ($run.DbatoolsSupportsBatchSize) {
-                $parameters.BatchSize = [int] $case.BatchSize
-            }
-            if ($run.DbatoolsSupportsEnableException) {
-                $parameters.EnableException = $true
-            }
-
-            $run.WriteParameters = $parameters
         }
     }
 
@@ -247,8 +189,13 @@ benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benc
         operation Write {
             param($case, $run)
 
-            $parameters = $run.WriteParameters
-            & $run.DbaClientXCommands.WriteDbaXTableData @parameters | Out-Null
+            Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString $run.ConnectionString `
+                -DestinationTable "dbo.$($run.TableName)" `
+                -InputObject $run.Data `
+                -BatchSize ([int] $case.BatchSize) `
+                -ErrorAction Stop | Out-Null
         }
     }
 
@@ -256,8 +203,23 @@ benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benc
         operation Write {
             param($case, $run)
 
-            $parameters = $run.WriteParameters
-            & $run.DbatoolsWriteCommand @parameters | Out-Null
+            $parameters = @{
+                SqlInstance = $run.DbatoolsInstance
+                Database = $run.Database
+                Schema = 'dbo'
+                Table = $run.TableName
+                InputObject = $run.Data
+            }
+
+            $command = Get-Command Write-DbaDbTableData -ErrorAction Stop
+            if ($command.Parameters.ContainsKey('BatchSize')) {
+                $parameters.BatchSize = [int] $case.BatchSize
+            }
+            if ($command.Parameters.ContainsKey('EnableException')) {
+                $parameters.EnableException = $true
+            }
+
+            Write-DbaDbTableData @parameters | Out-Null
         }
     }
 
@@ -312,6 +274,8 @@ benchmark 'sqlserver-data-movement' -out (Join-Path $repositoryRoot 'Ignore\Benc
     }
 
     comparison Engine -Baseline DbaClientX -Metric MedianMs
-    readme (Join-Path $repositoryRoot 'README.md') -Block 'sqlserver-data-movement-benchmark' -Renderer ComparisonTable
+    if (Test-Path -LiteralPath $readmePath) {
+        readme $readmePath -Block 'sqlserver-data-movement-benchmark' -Renderer ComparisonTable
+    }
     artifacts Json, Csv, Markdown
 }

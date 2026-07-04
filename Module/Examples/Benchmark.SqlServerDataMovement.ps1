@@ -5,7 +5,14 @@ param(
     [string[]] $BatchSize = @('5000'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
-    [string] $ModulePath = 'DbaClientX',
+    [string] $ModulePath = $(
+        $moduleManifest = Join-Path $PSScriptRoot '..\DbaClientX.psd1'
+        if (Test-Path -LiteralPath $moduleManifest) {
+            $moduleManifest
+        } else {
+            'DbaClientX'
+        }
+    ),
     [string[]] $Engine,
     [string[]] $Operation,
     [string] $OutputRoot,
@@ -52,7 +59,7 @@ if ($WarmupCount -lt 0) {
 
 Import-Module PSPublishModule -MinimumVersion 3.0.42 -ErrorAction Stop
 
-$benchmarkPath = Join-Path $PSScriptRoot '..\..\Benchmarks\SqlServerDataMovement\sqlserver-data-movement.benchmark.ps1'
+$benchmarkPath = Join-Path $PSScriptRoot 'Benchmark.SqlServerDataMovement.benchmark.ps1'
 $parameters = @{
     Path = $benchmarkPath
     WarmupCount = $WarmupCount
