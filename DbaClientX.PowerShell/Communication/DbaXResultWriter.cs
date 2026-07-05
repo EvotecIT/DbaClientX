@@ -36,7 +36,7 @@ internal static class DbaXResultWriter
                 foreach (var row in rows)
                 {
                     table ??= row.Table.Clone();
-                    table.ImportRow(row);
+                    AddRow(table, row);
                 }
 
                 if (table != null)
@@ -50,7 +50,7 @@ internal static class DbaXResultWriter
                 foreach (var row in rows)
                 {
                     dataTable ??= row.Table.Clone();
-                    dataTable.ImportRow(row);
+                    AddRow(dataTable, row);
                 }
 
                 writeObject(CreateDataSet(dataTable), false);
@@ -82,7 +82,7 @@ internal static class DbaXResultWriter
                 await foreach (var row in rows.ConfigureAwait(false))
                 {
                     table ??= row.Table.Clone();
-                    table.ImportRow(row);
+                    AddRow(table, row);
                 }
 
                 if (table != null)
@@ -96,7 +96,7 @@ internal static class DbaXResultWriter
                 await foreach (var row in rows.ConfigureAwait(false))
                 {
                     dataTable ??= row.Table.Clone();
-                    dataTable.ImportRow(row);
+                    AddRow(dataTable, row);
                 }
 
                 writeObject(CreateDataSet(dataTable), false);
@@ -128,5 +128,16 @@ internal static class DbaXResultWriter
         }
 
         return set;
+    }
+
+    private static void AddRow(DataTable table, DataRow row)
+    {
+        if (row.RowState == DataRowState.Detached)
+        {
+            table.Rows.Add(row.ItemArray);
+            return;
+        }
+
+        table.ImportRow(row);
     }
 }

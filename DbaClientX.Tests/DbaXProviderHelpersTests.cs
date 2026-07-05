@@ -91,6 +91,39 @@ public class DbaXProviderHelpersTests
         Assert.False(builder.Pooling);
     }
 
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_RebuildsSingleKeyConnectionStrings()
+    {
+        const string connectionString = "Data Source=data.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal("data.db", builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.False(builder.Pooling);
+    }
+
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_PreservesOptionBearingConnectionStrings()
+    {
+        const string connectionString = "Data Source=shared;Mode=Memory;Cache=Shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
+    {
+        const string connectionString = "Mode=ReadOnly";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
     [Theory]
     [InlineData(":memory:", false)]
     [InlineData("Data Source=:memory:", false)]

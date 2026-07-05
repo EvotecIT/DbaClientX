@@ -512,6 +512,36 @@ public class SqliteTests
         }
     }
 
+    [Theory]
+    [InlineData("Checkpoint")]
+    [InlineData("Optimize")]
+    [InlineData("PrepareForShutdown")]
+    public async Task MaintenanceAsync_MissingFile_DoesNotCreateDatabase(string operation)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-missing-maintenance-" + Guid.NewGuid().ToString("N") + ".db");
+
+        using var sqlite = new DBAClientX.SQLite();
+
+        var exception = await Assert.ThrowsAsync<FileNotFoundException>(async () =>
+        {
+            switch (operation)
+            {
+                case "Checkpoint":
+                    await sqlite.CheckpointAsync(path);
+                    break;
+                case "Optimize":
+                    await sqlite.OptimizeAsync(path);
+                    break;
+                case "PrepareForShutdown":
+                    await sqlite.PrepareForShutdownAsync(path);
+                    break;
+            }
+        });
+
+        Assert.Contains("does not exist", exception.Message);
+        Assert.False(File.Exists(path));
+    }
+
     [Fact]
     public async Task PrepareForShutdownAsync_WhenTransactionActive_Throws()
     {

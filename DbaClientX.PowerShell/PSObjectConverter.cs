@@ -18,7 +18,7 @@ public static class PSObjectConverter
     {
         PSObject psObject = new PSObject();
 
-        if (row != null && (row.RowState & DataRowState.Detached) != DataRowState.Detached)
+        if (row != null)
         {
             var table = row.Table;
             if (!_psNotePropertyCache.TryGetValue(table, out var propertyTemplates))

@@ -253,9 +253,17 @@ internal static class DbaXProviderHelpers
             : DBAClientX.SQLite.BuildConnectionString(databaseOrConnectionString);
 
     internal static string GetSQLiteReadOnlyConnectionString(string databaseOrConnectionString)
-        => MayBeConnectionString(databaseOrConnectionString)
+    {
+        if (!MayBeConnectionString(databaseOrConnectionString))
+        {
+            return DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
+        }
+
+        var database = GetSQLiteDatabase(databaseOrConnectionString, preserveOptionBearingConnectionStrings: true);
+        return string.Equals(database, databaseOrConnectionString, StringComparison.Ordinal)
             ? databaseOrConnectionString
-            : DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
+            : DBAClientX.SQLite.BuildReadOnlyConnectionString(database);
+    }
 
     internal static (DataTable Table, string DestinationTable) NormalizeBulkInsertInput(DbaXProvider provider, DataTable table, string destinationTable)
         => provider == DbaXProvider.PostgreSql
