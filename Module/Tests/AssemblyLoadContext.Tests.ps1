@@ -9,7 +9,7 @@ Describe 'Assembly Load Context' {
         $alc.Name | Should -Be 'DbaClientX.PowerShell'
     }
 
-    It 'exports script functions from the project-root development bootstrapper' -Skip:(-not $IsCoreCLR) {
+    It 'exports binary cmdlets from the project-root development bootstrapper' -Skip:(-not $IsCoreCLR) {
         $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
         $rootBootstrapper = [IO.Path]::Combine($repoRoot, 'DbaClientX.psm1')
         $rootBootstrapperLiteral = $rootBootstrapper.Replace("'", "''")
@@ -23,6 +23,9 @@ Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management -Err
 `$env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
 Import-Module '$rootBootstrapperLiteral' -Force -ErrorAction Stop
 `$command = Get-Command Invoke-DbaXTransaction -ErrorAction Stop
+if (`$command.CommandType -ne [System.Management.Automation.CommandTypes]::Cmdlet) {
+    throw "Invoke-DbaXTransaction was exported as '`$(`$command.CommandType)' instead of a binary cmdlet."
+}
 if (`$command.Module.Path -ne '$rootBootstrapperLiteral') {
     throw "Invoke-DbaXTransaction was exported from '`$(`$command.Module.Path)' instead of the project-root bootstrapper."
 }

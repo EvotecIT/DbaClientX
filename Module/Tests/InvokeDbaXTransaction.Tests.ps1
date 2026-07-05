@@ -1,3 +1,4 @@
+$env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 function Global:New-TransactionTestClient {
@@ -47,7 +48,7 @@ function Global:New-TransactionTestClient {
     return $client
 }
 
-Describe 'Invoke-DbaX*Transaction functions' {
+Describe 'Invoke-DbaX*Transaction cmdlets' {
     BeforeEach {
         $global:DbaXTransactionClientFactoryOverrides = @{}
     }
@@ -56,12 +57,13 @@ Describe 'Invoke-DbaX*Transaction functions' {
         $global:DbaXTransactionClientFactoryOverrides = @{}
     }
 
-    It 'exports transaction helper functions' {
+    It 'exports transaction helper cmdlets' {
         Get-Command Invoke-DbaXTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXMySqlTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXPostgreSqlTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXOracleTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXSQLiteTransaction | Should -Not -BeNullOrEmpty
+        Get-Command Invoke-DbaXTransaction | Select-Object -ExpandProperty CommandType | Should -Be 'Cmdlet'
     }
 
     It 'commits and disposes SQL Server transactions on success' {
