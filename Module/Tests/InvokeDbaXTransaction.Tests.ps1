@@ -115,6 +115,49 @@ Describe 'Invoke-DbaX*Transaction cmdlets' {
         $state.DisposeCalls | Should -Be 1
     }
 
+    It 'preserves null output from transaction script blocks' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        $result = Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock { $null }
+
+        $result | Should -BeNullOrEmpty
+        $state.CommitCalls | Should -Be 1
+        $state.RollbackCalls | Should -Be 0
+    }
+
+    It 'rolls back when ErrorAction Stop turns script block errors terminating' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        {
+            Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock {
+                Write-Error 'transaction body failed'
+                'should-not-commit'
+            } -ErrorAction Stop
+        } | Should -Throw '*transaction body failed*'
+
+        $state.CommitCalls | Should -Be 0
+        $state.RollbackCalls | Should -Be 1
+        $state.DisposeCalls | Should -Be 1
+    }
+
     It 'surfaces rollback failures as aggregate exceptions' {
         $state = @{
             BeginCalls = 0

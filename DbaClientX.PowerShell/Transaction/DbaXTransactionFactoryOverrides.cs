@@ -11,12 +11,12 @@ internal static class DbaXTransactionFactoryOverrides
     internal static object CreateClient(PSCmdlet cmdlet, string providerName, Func<object> defaultFactory)
     {
         var overrides = GetOverrides(cmdlet);
-        if (!overrides.ContainsKey(providerName))
+        var factory = overrides[providerName];
+        if (factory == null)
         {
             return defaultFactory();
         }
 
-        var factory = overrides[providerName];
         var result = factory switch
         {
             ScriptBlock scriptBlock => scriptBlock.InvokeReturnAsIs(),

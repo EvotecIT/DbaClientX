@@ -22,7 +22,7 @@ internal static class DbaXTransactionRunner
             }
 
             beginTransaction(client);
-            var results = InvokeScriptBlock(scriptBlock, client, argumentList);
+            var results = InvokeScriptBlock(cmdlet, scriptBlock, client, argumentList);
             InvokeMethod(client, "Commit");
             foreach (var result in results)
             {
@@ -51,7 +51,7 @@ internal static class DbaXTransactionRunner
     internal static void InvokeBeginTransaction(object client, params object?[] args)
         => InvokeMethod(client, "BeginTransaction", args);
 
-    private static IEnumerable<object?> InvokeScriptBlock(ScriptBlock scriptBlock, object client, object[]? argumentList)
+    private static IEnumerable<object?> InvokeScriptBlock(PSCmdlet cmdlet, ScriptBlock scriptBlock, object client, object[]? argumentList)
     {
         var args = new object?[(argumentList?.Length ?? 0) + 1];
         args[0] = client;
@@ -60,9 +60,14 @@ internal static class DbaXTransactionRunner
             Array.Copy(argumentList, 0, args, 1, argumentList.Length);
         }
 
+        var variables = new List<PSVariable>
+        {
+            new("ErrorActionPreference", cmdlet.ResolveErrorAction())
+        };
+
         return scriptBlock
-            .InvokeWithContext(functionsToDefine: null, variablesToDefine: null, args)
-            .Select(static item => item.BaseObject);
+            .InvokeWithContext(functionsToDefine: null, variablesToDefine: variables, args)
+            .Select(static item => item?.BaseObject);
     }
 
     private static Exception? TryRollback(object? client)
@@ -77,11 +82,21 @@ internal static class DbaXTransactionRunner
             InvokeMethod(client, "Rollback");
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsNonRecoverable(ex))
         {
             return ex;
         }
     }
+
+    private static bool IsNonRecoverable(Exception ex)
+        => ex is OutOfMemoryException
+            or StackOverflowException
+            or AccessViolationException
+            or AppDomainUnloadedException
+            or BadImageFormatException
+            or CannotUnloadAppDomainException
+            or InvalidProgramException
+            or ThreadAbortException;
 
     private static void DisposeClient(object? client)
     {
