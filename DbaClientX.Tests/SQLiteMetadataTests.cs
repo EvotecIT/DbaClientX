@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using DBAClientX.Metadata;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -99,6 +100,32 @@ public class SQLiteMetadataTests
         {
             Cleanup(path);
         }
+    }
+
+    [Fact]
+    public void GetMetadataWithConnectionString_PreservesMemoryMode()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+        var connectionString = $"Data Source={database};Mode=Memory;Cache=Shared";
+
+        using var keepAlive = new SqliteConnection(connectionString);
+        keepAlive.Open();
+        using (var command = keepAlive.CreateCommand())
+        {
+            command.CommandText = "CREATE TABLE Users(Id INTEGER PRIMARY KEY, Name TEXT);";
+            command.ExecuteNonQuery();
+        }
+
+        using var sqlite = new DBAClientX.SQLite();
+
+        var tables = sqlite.GetTablesWithConnectionString(connectionString);
+        var columns = sqlite.GetColumnsWithConnectionString(connectionString, table: "Users");
+        var indexes = sqlite.GetIndexesWithConnectionString(connectionString, table: "Users");
+
+        Assert.Contains(tables, table => table.Name == "Users");
+        Assert.Contains(columns, column => column.Name == "Id");
+        Assert.Contains(indexes, index => index.IsPrimaryKey);
+        Assert.False(File.Exists(database));
     }
 
     private static void Cleanup(string path)

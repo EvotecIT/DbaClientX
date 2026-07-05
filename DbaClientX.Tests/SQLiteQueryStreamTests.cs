@@ -31,4 +31,21 @@ public class SQLiteQueryStreamTests
             }
         });
     }
+
+    [Fact]
+    public async Task QueryStreamWithConnectionStringAsync_PreservesMemoryMode()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+        using var sqlite = new DBAClientX.SQLite();
+        var rows = 0;
+
+        await foreach (var row in sqlite.QueryStreamWithConnectionStringAsync($"Data Source={database};Mode=Memory;Cache=Shared", "SELECT 1 AS Value"))
+        {
+            rows++;
+            Assert.Equal(1L, row["Value"]);
+        }
+
+        Assert.Equal(1, rows);
+        Assert.False(File.Exists(database));
+    }
 }

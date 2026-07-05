@@ -83,7 +83,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
             case DbaXProvider.SQLite:
                 using (var client = new DBAClientX.SQLite { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(DbaXProviderHelpers.GetSQLiteDatabase(ConnectionString), Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamWithConnectionStringAsync(DbaXProviderHelpers.GetSQLiteConnectionString(ConnectionString), Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
                 }
                 break;
             default:

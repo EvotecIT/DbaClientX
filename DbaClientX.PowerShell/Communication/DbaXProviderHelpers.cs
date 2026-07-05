@@ -113,7 +113,7 @@ internal static class DbaXProviderHelpers
             DbaXProvider.PostgreSql => WithClient(new DBAClientX.PostgreSql(), client => client.GetTables(connectionString, schema, includeViews)),
             DbaXProvider.MySql => WithClient(new DBAClientX.MySql(), client => client.GetTables(connectionString, schema, includeViews)),
             DbaXProvider.Oracle => WithClient(new DBAClientX.Oracle(), client => client.GetTables(connectionString, schema, includeViews)),
-            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetTables(GetSQLiteDatabase(connectionString), schema, includeViews)),
+            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetTablesWithConnectionString(GetSQLiteReadOnlyConnectionString(connectionString), schema, includeViews)),
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
 
@@ -124,7 +124,7 @@ internal static class DbaXProviderHelpers
             DbaXProvider.PostgreSql => WithClient(new DBAClientX.PostgreSql(), client => client.GetColumns(connectionString, schema, table)),
             DbaXProvider.MySql => WithClient(new DBAClientX.MySql(), client => client.GetColumns(connectionString, schema, table)),
             DbaXProvider.Oracle => WithClient(new DBAClientX.Oracle(), client => client.GetColumns(connectionString, schema, table)),
-            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetColumns(GetSQLiteDatabase(connectionString), schema, table)),
+            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetColumnsWithConnectionString(GetSQLiteReadOnlyConnectionString(connectionString), schema, table)),
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
 
@@ -135,7 +135,7 @@ internal static class DbaXProviderHelpers
             DbaXProvider.PostgreSql => WithClient(new DBAClientX.PostgreSql(), client => client.GetIndexes(connectionString, schema, table)),
             DbaXProvider.MySql => WithClient(new DBAClientX.MySql(), client => client.GetIndexes(connectionString, schema, table)),
             DbaXProvider.Oracle => WithClient(new DBAClientX.Oracle(), client => client.GetIndexes(connectionString, schema, table)),
-            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetIndexes(GetSQLiteDatabase(connectionString), schema, table)),
+            DbaXProvider.SQLite => WithClient(new DBAClientX.SQLite(), client => client.GetIndexesWithConnectionString(GetSQLiteReadOnlyConnectionString(connectionString), schema, table)),
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
 
@@ -198,6 +198,9 @@ internal static class DbaXProviderHelpers
                 .ToDictionary(static entry => entry.Key!.ToString()!, static entry => (object?)entry.Value, StringComparer.OrdinalIgnoreCase);
 
     internal static string GetSQLiteDatabase(string databaseOrConnectionString)
+        => GetSQLiteDatabase(databaseOrConnectionString, preserveOptionBearingConnectionStrings: true);
+
+    private static string GetSQLiteDatabase(string databaseOrConnectionString, bool preserveOptionBearingConnectionStrings)
     {
         if (!MayBeConnectionString(databaseOrConnectionString))
         {
@@ -223,7 +226,12 @@ internal static class DbaXProviderHelpers
             foreach (var candidate in resolvedValues)
             {
                 var value = candidate.Value!.ToString();
-                return value == null
+                if (value == null)
+                {
+                    return databaseOrConnectionString;
+                }
+
+                return preserveOptionBearingConnectionStrings && HasSQLiteConnectionOptions(builder, candidate.Key, value)
                     ? databaseOrConnectionString
                     : ResolveSQLiteDatabaseValue(candidate.Key, value);
             }
@@ -236,6 +244,19 @@ internal static class DbaXProviderHelpers
         return databaseOrConnectionString;
     }
 
+    private static string GetSQLiteDatabaseForFileProbe(string databaseOrConnectionString)
+        => GetSQLiteDatabase(databaseOrConnectionString, preserveOptionBearingConnectionStrings: false);
+
+    internal static string GetSQLiteConnectionString(string databaseOrConnectionString)
+        => MayBeConnectionString(databaseOrConnectionString)
+            ? databaseOrConnectionString
+            : DBAClientX.SQLite.BuildConnectionString(databaseOrConnectionString);
+
+    internal static string GetSQLiteReadOnlyConnectionString(string databaseOrConnectionString)
+        => MayBeConnectionString(databaseOrConnectionString)
+            ? databaseOrConnectionString
+            : DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
+
     internal static (DataTable Table, string DestinationTable) NormalizeBulkInsertInput(DbaXProvider provider, DataTable table, string destinationTable)
         => provider == DbaXProvider.PostgreSql
             ? (DbaPostgreSqlBulkCopyNormalizer.NormalizePage(table, destinationTable), DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTable))
@@ -246,7 +267,14 @@ internal static class DbaXProviderHelpers
 
     internal static bool IsSQLiteFileBackedDatabase(string databaseOrConnectionString)
     {
-        var database = GetSQLiteDatabase(databaseOrConnectionString);
+        if (TryParseConnectionString(databaseOrConnectionString, out var builder) &&
+            builder.TryGetValue("Mode", out var mode) &&
+            string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var database = GetSQLiteDatabaseForFileProbe(databaseOrConnectionString);
         if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -259,6 +287,51 @@ internal static class DbaXProviderHelpers
 
         return !MayBeConnectionString(database);
     }
+
+    private static bool TryParseConnectionString(string value, out DbConnectionStringBuilder builder)
+    {
+        builder = new DbConnectionStringBuilder();
+        if (!MayBeConnectionString(value))
+        {
+            return false;
+        }
+
+        try
+        {
+            builder.ConnectionString = value;
+            return true;
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
+        {
+            return false;
+        }
+    }
+
+    private static bool HasSQLiteConnectionOptions(DbConnectionStringBuilder builder, string sourceKey, string sourceValue)
+    {
+        if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
+            Uri.TryCreate(sourceValue, UriKind.Absolute, out var uri) &&
+            !string.IsNullOrEmpty(uri.Query))
+        {
+            return true;
+        }
+
+        foreach (string key in builder.Keys)
+        {
+            if (!IsSQLiteSourceKey(key))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSQLiteSourceKey(string key)
+        => string.Equals(key, "Data Source", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "DataSource", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Filename", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveSQLiteDatabaseValue(string key, string value)
         => string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase)
@@ -325,13 +398,15 @@ internal static class DbaXProviderHelpers
 
     private static object? ExecuteSQLitePing(string databaseOrConnectionString)
     {
-        var database = GetSQLiteDatabase(databaseOrConnectionString);
-        if (IsSQLiteFileBackedDatabase(database) && !File.Exists(database))
+        var database = GetSQLiteDatabaseForFileProbe(databaseOrConnectionString);
+        if (IsSQLiteFileBackedDatabase(databaseOrConnectionString) && !File.Exists(database))
         {
             throw new InvalidOperationException($"SQLite database file does not exist: {database}");
         }
 
         using var client = new DBAClientX.SQLite();
-        return client.ExecuteScalar(database, "SELECT 1");
+        return MayBeConnectionString(databaseOrConnectionString)
+            ? client.ExecuteScalarWithConnectionString(GetSQLiteConnectionString(databaseOrConnectionString), "SELECT 1")
+            : client.ExecuteScalar(database, "SELECT 1");
     }
 }

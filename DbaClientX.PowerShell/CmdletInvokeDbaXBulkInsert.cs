@@ -83,29 +83,48 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
 
         PowerShellHelpers.RejectFullConnectionTransactionSwitch(UseTransaction, MyInvocation.MyCommand.Name);
 
+        if (_input.Count == 0)
+        {
+            WriteResult(0);
+            return;
+        }
+
+        if (!ShouldProcess(DestinationTable, $"Bulk insert pipeline input using {Provider}"))
+        {
+            return;
+        }
+
+        var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
+        if (table.Rows.Count == 0)
+        {
+            WriteResult(0);
+            return;
+        }
+
         if (Provider == DbaXProvider.MySql &&
             !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
         {
             return;
         }
 
-        var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
-        if (!ShouldProcess(DestinationTable, $"Bulk insert {table.Rows.Count} row(s) using {Provider}"))
+        InvokeProviderBulkInsert(table);
+        WriteResult(table.Rows.Count);
+    }
+
+    private void WriteResult(int rows)
+    {
+        if (!PassThru.IsPresent)
         {
             return;
         }
 
-        InvokeProviderBulkInsert(table);
-        if (PassThru.IsPresent)
+        WriteObject(new PSObject(new
         {
-            WriteObject(new PSObject(new
-            {
-                Provider,
-                DestinationTable,
-                Rows = table.Rows.Count,
-                CompletedAt = DateTimeOffset.UtcNow
-            }));
-        }
+            Provider,
+            DestinationTable,
+            Rows = rows,
+            CompletedAt = DateTimeOffset.UtcNow
+        }));
     }
 
     private void InvokeProviderBulkInsert(DataTable table)
@@ -142,7 +161,7 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
                 using (var client = new DBAClientX.SQLite())
                 {
                     client.BulkInsertWithConnectionString(
-                        DBAClientX.SQLite.BuildConnectionString(DbaXProviderHelpers.GetSQLiteDatabase(ConnectionString)),
+                        DbaXProviderHelpers.GetSQLiteConnectionString(ConnectionString),
                         table,
                         DestinationTable,
                         UseTransaction.IsPresent,

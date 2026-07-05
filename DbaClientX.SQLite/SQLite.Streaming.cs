@@ -66,6 +66,60 @@ public partial class SQLite
     }
 
     /// <summary>
+    /// Streams query results asynchronously from a SQLite connection string, yielding one <see cref="DataRow"/> at a time.
+    /// </summary>
+    public virtual async IAsyncEnumerable<DataRow> QueryStreamWithConnectionStringAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        var normalizedConnectionString = NormalizeConnectionString(connectionString);
+
+        SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
+        var dispose = false;
+
+        if (useTransaction)
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, true, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, false, cancellationToken).ConfigureAwait(false);
+        }
+
+        var dbTypes = ConvertParameterTypes(parameterTypes);
+        if (connection == null)
+        {
+            throw new DbaQueryExecutionException("Failed to resolve connection for streaming.", query, new InvalidOperationException("The SQLite connection could not be resolved."));
+        }
+
+        try
+        {
+            await foreach (var row in base.ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+            {
+                yield return row;
+            }
+        }
+        finally
+        {
+            if (dispose)
+            {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                await connection.DisposeAsync().ConfigureAwait(false);
+#else
+                connection.Dispose();
+#endif
+            }
+        }
+    }
+
+    /// <summary>
     /// Streams query results asynchronously through a caller-provided mapper.
     /// </summary>
     public virtual IAsyncEnumerable<T> QueryStreamAsync<T>(

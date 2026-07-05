@@ -80,6 +80,18 @@ public class SqliteTests
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
     }
 
+    [Fact]
+    public void ExecuteScalarWithConnectionString_PreservesMemoryMode()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+        using var sqlite = new DBAClientX.SQLite();
+
+        var result = sqlite.ExecuteScalarWithConnectionString($"Data Source={database};Mode=Memory;Cache=Shared", "SELECT 1");
+
+        Assert.Equal(1L, result);
+        Assert.False(File.Exists(database));
+    }
+
     private class OutputDictionarySqlite : DBAClientX.SQLite
     {
         public override object? Query(string database, string query, IDictionary<string, object?>? parameters = null, bool useTransaction = false, IDictionary<string, SqliteType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)

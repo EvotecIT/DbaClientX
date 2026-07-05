@@ -36,8 +36,8 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
     protected override void ProcessRecord()
     {
         var alias = DbaXProviderHelpers.GetAlias(Provider);
-        var validationConnectionString = Provider == DbaXProvider.SQLite && !ConnectionString.Contains(';')
-            ? DBAClientX.SQLite.BuildConnectionString(ConnectionString)
+        var validationConnectionString = Provider == DbaXProvider.SQLite
+            ? DbaXProviderHelpers.GetSQLiteConnectionString(ConnectionString)
             : ConnectionString;
         var validation = DbaConnectionFactory.Validate(
             alias,

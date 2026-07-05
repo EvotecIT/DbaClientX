@@ -150,9 +150,22 @@ WHERE 1 = 0;";
     public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabases(string database)
         => ExecuteMetadata(database, SQLiteDatabasesQuery, MapDatabase);
 
+    /// <summary>Lists attached SQLite databases visible to a SQLite connection string.</summary>
+    public virtual IReadOnlyList<DbaDatabaseInfo> GetDatabasesWithConnectionString(string connectionString)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteDatabasesQuery, MapDatabase);
+
     /// <summary>Lists SQLite tables and, optionally, views visible to the connection.</summary>
     public virtual IReadOnlyList<DbaTableInfo> GetTables(string database, string? schema = null, bool includeViews = true)
         => ExecuteMetadata(database, SQLiteTablesQuery, MapTable, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = null,
+            ["@includeViews"] = includeViews ? 1 : 0
+        });
+
+    /// <summary>Lists SQLite tables and, optionally, views visible to a SQLite connection string.</summary>
+    public virtual IReadOnlyList<DbaTableInfo> GetTablesWithConnectionString(string connectionString, string? schema = null, bool includeViews = true)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteTablesQuery, MapTable, new Dictionary<string, object?>
         {
             ["@schema"] = schema,
             ["@table"] = null,
@@ -167,9 +180,25 @@ WHERE 1 = 0;";
             ["@table"] = table
         });
 
+    /// <summary>Lists SQLite columns visible to a SQLite connection string.</summary>
+    public virtual IReadOnlyList<DbaColumnInfo> GetColumnsWithConnectionString(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteColumnsQuery, MapColumn, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
     /// <summary>Lists SQLite indexes visible to the connection. Multi-column indexes return one row per indexed column.</summary>
     public virtual IReadOnlyList<DbaIndexInfo> GetIndexes(string database, string? schema = null, string? table = null)
         => ExecuteMetadata(database, SQLiteIndexesQuery, MapIndex, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
+    /// <summary>Lists SQLite indexes visible to a SQLite connection string. Multi-column indexes return one row per indexed column.</summary>
+    public virtual IReadOnlyList<DbaIndexInfo> GetIndexesWithConnectionString(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteIndexesQuery, MapIndex, new Dictionary<string, object?>
         {
             ["@schema"] = schema,
             ["@table"] = table
@@ -183,9 +212,21 @@ WHERE 1 = 0;";
             ["@table"] = table
         });
 
+    /// <summary>Lists SQLite foreign keys visible to a SQLite connection string. Multi-column keys return one row per column mapping.</summary>
+    public virtual IReadOnlyList<DbaForeignKeyInfo> GetForeignKeysWithConnectionString(string connectionString, string? schema = null, string? table = null)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteForeignKeysQuery, MapForeignKey, new Dictionary<string, object?>
+        {
+            ["@schema"] = schema,
+            ["@table"] = table
+        });
+
     /// <summary>Returns an empty collection because SQLite does not expose stored routines.</summary>
     public virtual IReadOnlyList<DbaRoutineInfo> GetRoutines(string database, string? schema = null)
         => ExecuteMetadata(database, SQLiteRoutinesQuery, MapRoutine);
+
+    /// <summary>Returns an empty collection because SQLite does not expose stored routines.</summary>
+    public virtual IReadOnlyList<DbaRoutineInfo> GetRoutinesWithConnectionString(string connectionString, string? schema = null)
+        => ExecuteMetadataWithConnectionString(connectionString, SQLiteRoutinesQuery, MapRoutine);
 
     private IReadOnlyList<T> ExecuteMetadata<T>(
         string database,
@@ -195,6 +236,29 @@ WHERE 1 = 0;";
     {
         ValidateDatabasePath(database);
         var connectionString = BuildOperationalConnectionString(database, readOnly: true);
+        return ExecuteMetadataConnectionString(connectionString, query, map, parameters);
+    }
+
+    private IReadOnlyList<T> ExecuteMetadataWithConnectionString<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new ArgumentException("Connection string cannot be null or whitespace.", nameof(connectionString));
+        }
+
+        return ExecuteMetadataConnectionString(NormalizeConnectionString(connectionString), query, map, parameters);
+    }
+
+    private IReadOnlyList<T> ExecuteMetadataConnectionString<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null)
+    {
         var (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
         if (dispose)
         {

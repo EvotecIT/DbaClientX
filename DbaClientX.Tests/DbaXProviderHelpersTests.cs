@@ -1,5 +1,6 @@
 using System.Data;
 using DBAClientX.PowerShell;
+using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
@@ -19,17 +20,84 @@ public class DbaXProviderHelpersTests
     [Fact]
     public void GetSQLiteDatabase_ParsesFullUriConnectionStrings()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-fulluri.db");
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri.db");
         var database = DbaXProviderHelpers.GetSQLiteDatabase("FullUri=" + new Uri(path).AbsoluteUri);
 
         Assert.Equal(path, database);
     }
 
+    [Fact]
+    public void GetSQLiteDatabase_PreservesOptionBearingConnectionStrings()
+    {
+        const string connectionString = "Data Source=shared;Mode=Memory;Cache=Shared";
+
+        var database = DbaXProviderHelpers.GetSQLiteDatabase(connectionString);
+
+        Assert.Equal(connectionString, database);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabase_PreservesFullUriQueryOptions()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-options.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=ro&cache=shared";
+
+        var database = DbaXProviderHelpers.GetSQLiteDatabase(connectionString);
+
+        Assert.Equal(connectionString, database);
+    }
+
+    [Fact]
+    public void GetSQLiteConnectionString_PreservesConnectionStringOptions()
+    {
+        const string connectionString = "Data Source=shared;Mode=Memory;Cache=Shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
+    public void GetSQLiteConnectionString_PreservesOneKeyOptionsForValidation()
+    {
+        const string connectionString = "Mode=ReadOnly";
+
+        var actual = DbaXProviderHelpers.GetSQLiteConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
+    public void GetSQLiteConnectionString_BuildsRawDatabasePaths()
+    {
+        const string path = "data.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteConnectionString(path);
+
+        Assert.Contains("Data Source=data.db", actual);
+        Assert.Contains("Pooling=False", actual);
+    }
+
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_BuildsRawDatabasePaths()
+    {
+        const string path = "data.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(path);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.False(builder.Pooling);
+    }
+
     [Theory]
     [InlineData(":memory:", false)]
     [InlineData("Data Source=:memory:", false)]
+    [InlineData("Data Source=shared;Mode=Memory;Cache=Shared", false)]
     [InlineData(@"C:\data\app.db", true)]
     [InlineData(@"Data Source=C:\data\app.db", true)]
+    [InlineData(@"Data Source=C:\data\app.db;Mode=ReadOnly", true)]
     public void IsSQLiteFileBackedDatabase_DetectsFileBackedTargets(string input, bool expected)
     {
         var actual = DbaXProviderHelpers.IsSQLiteFileBackedDatabase(input);
@@ -40,12 +108,23 @@ public class DbaXProviderHelpersTests
     [Fact]
     public void ExecutePing_SQLiteMissingFile_DoesNotCreateDatabase()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-missing-" + Guid.NewGuid().ToString("N") + ".db");
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-missing-" + Guid.NewGuid().ToString("N") + ".db");
 
         var exception = Assert.Throws<InvalidOperationException>(() => DbaXProviderHelpers.ExecutePing(DbaXProvider.SQLite, path));
 
         Assert.Contains("does not exist", exception.Message);
         Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ExecutePing_SQLiteMemoryConnectionString_DoesNotTreatDataSourceAsFile()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+
+        var result = DbaXProviderHelpers.ExecutePing(DbaXProvider.SQLite, $"Data Source={database};Mode=Memory;Cache=Shared");
+
+        Assert.Equal(1L, result);
+        Assert.False(File.Exists(database));
     }
 
     [Fact]

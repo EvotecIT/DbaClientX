@@ -100,6 +100,39 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
     }
 
+    It 'treats empty bulk insert input as a no-op' {
+        $result = Invoke-DbaXBulkInsert `
+            -Provider SqlServer `
+            -ConnectionString 'Server=s;Database=d;Encrypt=True' `
+            -DestinationTable dbo.Import `
+            -InputObject @() `
+            -PassThru
+
+        $result.Rows | Should -Be 0
+        $result.DestinationTable | Should -Be 'dbo.Import'
+    }
+
+    It 'honors WhatIf before materializing bulk input' {
+        $row = [pscustomobject]@{}
+        $row | Add-Member -MemberType ScriptProperty -Name Boom -Value { throw 'bulk input was materialized' }
+
+        {
+            $row |
+                Invoke-DbaXBulkInsert `
+                    -Provider SqlServer `
+                    -ConnectionString 'Server=s;Database=d;Encrypt=True' `
+                    -DestinationTable dbo.Import `
+                    -WhatIf `
+                    -ErrorAction Stop
+        } | Should -Not -Throw
+    }
+
+    It 'keeps one-key SQLite options from being treated as file paths during validation' {
+        $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Mode=ReadOnly' -SkipPing -Detailed
+
+        $result.ConnectionStringValid | Should -BeFalse
+    }
+
     It 'rejects full-connection transaction switches before provider execution' {
         {
             Invoke-DbaXQueryStream `
