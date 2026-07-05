@@ -129,6 +129,45 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteReadOnlyConnectionString_ForcesReadOnlyForFullUriFileConnectionStrings()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-readonly.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri;
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.False(builder.Pooling);
+    }
+
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_ForcesReadOnlyAndPreservesFullUriCache()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-cache.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?cache=shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
+    [Fact]
+    public void GetSQLiteReadOnlyConnectionString_PreservesFullUriMemoryMode()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-memory.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
     {
         const string connectionString = "Mode=ReadOnly";

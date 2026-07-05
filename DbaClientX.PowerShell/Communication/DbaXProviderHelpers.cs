@@ -350,7 +350,19 @@ internal static class DbaXProviderHelpers
 
             if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase))
             {
-                return databaseOrConnectionString;
+                if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile)
+                {
+                    return databaseOrConnectionString;
+                }
+
+                builder.Remove(sourceKey);
+                builder["Data Source"] = uri.LocalPath;
+                ApplySQLiteFullUriQueryOptions(builder, uri);
+                if (builder.TryGetValue("Mode", out var fullUriMode) &&
+                    string.Equals(fullUriMode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+                {
+                    return databaseOrConnectionString;
+                }
             }
 
             if (string.Equals(value, ":memory:", StringComparison.OrdinalIgnoreCase))
@@ -442,6 +454,62 @@ internal static class DbaXProviderHelpers
         }
 
         return false;
+    }
+
+    private static void ApplySQLiteFullUriQueryOptions(DbConnectionStringBuilder builder, Uri uri)
+    {
+        if (string.IsNullOrEmpty(uri.Query) || uri.Query.Length <= 1)
+        {
+            return;
+        }
+
+        foreach (var part in uri.Query.Substring(1).Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = part.IndexOf('=');
+            var key = separator < 0 ? part : part.Substring(0, separator);
+            var value = separator < 0 ? string.Empty : part.Substring(separator + 1);
+            ApplySQLiteFullUriOption(
+                builder,
+                Uri.UnescapeDataString(key),
+                Uri.UnescapeDataString(value));
+        }
+    }
+
+    private static void ApplySQLiteFullUriOption(DbConnectionStringBuilder builder, string key, string value)
+    {
+        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Mode"] = "Memory";
+            }
+            else if (string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Mode"] = "ReadOnly";
+            }
+            else if (string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Mode"] = "ReadWrite";
+            }
+            else if (string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Mode"] = "ReadWriteCreate";
+            }
+
+            return;
+        }
+
+        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Cache"] = "Shared";
+            }
+            else if (string.Equals(value, "private", StringComparison.OrdinalIgnoreCase))
+            {
+                builder["Cache"] = "Private";
+            }
+        }
     }
 
     private static bool IsSQLiteSourceKey(string key)

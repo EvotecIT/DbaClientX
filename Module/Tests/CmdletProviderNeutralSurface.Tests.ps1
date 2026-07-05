@@ -54,6 +54,27 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $mapped['@count'] | Should -Be 3
     }
 
+    It 'maps nested PowerShell objects to provider parameters' {
+        $mapped = [pscustomobject]@{
+            User = [pscustomobject]@{
+                Name = 'Ada'
+            }
+        } | ConvertTo-DbaXParameterMap -Map @{ 'User.Name' = '@name' }
+
+        $mapped['@name'] | Should -Be 'Ada'
+    }
+
+    It 'keeps MySQL validation consistent with ping options' {
+        $result = Test-DbaXConnection `
+            -Provider MySql `
+            -ConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required;AllowLoadLocalInfile=true' `
+            -SkipPing `
+            -Detailed
+
+        $result.ConnectionStringValid | Should -BeFalse
+        $result.ValidationMessage | Should -Match 'AllowLoadLocalInfile'
+    }
+
     It 'creates validated table-copy definitions' {
         $definition = New-DbaXTableCopyDefinition `
             -SourceName dbo.Users `

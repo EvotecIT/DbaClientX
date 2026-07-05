@@ -81,17 +81,7 @@ internal static class DbaXTransactionRunner
     }
 
     private static bool HasInstanceMembers(PSObject item)
-    {
-        foreach (var member in item.Members)
-        {
-            if (member.IsInstance)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+        => item.Members.Any(static member => member.IsInstance);
 
     private static Exception? TryRollback(object? client)
     {

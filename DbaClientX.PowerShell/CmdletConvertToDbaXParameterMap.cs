@@ -61,7 +61,7 @@ public sealed class CmdletConvertToDbaXParameterMap : PSCmdlet
 
         var values = psObject.Properties
             .Where(static property => property.IsGettable)
-            .ToDictionary(static property => property.Name, static property => (object?)property.Value, StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(static property => property.Name, static property => NormalizeInputObject(property.Value), StringComparer.OrdinalIgnoreCase);
         return values.Count > 0 ? values : psObject.BaseObject;
     }
 }

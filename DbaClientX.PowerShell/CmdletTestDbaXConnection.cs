@@ -41,8 +41,7 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
             : ConnectionString;
         var validation = DbaConnectionFactory.Validate(
             alias,
-            validationConnectionString,
-            Provider == DbaXProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null);
+            validationConnectionString);
 
         var pingSucceeded = false;
         object? pingResult = null;
