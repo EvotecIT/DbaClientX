@@ -222,7 +222,7 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 Use the SQL Server data-movement benchmark when you want repeatable local evidence for import performance. The benchmark is a PSPublishModule/PowerForge suite: DbaClientX only declares scenarios, provider engines, validation, and the README target; the shared benchmark runner owns timing, warmups, rotated ordering, comparison tables, README block updates, and JSON/CSV/Markdown artifacts.
 
 ```powershell
-Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
+Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
 
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `
