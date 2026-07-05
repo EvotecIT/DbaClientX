@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.Common;
 using System.Linq;
 using System.Management.Automation;
@@ -198,7 +199,7 @@ internal static class DbaXProviderHelpers
 
     internal static string GetSQLiteDatabase(string databaseOrConnectionString)
     {
-        if (!databaseOrConnectionString.Contains(';'))
+        if (!MayBeConnectionString(databaseOrConnectionString))
         {
             return databaseOrConnectionString;
         }
@@ -210,7 +211,7 @@ internal static class DbaXProviderHelpers
                 ConnectionString = databaseOrConnectionString
             };
 
-            var resolvedValues = new[] { "Data Source", "DataSource", "Filename", "DataSource" }
+            var resolvedValues = new[] { "Data Source", "DataSource", "Filename" }
                 .Select(key => new
                 {
                     Found = builder.TryGetValue(key, out var value),
@@ -230,6 +231,14 @@ internal static class DbaXProviderHelpers
 
         return databaseOrConnectionString;
     }
+
+    internal static (DataTable Table, string DestinationTable) NormalizeBulkInsertInput(DbaXProvider provider, DataTable table, string destinationTable)
+        => provider == DbaXProvider.PostgreSql
+            ? (DbaPostgreSqlBulkCopyNormalizer.NormalizePage(table, destinationTable), DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTable))
+            : (table, destinationTable);
+
+    private static bool MayBeConnectionString(string value)
+        => value.Contains(';') || value.Contains('=');
 
     private static string Require(string? value, string parameterName, DbaXProvider provider)
         => string.IsNullOrEmpty(value)

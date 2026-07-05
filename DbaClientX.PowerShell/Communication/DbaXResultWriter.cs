@@ -53,7 +53,7 @@ internal static class DbaXResultWriter
                     dataTable.ImportRow(row);
                 }
 
-                writeObject(dataTable, false);
+                writeObject(CreateDataSet(dataTable), false);
                 break;
             case ReturnType.PSObject:
                 foreach (var row in rows)
@@ -99,7 +99,7 @@ internal static class DbaXResultWriter
                     dataTable.ImportRow(row);
                 }
 
-                writeObject(dataTable, false);
+                writeObject(CreateDataSet(dataTable), false);
                 break;
             case ReturnType.PSObject:
                 await foreach (var row in rows.ConfigureAwait(false))
@@ -118,4 +118,15 @@ internal static class DbaXResultWriter
         }
     }
 #endif
+
+    private static DataSet CreateDataSet(DataTable? table)
+    {
+        var set = new DataSet();
+        if (table != null)
+        {
+            set.Tables.Add(table);
+        }
+
+        return set;
+    }
 }

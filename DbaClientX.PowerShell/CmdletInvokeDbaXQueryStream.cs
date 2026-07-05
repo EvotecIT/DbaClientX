@@ -45,7 +45,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
     /// <inheritdoc />
     protected override async Task ProcessRecordAsync()
     {
-        if (!ShouldProcess(ConnectionString, $"Stream {Provider} query"))
+        if (!ShouldProcess(Provider.ToString(), $"Stream {Provider} query"))
         {
             return;
         }

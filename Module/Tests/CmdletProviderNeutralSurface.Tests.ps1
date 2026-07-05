@@ -88,4 +88,15 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $plan.Definitions[0].SourceName | Should -Be 'dbo.Users'
         $plan.Definitions[0].DestinationName | Should -Be 'archive.Users'
     }
+
+    It 'rejects MySQL bulk insert without local infile before provider execution' {
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Invoke-DbaXBulkInsert `
+                    -Provider MySql `
+                    -ConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required' `
+                    -DestinationTable Import `
+                    -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
+    }
 }

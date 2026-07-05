@@ -14,6 +14,7 @@ namespace DBAClientX.PowerShell;
 public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
 {
     private readonly List<object?> _input = new();
+    private ActionPreference _errorAction;
 
     /// <summary>Provider used for the bulk insert.</summary>
     [Parameter(Mandatory = true)]
@@ -51,6 +52,12 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
     public SwitchParameter PassThru { get; set; }
 
     /// <inheritdoc />
+    protected override void BeginProcessing()
+    {
+        _errorAction = this.ResolveErrorAction();
+    }
+
+    /// <inheritdoc />
     protected override void ProcessRecord()
     {
         _input.Add(InputObject);
@@ -72,6 +79,12 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
         if (Provider == DbaXProvider.SQLite && BulkCopyTimeout.HasValue)
         {
             throw new PSArgumentException("SQLite bulk inserts do not support BulkCopyTimeout.", nameof(BulkCopyTimeout));
+        }
+
+        if (Provider == DbaXProvider.MySql &&
+            !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
+        {
+            return;
         }
 
         var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
@@ -106,7 +119,9 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
             case DbaXProvider.PostgreSql:
                 using (var client = new DBAClientX.PostgreSql())
                 {
-                    client.BulkInsert(ConnectionString, table, DestinationTable, UseTransaction.IsPresent, BatchSize, BulkCopyTimeout);
+                    var (bulkTable, destinationTable) = DbaXProviderHelpers.NormalizeBulkInsertInput(Provider, table, DestinationTable);
+                    using var disposableBulkTable = ReferenceEquals(bulkTable, table) ? null : bulkTable;
+                    client.BulkInsert(ConnectionString, bulkTable, destinationTable, UseTransaction.IsPresent, BatchSize, BulkCopyTimeout);
                 }
                 break;
             case DbaXProvider.MySql:
