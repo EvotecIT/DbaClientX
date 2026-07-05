@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Data.Common;
 using DBAClientX.Invoker;
 
 namespace DBAClientX.PowerShell;
@@ -56,7 +57,7 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
                 stopwatch.Stop();
                 pingSucceeded = true;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is DbException or InvalidOperationException or TimeoutException)
             {
                 stopwatch.Stop();
                 pingError = ex.Message;

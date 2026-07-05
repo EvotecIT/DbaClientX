@@ -210,16 +210,22 @@ internal static class DbaXProviderHelpers
                 ConnectionString = databaseOrConnectionString
             };
 
-            foreach (var key in new[] { "Data Source", "DataSource", "Filename", "DataSource" })
-            {
-                if (builder.TryGetValue(key, out var value) && value != null)
+            var resolvedValues = new[] { "Data Source", "DataSource", "Filename", "DataSource" }
+                .Select(key => new
                 {
-                    return value.ToString() ?? databaseOrConnectionString;
-                }
+                    Found = builder.TryGetValue(key, out var value),
+                    Value = value
+                })
+                .Where(static candidate => candidate.Found && candidate.Value != null);
+
+            foreach (var candidate in resolvedValues)
+            {
+                return candidate.Value!.ToString() ?? databaseOrConnectionString;
             }
         }
-        catch (ArgumentException)
+        catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
         {
+            return databaseOrConnectionString;
         }
 
         return databaseOrConnectionString;
