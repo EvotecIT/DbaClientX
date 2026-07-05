@@ -30,7 +30,8 @@ public class DbaXResultWriterTests
     [Fact]
     public void WriteRows_DataTableReturnType_CopiesDetachedRows()
     {
-        var row = CreateDetachedRow("Ada");
+        var (row, rowOwner) = CreateDetachedRow("Ada");
+        using var _ = rowOwner;
         var output = new List<object?>();
 
         DbaXResultWriter.WriteRows(
@@ -47,7 +48,8 @@ public class DbaXResultWriterTests
     [Fact]
     public void WriteRows_DataSetReturnType_CopiesDetachedRows()
     {
-        var row = CreateDetachedRow("Ada");
+        var (row, rowOwner) = CreateDetachedRow("Ada");
+        using var _ = rowOwner;
         var output = new List<object?>();
 
         DbaXResultWriter.WriteRows(
@@ -65,7 +67,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_DataTableReturnType_CopiesDetachedRows()
     {
-        var row = CreateDetachedRow("Ada");
+        var (row, rowOwner) = CreateDetachedRow("Ada");
+        using var _ = rowOwner;
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -82,7 +85,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_DataSetReturnType_CopiesDetachedRows()
     {
-        var row = CreateDetachedRow("Ada");
+        var (row, rowOwner) = CreateDetachedRow("Ada");
+        using var _ = rowOwner;
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -100,7 +104,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_PSObjectReturnType_ProjectsDetachedRows()
     {
-        var row = CreateDetachedRow("Ada");
+        var (row, rowOwner) = CreateDetachedRow("Ada");
+        using var _ = rowOwner;
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -113,13 +118,13 @@ public class DbaXResultWriterTests
         Assert.Equal("Ada", psObject.Properties["Name"].Value);
     }
 
-    private static DataRow CreateDetachedRow(string name)
+    private static (DataRow Row, DataTable Owner) CreateDetachedRow(string name)
     {
         var table = new DataTable("Rows");
         table.Columns.Add("Name", typeof(string));
         var row = table.NewRow();
         row["Name"] = name;
-        return row;
+        return (row, table);
     }
 
     private static async IAsyncEnumerable<DataRow> StreamRows(params DataRow[] rows)
