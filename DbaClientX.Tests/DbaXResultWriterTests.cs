@@ -21,7 +21,7 @@ public class DbaXResultWriterTests
             ReturnType.DataSet,
             (value, _) => output.Add(value));
 
-        var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
+        using var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
 
         Assert.Single(dataSet.Tables);
         Assert.Equal("Ada", dataSet.Tables[0].Rows[0]["Name"]);
@@ -30,8 +30,8 @@ public class DbaXResultWriterTests
     [Fact]
     public void WriteRows_DataTableReturnType_CopiesDetachedRows()
     {
-        var (row, rowOwner) = CreateDetachedRow("Ada");
-        using var _ = rowOwner;
+        using var rowOwner = new DataTable("Rows");
+        var row = CreateDetachedRow(rowOwner, "Ada");
         var output = new List<object?>();
 
         DbaXResultWriter.WriteRows(
@@ -39,7 +39,7 @@ public class DbaXResultWriterTests
             ReturnType.DataTable,
             (value, _) => output.Add(value));
 
-        var table = Assert.IsType<DataTable>(Assert.Single(output));
+        using var table = Assert.IsType<DataTable>(Assert.Single(output));
 
         Assert.Single(table.Rows);
         Assert.Equal("Ada", table.Rows[0]["Name"]);
@@ -48,8 +48,8 @@ public class DbaXResultWriterTests
     [Fact]
     public void WriteRows_DataSetReturnType_CopiesDetachedRows()
     {
-        var (row, rowOwner) = CreateDetachedRow("Ada");
-        using var _ = rowOwner;
+        using var rowOwner = new DataTable("Rows");
+        var row = CreateDetachedRow(rowOwner, "Ada");
         var output = new List<object?>();
 
         DbaXResultWriter.WriteRows(
@@ -57,7 +57,7 @@ public class DbaXResultWriterTests
             ReturnType.DataSet,
             (value, _) => output.Add(value));
 
-        var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
+        using var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
 
         Assert.Single(dataSet.Tables);
         Assert.Single(dataSet.Tables[0].Rows);
@@ -67,8 +67,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_DataTableReturnType_CopiesDetachedRows()
     {
-        var (row, rowOwner) = CreateDetachedRow("Ada");
-        using var _ = rowOwner;
+        using var rowOwner = new DataTable("Rows");
+        var row = CreateDetachedRow(rowOwner, "Ada");
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -76,7 +76,7 @@ public class DbaXResultWriterTests
             ReturnType.DataTable,
             (value, _) => output.Add(value));
 
-        var table = Assert.IsType<DataTable>(Assert.Single(output));
+        using var table = Assert.IsType<DataTable>(Assert.Single(output));
 
         Assert.Single(table.Rows);
         Assert.Equal("Ada", table.Rows[0]["Name"]);
@@ -85,8 +85,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_DataSetReturnType_CopiesDetachedRows()
     {
-        var (row, rowOwner) = CreateDetachedRow("Ada");
-        using var _ = rowOwner;
+        using var rowOwner = new DataTable("Rows");
+        var row = CreateDetachedRow(rowOwner, "Ada");
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -94,7 +94,7 @@ public class DbaXResultWriterTests
             ReturnType.DataSet,
             (value, _) => output.Add(value));
 
-        var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
+        using var dataSet = Assert.IsType<DataSet>(Assert.Single(output));
 
         Assert.Single(dataSet.Tables);
         Assert.Single(dataSet.Tables[0].Rows);
@@ -104,8 +104,8 @@ public class DbaXResultWriterTests
     [Fact]
     public async Task WriteRowsAsync_PSObjectReturnType_ProjectsDetachedRows()
     {
-        var (row, rowOwner) = CreateDetachedRow("Ada");
-        using var _ = rowOwner;
+        using var rowOwner = new DataTable("Rows");
+        var row = CreateDetachedRow(rowOwner, "Ada");
         var output = new List<object?>();
 
         await DbaXResultWriter.WriteRowsAsync(
@@ -118,13 +118,12 @@ public class DbaXResultWriterTests
         Assert.Equal("Ada", psObject.Properties["Name"].Value);
     }
 
-    private static (DataRow Row, DataTable Owner) CreateDetachedRow(string name)
+    private static DataRow CreateDetachedRow(DataTable table, string name)
     {
-        var table = new DataTable("Rows");
         table.Columns.Add("Name", typeof(string));
         var row = table.NewRow();
         row["Name"] = name;
-        return (row, table);
+        return row;
     }
 
     private static async IAsyncEnumerable<DataRow> StreamRows(params DataRow[] rows)
