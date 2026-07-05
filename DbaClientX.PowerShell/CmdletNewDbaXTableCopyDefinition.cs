@@ -58,6 +58,14 @@ public sealed class CmdletNewDbaXTableCopyDefinition : PSCmdlet
     /// <inheritdoc />
     protected override void ProcessRecord()
     {
+        if (DeduplicateByColumns is not { Length: > 0 } &&
+            (DeduplicateOrderByColumns is { Length: > 0 } || DeduplicateCaseInsensitive.IsPresent))
+        {
+            throw new PSArgumentException(
+                "DeduplicateOrderByColumns and DeduplicateCaseInsensitive require DeduplicateByColumns.",
+                nameof(DeduplicateByColumns));
+        }
+
         var sourceOptions = DeduplicateByColumns is { Length: > 0 }
             ? new DbaTableCopySourceOptions(DeduplicateByColumns, DeduplicateOrderByColumns, DeduplicateCaseInsensitive.IsPresent)
             : null;

@@ -917,6 +917,6 @@ public class SqliteTests
         var method = typeof(DBAClientX.SQLite).GetMethod("NormalizeConnectionString", BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DBAClientX.SQLite), "NormalizeConnectionString");
 
-        return (string)method.Invoke(null, new object?[] { connectionString })!;
+        return (string)method.Invoke(null, new object?[] { connectionString, false })!;
     }
 }

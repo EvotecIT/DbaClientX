@@ -254,7 +254,7 @@ WHERE 1 = 0;";
             throw new ArgumentException("Connection string cannot be null or whitespace.", nameof(connectionString));
         }
 
-        return ExecuteMetadataConnectionString(NormalizeConnectionString(connectionString), query, map, parameters);
+        return ExecuteMetadataConnectionString(NormalizeConnectionString(connectionString, readOnly: true), query, map, parameters);
     }
 
     private IReadOnlyList<T> ExecuteMetadataConnectionString<T>(

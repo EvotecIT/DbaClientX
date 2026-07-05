@@ -92,6 +92,24 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $definition.ColumnTypeConversions['IsEnabled'].ToString() | Should -Be 'Boolean'
     }
 
+    It 'rejects deduplication options without deduplication columns' {
+        {
+            New-DbaXTableCopyDefinition `
+                -SourceName dbo.Users `
+                -DestinationName archive.Users `
+                -DeduplicateOrderByColumns UpdatedUtc `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*DeduplicateByColumns*'
+
+        {
+            New-DbaXTableCopyDefinition `
+                -SourceName dbo.Users `
+                -DestinationName archive.Users `
+                -DeduplicateCaseInsensitive `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*DeduplicateByColumns*'
+    }
+
     It 'builds table-copy plans from supplied metadata' {
         $table = [DBAClientX.Metadata.DbaTableInfo]::new('dbo', 'Users', [DBAClientX.Metadata.DbaTableKind]::Table)
         $columns = @(

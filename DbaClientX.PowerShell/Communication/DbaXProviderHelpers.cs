@@ -274,8 +274,7 @@ internal static class DbaXProviderHelpers
             return databaseOrConnectionString;
         }
 
-        if (builder.TryGetValue("Mode", out var mode) &&
-            string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+        if (IsSQLiteMemoryMode(builder))
         {
             throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
         }
@@ -294,10 +293,18 @@ internal static class DbaXProviderHelpers
             }
 
             if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
-                Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-                !uri.IsFile)
+                Uri.TryCreate(value, UriKind.Absolute, out var uri))
             {
-                throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
+                if (!uri.IsFile)
+                {
+                    throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
+                }
+
+                ApplySQLiteFullUriQueryOptions(builder, uri);
+                if (IsSQLiteMemoryMode(builder))
+                {
+                    throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
+                }
             }
 
             var database = ResolveSQLiteDatabaseValue(sourceKey, value);
@@ -455,6 +462,10 @@ internal static class DbaXProviderHelpers
 
         return false;
     }
+
+    private static bool IsSQLiteMemoryMode(DbConnectionStringBuilder builder)
+        => builder.TryGetValue("Mode", out var mode) &&
+           string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase);
 
     private static void ApplySQLiteFullUriQueryOptions(DbConnectionStringBuilder builder, Uri uri)
     {

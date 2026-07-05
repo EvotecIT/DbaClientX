@@ -119,8 +119,19 @@ public partial class SQLite : DatabaseClientBase
     private static string BuildOperationalConnectionString(string database, bool readOnly = false) =>
         BuildConnectionString(database, readOnly, busyTimeoutMs: null);
 
-    private static string NormalizeConnectionString(string connectionString)
-        => new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString)).ToString();
+    private static string NormalizeConnectionString(string connectionString, bool readOnly = false)
+    {
+        var builder = new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString));
+        if (readOnly &&
+            builder.Mode != SqliteOpenMode.Memory &&
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Mode = SqliteOpenMode.ReadOnly;
+            builder.Pooling = false;
+        }
+
+        return builder.ToString();
+    }
 
     internal static string TranslateSQLiteFullUri(string connectionString)
     {

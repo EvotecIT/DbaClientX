@@ -198,6 +198,17 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteDatabasePath_RejectsFullUriMemoryConnectionStrings()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-memory-path.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
+
+        Assert.Contains("file-backed", exception.Message);
+    }
+
+    [Fact]
     public void GetSQLiteDatabasePath_RejectsConnectionStringsWithoutDatabase()
     {
         const string connectionString = "Mode=ReadOnly";

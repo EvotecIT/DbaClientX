@@ -129,6 +129,23 @@ public class SQLiteMetadataTests
         Assert.False(File.Exists(database));
     }
 
+    [Fact]
+    public void GetMetadataWithConnectionString_MissingFileDoesNotCreateDatabase()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-missing-metadata-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+
+            Assert.Throws<SqliteException>(() => sqlite.GetTablesWithConnectionString($"Data Source={path}"));
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     private static void Cleanup(string path)
     {
         TryDelete(path);
