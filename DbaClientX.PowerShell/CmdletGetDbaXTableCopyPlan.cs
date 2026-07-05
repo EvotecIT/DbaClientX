@@ -80,6 +80,7 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
     {
         var tableMappings = DbaXProviderHelpers.ToStringDictionary(TableMappings);
         var sourceTables = FilterSourceTables(
+            Provider,
             DbaXProviderHelpers.GetTables(Provider, ConnectionString, SourceSchema, IncludeViews.IsPresent),
             SourceSchema,
             SourceTable);
@@ -108,7 +109,7 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
         WriteObject(DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, sourceIndexes, destinationColumns, options));
     }
 
-    internal static IReadOnlyList<DbaTableInfo> FilterSourceTables(IEnumerable<DbaTableInfo> sourceTables, string? sourceSchema, string? sourceTable)
+    internal static IReadOnlyList<DbaTableInfo> FilterSourceTables(DbaXProvider provider, IEnumerable<DbaTableInfo> sourceTables, string? sourceSchema, string? sourceTable)
     {
         if (string.IsNullOrWhiteSpace(sourceTable))
         {
@@ -117,8 +118,8 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
 
         return sourceTables
             .Where(table =>
-                string.Equals(table.Name, sourceTable, StringComparison.OrdinalIgnoreCase) &&
-                (string.IsNullOrWhiteSpace(sourceSchema) || string.Equals(table.Schema, sourceSchema, StringComparison.OrdinalIgnoreCase)))
+                DbaXProviderHelpers.MetadataIdentifierEquals(provider, table.Name, sourceTable) &&
+                (string.IsNullOrWhiteSpace(sourceSchema) || DbaXProviderHelpers.MetadataIdentifierEquals(provider, table.Schema, sourceSchema)))
             .ToArray();
     }
 

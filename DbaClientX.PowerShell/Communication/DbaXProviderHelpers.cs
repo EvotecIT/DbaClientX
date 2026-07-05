@@ -247,6 +247,56 @@ internal static class DbaXProviderHelpers
     private static string GetSQLiteDatabaseForFileProbe(string databaseOrConnectionString)
         => GetSQLiteDatabase(databaseOrConnectionString, preserveOptionBearingConnectionStrings: false);
 
+    internal static string GetSQLiteDatabasePath(string databaseOrConnectionString, string operationName)
+    {
+        if (!MayBeConnectionString(databaseOrConnectionString))
+        {
+            return databaseOrConnectionString;
+        }
+
+        if (!TryParseConnectionString(databaseOrConnectionString, out var builder))
+        {
+            return databaseOrConnectionString;
+        }
+
+        if (builder.TryGetValue("Mode", out var mode) &&
+            string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
+        }
+
+        foreach (var sourceKey in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
+        {
+            if (!builder.TryGetValue(sourceKey, out var sourceValue))
+            {
+                continue;
+            }
+
+            var value = sourceValue?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new PSArgumentException($"{operationName} requires a non-empty SQLite database path.");
+            }
+
+            if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
+                Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+                !uri.IsFile)
+            {
+                throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
+            }
+
+            var database = ResolveSQLiteDatabaseValue(sourceKey, value);
+            if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
+            }
+
+            return database;
+        }
+
+        throw new PSArgumentException($"{operationName} requires a SQLite Data Source, DataSource, Filename, or FullUri value.");
+    }
+
     internal static string GetSQLiteConnectionString(string databaseOrConnectionString)
         => MayBeConnectionString(databaseOrConnectionString)
             ? databaseOrConnectionString
@@ -269,6 +319,14 @@ internal static class DbaXProviderHelpers
         => provider == DbaXProvider.PostgreSql
             ? (DbaPostgreSqlBulkCopyNormalizer.NormalizePage(table, destinationTable), DbaPostgreSqlBulkCopyNormalizer.NormalizeDestinationTableName(destinationTable))
             : (table, destinationTable);
+
+    internal static bool MetadataIdentifierEquals(DbaXProvider provider, string? left, string? right)
+        => string.Equals(left, right, GetMetadataIdentifierComparison(provider));
+
+    private static StringComparison GetMetadataIdentifierComparison(DbaXProvider provider)
+        => provider == DbaXProvider.PostgreSql
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
 
     private static bool MayBeConnectionString(string value)
         => value.Contains(';') || value.Contains('=');

@@ -15,7 +15,7 @@ public class CmdletGetDbaXTableCopyPlanTests
             new DbaTableInfo("audit", "Users", DbaTableKind.Table)
         };
 
-        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(tables, "dbo", "Users");
+        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(DbaXProvider.SqlServer, tables, "dbo", "Users");
 
         var table = Assert.Single(filtered);
         Assert.Equal("dbo", table.Schema);
@@ -31,9 +31,24 @@ public class CmdletGetDbaXTableCopyPlanTests
             new DbaTableInfo("dbo", "Groups", DbaTableKind.Table)
         };
 
-        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(tables, "dbo", null);
+        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(DbaXProvider.SqlServer, tables, "dbo", null);
 
         Assert.Equal(2, filtered.Count);
+    }
+
+    [Fact]
+    public void FilterSourceTables_PostgreSqlUsesProviderIdentifierSemantics()
+    {
+        var tables = new[]
+        {
+            new DbaTableInfo("public", "users", DbaTableKind.Table),
+            new DbaTableInfo("public", "Users", DbaTableKind.Table)
+        };
+
+        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(DbaXProvider.PostgreSql, tables, "public", "users");
+
+        var table = Assert.Single(filtered);
+        Assert.Equal("users", table.Name);
     }
 
     [Fact]

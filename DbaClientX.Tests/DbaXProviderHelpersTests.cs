@@ -1,4 +1,5 @@
 using System.Data;
+using System.Management.Automation;
 using DBAClientX.PowerShell;
 using Microsoft.Data.Sqlite;
 
@@ -122,6 +123,36 @@ public class DbaXProviderHelpersTests
         var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
 
         Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_ResolvesOptionBearingFileConnectionStrings()
+    {
+        const string connectionString = @"Data Source=C:\data\app.db;Default Timeout=5";
+
+        var actual = DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance");
+
+        Assert.Equal(@"C:\data\app.db", actual);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_RejectsMemoryConnectionStrings()
+    {
+        const string connectionString = "Data Source=shared;Mode=Memory;Cache=Shared";
+
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
+
+        Assert.Contains("file-backed", exception.Message);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_RejectsConnectionStringsWithoutDatabase()
+    {
+        const string connectionString = "Mode=ReadOnly";
+
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
+
+        Assert.Contains("Data Source", exception.Message);
     }
 
     [Theory]

@@ -49,7 +49,7 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
             throw new PSArgumentException("BusyTimeoutMs cannot be negative.", nameof(BusyTimeoutMs));
         }
 
-        var database = DbaXProviderHelpers.GetSQLiteDatabase(Database);
+        var database = DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "SQLite maintenance");
         if (Action == DbaXSQLiteMaintenanceAction.Backup && string.IsNullOrWhiteSpace(Destination))
         {
             throw new PSArgumentException("Destination is required for SQLite backup maintenance.", nameof(Destination));
