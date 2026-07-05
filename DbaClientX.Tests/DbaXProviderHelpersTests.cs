@@ -17,9 +17,41 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteDatabase_ParsesFullUriConnectionStrings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-fulluri.db");
+        var database = DbaXProviderHelpers.GetSQLiteDatabase("FullUri=" + new Uri(path).AbsoluteUri);
+
+        Assert.Equal(path, database);
+    }
+
+    [Theory]
+    [InlineData(":memory:", false)]
+    [InlineData("Data Source=:memory:", false)]
+    [InlineData(@"C:\data\app.db", true)]
+    [InlineData(@"Data Source=C:\data\app.db", true)]
+    public void IsSQLiteFileBackedDatabase_DetectsFileBackedTargets(string input, bool expected)
+    {
+        var actual = DbaXProviderHelpers.IsSQLiteFileBackedDatabase(input);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void ExecutePing_SQLiteMissingFile_DoesNotCreateDatabase()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-missing-" + Guid.NewGuid().ToString("N") + ".db");
+
+        var exception = Assert.Throws<InvalidOperationException>(() => DbaXProviderHelpers.ExecutePing(DbaXProvider.SQLite, path));
+
+        Assert.Contains("does not exist", exception.Message);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
     public void NormalizeBulkInsertInput_NormalizesPostgreSqlDestinationAndColumns()
     {
-        var table = new DataTable("Users");
+        using var table = new DataTable("Users");
         table.Columns.Add("Id", typeof(int));
         table.Columns.Add("DisplayName", typeof(string));
         table.Rows.Add(1, "Ada");
@@ -41,7 +73,7 @@ public class DbaXProviderHelpersTests
     [Fact]
     public void NormalizeBulkInsertInput_LeavesNonPostgreSqlInputUnchanged()
     {
-        var table = new DataTable("Users");
+        using var table = new DataTable("Users");
         table.Columns.Add("Id", typeof(int));
 
         var (bulkTable, destinationTable) = DbaXProviderHelpers.NormalizeBulkInsertInput(

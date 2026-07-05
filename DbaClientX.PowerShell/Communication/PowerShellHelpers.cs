@@ -205,6 +205,18 @@ internal static class PowerShellHelpers
         }
     }
 
+    internal static void RejectFullConnectionTransactionSwitch(SwitchParameter useTransaction, string cmdletName)
+    {
+        if (!useTransaction.IsPresent)
+        {
+            return;
+        }
+
+        throw new PSArgumentException(
+            $"{cmdletName} creates its own provider client, so -UseTransaction cannot attach to an active transaction. Use Invoke-DbaXTransaction and call methods on the transaction client instead.",
+            "UseTransaction");
+    }
+
     private static bool IsEnabledConnectionStringOption(DbConnectionStringBuilder builder, string key)
     {
         if (!builder.TryGetValue(key, out var value) || value == null)

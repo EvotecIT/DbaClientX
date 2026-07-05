@@ -22,12 +22,14 @@ Import-Module Microsoft.PowerShell.Utility, Microsoft.PowerShell.Management -Err
 `$PSModuleAutoLoadingPreference = 'None'
 `$env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
 Import-Module '$rootBootstrapperLiteral' -Force -ErrorAction Stop
-`$command = Get-Command Invoke-DbaXTransaction -ErrorAction Stop
-if (`$command.CommandType -ne [System.Management.Automation.CommandTypes]::Cmdlet) {
-    throw "Invoke-DbaXTransaction was exported as '`$(`$command.CommandType)' instead of a binary cmdlet."
-}
-if (`$command.Module.Path -ne '$rootBootstrapperLiteral') {
-    throw "Invoke-DbaXTransaction was exported from '`$(`$command.Module.Path)' instead of the project-root bootstrapper."
+foreach (`$commandName in @('Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'Test-DbaXConnection', 'Invoke-DbaXQueryStream', 'Get-DbaXTableCopyPlan')) {
+    `$command = Get-Command `$commandName -ErrorAction Stop
+    if (`$command.CommandType -ne [System.Management.Automation.CommandTypes]::Cmdlet) {
+        throw "`$commandName was exported as '`$(`$command.CommandType)' instead of a binary cmdlet."
+    }
+    if (`$command.Module.Path -ne '$rootBootstrapperLiteral') {
+        throw "`$commandName was exported from '`$(`$command.Module.Path)' instead of the project-root bootstrapper."
+    }
 }
 "@
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))

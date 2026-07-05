@@ -211,9 +211,10 @@ internal static class DbaXProviderHelpers
                 ConnectionString = databaseOrConnectionString
             };
 
-            var resolvedValues = new[] { "Data Source", "DataSource", "Filename" }
+            var resolvedValues = new[] { "Data Source", "DataSource", "Filename", "FullUri" }
                 .Select(key => new
                 {
+                    Key = key,
                     Found = builder.TryGetValue(key, out var value),
                     Value = value
                 })
@@ -221,7 +222,10 @@ internal static class DbaXProviderHelpers
 
             foreach (var candidate in resolvedValues)
             {
-                return candidate.Value!.ToString() ?? databaseOrConnectionString;
+                var value = candidate.Value!.ToString();
+                return value == null
+                    ? databaseOrConnectionString
+                    : ResolveSQLiteDatabaseValue(candidate.Key, value);
             }
         }
         catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
@@ -239,6 +243,32 @@ internal static class DbaXProviderHelpers
 
     private static bool MayBeConnectionString(string value)
         => value.Contains(';') || value.Contains('=');
+
+    internal static bool IsSQLiteFileBackedDatabase(string databaseOrConnectionString)
+    {
+        var database = GetSQLiteDatabase(databaseOrConnectionString);
+        if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (Uri.TryCreate(database, UriKind.Absolute, out var uri))
+        {
+            return uri.IsFile;
+        }
+
+        return !MayBeConnectionString(database);
+    }
+
+    private static string ResolveSQLiteDatabaseValue(string key, string value)
+        => string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase)
+            ? ResolveSQLiteFullUriDatabase(value)
+            : value;
+
+    private static string ResolveSQLiteFullUriDatabase(string value)
+        => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile
+            ? uri.LocalPath
+            : value;
 
     private static string Require(string? value, string parameterName, DbaXProvider provider)
         => string.IsNullOrEmpty(value)
@@ -295,7 +325,13 @@ internal static class DbaXProviderHelpers
 
     private static object? ExecuteSQLitePing(string databaseOrConnectionString)
     {
+        var database = GetSQLiteDatabase(databaseOrConnectionString);
+        if (IsSQLiteFileBackedDatabase(database) && !File.Exists(database))
+        {
+            throw new InvalidOperationException($"SQLite database file does not exist: {database}");
+        }
+
         using var client = new DBAClientX.SQLite();
-        return client.ExecuteScalar(GetSQLiteDatabase(databaseOrConnectionString), "SELECT 1");
+        return client.ExecuteScalar(database, "SELECT 1");
     }
 }

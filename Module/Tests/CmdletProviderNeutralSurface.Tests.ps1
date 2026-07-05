@@ -99,4 +99,34 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
                     -ErrorAction Stop
         } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
     }
+
+    It 'rejects full-connection transaction switches before provider execution' {
+        {
+            Invoke-DbaXQueryStream `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=d;Encrypt=True' `
+                -Query 'SELECT 1' `
+                -UseTransaction `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*cannot attach to an active transaction*'
+
+        {
+            Invoke-DbaXStoredProcedure `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=d;Encrypt=True' `
+                -Procedure dbo.GetUsers `
+                -UseTransaction `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*cannot attach to an active transaction*'
+
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Invoke-DbaXBulkInsert `
+                    -Provider SqlServer `
+                    -ConnectionString 'Server=s;Database=d;Encrypt=True' `
+                    -DestinationTable dbo.Import `
+                    -UseTransaction `
+                    -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*cannot attach to an active transaction*'
+    }
 }

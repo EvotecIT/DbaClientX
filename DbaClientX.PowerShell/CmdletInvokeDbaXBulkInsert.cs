@@ -81,6 +81,8 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
             throw new PSArgumentException("SQLite bulk inserts do not support BulkCopyTimeout.", nameof(BulkCopyTimeout));
         }
 
+        PowerShellHelpers.RejectFullConnectionTransactionSwitch(UseTransaction, MyInvocation.MyCommand.Name);
+
         if (Provider == DbaXProvider.MySql &&
             !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
         {

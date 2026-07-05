@@ -9,7 +9,7 @@ public class DbaXResultWriterTests
     [Fact]
     public void WriteRows_DataSetReturnType_WritesDataSet()
     {
-        var table = new DataTable("Rows");
+        using var table = new DataTable("Rows");
         table.Columns.Add("Name", typeof(string));
         table.Rows.Add("Ada");
 

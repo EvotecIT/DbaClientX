@@ -1,4 +1,5 @@
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 
 namespace DBAClientX.PowerShell;
 
@@ -77,12 +78,16 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
     /// <inheritdoc />
     protected override void ProcessRecord()
     {
-        var sourceTables = DbaXProviderHelpers.GetTables(Provider, ConnectionString, SourceSchema, IncludeViews.IsPresent);
+        var tableMappings = DbaXProviderHelpers.ToStringDictionary(TableMappings);
+        var sourceTables = FilterSourceTables(
+            DbaXProviderHelpers.GetTables(Provider, ConnectionString, SourceSchema, IncludeViews.IsPresent),
+            SourceSchema,
+            SourceTable);
         var sourceColumns = DbaXProviderHelpers.GetColumns(Provider, ConnectionString, SourceSchema, SourceTable);
         var sourceIndexes = DbaXProviderHelpers.GetIndexes(Provider, ConnectionString, SourceSchema, SourceTable);
         var destinationColumns = string.IsNullOrWhiteSpace(DestinationConnectionString)
             ? null
-            : DbaXProviderHelpers.GetColumns(Provider, DestinationConnectionString!, DestinationSchema, null);
+            : DbaXProviderHelpers.GetColumns(Provider, DestinationConnectionString!, GetDestinationColumnSchemaFilter(DestinationSchema, tableMappings), null);
 
         var options = new DbaTableCopyPlanOptions
         {
@@ -90,7 +95,7 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
             SourceSchema = SourceSchema,
             DestinationSchema = DestinationSchema,
             IncludeViews = IncludeViews.IsPresent,
-            TableMappings = DbaXProviderHelpers.ToStringDictionary(TableMappings),
+            TableMappings = tableMappings,
             ColumnMappings = DbaXProviderHelpers.ToStringDictionary(ColumnMappings),
             ExcludedColumns = ExcludedColumns,
             ColumnTypeConversions = DbaXProviderHelpers.ToColumnTypeDictionary(ColumnTypeConversions),
@@ -102,4 +107,23 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
 
         WriteObject(DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, sourceIndexes, destinationColumns, options));
     }
+
+    internal static IReadOnlyList<DbaTableInfo> FilterSourceTables(IEnumerable<DbaTableInfo> sourceTables, string? sourceSchema, string? sourceTable)
+    {
+        if (string.IsNullOrWhiteSpace(sourceTable))
+        {
+            return sourceTables.ToArray();
+        }
+
+        return sourceTables
+            .Where(table =>
+                string.Equals(table.Name, sourceTable, StringComparison.OrdinalIgnoreCase) &&
+                (string.IsNullOrWhiteSpace(sourceSchema) || string.Equals(table.Schema, sourceSchema, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+    }
+
+    internal static string? GetDestinationColumnSchemaFilter(string? destinationSchema, IReadOnlyDictionary<string, string>? tableMappings)
+        => tableMappings is { Count: > 0 }
+            ? null
+            : destinationSchema;
 }

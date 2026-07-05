@@ -45,6 +45,8 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
     /// <inheritdoc />
     protected override async Task ProcessRecordAsync()
     {
+        PowerShellHelpers.RejectFullConnectionTransactionSwitch(UseTransaction, MyInvocation.MyCommand.Name);
+
         if (!ShouldProcess(Provider.ToString(), $"Stream {Provider} query"))
         {
             return;

@@ -49,6 +49,8 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
     /// <inheritdoc />
     protected override async Task ProcessRecordAsync()
     {
+        PowerShellHelpers.RejectFullConnectionTransactionSwitch(UseTransaction, MyInvocation.MyCommand.Name);
+
         if (Provider == DbaXProvider.SQLite)
         {
             throw new PSArgumentException("SQLite does not expose stored procedure execution.", nameof(Provider));
