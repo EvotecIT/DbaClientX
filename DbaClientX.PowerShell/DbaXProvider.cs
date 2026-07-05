@@ -1,22 +1,22 @@
 namespace DBAClientX.PowerShell;
 
 /// <summary>
-/// Identifies a DbaClientX database provider.
+/// Identifies a DbaClientX database provider exposed by provider-neutral PowerShell cmdlets.
 /// </summary>
 public enum DbaXProvider
 {
-    /// <summary>SQL Server provider.</summary>
+    /// <summary>Microsoft SQL Server.</summary>
     SqlServer,
 
-    /// <summary>PostgreSQL provider.</summary>
+    /// <summary>PostgreSQL.</summary>
     PostgreSql,
 
-    /// <summary>MySQL provider.</summary>
+    /// <summary>MySQL or MariaDB through MySqlConnector.</summary>
     MySql,
 
-    /// <summary>Oracle provider.</summary>
+    /// <summary>Oracle Database.</summary>
     Oracle,
 
-    /// <summary>SQLite provider.</summary>
+    /// <summary>SQLite database files or SQLite connection strings.</summary>
     SQLite
 }

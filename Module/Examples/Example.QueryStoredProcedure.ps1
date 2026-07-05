@@ -6,10 +6,15 @@ if ([string]::IsNullOrWhiteSpace($server)) {
     $server = 'localhost'
 }
 
-Invoke-DbaXQuery `
+$connectionString = New-DbaXConnectionString `
+    -Provider SqlServer `
     -Server $server `
-    -Database 'master' `
-    -TrustServerCertificate `
-    -StoredProcedure 'sys.sp_databases' `
+    -Database master `
+    -TrustServerCertificate
+
+Invoke-DbaXStoredProcedure `
+    -Provider SqlServer `
+    -ConnectionString $connectionString `
+    -Procedure 'sys.sp_databases' `
     -ReturnType PSObject |
     Format-Table DATABASE_NAME, DATABASE_SIZE, REMARKS -AutoSize
