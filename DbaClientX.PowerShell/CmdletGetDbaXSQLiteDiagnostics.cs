@@ -31,7 +31,7 @@ public sealed class CmdletGetDbaXSQLiteDiagnostics : AsyncPSCmdlet
 
         using var client = new DBAClientX.SQLite();
         WriteObject(await client.CollectDiagnosticsAsync(
-            DbaXProviderHelpers.GetSQLiteDatabase(Database),
+            DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "SQLite diagnostics"),
             CancelToken,
             BusyTimeoutMs).ConfigureAwait(false));
     }

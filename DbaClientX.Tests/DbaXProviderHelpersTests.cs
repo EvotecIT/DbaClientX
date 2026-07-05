@@ -116,6 +116,19 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteReadOnlyConnectionString_ForcesReadOnlyForOptionBearingFileConnectionStrings()
+    {
+        const string connectionString = @"Data Source=C:\data\app.db;Default Timeout=5";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(@"C:\data\app.db", builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.Equal(5, builder.DefaultTimeout);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
     {
         const string connectionString = "Mode=ReadOnly";
@@ -153,6 +166,14 @@ public class DbaXProviderHelpersTests
         var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
 
         Assert.Contains("Data Source", exception.Message);
+    }
+
+    [Fact]
+    public void GetCapabilities_ReportsStreamingOnlyWhenLoadedTargetSupportsIt()
+    {
+        var capabilities = DbaXProviderHelpers.GetCapabilities(DbaXProvider.SqlServer);
+
+        Assert.Equal(DbaXProviderHelpers.SupportsStreaming, capabilities.HasFlag(DbaXProviderCapability.Streaming));
     }
 
     [Theory]

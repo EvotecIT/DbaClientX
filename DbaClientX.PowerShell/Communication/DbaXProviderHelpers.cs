@@ -39,11 +39,14 @@ internal static class DbaXProviderHelpers
         var common = DbaXProviderCapability.Query |
                      DbaXProviderCapability.NonQuery |
                      DbaXProviderCapability.Scalar |
-                     DbaXProviderCapability.Streaming |
                      DbaXProviderCapability.BulkInsert |
                      DbaXProviderCapability.Metadata |
                      DbaXProviderCapability.TableCopy |
                      DbaXProviderCapability.Transaction;
+        if (SupportsStreaming)
+        {
+            common |= DbaXProviderCapability.Streaming;
+        }
 
         return provider switch
         {
@@ -59,6 +62,18 @@ internal static class DbaXProviderHelpers
                                    DbaXProviderCapability.SQLiteMaintenance,
             _ => DbaXProviderCapability.None
         };
+    }
+
+    internal static bool SupportsStreaming
+    {
+        get
+        {
+#if NETCOREAPP
+            return true;
+#else
+            return false;
+#endif
+        }
     }
 
     internal static string BuildConnectionString(
@@ -309,10 +324,46 @@ internal static class DbaXProviderHelpers
             return DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
         }
 
-        var database = GetSQLiteDatabase(databaseOrConnectionString, preserveOptionBearingConnectionStrings: true);
-        return string.Equals(database, databaseOrConnectionString, StringComparison.Ordinal)
-            ? databaseOrConnectionString
-            : DBAClientX.SQLite.BuildReadOnlyConnectionString(database);
+        if (!TryParseConnectionString(databaseOrConnectionString, out var builder))
+        {
+            return databaseOrConnectionString;
+        }
+
+        if (builder.TryGetValue("Mode", out var mode) &&
+            string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+        {
+            return databaseOrConnectionString;
+        }
+
+        foreach (var sourceKey in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
+        {
+            if (!builder.TryGetValue(sourceKey, out var sourceValue))
+            {
+                continue;
+            }
+
+            var value = sourceValue?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return databaseOrConnectionString;
+            }
+
+            if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase))
+            {
+                return databaseOrConnectionString;
+            }
+
+            if (string.Equals(value, ":memory:", StringComparison.OrdinalIgnoreCase))
+            {
+                return databaseOrConnectionString;
+            }
+
+            builder["Mode"] = "ReadOnly";
+            builder["Pooling"] = "False";
+            return builder.ConnectionString;
+        }
+
+        return databaseOrConnectionString;
     }
 
     internal static (DataTable Table, string DestinationTable) NormalizeBulkInsertInput(DbaXProvider provider, DataTable table, string destinationTable)
