@@ -67,7 +67,30 @@ internal static class DbaXTransactionRunner
 
         return scriptBlock
             .InvokeWithContext(functionsToDefine: null, variablesToDefine: variables, args)
-            .Select(static item => item?.BaseObject);
+            .Select(NormalizeScriptBlockOutput);
+    }
+
+    private static object? NormalizeScriptBlockOutput(PSObject? item)
+    {
+        if (item == null)
+        {
+            return null;
+        }
+
+        return HasInstanceMembers(item) ? item : item.BaseObject;
+    }
+
+    private static bool HasInstanceMembers(PSObject item)
+    {
+        foreach (var member in item.Members)
+        {
+            if (member.IsInstance)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static Exception? TryRollback(object? client)

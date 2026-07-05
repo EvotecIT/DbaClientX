@@ -58,7 +58,8 @@ public class SQLiteMetadataTests
             Assert.False(nameColumn.IsNullable);
             Assert.Equal("'unknown'", nameColumn.DefaultExpression);
 
-            Assert.Contains(columns, column => column.Name == "Slug");
+            var slugColumn = Assert.Single(columns, column => column.Name == "Slug");
+            Assert.Equal("STORED", slugColumn.GeneratedKind);
             Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
             Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
             Assert.Contains(indexes, index => index.Name == "IX_Users_LowerName" && index.Column is null && index.Expression != null && index.Expression.Contains("lower(Name)", StringComparison.OrdinalIgnoreCase) && index.FilterDefinition == "Name IS NOT NULL");

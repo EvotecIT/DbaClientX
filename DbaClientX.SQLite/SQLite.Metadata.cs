@@ -39,7 +39,11 @@ SELECT
     NULL AS is_identity,
     NULL AS identity_generation,
     NULL AS generated_expression,
-    NULL AS generated_kind
+    CASE ti.hidden
+        WHEN 2 THEN 'VIRTUAL'
+        WHEN 3 THEN 'STORED'
+        ELSE NULL
+    END AS generated_kind
 FROM pragma_table_list tl
 INNER JOIN pragma_table_xinfo(tl.name) ti
 WHERE tl.schema = 'main'

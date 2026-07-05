@@ -134,6 +134,28 @@ Describe 'Invoke-DbaX*Transaction cmdlets' {
         $state.RollbackCalls | Should -Be 0
     }
 
+    It 'preserves extended members from transaction script block output' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        $result = Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock {
+            'row' | Add-Member -MemberType NoteProperty -Name Extra -Value 'kept' -PassThru
+        }
+
+        $result | Should -Be 'row'
+        $result.Extra | Should -Be 'kept'
+        $state.CommitCalls | Should -Be 1
+        $state.RollbackCalls | Should -Be 0
+    }
+
     It 'rolls back when ErrorAction Stop turns script block errors terminating' {
         $state = @{
             BeginCalls = 0
