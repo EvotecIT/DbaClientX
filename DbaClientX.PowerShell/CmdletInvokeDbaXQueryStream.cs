@@ -59,31 +59,67 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
             case DbaXProvider.SqlServer:
                 using (var client = new DBAClientX.SqlServer { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    if (RequiresBufferedAggregate())
+                    {
+                        DbaXResultWriter.WriteResult(await client.QueryAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                    }
+                    else
+                    {
+                        await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    }
                 }
                 break;
             case DbaXProvider.PostgreSql:
                 using (var client = new DBAClientX.PostgreSql { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    if (RequiresBufferedAggregate())
+                    {
+                        DbaXResultWriter.WriteResult(await client.QueryAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                    }
+                    else
+                    {
+                        await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    }
                 }
                 break;
             case DbaXProvider.MySql:
                 using (var client = new DBAClientX.MySql { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    if (RequiresBufferedAggregate())
+                    {
+                        DbaXResultWriter.WriteResult(await client.QueryAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                    }
+                    else
+                    {
+                        await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    }
                 }
                 break;
             case DbaXProvider.Oracle:
                 using (var client = new DBAClientX.Oracle { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    if (RequiresBufferedAggregate())
+                    {
+                        DbaXResultWriter.WriteResult(await client.QueryAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                    }
+                    else
+                    {
+                        await DbaXResultWriter.WriteRowsAsync(client.QueryStreamAsync(ConnectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    }
                 }
                 break;
             case DbaXProvider.SQLite:
                 using (var client = new DBAClientX.SQLite { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                 {
-                    await DbaXResultWriter.WriteRowsAsync(client.QueryStreamWithConnectionStringAsync(DbaXProviderHelpers.GetSQLiteConnectionString(ConnectionString), Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    var connectionString = DbaXProviderHelpers.GetValidatedSQLiteConnectionString(ConnectionString);
+                    if (RequiresBufferedAggregate())
+                    {
+                        DbaXResultWriter.WriteResult(await client.QueryWithConnectionStringAsync(connectionString, Query, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                    }
+                    else
+                    {
+                        await DbaXResultWriter.WriteRowsAsync(client.QueryStreamWithConnectionStringAsync(connectionString, Query, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                    }
                 }
                 break;
             default:
@@ -94,4 +130,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
         throw new NotSupportedException("Streaming is not supported on this platform.");
 #endif
     }
+
+    private bool RequiresBufferedAggregate()
+        => ReturnType == ReturnType.DataTable || ReturnType == ReturnType.DataSet;
 }

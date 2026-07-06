@@ -64,6 +64,19 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $mapped['@name'] | Should -Be 'Ada'
     }
 
+    It 'does not evaluate unmapped PowerShell properties while mapping parameters' {
+        $row = [pscustomobject]@{
+            Name = 'Ada'
+        }
+        $row | Add-Member -MemberType ScriptProperty -Name Boom -Value { throw 'unmapped property was evaluated' }
+
+        {
+            $script:mappedSafe = $row | ConvertTo-DbaXParameterMap -Map @{ Name = '@name' }
+        } | Should -Not -Throw
+
+        $script:mappedSafe['@name'] | Should -Be 'Ada'
+    }
+
     It 'keeps MySQL validation consistent with ping options' {
         $result = Test-DbaXConnection `
             -Provider MySql `
@@ -170,6 +183,55 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Mode=ReadOnly' -SkipPing -Detailed
 
         $result.ConnectionStringValid | Should -BeFalse
+    }
+
+    It 'reports provider preflight ping failures as detailed connection results' {
+        $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Data Source=:memory:;DefinitelyInvalid=true' -Detailed
+
+        $result.ConnectionStringValid | Should -BeTrue
+        $result.PingAttempted | Should -BeTrue
+        $result.PingSucceeded | Should -BeFalse
+        $result.PingError | Should -Not -BeNullOrEmpty
+    }
+
+    It 'validates SQLite connection input for full-connection streaming and bulk insert' {
+        {
+            Invoke-DbaXQueryStream `
+                -Provider SQLite `
+                -ConnectionString '..\unsafe.db' `
+                -Query 'SELECT 1' `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Invoke-DbaXBulkInsert `
+                    -Provider SQLite `
+                    -ConnectionString '..\unsafe.db' `
+                    -DestinationTable Import `
+                    -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+    }
+
+    It 'returns empty SQLite DataTable schema from query stream aggregate output' {
+        $path = [IO.Path]::GetTempFileName()
+        try {
+            $sqlite = [DBAClientX.SQLite]::new()
+            $sqlite.ExecuteNonQuery($path, 'CREATE TABLE Items(Id INTEGER, Name TEXT);') | Out-Null
+
+            $result = Invoke-DbaXQueryStream `
+                -Provider SQLite `
+                -ConnectionString $path `
+                -Query 'SELECT Id, Name FROM Items WHERE 1 = 0' `
+                -ReturnType DataTable
+
+            $result.GetType().FullName | Should -Be 'System.Data.DataTable'
+            $result.Rows.Count | Should -Be 0
+            $result.Columns['Id'] | Should -Not -BeNullOrEmpty
+            $result.Columns['Name'] | Should -Not -BeNullOrEmpty
+        } finally {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'rejects full-connection transaction switches before provider execution' {

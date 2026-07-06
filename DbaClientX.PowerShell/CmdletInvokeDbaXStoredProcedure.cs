@@ -75,7 +75,14 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
                 case DbaXProvider.SqlServer:
                     using (var client = new DBAClientX.SqlServer { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
                     {
-                        await DbaXResultWriter.WriteRowsAsync(client.ExecuteStoredProcedureStreamAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                        if (RequiresBufferedAggregate())
+                        {
+                            DbaXResultWriter.WriteResult(await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false), ReturnType, WriteObject);
+                        }
+                        else
+                        {
+                            await DbaXResultWriter.WriteRowsAsync(client.ExecuteStoredProcedureStreamAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken), ReturnType, WriteObject).ConfigureAwait(false);
+                        }
                     }
                     break;
             }
@@ -123,4 +130,7 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
         using var client = new DBAClientX.Oracle { ReturnType = ReturnType, CommandTimeout = QueryTimeout };
         return await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false);
     }
+
+    private bool RequiresBufferedAggregate()
+        => ReturnType == ReturnType.DataTable || ReturnType == ReturnType.DataSet;
 }

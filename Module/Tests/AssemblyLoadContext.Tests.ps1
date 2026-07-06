@@ -36,6 +36,26 @@ foreach (`$commandName in @('Invoke-DbaXTransaction', 'New-DbaXConnectionString'
         $output = pwsh -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
         $LASTEXITCODE | Should -Be 0 -Because ($output -join [Environment]::NewLine)
     }
+
+    It 'loads source-tree binary cmdlets without the development binary environment switch' -Skip:(-not $IsCoreCLR) {
+        $moduleManifest = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\DbaClientX.psd1'))
+        $moduleManifestLiteral = $moduleManifest.Replace("'", "''")
+
+        $script = @"
+`$ErrorActionPreference = 'Stop'
+Remove-Item Env:\DBACLIENTX_USE_DEVELOPMENT_BINARIES -ErrorAction SilentlyContinue
+Import-Module '$moduleManifestLiteral' -Force -ErrorAction Stop
+foreach (`$commandName in @('New-DbaXConnectionString', 'Test-DbaXConnection', 'Invoke-DbaXQueryStream')) {
+    `$command = Get-Command `$commandName -ErrorAction Stop
+    if (`$command.CommandType -ne [System.Management.Automation.CommandTypes]::Cmdlet) {
+        throw "`$commandName was exported as '`$(`$command.CommandType)' instead of a binary cmdlet."
+    }
+}
+"@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+        $output = pwsh -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because ($output -join [Environment]::NewLine)
+    }
 }
 
 Describe 'Packaged Assembly Load Context' -Tag 'PackagedALC' {

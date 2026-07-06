@@ -4,7 +4,7 @@
 $PowerForgeDevelopmentBinaryLoaded = $false
 # Source development binary loader
 $PowerForgeDevelopmentBinaryRoot = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..', 'DbaClientX.PowerShell', 'bin'))
-$PowerForgeDevelopmentBinaryMode = 'Environment'
+$PowerForgeDevelopmentBinaryMode = 'Auto'
 $PowerForgeDevelopmentBinaryEnvironmentVariable = 'DBACLIENTX_USE_DEVELOPMENT_BINARIES'
 $PowerForgeDevelopmentConfigurationEnvironmentVariable = 'DBACLIENTX_DEVELOPMENT_CONFIGURATION'
 $PowerForgeDevelopmentCoreFrameworks = @('net8.0', 'net472')

@@ -60,6 +60,28 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task QueryWithConnectionStringAsync_ReturnsSchemaForEmptyDataTable()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER, name TEXT);");
+
+            var result = await sqlite.QueryWithConnectionStringAsync($"Data Source={path};Pooling=False", "SELECT id, name FROM t WHERE 1 = 0;");
+            var table = Assert.IsType<DataTable>(result);
+
+            Assert.Empty(table.Rows);
+            Assert.Contains("id", table.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+            Assert.Contains("name", table.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void Query_WithEmptySql_Throws()
     {
         using var sqlite = new DBAClientX.SQLite();

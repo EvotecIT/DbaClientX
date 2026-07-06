@@ -47,21 +47,48 @@ public sealed class CmdletConvertToDbaXParameterMap : PSCmdlet
             DateTimeOffsetAsUtcDateTime = !PreserveDateTimeOffset.IsPresent
         };
 
-        var item = NormalizeInputObject(InputObject);
+        var item = NormalizeInputObject(InputObject, map.Keys);
         var result = DbParameterMapper.MapItem(item, map, options, ambient);
         WriteObject(result);
     }
 
-    private static object? NormalizeInputObject(object? input)
+    private static object? NormalizeInputObject(object? input, IEnumerable<string>? mappedPaths = null)
     {
         if (input is not PSObject psObject)
         {
             return input;
         }
 
-        var values = psObject.Properties
-            .Where(static property => property.IsGettable)
-            .ToDictionary(static property => property.Name, static property => NormalizeInputObject(property.Value), StringComparer.OrdinalIgnoreCase);
-        return values.Count > 0 ? values : psObject.BaseObject;
+        var requestedPaths = mappedPaths?
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Select(static path => path.Split(new[] { '.' }, 2))
+            .GroupBy(static parts => parts[0], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Where(static parts => parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                    .Select(static parts => parts[1])
+                    .ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+
+        if (requestedPaths is not { Count: > 0 })
+        {
+            return psObject.BaseObject;
+        }
+
+        var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var requested in requestedPaths)
+        {
+            var property = psObject.Properties
+                .FirstOrDefault(candidate => candidate.IsGettable && string.Equals(candidate.Name, requested.Key, StringComparison.OrdinalIgnoreCase));
+            if (property == null)
+            {
+                continue;
+            }
+
+            values[property.Name] = NormalizeInputObject(property.Value, requested.Value);
+        }
+
+        return values;
     }
 }

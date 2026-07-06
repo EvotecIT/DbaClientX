@@ -168,6 +168,17 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void IsSQLiteFileBackedDatabase_TreatsFullUriMemoryModeAsMemory()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-memory-probe.db");
+        var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var fileBacked = DbaXProviderHelpers.IsSQLiteFileBackedDatabase(connectionString);
+
+        Assert.False(fileBacked);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
     {
         const string connectionString = "Mode=ReadOnly";

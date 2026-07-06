@@ -123,7 +123,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
         DotSourceLibraries                = $true
         DotSourceClasses                  = $true
         NETDevelopmentBinaries            = $true
-        NETDevelopmentBinariesMode        = 'Environment'
+        NETDevelopmentBinariesMode        = 'Auto'
         NETDevelopmentBinariesPath        = '..\DbaClientX.PowerShell\bin'
         NETDevelopmentSourceBootstrapperMode = 'ReplaceSingleFile'
     }

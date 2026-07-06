@@ -161,7 +161,7 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
                 using (var client = new DBAClientX.SQLite())
                 {
                     client.BulkInsertWithConnectionString(
-                        DbaXProviderHelpers.GetSQLiteConnectionString(ConnectionString),
+                        DbaXProviderHelpers.GetValidatedSQLiteConnectionString(ConnectionString),
                         table,
                         DestinationTable,
                         UseTransaction.IsPresent,

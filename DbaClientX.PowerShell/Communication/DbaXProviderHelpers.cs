@@ -6,6 +6,7 @@ using System.Data.Common;
 using System.Linq;
 using System.Management.Automation;
 using DBAClientX.DataMovement;
+using DBAClientX.Invoker;
 using DBAClientX.Metadata;
 
 namespace DBAClientX.PowerShell;
@@ -324,6 +325,18 @@ internal static class DbaXProviderHelpers
             ? databaseOrConnectionString
             : DBAClientX.SQLite.BuildConnectionString(databaseOrConnectionString);
 
+    internal static string GetValidatedSQLiteConnectionString(string databaseOrConnectionString)
+    {
+        var connectionString = GetSQLiteConnectionString(databaseOrConnectionString);
+        var validation = DbaConnectionFactory.Validate("sqlite", connectionString);
+        if (!validation.IsValid)
+        {
+            throw new PSArgumentException(DbaConnectionFactory.ToUserMessage(validation));
+        }
+
+        return connectionString;
+    }
+
     internal static string GetSQLiteReadOnlyConnectionString(string databaseOrConnectionString)
     {
         if (!MayBeConnectionString(databaseOrConnectionString))
@@ -403,11 +416,31 @@ internal static class DbaXProviderHelpers
 
     internal static bool IsSQLiteFileBackedDatabase(string databaseOrConnectionString)
     {
-        if (TryParseConnectionString(databaseOrConnectionString, out var builder) &&
-            builder.TryGetValue("Mode", out var mode) &&
-            string.Equals(mode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
+        if (TryParseConnectionString(databaseOrConnectionString, out var builder))
         {
-            return false;
+            foreach (var sourceKey in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
+            {
+                if (!builder.TryGetValue(sourceKey, out var sourceValue))
+                {
+                    continue;
+                }
+
+                var value = sourceValue?.ToString();
+                if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
+                    value != null &&
+                    Uri.TryCreate(value, UriKind.Absolute, out var fullUri) &&
+                    fullUri.IsFile)
+                {
+                    ApplySQLiteFullUriQueryOptions(builder, fullUri);
+                }
+
+                break;
+            }
+
+            if (IsSQLiteMemoryMode(builder))
+            {
+                return false;
+            }
         }
 
         var database = GetSQLiteDatabaseForFileProbe(databaseOrConnectionString);

@@ -56,7 +56,7 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
                 stopwatch.Stop();
                 pingSucceeded = true;
             }
-            catch (Exception ex) when (ex is DbaQueryExecutionException or DbException or InvalidOperationException or TimeoutException)
+            catch (Exception ex) when (ex is DbaQueryExecutionException or DbException or InvalidOperationException or TimeoutException or ArgumentException)
             {
                 stopwatch.Stop();
                 pingError = ex.Message;
