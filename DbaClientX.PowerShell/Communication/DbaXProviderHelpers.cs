@@ -239,25 +239,20 @@ internal static class DbaXProviderHelpers
                 })
                 .Where(static candidate => candidate.Found && candidate.Value != null);
 
-            foreach (var candidate in resolvedValues)
-            {
-                var value = candidate.Value!.ToString();
-                if (value == null)
-                {
-                    return databaseOrConnectionString;
-                }
-
-                return preserveOptionBearingConnectionStrings && HasSQLiteConnectionOptions(builder, value)
+            var resolvedDatabase = resolvedValues
+                .Select(static candidate => candidate.Value!.ToString())
+                .Where(static value => value != null)
+                .Select(value => preserveOptionBearingConnectionStrings && HasSQLiteConnectionOptions(builder, value!)
                     ? databaseOrConnectionString
-                    : ResolveSQLiteDatabaseValue(value);
-            }
+                    : ResolveSQLiteDatabaseValue(value!))
+                .FirstOrDefault();
+
+            return resolvedDatabase ?? databaseOrConnectionString;
         }
         catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
         {
             return databaseOrConnectionString;
         }
-
-        return databaseOrConnectionString;
     }
 
     private static string GetSQLiteDatabaseForFileProbe(string databaseOrConnectionString)
@@ -267,6 +262,11 @@ internal static class DbaXProviderHelpers
     {
         if (!MayBeConnectionString(databaseOrConnectionString))
         {
+            if (string.Equals(databaseOrConnectionString, ":memory:", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
+            }
+
             ValidateSQLiteDatabasePath(databaseOrConnectionString);
             return databaseOrConnectionString;
         }
@@ -301,12 +301,9 @@ internal static class DbaXProviderHelpers
                 throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
             }
 
-            if (TryApplySQLiteSourceUriOptions(builder, value, out _))
+            if (TryApplySQLiteSourceUriOptions(builder, value, out _) && IsSQLiteMemoryMode(builder))
             {
-                if (IsSQLiteMemoryMode(builder))
-                {
-                    throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
-                }
+                throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
             }
 
             var database = ResolveSQLiteDatabaseValue(value);
@@ -415,19 +412,22 @@ internal static class DbaXProviderHelpers
 
     private static bool MayBeConnectionString(string value)
     {
-        if (value.Contains(';'))
+        foreach (var segment in value.Split(';'))
         {
-            return true;
+            var separator = segment.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var key = segment.Substring(0, separator).Trim();
+            if (IsSQLiteConnectionStringKey(key))
+            {
+                return true;
+            }
         }
 
-        var separator = value.IndexOf('=');
-        if (separator <= 0)
-        {
-            return false;
-        }
-
-        var key = value.Substring(0, separator).Trim();
-        return IsSQLiteConnectionStringKey(key);
+        return false;
     }
 
     internal static bool IsSQLiteFileBackedDatabase(string databaseOrConnectionString)

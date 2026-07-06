@@ -50,9 +50,15 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
         }
 
         var database = DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "SQLite maintenance");
+        string? destination = null;
         if (Action == DbaXSQLiteMaintenanceAction.Backup && string.IsNullOrWhiteSpace(Destination))
         {
             throw new PSArgumentException("Destination is required for SQLite backup maintenance.", nameof(Destination));
+        }
+
+        if (Action == DbaXSQLiteMaintenanceAction.Backup)
+        {
+            destination = DbaXProviderHelpers.GetSQLiteDatabasePath(Destination!, "SQLite backup destination");
         }
 
         if (!ShouldProcess(database, $"Run SQLite {Action} maintenance"))
@@ -64,7 +70,7 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
         switch (Action)
         {
             case DbaXSQLiteMaintenanceAction.Backup:
-                client.BackupDatabase(database, Destination!, BusyTimeoutMs);
+                client.BackupDatabase(database, destination!, BusyTimeoutMs);
                 break;
             case DbaXSQLiteMaintenanceAction.Checkpoint:
                 await client.CheckpointAsync(database, CheckpointMode, CancelToken, BusyTimeoutMs).ConfigureAwait(false);

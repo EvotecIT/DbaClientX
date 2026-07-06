@@ -91,6 +91,17 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteConnectionString_BuildsRawDatabasePathsContainingSemicolons()
+    {
+        const string path = "app;prod.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteConnectionString(path);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_BuildsRawDatabasePaths()
     {
         const string path = "data.db";
@@ -243,6 +254,24 @@ public class DbaXProviderHelpersTests
         var actual = DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance");
 
         Assert.Equal(@"C:\data\app.db", actual);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_ResolvesRawPathsContainingSemicolons()
+    {
+        const string path = "app;prod.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteDatabasePath(path, "SQLite maintenance");
+
+        Assert.Equal(path, actual);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_RejectsRawMemoryTargets()
+    {
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(":memory:", "SQLite maintenance"));
+
+        Assert.Contains("file-backed", exception.Message);
     }
 
     [Fact]

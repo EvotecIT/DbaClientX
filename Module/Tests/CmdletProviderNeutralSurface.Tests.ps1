@@ -246,6 +246,23 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         } | Should -Throw -ExpectedMessage '*unsafe relative path*'
 
         {
+            Invoke-DbaXSQLiteMaintenance -Database ':memory:' -Action Optimize -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*file-backed*'
+
+        $backupSource = [IO.Path]::GetTempFileName()
+        try {
+            {
+                Invoke-DbaXSQLiteMaintenance `
+                    -Database $backupSource `
+                    -Action Backup `
+                    -Destination '..\unsafe-backup.db' `
+                    -ErrorAction Stop
+            } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+        } finally {
+            Remove-Item -LiteralPath $backupSource -Force -ErrorAction SilentlyContinue
+        }
+
+        {
             Get-DbaXTableCopyPlan -Provider SQLite -ConnectionString '..\unsafe.db' -ErrorAction Stop
         } | Should -Throw -ExpectedMessage '*unsafe relative path*'
     }
