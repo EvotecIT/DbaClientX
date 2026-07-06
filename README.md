@@ -64,7 +64,7 @@ Start with the job you need to finish:
 | Write PowerShell objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported rows to a table | `Write-DbaXTableData` | DbaClientX provider packages own the database write |
 | Load a SQL Server staging table and let the command create the table, map columns, lock the table, preserve identities/nulls, fire triggers, check constraints, or report progress | `Write-DbaXTableData -Provider SqlServer` | SQL Server-specific knobs map to `SqlServerBulkInsertOptions` |
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | `DBAClientX.Core` owns the copy contracts/runner; provider packages own concrete adapters |
-| Export SQL rows to Excel and import the workbook back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns workbook work |
+| Export SQL rows to CSV or Excel and import the file back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeCsv` / `Import-OfficeCsv` or `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns file-format work |
 
 The PowerShell layer is intentionally thin: it maps friendly parameters to provider-owned C# APIs. Put repeatable database behavior in DbaClientX and keep consumer scripts focused on choosing source data, destination names, and credentials.
 
@@ -161,10 +161,10 @@ $rows | Write-DbaXTableData `
     -PassThru
 ```
 
-Import rows from Excel with PSWriteOffice, then hand the `DataTable` to DbaClientX for the database write:
+Import rows from CSV or Excel with PSWriteOffice, then hand the `DataTable` to DbaClientX for the database write:
 
 ```powershell
-Import-OfficeExcel .\Users.xlsx -AsDataTable |
+Import-OfficeCsv .\Users.csv -AsDataTable |
     Write-DbaXTableData `
         -Provider PostgreSql `
         -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret' `
@@ -172,13 +172,26 @@ Import-OfficeExcel .\Users.xlsx -AsDataTable |
         -BatchSize 5000
 ```
 
-Run the full SQL Server -> Excel -> SQL Server round trip when you want to prove both sides together:
+The same database write path accepts Excel-imported tables:
 
 ```powershell
+Import-OfficeExcel .\Users.xlsx -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'dbo.ImportUsers' `
+        -AutoCreateTable `
+        -TableLock
+```
+
+Run the full SQL Server -> file -> SQL Server examples when you want to prove both sides together:
+
+```powershell
+.\Module\Examples\Example.CsvRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 .\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 ```
 
-The example creates SQL Server source rows, exports them to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, writes it to SQL Server with `-AutoCreateTable`, and fails if any row count does not match.
+The examples create SQL Server source rows, export them to a `.csv` or `.xlsx` file with PSWriteOffice, import the file back as a `DataTable`, write it to SQL Server with `-AutoCreateTable`, and fail if any row count does not match.
 
 When the destination table has SQL Server-specific requirements, opt into the needed knobs explicitly:
 
@@ -274,6 +287,28 @@ The suite rewrites the marker-delimited tables below when it runs from a source 
 <!-- sqlserver-data-movement-read-benchmark:end -->
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
+
+## Office File Round-Trip Benchmark
+
+Use the office file round-trip benchmark when you want evidence for the combined DbaClientX and PSWriteOffice workflow. The measured operation reads source rows from SQL Server with DbaClientX, writes a CSV or Excel file with PSWriteOffice, imports the file back as a `DataTable`, then writes the rows to SQL Server with `Write-DbaXTableData`. Validation checks destination row count and simple integrity metrics before cleanup.
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 1000,5000 `
+    -FileKind Csv,Excel `
+    -Iterations 3
+```
+
+By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` modules. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or `$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH` when benchmarking local source builds. To inspect the matrix without touching SQL Server:
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
+```
+
+<!-- office-file-roundtrip-benchmark:start -->
+<!-- office-file-roundtrip-benchmark:end -->
 
 ## .NET Usage
 
