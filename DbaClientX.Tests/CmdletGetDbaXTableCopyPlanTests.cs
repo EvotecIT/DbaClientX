@@ -87,6 +87,21 @@ public class CmdletGetDbaXTableCopyPlanTests
     }
 
     [Fact]
+    public void FilterSourceTables_OracleUsesExactOrUppercaseIdentifierSemantics()
+    {
+        var tables = new[]
+        {
+            new DbaTableInfo("APP", "USERS", DbaTableKind.Table),
+            new DbaTableInfo("APP", "Users", DbaTableKind.Table)
+        };
+
+        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(DbaXProvider.Oracle, tables, "APP", "USERS");
+
+        var table = Assert.Single(filtered);
+        Assert.Equal("USERS", table.Name);
+    }
+
+    [Fact]
     public void GetDestinationColumnSchemaFilter_FetchesAllColumnsWhenMappingsExist()
     {
         var filter = CmdletGetDbaXTableCopyPlan.GetDestinationColumnSchemaFilter(

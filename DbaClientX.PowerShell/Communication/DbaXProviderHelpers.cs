@@ -403,12 +403,27 @@ internal static class DbaXProviderHelpers
             : (table, destinationTable);
 
     internal static bool MetadataIdentifierEquals(DbaXProvider provider, string? left, string? right)
-        => string.Equals(left, right, GetMetadataIdentifierComparison(provider));
+        => provider switch
+        {
+            DbaXProvider.PostgreSql => string.Equals(left, right, StringComparison.Ordinal),
+            DbaXProvider.Oracle => OracleMetadataIdentifierEquals(left, right),
+            _ => string.Equals(left, right, StringComparison.OrdinalIgnoreCase)
+        };
 
-    private static StringComparison GetMetadataIdentifierComparison(DbaXProvider provider)
-        => provider == DbaXProvider.PostgreSql
-            ? StringComparison.Ordinal
-            : StringComparison.OrdinalIgnoreCase;
+    private static bool OracleMetadataIdentifierEquals(string? left, string? right)
+    {
+        if (string.Equals(left, right, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(left, right!.ToUpperInvariant(), StringComparison.Ordinal);
+    }
 
     private static bool MayBeConnectionString(string value)
     {

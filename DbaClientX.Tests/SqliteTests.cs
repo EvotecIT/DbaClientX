@@ -103,6 +103,19 @@ public class SqliteTests
     }
 
     [Fact]
+    public void NormalizeConnectionString_PreservesDataSourceUriMemoryModeWhenReadOnly()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-memory.db");
+        var connectionString = InvokeNormalizeConnectionString("Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared", readOnly: true);
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.Memory, builder.Mode);
+        Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
+    [Fact]
     public void ExecuteScalarWithConnectionString_PreservesMemoryMode()
     {
         var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
@@ -934,11 +947,11 @@ public class SqliteTests
         return connection;
     }
 
-    private static string InvokeNormalizeConnectionString(string connectionString)
+    private static string InvokeNormalizeConnectionString(string connectionString, bool readOnly = false)
     {
         var method = typeof(DBAClientX.SQLite).GetMethod("NormalizeConnectionString", BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DBAClientX.SQLite), "NormalizeConnectionString");
 
-        return (string)method.Invoke(null, new object?[] { connectionString, false })!;
+        return (string)method.Invoke(null, new object?[] { connectionString, readOnly })!;
     }
 }
