@@ -87,6 +87,7 @@ $settings = {
             throw 'No runnable office file round-trip benchmark lanes remain. CSV requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable; choose -FileKind Excel or pass -PSWriteOfficeModulePath to a compatible build.'
         }
     }
+    $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } else { $fileKinds[0] }
 
     function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
         param([string] $TableName)
@@ -322,7 +323,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison FileKind -Baseline Csv -Metric MedianMs
+        comparison FileKind -Baseline $comparisonBaseline -Metric MedianMs
         if (Test-Path -LiteralPath $readmePath) {
             readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
         }
