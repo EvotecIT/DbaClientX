@@ -303,15 +303,30 @@ Use the office file round-trip benchmark when you want evidence for the combined
     -Iterations 3
 ```
 
+The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind Csv` to compare the DbaClientX + PSWriteOffice CSV round trip with dbatools' CSV fast path (`Export-DbaCsv` plus `Import-DbaCsv` into SQL Server bulk copy). The dbatools engine is CSV-only; Excel remains a DbaClientX + PSWriteOffice lane because dbatools does not own Excel import/export.
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 1000,5000 `
+    -FileKind Csv `
+    -Engine DbaClientX,dbatools `
+    -Iterations 3
+```
+
 By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` modules. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or `$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH` when benchmarking local source builds. To inspect the matrix without touching SQL Server:
 
-If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`, the wrapper skips the CSV lane and runs any remaining file kinds. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets.
+If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`, the wrapper skips the DbaClientX CSV lane and runs any remaining file kinds. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets. If dbatools is not installed or does not expose `Export-DbaCsv` and `Import-DbaCsv`, the wrapper skips the dbatools CSV lane.
 
 ```powershell
 .\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
 ```
 
 <!-- office-file-roundtrip-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 1000 rows / Csv | FileKind=Csv, RowCount=1000 | Core-7.6.3 | RoundTrip | 1.00x (152ms) | 2.67x (405ms) | DbaClientX fastest |
 <!-- office-file-roundtrip-benchmark:end -->
 
 ## .NET Usage

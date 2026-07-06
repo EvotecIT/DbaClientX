@@ -6,6 +6,7 @@ param(
     [string[]] $FileKind = @('Csv', 'Excel'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
+    [string[]] $Engine,
     [string] $ModulePath = $(
         if ($env:DBACLIENTX_BENCHMARK_MODULE_PATH) {
             $env:DBACLIENTX_BENCHMARK_MODULE_PATH
@@ -26,6 +27,23 @@ if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt
 }
 if ($FileKind.Count -eq 0) {
     throw 'FileKind must contain at least one value.'
+}
+
+$Engine = @(
+    foreach ($engineName in @($Engine)) {
+        foreach ($part in ([string] $engineName -split ',')) {
+            $normalized = $part.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+                $normalized
+            }
+        }
+    }
+) | Select-Object -Unique
+
+$validEngines = @('DbaClientX', 'dbatools')
+$invalidEngines = @($Engine | Where-Object { $_ -notin $validEngines })
+if ($invalidEngines.Count -gt 0) {
+    throw "Engine must contain only: $($validEngines -join ', '). Invalid value(s): $($invalidEngines -join ', ')."
 }
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
@@ -54,6 +72,7 @@ $settings = {
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
     $fileKinds = $FileKind
+    $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
 
     function Test-DbaClientXOfficeCsvCommandAvailability {
         param([string] $ModulePath)
@@ -81,13 +100,8 @@ $settings = {
         return $true
     }
 
-    if ($fileKinds -contains 'Csv' -and -not (Test-DbaClientXOfficeCsvCommandAvailability -ModulePath $psWriteOfficeModulePath)) {
-        $fileKinds = @($fileKinds | Where-Object { $_ -ne 'Csv' })
-        if ($fileKinds.Count -eq 0) {
-            throw 'No runnable office file round-trip benchmark lanes remain. CSV requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable; choose -FileKind Excel or pass -PSWriteOfficeModulePath to a compatible build.'
-        }
-    }
     $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } else { $fileKinds[0] }
+    $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
     function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
         param([string] $TableName)
@@ -161,54 +175,11 @@ FROM numbers;
         }
     }
 
-    function Invoke-DbaClientXOfficeRoundTrip {
-        param($case, $run)
-
-        $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-
-        $rows = @(
-            Invoke-DbaXQuery `
-                -Server $run.Server `
-                -Database $run.Database `
-                -TrustServerCertificate `
-                -Query "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;" `
-                -ReturnType PSObject `
-                -ErrorAction Stop
-        )
-
-        if ($case.FileKind -eq 'Csv') {
-            $rows | Export-OfficeCsv -Path $run.FilePath -ErrorAction Stop | Out-Null
-            $run.ImportedTable = Import-OfficeCsv -Path $run.FilePath -AsDataTable -ErrorAction Stop
-        } else {
-            $rows |
-                Export-OfficeExcel `
-                    -Path $run.FilePath `
-                    -WorksheetName 'Rows' `
-                    -TableName 'DbaClientXRows' `
-                    -ErrorAction Stop | Out-Null
-            $run.ImportedTable = Import-OfficeExcel -Path $run.FilePath -WorksheetName 'Rows' -AsDataTable -ErrorAction Stop
-        }
-
-        $writeResult = $run.ImportedTable |
-            Write-DbaXTableData `
-                -Provider SqlServer `
-                -ConnectionString $run.ConnectionString `
-                -DestinationTable "dbo.$($run.DestinationTable)" `
-                -AutoCreateTable `
-                -TableLock `
-                -BatchSize 5000 `
-                -PassThru `
-                -ErrorAction Stop
-
-        $run.RowsWritten = [int] $writeResult.Rows
-    }
-
     $getCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
     $getSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
     $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
     $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
-    $invokeRoundTrip = ${function:Invoke-DbaClientXOfficeRoundTrip}
-
+    $testOfficeCsvCommands = ${function:Test-DbaClientXOfficeCsvCommandAvailability}
     benchmark 'office-file-roundtrip' -out $outputRootBase {
         policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
         profile Current -Cleanup KeepOnFailure
@@ -236,7 +207,7 @@ FROM numbers;
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $run.DestinationTable = 'DbaClientXBench_FileDest_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $extension = if ($case.FileKind -eq 'Csv') { '.csv' } else { '.xlsx' }
-            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}{2}' -f $case.FileKind, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
+            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}{3}' -f $case.Engine, $case.FileKind, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
             $run.DropQuery = @"
 IF OBJECT_ID(N'dbo.$($run.DestinationTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.DestinationTable);
 IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.SourceTable);
@@ -244,17 +215,140 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             Import-Module $modulePath -Global -Force -ErrorAction Stop
-            Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
+
+            if ($case.Engine -eq 'DbaClientX') {
+                Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
+            }
 
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -ErrorAction Stop | Out-Null
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getSeedQuery -TableName $run.SourceTable -RowCount ([int] $case.RowCount)) -ErrorAction Stop | Out-Null
+
+            if ($case.Engine -eq 'dbatools') {
+                $connectCommand = Get-Command Connect-DbaInstance -ErrorAction Stop
+                $parameters = @{
+                    SqlInstance = $run.Server
+                    Database = $run.Database
+                }
+                if ($connectCommand.Parameters.ContainsKey('TrustServerCertificate')) {
+                    $parameters.TrustServerCertificate = $true
+                }
+
+                $run.DbatoolsInstance = Connect-DbaInstance @parameters
+            }
+        }
+
+        skip {
+            param($case)
+
+            if ($case.Engine -eq 'dbatools') {
+                if ($case.FileKind -ne 'Csv') {
+                    return $true
+                }
+
+                return -not (
+                    (Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue) -and
+                    (Get-Command Export-DbaCsv -ErrorAction SilentlyContinue) -and
+                    (Get-Command Import-DbaCsv -ErrorAction SilentlyContinue)
+                )
+            }
+
+            if ($case.FileKind -eq 'Csv') {
+                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
+            }
+
+            return -not (
+                (Get-Command Export-OfficeExcel -ErrorAction SilentlyContinue) -and
+                @(
+                    Get-Command Import-OfficeExcel -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Parameters.ContainsKey('AsDataTable') }
+                ).Count -gt 0
+            )
         }
 
         engine DbaClientX {
             operation RoundTrip {
                 param($case, $run)
 
-                & $invokeRoundTrip $case $run
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+
+                $query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+                $data = Invoke-DbaXQuery `
+                    -Server $run.Server `
+                    -Database $run.Database `
+                    -TrustServerCertificate `
+                    -Query $query `
+                    -ReturnType DataTable `
+                    -ErrorAction Stop
+
+                if ($case.FileKind -eq 'Csv') {
+                    $data | Export-OfficeCsv -Path $run.FilePath -ErrorAction Stop
+                    $imported = Import-OfficeCsv -Path $run.FilePath -AsDataTable -ErrorAction Stop
+                } else {
+                    $data | Export-OfficeExcel -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
+                    $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
+                }
+
+                $writeResult = $imported | Write-DbaXTableData `
+                    -Provider SqlServer `
+                    -ConnectionString $run.ConnectionString `
+                    -DestinationTable "dbo.$($run.DestinationTable)" `
+                    -AutoCreateTable `
+                    -BatchSize 5000 `
+                    -TableLock `
+                    -PassThru `
+                    -ErrorAction Stop
+                $run.RowsWritten = [int] $writeResult.Rows
+            }
+        }
+
+        engine dbatools {
+            operation RoundTrip {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+
+                $query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+                $exportParameters = @{
+                    SqlInstance = $run.DbatoolsInstance
+                    Database = $run.Database
+                    Query = $query
+                    Path = $run.FilePath
+                    Delimiter = ','
+                }
+                $exportCommand = Get-Command Export-DbaCsv -ErrorAction Stop
+                if ($exportCommand.Parameters.ContainsKey('QuotingBehavior')) {
+                    $exportParameters.QuotingBehavior = 'Always'
+                }
+                if ($exportCommand.Parameters.ContainsKey('EnableException')) {
+                    $exportParameters.EnableException = $true
+                }
+
+                Export-DbaCsv @exportParameters | Out-Null
+
+                $importParameters = @{
+                    Path = $run.FilePath
+                    SqlInstance = $run.DbatoolsInstance
+                    Database = $run.Database
+                    Schema = 'dbo'
+                    Table = $run.DestinationTable
+                    AutoCreateTable = $true
+                    BatchSize = 5000
+                    TableLock = $true
+                    Delimiter = ','
+                }
+                $importCommand = Get-Command Import-DbaCsv -ErrorAction Stop
+                $currentCultureName = [System.Globalization.CultureInfo]::CurrentCulture.Name
+                if ($importCommand.Parameters.ContainsKey('Culture') -and -not [string]::IsNullOrWhiteSpace($currentCultureName)) {
+                    $importParameters.Culture = $currentCultureName
+                }
+                if ($importCommand.Parameters.ContainsKey('EnableException')) {
+                    $importParameters.EnableException = $true
+                }
+                if ($importCommand.Parameters.ContainsKey('NoProgress')) {
+                    $importParameters.NoProgress = $true
+                }
+
+                Import-DbaCsv @importParameters | Out-Null
             }
         }
 
@@ -266,7 +360,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 -Server $run.Server `
                 -Database $run.Database `
                 -TrustServerCertificate `
-                -Query "SELECT COUNT(*) AS [Rows], MIN(Id) AS [MinId], MAX(Id) AS [MaxId], SUM(CAST(Id AS bigint)) AS [IdSum], SUM(CAST(Score AS decimal(38,2))) AS [ScoreSum] FROM dbo.$($run.DestinationTable);" `
+                -Query "SELECT COUNT(*) AS [Rows], MIN(CAST(Id AS int)) AS [MinId], MAX(CAST(Id AS int)) AS [MaxId], SUM(CAST(Id AS bigint)) AS [IdSum], SUM(CAST(Score AS decimal(38,2))) AS [ScoreSum] FROM dbo.$($run.DestinationTable);" `
                 -ReturnType PSObject `
                 -ErrorAction Stop
             $actual = [pscustomobject]@{
@@ -279,7 +373,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             $expected = & $getExpectedIntegrity -RowCount ([int] $case.RowCount)
             & $assertIntegrity -FileKind $case.FileKind -TableName $run.DestinationTable -Actual $actual -Expected $expected
 
-            if ($run.RowsWritten -ne [int] $case.RowCount) {
+            if ($null -ne $run.RowsWritten -and $run.RowsWritten -ne [int] $case.RowCount) {
                 throw "$($case.FileKind) round trip wrote $($run.RowsWritten) of $($case.RowCount) expected row(s)."
             }
 
@@ -323,7 +417,11 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison FileKind -Baseline $comparisonBaseline -Metric MedianMs
+        if ($selectedEngines.Count -gt 1) {
+            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs
+        } else {
+            comparison FileKind -Baseline $comparisonBaseline -Metric MedianMs
+        }
         if (Test-Path -LiteralPath $readmePath) {
             readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
         }
@@ -335,6 +433,10 @@ $parameters = @{
     Settings = $settings
     WarmupCount = $WarmupCount
     IterationCount = $Iterations
+    Engine = $Engine
+}
+if (-not $Engine) {
+    $parameters.Engine = @('DbaClientX')
 }
 if ($Plan) {
     $parameters.Plan = $true
