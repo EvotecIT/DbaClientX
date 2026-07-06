@@ -55,6 +55,39 @@ $settings = {
     $rowCounts = $RowCount
     $fileKinds = $FileKind
 
+    function Test-DbaClientXOfficeCsvCommandAvailability {
+        param([string] $ModulePath)
+
+        try {
+            $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
+        } catch {
+            Write-Warning "Skipping CSV office file benchmark lane because PSWriteOffice could not be imported from '$ModulePath': $($_.Exception.Message)"
+            return $false
+        }
+
+        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
+        $exportCommand = Get-Command Export-OfficeCsv -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
+        $importCommand = Get-Command Import-OfficeCsv -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
+        if (-not $exportCommand -or -not $importCommand) {
+            Write-Warning "Skipping CSV office file benchmark lane because the imported PSWriteOffice module does not expose Export-OfficeCsv and Import-OfficeCsv."
+            return $false
+        }
+
+        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
+            Write-Warning "Skipping CSV office file benchmark lane because Import-OfficeCsv does not expose -AsDataTable."
+            return $false
+        }
+
+        return $true
+    }
+
+    if ($fileKinds -contains 'Csv' -and -not (Test-DbaClientXOfficeCsvCommandAvailability -ModulePath $psWriteOfficeModulePath)) {
+        $fileKinds = @($fileKinds | Where-Object { $_ -ne 'Csv' })
+        if ($fileKinds.Count -eq 0) {
+            throw 'No runnable office file round-trip benchmark lanes remain. CSV requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable; choose -FileKind Excel or pass -PSWriteOfficeModulePath to a compatible build.'
+        }
+    }
+
     function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
         param([string] $TableName)
 

@@ -66,6 +66,8 @@ Start with the job you need to finish:
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | `DBAClientX.Core` owns the copy contracts/runner; provider packages own concrete adapters |
 | Export SQL rows to CSV or Excel and import the file back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeCsv` / `Import-OfficeCsv` or `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns file-format work |
 
+The CSV round-trip path requires a PSWriteOffice build that exposes `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`. When those CSV cmdlets are not available, use the Excel lane or pass `-PSWriteOfficeModulePath` to a compatible local PSWriteOffice build.
+
 The PowerShell layer is intentionally thin: it maps friendly parameters to provider-owned C# APIs. Put repeatable database behavior in DbaClientX and keep consumer scripts focused on choosing source data, destination names, and credentials.
 
 ## Install
@@ -302,6 +304,8 @@ Use the office file round-trip benchmark when you want evidence for the combined
 ```
 
 By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` modules. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or `$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH` when benchmarking local source builds. To inspect the matrix without touching SQL Server:
+
+If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`, the wrapper skips the CSV lane and runs any remaining file kinds. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets.
 
 ```powershell
 .\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan

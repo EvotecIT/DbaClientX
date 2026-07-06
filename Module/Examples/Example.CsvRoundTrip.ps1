@@ -21,6 +21,12 @@ if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
 }
 
+$exportOfficeCsv = Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue
+$importOfficeCsv = Get-Command Import-OfficeCsv -ErrorAction SilentlyContinue
+if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
+    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable. Import or install a compatible PSWriteOffice build before running the example.'
+}
+
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
 
 Invoke-DbaXNonQuery -Server $Server -Database $Database -TrustServerCertificate -Query @"
