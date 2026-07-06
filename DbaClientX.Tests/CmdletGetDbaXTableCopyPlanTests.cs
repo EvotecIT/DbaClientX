@@ -23,6 +23,41 @@ public class CmdletGetDbaXTableCopyPlanTests
     }
 
     [Fact]
+    public void ResolveSourceTableFilter_SplitsQualifiedSourceTable()
+    {
+        var filter = CmdletGetDbaXTableCopyPlan.ResolveSourceTableFilter(null, "dbo.Users");
+
+        Assert.Equal("dbo", filter.SourceSchema);
+        Assert.Equal("Users", filter.SourceTable);
+    }
+
+    [Fact]
+    public void ResolveSourceTableFilter_PreservesExplicitSourceSchema()
+    {
+        var filter = CmdletGetDbaXTableCopyPlan.ResolveSourceTableFilter("audit", "dbo.Users");
+
+        Assert.Equal("audit", filter.SourceSchema);
+        Assert.Equal("Users", filter.SourceTable);
+    }
+
+    [Fact]
+    public void FilterSourceTables_AppliesQualifiedSourceTable()
+    {
+        var tables = new[]
+        {
+            new DbaTableInfo("dbo", "Users", DbaTableKind.Table),
+            new DbaTableInfo("audit", "Users", DbaTableKind.Table)
+        };
+        var (schema, table) = CmdletGetDbaXTableCopyPlan.ResolveSourceTableFilter(null, "dbo.Users");
+
+        var filtered = CmdletGetDbaXTableCopyPlan.FilterSourceTables(DbaXProvider.SqlServer, tables, schema, table);
+
+        var match = Assert.Single(filtered);
+        Assert.Equal("dbo", match.Schema);
+        Assert.Equal("Users", match.Name);
+    }
+
+    [Fact]
     public void FilterSourceTables_LeavesAllTablesWithoutSourceTable()
     {
         var tables = new[]

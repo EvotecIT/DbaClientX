@@ -102,7 +102,13 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
         }
 
         if (Provider == DbaXProvider.MySql &&
-            !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction))
+            (!PowerShellHelpers.TryValidateConnection(
+                this,
+                "mysql",
+                ConnectionString,
+                _errorAction,
+                allowedUnsupportedOptions: PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions) ||
+             !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction)))
         {
             return;
         }

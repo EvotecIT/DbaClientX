@@ -159,9 +159,20 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
                 Invoke-DbaXBulkInsert `
                     -Provider MySql `
                     -ConnectionString 'Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required' `
+                -DestinationTable Import `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
+    }
+
+    It 'validates MySQL bulk insert connection strings before local infile preflight' {
+        {
+            [pscustomobject]@{ Id = 1 } |
+                Invoke-DbaXBulkInsert `
+                    -Provider MySql `
+                    -ConnectionString 'AllowLoadLocalInfile=true' `
                     -DestinationTable Import `
                     -ErrorAction Stop
-        } | Should -Throw -ExpectedMessage '*AllowLoadLocalInfile=true*'
+        } | Should -Throw -ExpectedMessage '*Server*'
     }
 
     It 'treats empty bulk insert input as a no-op' {

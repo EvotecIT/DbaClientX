@@ -79,13 +79,14 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
     protected override void ProcessRecord()
     {
         var tableMappings = DbaXProviderHelpers.ToStringDictionary(TableMappings);
+        var (sourceSchemaFilter, sourceTableFilter) = ResolveSourceTableFilter(SourceSchema, SourceTable);
         var sourceTables = FilterSourceTables(
             Provider,
-            DbaXProviderHelpers.GetTables(Provider, ConnectionString, SourceSchema, IncludeViews.IsPresent),
-            SourceSchema,
-            SourceTable);
-        var sourceColumns = DbaXProviderHelpers.GetColumns(Provider, ConnectionString, SourceSchema, SourceTable);
-        var sourceIndexes = DbaXProviderHelpers.GetIndexes(Provider, ConnectionString, SourceSchema, SourceTable);
+            DbaXProviderHelpers.GetTables(Provider, ConnectionString, sourceSchemaFilter, IncludeViews.IsPresent),
+            sourceSchemaFilter,
+            sourceTableFilter);
+        var sourceColumns = DbaXProviderHelpers.GetColumns(Provider, ConnectionString, sourceSchemaFilter, sourceTableFilter);
+        var sourceIndexes = DbaXProviderHelpers.GetIndexes(Provider, ConnectionString, sourceSchemaFilter, sourceTableFilter);
         var destinationColumns = string.IsNullOrWhiteSpace(DestinationConnectionString)
             ? null
             : DbaXProviderHelpers.GetColumns(Provider, DestinationConnectionString!, GetDestinationColumnSchemaFilter(DestinationSchema, tableMappings), null);
@@ -93,7 +94,7 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
         var options = new DbaTableCopyPlanOptions
         {
             IdentifierProvider = DbaXProviderHelpers.ToTableCopyProvider(Provider),
-            SourceSchema = SourceSchema,
+            SourceSchema = sourceSchemaFilter,
             DestinationSchema = DestinationSchema,
             IncludeViews = IncludeViews.IsPresent,
             TableMappings = tableMappings,
@@ -107,6 +108,22 @@ public sealed class CmdletGetDbaXTableCopyPlan : PSCmdlet
         };
 
         WriteObject(DbaTableCopyPlanner.BuildPlan(sourceTables, sourceColumns, sourceIndexes, destinationColumns, options));
+    }
+
+    internal static (string? SourceSchema, string? SourceTable) ResolveSourceTableFilter(string? sourceSchema, string? sourceTable)
+    {
+        if (string.IsNullOrWhiteSpace(sourceTable))
+        {
+            return (sourceSchema, sourceTable);
+        }
+
+        var parts = sourceTable!.Split(new[] { '.' }, 2);
+        if (parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
+        {
+            return (string.IsNullOrWhiteSpace(sourceSchema) ? parts[0] : sourceSchema, parts[1]);
+        }
+
+        return (sourceSchema, sourceTable);
     }
 
     internal static IReadOnlyList<DbaTableInfo> FilterSourceTables(DbaXProvider provider, IEnumerable<DbaTableInfo> sourceTables, string? sourceSchema, string? sourceTable)
