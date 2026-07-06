@@ -40,14 +40,45 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously executes a SQL query using a SQLite connection string and materializes the result using the shared pipeline.
+    /// </summary>
+    public virtual async Task<object?> QueryWithConnectionStringAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        var normalizedConnectionString = NormalizeConnectionString(connectionString);
+
+        SqliteConnection? connection = null;
+        SqliteTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            return await base.ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException or ArgumentException)
+        {
+            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+        }
+        finally
+        {
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -99,14 +130,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -139,14 +163,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -225,14 +242,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -266,14 +276,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -307,14 +310,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -348,12 +344,18 @@ public partial class SQLite
         }
         catch
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await connection.DisposeAsync().ConfigureAwait(false);
-#else
-            connection.Dispose();
-#endif
+            await DisposeSQLiteConnectionAsync(connection).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static ValueTask DisposeSQLiteConnectionAsync(SqliteConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
     }
 }

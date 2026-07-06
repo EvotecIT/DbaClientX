@@ -46,7 +46,7 @@ if ($WarmupCount -lt 0) {
     throw 'WarmupCount cannot be negative.'
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.43 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $settings = {

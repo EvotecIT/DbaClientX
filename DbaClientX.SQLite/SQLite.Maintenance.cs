@@ -161,6 +161,7 @@ public partial class SQLite
         ValidateDatabasePath(database);
         ValidateCommandText(pragma);
         EnsureNoActiveTransaction();
+        EnsureMaintenanceDatabaseExists(database);
 
         SqliteConnection? connection = null;
         try
@@ -201,6 +202,25 @@ public partial class SQLite
         if (IsInTransaction)
         {
             throw new DbaTransactionException("SQLite maintenance cannot run while a transaction is active.");
+        }
+    }
+
+    private static void EnsureMaintenanceDatabaseExists(string database)
+    {
+        if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var path = database;
+        if (Uri.TryCreate(database, UriKind.Absolute, out var uri) && uri.IsFile)
+        {
+            path = uri.LocalPath;
+        }
+
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"SQLite database file does not exist: {path}", path);
         }
     }
 }

@@ -6,7 +6,8 @@ param(
 )
 
 # Use this example to verify that the installed DbaClientX module can write
-# PowerShell objects into SQL Server and read the loaded row count back.
+# PowerShell objects into SQL Server through the provider-neutral bulk cmdlet
+# and read the loaded row count back.
 # Example:
 #   .\Example.SqlServerDataMovement.ps1 -Server localhost -Database tempdb -RowCount 100
 
@@ -14,7 +15,11 @@ Import-Module DbaClientX -Force
 
 $tableName = 'DbaClientXDataMovement_' + ([guid]::NewGuid().ToString('N').Substring(0, 12))
 $destinationTable = "dbo.$tableName"
-$connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
+$connectionString = New-DbaXConnectionString `
+    -Provider SqlServer `
+    -Server $Server `
+    -Database $Database `
+    -TrustServerCertificate
 
 try {
     Invoke-DbaXNonQuery -Server $Server -Database $Database -TrustServerCertificate -Query @"
@@ -36,7 +41,7 @@ CREATE TABLE $destinationTable
         }
     }
 
-    $writeResult = $rows | Write-DbaXTableData `
+    $writeResult = $rows | Invoke-DbaXBulkInsert `
         -Provider SqlServer `
         -ConnectionString $connectionString `
         -DestinationTable $destinationTable `

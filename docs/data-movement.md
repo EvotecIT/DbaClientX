@@ -401,7 +401,7 @@ Copy-DbaXTableData `
 Use the benchmark example for repeatable local SQL Server import evidence. The example is a thin wrapper over the PSPublishModule benchmark suite.
 
 ```powershell
-Install-Module PSPublishModule -MinimumVersion 3.0.43 -Scope CurrentUser
+Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
 
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
     -Server localhost `

@@ -60,6 +60,28 @@ public class SqliteTests
     }
 
     [Fact]
+    public async Task QueryWithConnectionStringAsync_ReturnsSchemaForEmptyDataTable()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE t(id INTEGER, name TEXT);");
+
+            var result = await sqlite.QueryWithConnectionStringAsync($"Data Source={path};Pooling=False", "SELECT id, name FROM t WHERE 1 = 0;");
+            var table = Assert.IsType<DataTable>(result);
+
+            Assert.Empty(table.Rows);
+            Assert.Contains("id", table.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+            Assert.Contains("name", table.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void Query_WithEmptySql_Throws()
     {
         using var sqlite = new DBAClientX.SQLite();
@@ -78,6 +100,31 @@ public class SqliteTests
         Assert.Equal(path, builder.DataSource);
         Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
+    [Fact]
+    public void NormalizeConnectionString_PreservesDataSourceUriMemoryModeWhenReadOnly()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-memory.db");
+        var connectionString = InvokeNormalizeConnectionString("Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared", readOnly: true);
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.Memory, builder.Mode);
+        Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
+    [Fact]
+    public void ExecuteScalarWithConnectionString_PreservesMemoryMode()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+        using var sqlite = new DBAClientX.SQLite();
+
+        var result = sqlite.ExecuteScalarWithConnectionString($"Data Source={database};Mode=Memory;Cache=Shared", "SELECT 1");
+
+        Assert.Equal(1L, result);
+        Assert.False(File.Exists(database));
     }
 
     private class OutputDictionarySqlite : DBAClientX.SQLite
@@ -500,6 +547,36 @@ public class SqliteTests
         }
     }
 
+    [Theory]
+    [InlineData("Checkpoint")]
+    [InlineData("Optimize")]
+    [InlineData("PrepareForShutdown")]
+    public async Task MaintenanceAsync_MissingFile_DoesNotCreateDatabase(string operation)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-missing-maintenance-" + Guid.NewGuid().ToString("N") + ".db");
+
+        using var sqlite = new DBAClientX.SQLite();
+
+        var exception = await Assert.ThrowsAsync<FileNotFoundException>(async () =>
+        {
+            switch (operation)
+            {
+                case "Checkpoint":
+                    await sqlite.CheckpointAsync(path);
+                    break;
+                case "Optimize":
+                    await sqlite.OptimizeAsync(path);
+                    break;
+                case "PrepareForShutdown":
+                    await sqlite.PrepareForShutdownAsync(path);
+                    break;
+            }
+        });
+
+        Assert.Contains("does not exist", exception.Message);
+        Assert.False(File.Exists(path));
+    }
+
     [Fact]
     public async Task PrepareForShutdownAsync_WhenTransactionActive_Throws()
     {
@@ -870,11 +947,11 @@ public class SqliteTests
         return connection;
     }
 
-    private static string InvokeNormalizeConnectionString(string connectionString)
+    private static string InvokeNormalizeConnectionString(string connectionString, bool readOnly = false)
     {
         var method = typeof(DBAClientX.SQLite).GetMethod("NormalizeConnectionString", BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new MissingMethodException(nameof(DBAClientX.SQLite), "NormalizeConnectionString");
 
-        return (string)method.Invoke(null, new object?[] { connectionString })!;
+        return (string)method.Invoke(null, new object?[] { connectionString, readOnly })!;
     }
 }

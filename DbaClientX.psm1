@@ -475,7 +475,7 @@ foreach ($Import in @($Classes + $Enums + $Private + $Public)) {
     }
 }
 
-$FunctionsToExport = @($Public | ForEach-Object { $_.BaseName })
-$CmdletsToExport = @('Copy-DbaXTableData', 'Get-DbaXMetadata', 'Get-DbaXSqlServerManagement', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXQuery', 'Invoke-DbaXSQLite', 'New-DbaXQuery', 'Write-DbaXTableData')
+$FunctionsToExport = @()
+$CmdletsToExport = @('ConvertTo-DbaXParameterMap', 'Copy-DbaXTableData', 'Get-DbaXMetadata', 'Get-DbaXProviderCapability', 'Get-DbaXSQLiteDiagnostics', 'Get-DbaXSqlServerManagement', 'Get-DbaXSqlServerMonitoring', 'Get-DbaXTableCopyPlan', 'Invoke-DbaXBulkInsert', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXQuery', 'Invoke-DbaXQueryStream', 'Invoke-DbaXSQLite', 'Invoke-DbaXSQLiteMaintenance', 'Invoke-DbaXSQLiteTransaction', 'Invoke-DbaXStoredProcedure', 'Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'New-DbaXQuery', 'New-DbaXTableCopyDefinition', 'New-DbaXTableCopyPlan', 'Test-DbaXConnection', 'Write-DbaXTableData')
 $AliasesToExport = @()
 Export-ModuleMember -Function $FunctionsToExport -Alias $AliasesToExport -Cmdlet $CmdletsToExport

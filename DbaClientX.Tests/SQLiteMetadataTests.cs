@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using DBAClientX.Metadata;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace DbaClientX.Tests;
@@ -57,7 +58,8 @@ public class SQLiteMetadataTests
             Assert.False(nameColumn.IsNullable);
             Assert.Equal("'unknown'", nameColumn.DefaultExpression);
 
-            Assert.Contains(columns, column => column.Name == "Slug");
+            var slugColumn = Assert.Single(columns, column => column.Name == "Slug");
+            Assert.Equal("STORED", slugColumn.GeneratedKind);
             Assert.DoesNotContain(tables, table => table.Name == "Docs_data");
             Assert.Contains(indexes, index => index.Name == "IX_Users_Name" && index.Column == "Name" && index.IsDescending == true && !index.IsPrimaryKey);
             Assert.Contains(indexes, index => index.Name == "IX_Users_LowerName" && index.Column is null && index.Expression != null && index.Expression.Contains("lower(Name)", StringComparison.OrdinalIgnoreCase) && index.FilterDefinition == "Name IS NOT NULL");
@@ -94,6 +96,49 @@ public class SQLiteMetadataTests
             var columns = sqlite.GetColumns(path, table: "Missing");
 
             Assert.Empty(columns);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void GetMetadataWithConnectionString_PreservesMemoryMode()
+    {
+        var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");
+        var connectionString = $"Data Source={database};Mode=Memory;Cache=Shared";
+
+        using var keepAlive = new SqliteConnection(connectionString);
+        keepAlive.Open();
+        using (var command = keepAlive.CreateCommand())
+        {
+            command.CommandText = "CREATE TABLE Users(Id INTEGER PRIMARY KEY, Name TEXT);";
+            command.ExecuteNonQuery();
+        }
+
+        using var sqlite = new DBAClientX.SQLite();
+
+        var tables = sqlite.GetTablesWithConnectionString(connectionString);
+        var columns = sqlite.GetColumnsWithConnectionString(connectionString, table: "Users");
+        var indexes = sqlite.GetIndexesWithConnectionString(connectionString, table: "Users");
+
+        Assert.Contains(tables, table => table.Name == "Users");
+        Assert.Contains(columns, column => column.Name == "Id");
+        Assert.Contains(indexes, index => index.IsPrimaryKey);
+        Assert.False(File.Exists(database));
+    }
+
+    [Fact]
+    public void GetMetadataWithConnectionString_MissingFileDoesNotCreateDatabase()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-missing-metadata-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+
+            Assert.Throws<SqliteException>(() => sqlite.GetTablesWithConnectionString($"Data Source={path}"));
+            Assert.False(File.Exists(path));
         }
         finally
         {

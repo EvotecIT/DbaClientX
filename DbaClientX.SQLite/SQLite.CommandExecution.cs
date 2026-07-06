@@ -81,6 +81,44 @@ public partial class SQLite
     }
 
     /// <summary>
+    /// Executes a SQL query that returns a single scalar value using a SQLite connection string.
+    /// </summary>
+    public virtual object? ExecuteScalarWithConnectionString(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        var normalizedConnectionString = NormalizeConnectionString(connectionString);
+
+        try
+        {
+            var (connection, transaction, dispose) = ResolveConnection(normalizedConnectionString, useTransaction);
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            if (dispose)
+            {
+                using (connection)
+                {
+                    return base.ExecuteScalar(connection, transaction, query, parameters, dbTypes, parameterDirections);
+                }
+            }
+
+            return base.ExecuteScalar(connection, transaction, query, parameters, dbTypes, parameterDirections);
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException or ArgumentException)
+        {
+            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+        }
+    }
+
+    /// <summary>
     /// Executes a SQL statement that does not return rows (for example <c>INSERT</c>, <c>UPDATE</c>, or <c>DELETE</c>).
     /// </summary>
     public virtual int ExecuteNonQuery(

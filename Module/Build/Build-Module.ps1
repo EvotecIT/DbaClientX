@@ -3,7 +3,7 @@
     [ValidateSet('Manifest', 'Build', 'Publish')]
     [string] $RunMode = 'Build',
 
-    [bool] $SignModule = $false,
+    [bool] $SignModule = $(if ($Env:COMPUTERNAME -eq 'EVOMONSTER') { $true } else { $false }),
 
     [string] $PowerShellGalleryApiKeyPath = 'C:\Support\Important\PowerShellGalleryAPI.txt',
 
@@ -91,7 +91,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
         SignModule                        = $SignModule
         MergeModuleOnBuild                = $true
         MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = '92e95fb58effa6a4a75e77a33cdd6bfe6dd30f1a'
+        CertificateThumbprint             = '483292C9E317AA13B07BB7A96AE9D1A5ED9E7703'
         DeleteTargetModuleBeforeBuild     = $true
         NETProjectPath                    = '..\DbaClientX.PowerShell\DbaClientX.PowerShell.csproj'
         ResolveBinaryConflicts            = $true
@@ -123,7 +123,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
         DotSourceLibraries                = $true
         DotSourceClasses                  = $true
         NETDevelopmentBinaries            = $true
-        NETDevelopmentBinariesMode        = 'Environment'
+        NETDevelopmentBinariesMode        = 'Auto'
         NETDevelopmentBinariesPath        = '..\DbaClientX.PowerShell\bin'
         NETDevelopmentSourceBootstrapperMode = 'ReplaceSingleFile'
     }

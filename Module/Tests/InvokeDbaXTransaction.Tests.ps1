@@ -1,3 +1,4 @@
+$env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 function Global:New-TransactionTestClient {
@@ -47,7 +48,7 @@ function Global:New-TransactionTestClient {
     return $client
 }
 
-Describe 'Invoke-DbaX*Transaction functions' {
+Describe 'Invoke-DbaX*Transaction cmdlets' {
     BeforeEach {
         $global:DbaXTransactionClientFactoryOverrides = @{}
     }
@@ -56,12 +57,13 @@ Describe 'Invoke-DbaX*Transaction functions' {
         $global:DbaXTransactionClientFactoryOverrides = @{}
     }
 
-    It 'exports transaction helper functions' {
+    It 'exports transaction helper cmdlets' {
         Get-Command Invoke-DbaXTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXMySqlTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXPostgreSqlTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXOracleTransaction | Should -Not -BeNullOrEmpty
         Get-Command Invoke-DbaXSQLiteTransaction | Should -Not -BeNullOrEmpty
+        Get-Command Invoke-DbaXTransaction | Select-Object -ExpandProperty CommandType | Should -Be 'Cmdlet'
     }
 
     It 'commits and disposes SQL Server transactions on success' {
@@ -108,6 +110,71 @@ Describe 'Invoke-DbaX*Transaction functions' {
 
         { Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock { throw 'boom' } -ErrorAction Stop } | Should -Throw 'boom'
         $state.BeginCalls | Should -Be 1
+        $state.CommitCalls | Should -Be 0
+        $state.RollbackCalls | Should -Be 1
+        $state.DisposeCalls | Should -Be 1
+    }
+
+    It 'preserves null output from transaction script blocks' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        $result = Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock { $null }
+
+        $result | Should -BeNullOrEmpty
+        $state.CommitCalls | Should -Be 1
+        $state.RollbackCalls | Should -Be 0
+    }
+
+    It 'preserves extended members from transaction script block output' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        $result = Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock {
+            'row' | Add-Member -MemberType NoteProperty -Name Extra -Value 'kept' -PassThru
+        }
+
+        $result | Should -Be 'row'
+        $result.Extra | Should -Be 'kept'
+        $state.CommitCalls | Should -Be 1
+        $state.RollbackCalls | Should -Be 0
+    }
+
+    It 'rolls back when ErrorAction Stop turns script block errors terminating' {
+        $state = @{
+            BeginCalls = 0
+            CommitCalls = 0
+            RollbackCalls = 0
+            DisposeCalls = 0
+            BeginArguments = @()
+        }
+        $global:DbaXTransactionClientFactoryOverrides['SqlServer'] = {
+            New-TransactionTestClient -State $state
+        }
+
+        {
+            Invoke-DbaXTransaction -Server 'sql' -Database 'app' -ScriptBlock {
+                Write-Error 'transaction body failed'
+                'should-not-commit'
+            } -ErrorAction Stop
+        } | Should -Throw '*transaction body failed*'
+
         $state.CommitCalls | Should -Be 0
         $state.RollbackCalls | Should -Be 1
         $state.DisposeCalls | Should -Be 1

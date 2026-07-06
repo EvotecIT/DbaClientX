@@ -119,8 +119,19 @@ public partial class SQLite : DatabaseClientBase
     private static string BuildOperationalConnectionString(string database, bool readOnly = false) =>
         BuildConnectionString(database, readOnly, busyTimeoutMs: null);
 
-    private static string NormalizeConnectionString(string connectionString)
-        => new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString)).ToString();
+    private static string NormalizeConnectionString(string connectionString, bool readOnly = false)
+    {
+        var builder = new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString));
+        if (readOnly &&
+            builder.Mode != SqliteOpenMode.Memory &&
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Mode = SqliteOpenMode.ReadOnly;
+            builder.Pooling = false;
+        }
+
+        return builder.ToString();
+    }
 
     internal static string TranslateSQLiteFullUri(string connectionString)
     {
@@ -128,24 +139,51 @@ public partial class SQLite : DatabaseClientBase
         {
             ConnectionString = connectionString
         };
-        if (!builder.TryGetValue("FullUri", out var value) || value == null)
+
+        if (TryTranslateSQLiteSourceUri(builder, "FullUri", removeSourceKey: true))
         {
-            return connectionString;
+            return builder.ConnectionString;
         }
 
-        builder.Remove("FullUri");
+        foreach (var sourceKey in new[] { "Data Source", "DataSource", "Filename" })
+        {
+            if (TryTranslateSQLiteSourceUri(builder, sourceKey, removeSourceKey: false))
+            {
+                return builder.ConnectionString;
+            }
+        }
+
+        return connectionString;
+    }
+
+    private static bool TryTranslateSQLiteSourceUri(DbConnectionStringBuilder builder, string sourceKey, bool removeSourceKey)
+    {
+        if (!builder.TryGetValue(sourceKey, out var value) || value == null)
+        {
+            return false;
+        }
+
         var uriText = value.ToString();
         if (Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile)
         {
+            if (removeSourceKey)
+            {
+                builder.Remove(sourceKey);
+            }
+
             builder["Data Source"] = uri.LocalPath;
             ApplySQLiteFullUriQueryOptions(builder, uri);
-        }
-        else
-        {
-            builder["Data Source"] = uriText;
+            return true;
         }
 
-        return builder.ConnectionString;
+        if (removeSourceKey)
+        {
+            builder.Remove(sourceKey);
+            builder["Data Source"] = uriText;
+            return true;
+        }
+
+        return false;
     }
 
     private static void ApplySQLiteFullUriQueryOptions(DbConnectionStringBuilder builder, Uri uri)
