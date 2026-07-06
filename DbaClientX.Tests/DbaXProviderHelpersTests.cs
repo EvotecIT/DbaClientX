@@ -80,6 +80,17 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteConnectionString_BuildsRawDatabasePathsContainingEqualsSigns()
+    {
+        const string path = "app=prod.db";
+
+        var actual = DbaXProviderHelpers.GetSQLiteConnectionString(path);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_BuildsRawDatabasePaths()
     {
         const string path = "data.db";
@@ -157,6 +168,20 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteReadOnlyConnectionString_ForcesReadOnlyAndPreservesDataSourceUriCache()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-cache.db");
+        var connectionString = "Data Source=" + new Uri(path).AbsoluteUri + "?cache=shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+        var builder = new SqliteConnectionStringBuilder(actual);
+
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+        Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+    }
+
+    [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesFullUriMemoryMode()
     {
         var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-memory.db");
@@ -168,10 +193,32 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void GetSQLiteReadOnlyConnectionString_PreservesDataSourceUriMemoryMode()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-memory.db");
+        var connectionString = "Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
+
+        Assert.Equal(connectionString, actual);
+    }
+
+    [Fact]
     public void IsSQLiteFileBackedDatabase_TreatsFullUriMemoryModeAsMemory()
     {
         var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-memory-probe.db");
         var connectionString = "FullUri=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var fileBacked = DbaXProviderHelpers.IsSQLiteFileBackedDatabase(connectionString);
+
+        Assert.False(fileBacked);
+    }
+
+    [Fact]
+    public void IsSQLiteFileBackedDatabase_TreatsDataSourceUriMemoryModeAsMemory()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-memory-probe.db");
+        var connectionString = "Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
 
         var fileBacked = DbaXProviderHelpers.IsSQLiteFileBackedDatabase(connectionString);
 
@@ -217,6 +264,47 @@ public class DbaXProviderHelpersTests
         var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
 
         Assert.Contains("file-backed", exception.Message);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_RejectsNonFileFullUriConnectionStrings()
+    {
+        const string connectionString = "FullUri=https://example.test/app.db";
+
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
+
+        Assert.Contains("file-backed SQLite FullUri", exception.Message);
+    }
+
+    [Fact]
+    public void GetSQLiteDatabasePath_RejectsDataSourceUriMemoryConnectionStrings()
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-datasource-uri-memory-path.db");
+        var connectionString = "Data Source=" + new Uri(path).AbsoluteUri + "?mode=memory&cache=shared";
+
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
+
+        Assert.Contains("file-backed", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(@"..\unsafe.db")]
+    [InlineData(@"Data Source=..\unsafe.db")]
+    public void GetSQLiteDatabasePath_RejectsUnsafeRelativePaths(string input)
+    {
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(input, "SQLite maintenance"));
+
+        Assert.Contains("unsafe relative path", exception.Message);
+    }
+
+    [Theory]
+    [InlineData(@"..\unsafe.db")]
+    [InlineData(@"Data Source=..\unsafe.db")]
+    public void GetSQLiteReadOnlyConnectionString_RejectsUnsafeRelativePaths(string input)
+    {
+        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(input));
+
+        Assert.Contains("unsafe relative path", exception.Message);
     }
 
     [Fact]

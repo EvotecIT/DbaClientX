@@ -247,9 +247,9 @@ internal static class DbaXProviderHelpers
                     return databaseOrConnectionString;
                 }
 
-                return preserveOptionBearingConnectionStrings && HasSQLiteConnectionOptions(builder, candidate.Key, value)
+                return preserveOptionBearingConnectionStrings && HasSQLiteConnectionOptions(builder, value)
                     ? databaseOrConnectionString
-                    : ResolveSQLiteDatabaseValue(candidate.Key, value);
+                    : ResolveSQLiteDatabaseValue(value);
             }
         }
         catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
@@ -267,6 +267,7 @@ internal static class DbaXProviderHelpers
     {
         if (!MayBeConnectionString(databaseOrConnectionString))
         {
+            ValidateSQLiteDatabasePath(databaseOrConnectionString);
             return databaseOrConnectionString;
         }
 
@@ -294,26 +295,27 @@ internal static class DbaXProviderHelpers
             }
 
             if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
-                Uri.TryCreate(value, UriKind.Absolute, out var uri))
+                Uri.TryCreate(value, UriKind.Absolute, out var fullUri) &&
+                !fullUri.IsFile)
             {
-                if (!uri.IsFile)
-                {
-                    throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
-                }
+                throw new PSArgumentException($"{operationName} requires a file-backed SQLite FullUri.");
+            }
 
-                ApplySQLiteFullUriQueryOptions(builder, uri);
+            if (TryApplySQLiteSourceUriOptions(builder, value, out _))
+            {
                 if (IsSQLiteMemoryMode(builder))
                 {
                     throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
                 }
             }
 
-            var database = ResolveSQLiteDatabaseValue(sourceKey, value);
+            var database = ResolveSQLiteDatabaseValue(value);
             if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
             {
                 throw new PSArgumentException($"{operationName} requires a file-backed SQLite database path.");
             }
 
+            ValidateSQLiteDatabasePath(database);
             return database;
         }
 
@@ -328,12 +330,7 @@ internal static class DbaXProviderHelpers
     internal static string GetValidatedSQLiteConnectionString(string databaseOrConnectionString)
     {
         var connectionString = GetSQLiteConnectionString(databaseOrConnectionString);
-        var validation = DbaConnectionFactory.Validate("sqlite", connectionString);
-        if (!validation.IsValid)
-        {
-            throw new PSArgumentException(DbaConnectionFactory.ToUserMessage(validation));
-        }
-
+        ValidateSQLiteConnectionString(connectionString);
         return connectionString;
     }
 
@@ -341,6 +338,7 @@ internal static class DbaXProviderHelpers
     {
         if (!MayBeConnectionString(databaseOrConnectionString))
         {
+            ValidateSQLiteDatabasePath(databaseOrConnectionString);
             return DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
         }
 
@@ -368,16 +366,18 @@ internal static class DbaXProviderHelpers
                 return databaseOrConnectionString;
             }
 
-            if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase))
+            if (TryApplySQLiteSourceUriOptions(builder, value, out var uri))
             {
-                if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || !uri.IsFile)
+                if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase))
                 {
-                    return databaseOrConnectionString;
+                    builder.Remove(sourceKey);
+                    builder["Data Source"] = uri.LocalPath;
+                }
+                else
+                {
+                    builder[sourceKey] = uri.LocalPath;
                 }
 
-                builder.Remove(sourceKey);
-                builder["Data Source"] = uri.LocalPath;
-                ApplySQLiteFullUriQueryOptions(builder, uri);
                 if (builder.TryGetValue("Mode", out var fullUriMode) &&
                     string.Equals(fullUriMode?.ToString(), "Memory", StringComparison.OrdinalIgnoreCase))
                 {
@@ -392,7 +392,9 @@ internal static class DbaXProviderHelpers
 
             builder["Mode"] = "ReadOnly";
             builder["Pooling"] = "False";
-            return builder.ConnectionString;
+            var connectionString = builder.ConnectionString;
+            ValidateSQLiteConnectionString(connectionString);
+            return connectionString;
         }
 
         return databaseOrConnectionString;
@@ -412,7 +414,21 @@ internal static class DbaXProviderHelpers
             : StringComparison.OrdinalIgnoreCase;
 
     private static bool MayBeConnectionString(string value)
-        => value.Contains(';') || value.Contains('=');
+    {
+        if (value.Contains(';'))
+        {
+            return true;
+        }
+
+        var separator = value.IndexOf('=');
+        if (separator <= 0)
+        {
+            return false;
+        }
+
+        var key = value.Substring(0, separator).Trim();
+        return IsSQLiteConnectionStringKey(key);
+    }
 
     internal static bool IsSQLiteFileBackedDatabase(string databaseOrConnectionString)
     {
@@ -426,12 +442,9 @@ internal static class DbaXProviderHelpers
                 }
 
                 var value = sourceValue?.ToString();
-                if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
-                    value != null &&
-                    Uri.TryCreate(value, UriKind.Absolute, out var fullUri) &&
-                    fullUri.IsFile)
+                if (value != null)
                 {
-                    ApplySQLiteFullUriQueryOptions(builder, fullUri);
+                    TryApplySQLiteSourceUriOptions(builder, value, out _);
                 }
 
                 break;
@@ -476,10 +489,10 @@ internal static class DbaXProviderHelpers
         }
     }
 
-    private static bool HasSQLiteConnectionOptions(DbConnectionStringBuilder builder, string sourceKey, string sourceValue)
+    private static bool HasSQLiteConnectionOptions(DbConnectionStringBuilder builder, string sourceValue)
     {
-        if (string.Equals(sourceKey, "FullUri", StringComparison.OrdinalIgnoreCase) &&
-            Uri.TryCreate(sourceValue, UriKind.Absolute, out var uri) &&
+        if (Uri.TryCreate(sourceValue, UriKind.Absolute, out var uri) &&
+            uri.IsFile &&
             !string.IsNullOrEmpty(uri.Query))
         {
             return true;
@@ -562,15 +575,49 @@ internal static class DbaXProviderHelpers
            string.Equals(key, "Filename", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase);
 
-    private static string ResolveSQLiteDatabaseValue(string key, string value)
-        => string.Equals(key, "FullUri", StringComparison.OrdinalIgnoreCase)
-            ? ResolveSQLiteFullUriDatabase(value)
-            : value;
+    private static string ResolveSQLiteDatabaseValue(string value)
+        => ResolveSQLiteFullUriDatabase(value);
 
     private static string ResolveSQLiteFullUriDatabase(string value)
         => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile
             ? uri.LocalPath
             : value;
+
+    private static bool IsSQLiteConnectionStringKey(string key)
+        => IsSQLiteSourceKey(key) ||
+           string.Equals(key, "Mode", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Cache", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Password", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Pooling", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Default Timeout", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Command Timeout", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Foreign Keys", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(key, "Recursive Triggers", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryApplySQLiteSourceUriOptions(DbConnectionStringBuilder builder, string value, out Uri uri)
+    {
+        if (Uri.TryCreate(value, UriKind.Absolute, out var parsedUri) && parsedUri.IsFile)
+        {
+            uri = parsedUri;
+            ApplySQLiteFullUriQueryOptions(builder, uri);
+            return true;
+        }
+
+        uri = null!;
+        return false;
+    }
+
+    private static void ValidateSQLiteDatabasePath(string database)
+        => ValidateSQLiteConnectionString(DBAClientX.SQLite.BuildConnectionString(database));
+
+    private static void ValidateSQLiteConnectionString(string connectionString)
+    {
+        var validation = DbaConnectionFactory.Validate("sqlite", connectionString);
+        if (!validation.IsValid)
+        {
+            throw new PSArgumentException(DbaConnectionFactory.ToUserMessage(validation));
+        }
+    }
 
     private static string Require(string? value, string parameterName, DbaXProvider provider)
         => string.IsNullOrEmpty(value)

@@ -40,14 +40,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -85,14 +78,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -144,14 +130,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -184,14 +163,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -270,14 +242,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -311,14 +276,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -352,14 +310,7 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose && connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -393,12 +344,18 @@ public partial class SQLite
         }
         catch
         {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await connection.DisposeAsync().ConfigureAwait(false);
-#else
-            connection.Dispose();
-#endif
+            await DisposeSQLiteConnectionAsync(connection).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static ValueTask DisposeSQLiteConnectionAsync(SqliteConnection connection)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+        return connection.DisposeAsync();
+#else
+        connection.Dispose();
+        return default;
+#endif
     }
 }

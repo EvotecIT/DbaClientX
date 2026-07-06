@@ -194,7 +194,7 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $result.PingError | Should -Not -BeNullOrEmpty
     }
 
-    It 'validates SQLite connection input for full-connection streaming and bulk insert' {
+    It 'validates SQLite connection input for full-connection streaming' -Skip:($PSVersionTable.PSEdition -ne 'Core') {
         {
             Invoke-DbaXQueryStream `
                 -Provider SQLite `
@@ -202,7 +202,9 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
                 -Query 'SELECT 1' `
                 -ErrorAction Stop
         } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+    }
 
+    It 'validates SQLite connection input for full-connection bulk insert' {
         {
             [pscustomobject]@{ Id = 1 } |
                 Invoke-DbaXBulkInsert `
@@ -213,7 +215,7 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         } | Should -Throw -ExpectedMessage '*unsafe relative path*'
     }
 
-    It 'returns empty SQLite DataTable schema from query stream aggregate output' {
+    It 'returns empty SQLite DataTable schema from query stream aggregate output' -Skip:($PSVersionTable.PSEdition -ne 'Core') {
         $path = [IO.Path]::GetTempFileName()
         try {
             $sqlite = [DBAClientX.SQLite]::new()
@@ -232,6 +234,20 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         } finally {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    It 'validates SQLite paths for diagnostics maintenance and metadata surfaces' {
+        {
+            Get-DbaXSQLiteDiagnostics -Database '..\unsafe.db' -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+
+        {
+            Invoke-DbaXSQLiteMaintenance -Database '..\unsafe.db' -Action Optimize -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*unsafe relative path*'
+
+        {
+            Get-DbaXTableCopyPlan -Provider SQLite -ConnectionString '..\unsafe.db' -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*unsafe relative path*'
     }
 
     It 'rejects full-connection transaction switches before provider execution' {
