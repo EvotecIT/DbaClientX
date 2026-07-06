@@ -64,6 +64,18 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $mapped['@name'] | Should -Be 'Ada'
     }
 
+    It 'maps indexed nested PowerShell objects to provider parameters' {
+        $mapped = [pscustomobject]@{
+            Users = @(
+                [pscustomobject]@{
+                    Name = 'Ada'
+                }
+            )
+        } | ConvertTo-DbaXParameterMap -Map @{ 'Users.0.Name' = '@name' }
+
+        $mapped['@name'] | Should -Be 'Ada'
+    }
+
     It 'does not evaluate unmapped PowerShell properties while mapping parameters' {
         $row = [pscustomobject]@{
             Name = 'Ada'

@@ -54,6 +54,14 @@ public sealed class CmdletConvertToDbaXParameterMap : PSCmdlet
 
     private static object? NormalizeInputObject(object? input, IEnumerable<string>? mappedPaths = null)
     {
+        if (input is IEnumerable enumerable
+            and not string
+            and not IDictionary
+            and not PSObject)
+        {
+            return NormalizeList(enumerable, mappedPaths);
+        }
+
         if (input is not PSObject psObject)
         {
             return input;
@@ -90,5 +98,32 @@ public sealed class CmdletConvertToDbaXParameterMap : PSCmdlet
         }
 
         return values;
+    }
+
+    private static object? NormalizeList(IEnumerable input, IEnumerable<string>? mappedPaths)
+    {
+        var values = new List<object?>();
+        var mappedPathsByIndex = mappedPaths?
+            .Where(static path => !string.IsNullOrWhiteSpace(path))
+            .Select(static path => path.Split(new[] { '.' }, 2))
+            .Where(static parts => int.TryParse(parts[0], out var index) && index >= 0)
+            .GroupBy(static parts => int.Parse(parts[0]))
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Where(static parts => parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                    .Select(static parts => parts[1])
+                    .ToArray());
+
+        var index = 0;
+        foreach (var value in input)
+        {
+            string[]? itemPaths = null;
+            mappedPathsByIndex?.TryGetValue(index, out itemPaths);
+            values.Add(itemPaths is { Length: > 0 } ? NormalizeInputObject(value, itemPaths) : value);
+            index++;
+        }
+
+        return values.ToArray();
     }
 }
