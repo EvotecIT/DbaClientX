@@ -66,7 +66,7 @@ Start with the job you need to finish:
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | `DBAClientX.Core` owns the copy contracts/runner; provider packages own concrete adapters |
 | Export SQL rows to CSV or Excel and import the file back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeCsv` / `Import-OfficeCsv` or `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns file-format work |
 
-The CSV round-trip path requires a PSWriteOffice build that exposes `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`. When those CSV cmdlets are not available, use the Excel lane or pass `-PSWriteOfficeModulePath` to a compatible local PSWriteOffice build.
+The CSV round-trip path requires a PSWriteOffice build that exposes `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`. Compressed CSV, null/date formatting, duplicate-header behavior, quote parsing, and static metadata columns require the newer PSWriteOffice CSV surface backed by OfficeIMO.CSV. When those CSV cmdlets are not available, use the Excel lane or pass `-PSWriteOfficeModulePath` to a compatible local PSWriteOffice build.
 
 The PowerShell layer is intentionally thin: it maps friendly parameters to provider-owned C# APIs. Put repeatable database behavior in DbaClientX and keep consumer scripts focused on choosing source data, destination names, and credentials.
 
@@ -325,14 +325,15 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | --- | --- | --- | --- |
 | SQL query/table to CSV | `Export-DbaCsv -SqlInstance/-Database/-Query/-Table` | `Invoke-DbaXQuery -ReturnType DataTable` then `Export-OfficeCsv` | `Csv` round trip compares both engines |
 | CSV to SQL bulk load | `Import-DbaCsv` uses SQL Server bulk copy | `Import-OfficeCsv -AsDataTable` then `Write-DbaXTableData -Provider SqlServer` | `Csv` round trip compares both engines |
-| Compressed CSV | `Export-DbaCsv -CompressionType` and `.csv.gz` import | OfficeIMO owns compressed CSV core; PSWriteOffice compression surface is pending that release | `CsvGZip` is present; DbaClientX lane skips until PSWriteOffice exposes compression |
+| Compressed CSV | `Export-DbaCsv -CompressionType` and `.csv.gz` import | OfficeIMO owns compressed CSV core; PSWriteOffice exposes `Export-OfficeCsv -CompressionType` and `Import-OfficeCsv -CompressionType` in the CSV parity surface | `CsvGZip` compares both engines when the installed modules expose compression |
 | Excel to or from SQL | Not a dbatools CSV feature | `Export-OfficeExcel` / `Import-OfficeExcel -AsDataTable` with `Write-DbaXTableData` | `Excel` round trip covers the direct Excel path |
 | Bulk-write knobs | `BatchSize`, `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, `KeepNulls` | `Write-DbaXTableData` exposes the same SQL Server bulk-copy knobs | Covered by data-movement and office round-trip suites |
 | Auto-create destination table | `Import-DbaCsv -AutoCreateTable` with optional column optimization | `Write-DbaXTableData -AutoCreateTable`; typed columns depend on the incoming `DataTable` | Covered by round-trip suites |
 | Column mapping and selected columns | `Column`, `ColumnMap`, ordinal fallback | `Write-DbaXTableData -ColumnMap`; select or shape columns before the file/database boundary | Covered by command tests, not yet by office round-trip benchmark |
-| CSV dialect basics | Delimiter, no header, quote, encoding, null value, culture-oriented parsing | Delimiter, no header/header, quote mode, encoding, culture, trimming, comments, W3C headers | Partly covered by PSWriteOffice CSV tests; round-trip benchmark uses the default dialect |
-| Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, parse-error collection | Skip rows, comments, W3C headers, column-count mismatch policy; duplicate header and parse-error collection remain parity gaps | Not yet part of the DbaClientX round-trip benchmark |
-| Type detection for CSV import | `SampleRows` and `DetectColumnTypes` | Use typed Excel/DataTable input or shape CSV values before bulk load; CSV type detection remains a parity gap | Not benchmarked yet |
+| CSV dialect basics | Delimiter, no header, quote, encoding, null value, date format, UTC conversion, culture-oriented parsing | Delimiter, no header/header, quote mode, encoding, null value, date format, UTC conversion, culture, trimming, comments, W3C headers | Covered by PSWriteOffice CSV tests; round-trip benchmark uses the default dialect |
+| Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, static columns, parse-error collection | Skip rows, comments, W3C headers, duplicate header behavior, column-count mismatch policy, strict/lenient quote parsing, static columns; parse-error collection remains a gap | Mostly covered by PSWriteOffice CSV tests; round-trip benchmark keeps the default happy path |
+| Multi-character delimiters | Supported by the Dataplat/dbatools CSV library | OfficeIMO.CSV and PSWriteOffice currently support single-character delimiters only | Documented boundary; not benchmarked as an equivalent lane |
+| Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice `-AsDataTable` remains string/DataTable-oriented before `Write-DbaXTableData -AutoCreateTable` | Not benchmarked yet as a SQL type-inference lane |
 | Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
 
 ```powershell

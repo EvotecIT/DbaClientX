@@ -4,6 +4,8 @@ param(
     [string] $SourceTable = 'dbo.DbaClientXCsvSource',
     [string] $DestinationTable = 'dbo.DbaClientXCsvRoundTrip',
     [string] $CsvPath = (Join-Path $PWD 'DbaClientXCsvRoundTrip.csv'),
+    [ValidateSet('Auto', 'None', 'GZip', 'Deflate', 'Brotli', 'ZLib')]
+    [string] $CompressionType = 'Auto',
     [int] $RowCount = 100,
     [switch] $KeepArtifacts
 )
@@ -25,6 +27,11 @@ $exportOfficeCsv = Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue
 $importOfficeCsv = Get-Command Import-OfficeCsv -ErrorAction SilentlyContinue
 if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
     throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable. Import or install a compatible PSWriteOffice build before running the example.'
+}
+if ($CompressionType -ne 'Auto' -and
+    (-not $exportOfficeCsv.Parameters.ContainsKey('CompressionType') -or
+     -not $importOfficeCsv.Parameters.ContainsKey('CompressionType'))) {
+    throw 'This compressed CSV round-trip requires PSWriteOffice with Export-OfficeCsv -CompressionType and Import-OfficeCsv -CompressionType.'
 }
 
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
@@ -72,15 +79,23 @@ try {
         Remove-Item -LiteralPath $CsvPath -Force
     }
 
-    $rows |
-        Export-OfficeCsv `
-            -Path $CsvPath `
-            -ErrorAction Stop | Out-Null
+    $csvExportParameters = @{
+        Path = $CsvPath
+        ErrorAction = 'Stop'
+    }
+    $csvImportParameters = @{
+        Path = $CsvPath
+        AsDataTable = $true
+        ErrorAction = 'Stop'
+    }
+    if ($CompressionType -ne 'Auto') {
+        $csvExportParameters.CompressionType = $CompressionType
+        $csvImportParameters.CompressionType = $CompressionType
+    }
 
-    $csvTable = Import-OfficeCsv `
-        -Path $CsvPath `
-        -AsDataTable `
-        -ErrorAction Stop
+    $rows | Export-OfficeCsv @csvExportParameters | Out-Null
+
+    $csvTable = Import-OfficeCsv @csvImportParameters
 
     $writeResult = $csvTable |
         Write-DbaXTableData `
@@ -118,6 +133,7 @@ try {
         Server = $Server
         Database = $Database
         CsvPath = $CsvPath
+        CompressionType = $CompressionType
         SourceTable = $SourceTable
         DestinationTable = $DestinationTable
         ExportedRows = $rows.Count
