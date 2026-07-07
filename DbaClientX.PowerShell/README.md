@@ -49,15 +49,25 @@ $rows | Write-DbaXTableData `
     -PassThru
 ```
 
-Import Excel rows with PSWriteOffice and let DbaClientX own the database write:
+Import CSV or Excel rows with PSWriteOffice and let DbaClientX own the database write:
 
 ```powershell
-Import-OfficeExcel .\Users.xlsx -AsDataTable |
+Import-OfficeCsv .\Users.csv -AsDataTable |
     Write-DbaXTableData `
         -Provider PostgreSql `
         -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret;SslMode=Require' `
         -DestinationTable 'public.import_users' `
         -BatchSize 5000
+```
+
+```powershell
+Import-OfficeExcel .\Users.xlsx -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'dbo.ImportUsers' `
+        -AutoCreateTable `
+        -TableLock
 ```
 
 ## Copy A Table Between Providers
