@@ -319,6 +319,22 @@ By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` module
 
 If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`, the wrapper skips the DbaClientX CSV lane and runs any remaining file kinds. The `CsvGZip` lane also requires PSWriteOffice CSV compression parameters so the benchmark cannot accidentally measure an uncompressed `.csv.gz` file. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets. If dbatools is not installed or does not expose `Export-DbaCsv` and `Import-DbaCsv`, the wrapper skips the dbatools CSV lane. The compressed dbatools lane also requires `Export-DbaCsv -CompressionType`, and passes `GZip` explicitly when it is available.
 
+The benchmark is intentionally paired with feature coverage, because the useful target is not only the fastest happy path. dbatools documents a broad CSV-to-SQL surface in `Import-DbaCsv` and `Export-DbaCsv`; this table keeps the comparable DbaClientX + PSWriteOffice surface visible while the remaining gaps are closed in the owning libraries.
+
+| Capability | dbatools CSV path | DbaClientX + PSWriteOffice path | Benchmark visibility |
+| --- | --- | --- | --- |
+| SQL query/table to CSV | `Export-DbaCsv -SqlInstance/-Database/-Query/-Table` | `Invoke-DbaXQuery -ReturnType DataTable` then `Export-OfficeCsv` | `Csv` round trip compares both engines |
+| CSV to SQL bulk load | `Import-DbaCsv` uses SQL Server bulk copy | `Import-OfficeCsv -AsDataTable` then `Write-DbaXTableData -Provider SqlServer` | `Csv` round trip compares both engines |
+| Compressed CSV | `Export-DbaCsv -CompressionType` and `.csv.gz` import | OfficeIMO owns compressed CSV core; PSWriteOffice compression surface is pending that release | `CsvGZip` is present; DbaClientX lane skips until PSWriteOffice exposes compression |
+| Excel to or from SQL | Not a dbatools CSV feature | `Export-OfficeExcel` / `Import-OfficeExcel -AsDataTable` with `Write-DbaXTableData` | `Excel` round trip covers the direct Excel path |
+| Bulk-write knobs | `BatchSize`, `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, `KeepNulls` | `Write-DbaXTableData` exposes the same SQL Server bulk-copy knobs | Covered by data-movement and office round-trip suites |
+| Auto-create destination table | `Import-DbaCsv -AutoCreateTable` with optional column optimization | `Write-DbaXTableData -AutoCreateTable`; typed columns depend on the incoming `DataTable` | Covered by round-trip suites |
+| Column mapping and selected columns | `Column`, `ColumnMap`, ordinal fallback | `Write-DbaXTableData -ColumnMap`; select or shape columns before the file/database boundary | Covered by command tests, not yet by office round-trip benchmark |
+| CSV dialect basics | Delimiter, no header, quote, encoding, null value, culture-oriented parsing | Delimiter, no header/header, quote mode, encoding, culture, trimming, comments, W3C headers | Partly covered by PSWriteOffice CSV tests; round-trip benchmark uses the default dialect |
+| Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, parse-error collection | Skip rows, comments, W3C headers, column-count mismatch policy; duplicate header and parse-error collection remain parity gaps | Not yet part of the DbaClientX round-trip benchmark |
+| Type detection for CSV import | `SampleRows` and `DetectColumnTypes` | Use typed Excel/DataTable input or shape CSV values before bulk load; CSV type detection remains a parity gap | Not benchmarked yet |
+| Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
+
 ```powershell
 .\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
 ```
