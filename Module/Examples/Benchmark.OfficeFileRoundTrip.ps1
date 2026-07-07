@@ -110,6 +110,34 @@ $settings = {
         return $true
     }
 
+    function Test-DbaClientXOfficeExcelCommandAvailability {
+        param(
+            [string] $ModulePath
+        )
+
+        try {
+            $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
+        } catch {
+            Write-Warning "Skipping Excel office file benchmark lane because PSWriteOffice could not be imported from '$ModulePath': $($_.Exception.Message)"
+            return $false
+        }
+
+        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
+        $exportCommand = Get-Command Export-OfficeExcel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
+        $importCommand = Get-Command Import-OfficeExcel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
+        if (-not $exportCommand -or -not $importCommand) {
+            Write-Warning "Skipping Excel office file benchmark lane because the imported PSWriteOffice module does not expose Export-OfficeExcel and Import-OfficeExcel."
+            return $false
+        }
+
+        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
+            Write-Warning "Skipping Excel office file benchmark lane because Import-OfficeExcel does not expose -AsDataTable."
+            return $false
+        }
+
+        return $true
+    }
+
     function Test-DbaToolsCsvCommandAvailability {
         param(
             [switch] $RequireCompression
@@ -210,6 +238,7 @@ FROM numbers;
     $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
     $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
     $testOfficeCsvCommands = ${function:Test-DbaClientXOfficeCsvCommandAvailability}
+    $testOfficeExcelCommands = ${function:Test-DbaClientXOfficeExcelCommandAvailability}
     $testDbaToolsCsvCommands = ${function:Test-DbaToolsCsvCommandAvailability}
     benchmark 'office-file-roundtrip' -out $outputRootBase {
         policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
@@ -287,13 +316,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -eq 'CsvGZip'))
             }
 
-            return -not (
-                (Get-Command Export-OfficeExcel -ErrorAction SilentlyContinue) -and
-                @(
-                    Get-Command Import-OfficeExcel -ErrorAction SilentlyContinue |
-                        Where-Object { $_.Parameters.ContainsKey('AsDataTable') }
-                ).Count -gt 0
-            )
+            return -not (& $testOfficeExcelCommands -ModulePath $psWriteOfficeModulePath)
         }
 
         engine DbaClientX {
@@ -312,8 +335,22 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     -ErrorAction Stop
 
                 if ($case.FileKind -in @('Csv', 'CsvGZip')) {
-                    $data | Export-OfficeCsv -Path $run.FilePath -ErrorAction Stop
-                    $imported = Import-OfficeCsv -Path $run.FilePath -AsDataTable -ErrorAction Stop
+                    $csvExportParameters = @{
+                        Path = $run.FilePath
+                        ErrorAction = 'Stop'
+                    }
+                    $csvImportParameters = @{
+                        Path = $run.FilePath
+                        AsDataTable = $true
+                        ErrorAction = 'Stop'
+                    }
+                    if ($case.FileKind -eq 'CsvGZip') {
+                        $csvExportParameters.CompressionType = 'GZip'
+                        $csvImportParameters.CompressionType = 'GZip'
+                    }
+
+                    $data | Export-OfficeCsv @csvExportParameters
+                    $imported = Import-OfficeCsv @csvImportParameters
                 } else {
                     $data | Export-OfficeExcel -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
                     $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
