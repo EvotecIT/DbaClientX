@@ -110,6 +110,26 @@ $settings = {
         return $true
     }
 
+    function Test-DbaToolsCsvCommandAvailability {
+        param(
+            [switch] $RequireCompression
+        )
+
+        $connectCommand = Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue
+        $exportCommand = Get-Command Export-DbaCsv -ErrorAction SilentlyContinue
+        $importCommand = Get-Command Import-DbaCsv -ErrorAction SilentlyContinue
+        if (-not $connectCommand -or -not $exportCommand -or -not $importCommand) {
+            return $false
+        }
+
+        if ($RequireCompression.IsPresent -and -not $exportCommand.Parameters.ContainsKey('CompressionType')) {
+            Write-Warning "Skipping compressed dbatools CSV benchmark lane because Export-DbaCsv does not expose -CompressionType."
+            return $false
+        }
+
+        return $true
+    }
+
     $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } elseif ($fileKinds -contains 'CsvGZip') { 'CsvGZip' } else { $fileKinds[0] }
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
@@ -190,6 +210,7 @@ FROM numbers;
     $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
     $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
     $testOfficeCsvCommands = ${function:Test-DbaClientXOfficeCsvCommandAvailability}
+    $testDbaToolsCsvCommands = ${function:Test-DbaToolsCsvCommandAvailability}
     benchmark 'office-file-roundtrip' -out $outputRootBase {
         policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
         profile Current -Cleanup KeepOnFailure
@@ -259,11 +280,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     return $true
                 }
 
-                return -not (
-                    (Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue) -and
-                    (Get-Command Export-DbaCsv -ErrorAction SilentlyContinue) -and
-                    (Get-Command Import-DbaCsv -ErrorAction SilentlyContinue)
-                )
+                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -eq 'CsvGZip'))
             }
 
             if ($case.FileKind -in @('Csv', 'CsvGZip')) {
@@ -332,6 +349,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 $exportCommand = Get-Command Export-DbaCsv -ErrorAction Stop
                 if ($exportCommand.Parameters.ContainsKey('QuotingBehavior')) {
                     $exportParameters.QuotingBehavior = 'Always'
+                }
+                if ($case.FileKind -eq 'CsvGZip' -and $exportCommand.Parameters.ContainsKey('CompressionType')) {
+                    $exportParameters.CompressionType = 'GZip'
+                }
+                if ($case.FileKind -eq 'CsvGZip' -and $exportCommand.Parameters.ContainsKey('CompressionLevel')) {
+                    $exportParameters.CompressionLevel = 'Optimal'
                 }
                 if ($exportCommand.Parameters.ContainsKey('EnableException')) {
                     $exportParameters.EnableException = $true
