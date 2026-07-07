@@ -2,7 +2,7 @@ param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(1000),
-    [ValidateSet('Csv', 'Excel')]
+    [ValidateSet('Csv', 'CsvGZip', 'Excel')]
     [string[]] $FileKind = @('Csv', 'Excel'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
@@ -75,7 +75,10 @@ $settings = {
     $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
 
     function Test-DbaClientXOfficeCsvCommandAvailability {
-        param([string] $ModulePath)
+        param(
+            [string] $ModulePath,
+            [switch] $RequireCompression
+        )
 
         try {
             $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
@@ -97,10 +100,17 @@ $settings = {
             return $false
         }
 
+        if ($RequireCompression.IsPresent -and
+            (-not @($exportCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }) -or
+             -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }))) {
+            Write-Warning "Skipping compressed CSV office file benchmark lane because the imported PSWriteOffice module does not expose CSV compression parameters."
+            return $false
+        }
+
         return $true
     }
 
-    $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } else { $fileKinds[0] }
+    $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } elseif ($fileKinds -contains 'CsvGZip') { 'CsvGZip' } else { $fileKinds[0] }
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
     function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
@@ -206,7 +216,11 @@ FROM numbers;
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $run.DestinationTable = 'DbaClientXBench_FileDest_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
-            $extension = if ($case.FileKind -eq 'Csv') { '.csv' } else { '.xlsx' }
+            $extension = switch ($case.FileKind) {
+                'Csv' { '.csv' }
+                'CsvGZip' { '.csv.gz' }
+                default { '.xlsx' }
+            }
             $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}{3}' -f $case.Engine, $case.FileKind, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
             $run.DropQuery = @"
 IF OBJECT_ID(N'dbo.$($run.DestinationTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.DestinationTable);
@@ -241,7 +255,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             param($case)
 
             if ($case.Engine -eq 'dbatools') {
-                if ($case.FileKind -ne 'Csv') {
+                if ($case.FileKind -notin @('Csv', 'CsvGZip')) {
                     return $true
                 }
 
@@ -252,8 +266,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 )
             }
 
-            if ($case.FileKind -eq 'Csv') {
-                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
+            if ($case.FileKind -in @('Csv', 'CsvGZip')) {
+                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -eq 'CsvGZip'))
             }
 
             return -not (
@@ -280,7 +294,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     -ReturnType DataTable `
                     -ErrorAction Stop
 
-                if ($case.FileKind -eq 'Csv') {
+                if ($case.FileKind -in @('Csv', 'CsvGZip')) {
                     $data | Export-OfficeCsv -Path $run.FilePath -ErrorAction Stop
                     $imported = Import-OfficeCsv -Path $run.FilePath -AsDataTable -ErrorAction Stop
                 } else {
