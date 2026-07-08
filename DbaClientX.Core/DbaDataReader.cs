@@ -55,7 +55,7 @@ public sealed class DbaDataReader : IDataReader
     public object this[string name] => _reader[name];
 
     /// <inheritdoc />
-    public void Close() => _reader.Close();
+    public void Close() => Dispose();
 
     /// <inheritdoc />
     public DataTable? GetSchemaTable() => _reader.GetSchemaTable();
