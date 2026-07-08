@@ -1,8 +1,8 @@
 param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
-    [int[]] $RowCount = @(5000),
-    [int[]] $BatchSize = @(5000),
+    [object[]] $RowCount = @(5000),
+    [object[]] $BatchSize = @(5000),
     [string[]] $InputKind = @('DataTable', 'DataReader', 'PSCustomObject', 'Class'),
     [string[]] $ReadShape = @('DataTableAll', 'PSObjectAll'),
     [int] $Iterations = 3,
@@ -56,6 +56,26 @@ function Assert-DbaClientXBenchmarkValue {
     }
 }
 
+function Convert-DbaClientXBenchmarkIntList {
+    param(
+        [string] $Name,
+        [object[]] $Value
+    )
+
+    @(
+        foreach ($item in (Convert-DbaClientXBenchmarkList -Value $Value)) {
+            $parsedValue = 0
+            if (-not [int]::TryParse($item, [ref] $parsedValue)) {
+                throw "$Name must contain integer values. Invalid value: $item."
+            }
+
+            $parsedValue
+        }
+    )
+}
+
+$RowCount = Convert-DbaClientXBenchmarkIntList -Name RowCount -Value $RowCount
+$BatchSize = Convert-DbaClientXBenchmarkIntList -Name BatchSize -Value $BatchSize
 $InputKind = Convert-DbaClientXBenchmarkList -Value $InputKind
 $ReadShape = Convert-DbaClientXBenchmarkList -Value $ReadShape
 $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
