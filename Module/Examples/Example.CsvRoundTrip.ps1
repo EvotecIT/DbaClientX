@@ -25,8 +25,8 @@ if ($RowCount -lt 1) {
 
 $exportOfficeCsv = Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue
 $importOfficeCsv = Get-Command Import-OfficeCsv -ErrorAction SilentlyContinue
-if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
-    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable. Import or install a compatible PSWriteOffice build before running the example.'
+if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataTable') -and $_.Parameters.ContainsKey('InferSchema') })) {
+    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable -InferSchema. Import or install a compatible PSWriteOffice build before running the example.'
 }
 if ($CompressionType -ne 'Auto' -and
     (-not $exportOfficeCsv.Parameters.ContainsKey('CompressionType') -or
@@ -86,6 +86,9 @@ try {
     $csvImportParameters = @{
         Path = $CsvPath
         AsDataTable = $true
+        InferSchema = $true
+        ProgressInterval = 50000
+        ParseErrorAction = 'Throw'
         ErrorAction = 'Stop'
     }
     if ($CompressionType -ne 'Auto') {

@@ -344,6 +344,33 @@ The suite rewrites the marker-delimited tables below when it runs from a source 
 
 Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
 
+## SQL Server CSV Export Benchmark
+
+Use the CSV export benchmark when you want the ARPE-style export-only view: SQL Server rows out to a CSV file, without importing the file back into a table. This is intentionally separate from the round-trip benchmark, because native `bcp` is an export/import utility and does not measure the same PowerShell object or `DataTable` handoff work.
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 100000 `
+    -Engine DbaClientX,dbatools,bcp `
+    -Iterations 3
+```
+
+The DbaClientX lane reads with `Invoke-DbaXQuery -ReturnType DataTable` and writes with PSWriteOffice `Export-OfficeCsv -NoHeader`. The dbatools lane uses `Export-DbaCsv`. The native lane uses `bcp queryout` with character mode, comma field terminators, LF row terminators, UTF-8 code page, and trusted authentication. Successful lanes validate the exported line count and file size before cleanup.
+
+Inspect the matrix without touching SQL Server:
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Plan
+```
+
+The benchmark skips unavailable optional engines. `bcp` must be on `PATH`, dbatools must expose `Connect-DbaInstance` and `Export-DbaCsv`, and the DbaClientX lane requires PSWriteOffice with `Export-OfficeCsv`.
+
+<!-- sqlserver-csv-export-benchmark:start -->
+Run `.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,dbatools,bcp -RowCount 100000 -Iterations 3` to refresh this export-only table.
+<!-- sqlserver-csv-export-benchmark:end -->
+
 ## Office File Round-Trip Benchmark
 
 Use the office file round-trip benchmark when you want evidence for the combined DbaClientX and PSWriteOffice workflow. The measured operation reads source rows from SQL Server with DbaClientX, writes a CSV or Excel file with PSWriteOffice, imports the file back as a `DataTable`, then writes the rows to SQL Server with `Write-DbaXTableData`. Validation checks destination row count and simple integrity metrics before cleanup.
@@ -398,14 +425,15 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | SQL query/table to CSV | `Export-DbaCsv -SqlInstance/-Database/-Query/-Table` | `Invoke-DbaXQuery -ReturnType DataTable` then `Export-OfficeCsv` | `Csv` round trip compares both engines |
 | CSV to SQL bulk load | `Import-DbaCsv` uses SQL Server bulk copy | `Import-OfficeCsv -AsDataTable` then `Write-DbaXTableData -Provider SqlServer` | `Csv` round trip compares both engines |
 | Compressed CSV | `Export-DbaCsv -CompressionType` and `.csv.gz` import | OfficeIMO owns compressed CSV core; PSWriteOffice exposes `Export-OfficeCsv -CompressionType` and `Import-OfficeCsv -CompressionType` in the CSV parity surface | `CsvGZip` compares both engines when the installed modules expose compression |
+| Cancellation and progress | Dataplat exposes cancellation and progress callbacks in its CSV options | OfficeIMO.CSV exposes cancellation/progress options; PSWriteOffice maps Ctrl+C cancellation and `-ProgressInterval`; DbaClientX SQL Server bulk copy has `-NotifyAfter` progress | Covered by OfficeIMO.CSV and PSWriteOffice CSV tests; benchmark uses progress-free timing |
 | Excel to or from SQL | Not a dbatools CSV feature | `Export-OfficeExcel` / `Import-OfficeExcel -AsDataTable` with `Write-DbaXTableData` | `Excel` round trip covers the direct Excel path |
 | Bulk-write knobs | `BatchSize`, `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, `KeepNulls` | `Write-DbaXTableData` exposes the same SQL Server bulk-copy knobs | Covered by data-movement and office round-trip suites |
 | Auto-create destination table | `Import-DbaCsv -AutoCreateTable` with optional column optimization | `Write-DbaXTableData -AutoCreateTable`; typed columns depend on the incoming `DataTable` | Covered by round-trip suites |
 | Column mapping and selected columns | `Column`, `ColumnMap`, ordinal fallback | `Write-DbaXTableData -ColumnMap`; select or shape columns before the file/database boundary | Covered by command tests, not yet by office round-trip benchmark |
 | CSV dialect basics | Delimiter, no header, quote, encoding, null value, date format, UTC conversion, culture-oriented parsing | Delimiter, no header/header, quote mode, encoding, null value, date format, UTC conversion, culture, trimming, comments, W3C headers | Covered by PSWriteOffice CSV tests; round-trip benchmark uses the default dialect |
-| Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, static columns, parse-error collection | Skip rows, comments, W3C headers, duplicate header behavior, column-count mismatch policy, strict/lenient quote parsing, static columns; parse-error collection remains a gap | Mostly covered by PSWriteOffice CSV tests; round-trip benchmark keeps the default happy path |
+| Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, static columns, parse-error collection | Skip rows, comments, W3C headers, duplicate header behavior, column-count mismatch policy, strict/lenient quote parsing, static columns, parse-error collection/skip-row, field-length limits, quote normalization, string interning | Mostly covered by PSWriteOffice CSV tests; round-trip benchmark keeps the default happy path |
 | Multi-character delimiters | Supported by the Dataplat/dbatools CSV library | OfficeIMO.CSV and PSWriteOffice currently support single-character delimiters only | Documented boundary; not benchmarked as an equivalent lane |
-| Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice `-AsDataTable` remains string/DataTable-oriented before `Write-DbaXTableData -AutoCreateTable` | Not benchmarked yet as a SQL type-inference lane |
+| Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice exposes `Import-OfficeCsv -AsDataTable -InferSchema` before `Write-DbaXTableData -AutoCreateTable` | Covered by PSWriteOffice CSV tests; not yet a separate SQL benchmark lane |
 | Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
 
 ### Benchmark Coverage Map
@@ -414,6 +442,8 @@ The comparison is split by ownership so the benchmark does not cherry-pick only 
 
 | Competitor lane | DbaClientX / OfficeIMO lane | Where to run it | Current README evidence |
 | --- | --- | --- | --- |
+| Native `bcp queryout` SQL-to-CSV export | `Invoke-DbaXQuery -ReturnType DataTable` plus `Export-OfficeCsv -NoHeader` | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,bcp` | `sqlserver-csv-export-benchmark` |
+| dbatools `Export-DbaCsv` SQL-to-CSV export | `Invoke-DbaXQuery -ReturnType DataTable` plus `Export-OfficeCsv -NoHeader` | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,dbatools` | `sqlserver-csv-export-benchmark` |
 | dbatools `Export-DbaCsv` plus `Import-DbaCsv` SQL round trip | DbaClientX SQL read/write plus PSWriteOffice CSV | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind Csv` | `office-file-roundtrip-benchmark` |
 | dbatools compressed CSV round trip | DbaClientX SQL read/write plus PSWriteOffice `.csv.gz` | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind CsvGZip` | `office-file-roundtrip-benchmark` |
 | dbatools `Write-DbaDbTableData` client-side import | `Write-DbaXTableData` from `DataTable`, objects, classes, and `IDataReader` | `Benchmark.SqlServerDataMovement.ps1 -Operation Write` | `sqlserver-data-movement-write-benchmark` |
@@ -533,7 +563,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1), [`Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
+- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1), [`Module/Examples/Benchmark.SqlServerCsvExport.ps1`](Module/Examples/Benchmark.SqlServerCsvExport.ps1), [`Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
@@ -544,6 +574,7 @@ Useful example files:
 - [`Example.CsvRoundTrip.ps1`](Module/Examples/Example.CsvRoundTrip.ps1)
 - [`Example.ExcelRoundTrip.ps1`](Module/Examples/Example.ExcelRoundTrip.ps1)
 - [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
+- [`Benchmark.SqlServerCsvExport.ps1`](Module/Examples/Benchmark.SqlServerCsvExport.ps1)
 - [`Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)
