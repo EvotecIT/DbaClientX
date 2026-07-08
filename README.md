@@ -146,7 +146,7 @@ Get-DbaXMetadata `
 
 ### Write Table Data
 
-Use `Write-DbaXTableData` when the data is already in PowerShell and the next step is a database table. The command accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects from the pipeline.
+Use `Write-DbaXTableData` when the data is already in PowerShell and the next step is a database table. The command accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects from the pipeline. SQL Server `IDataReader` input streams directly into `SqlBulkCopy`; when passing a reader through `-InputObject`, wrap it as `-InputObject (, $reader)` so PowerShell treats it as one object.
 
 ```powershell
 $rows = @(

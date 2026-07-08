@@ -51,6 +51,8 @@ $rows | Write-DbaXTableData `
 
 Import CSV or Excel rows with PSWriteOffice and let DbaClientX own the database write:
 
+SQL Server `IDataReader` input streams directly into `SqlBulkCopy`. When passing a reader through `-InputObject`, wrap it as `-InputObject (, $reader)` so PowerShell treats it as one object.
+
 ```powershell
 Import-OfficeCsv .\Users.csv -AsDataTable |
     Write-DbaXTableData `

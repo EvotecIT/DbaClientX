@@ -42,7 +42,7 @@ Use the provider-specific transaction helpers when the target is not SQL Server.
 
 ## Move Rows Into Tables
 
-Use `Write-DbaXTableData` when you already have rows in PowerShell and want the provider package to own the bulk write:
+Use `Write-DbaXTableData` when you already have rows in PowerShell and want the provider package to own the bulk write. SQL Server `IDataReader` input streams directly into `SqlBulkCopy`; when passing a reader through `-InputObject`, wrap it as `-InputObject (, $reader)` so PowerShell treats it as one object:
 
 ```powershell
 $rows = 1..100 | ForEach-Object {

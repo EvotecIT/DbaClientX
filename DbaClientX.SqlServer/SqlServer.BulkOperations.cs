@@ -231,6 +231,13 @@ public partial class SqlServer
     protected virtual void WriteToServer(SqlBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
 
     /// <summary>
+    /// Writes the rows exposed by <paramref name="reader"/> to the server using the provided bulk copy instance.
+    /// </summary>
+    /// <param name="bulkCopy">The configured bulk copy instance.</param>
+    /// <param name="reader">Source data reader.</param>
+    protected virtual void WriteToServer(SqlBulkCopy bulkCopy, IDataReader reader) => bulkCopy.WriteToServer(reader);
+
+    /// <summary>
     /// Asynchronously writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
     /// <param name="bulkCopy">The configured bulk copy instance.</param>
@@ -238,6 +245,15 @@ public partial class SqlServer
     /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
     /// <returns>A task that completes when the transfer finishes.</returns>
     protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken);
+
+    /// <summary>
+    /// Asynchronously writes the rows exposed by <paramref name="reader"/> to the server using the provided bulk copy instance.
+    /// </summary>
+    /// <param name="bulkCopy">The configured bulk copy instance.</param>
+    /// <param name="reader">Source data reader.</param>
+    /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
+    /// <returns>A task that completes when the transfer finishes.</returns>
+    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(reader, cancellationToken);
 
     private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
@@ -294,6 +310,7 @@ public partial class SqlServer
             bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName);
         }
     }
+
 
     /// <summary>
     /// Creates a new <see cref="SqlConnection"/> for the supplied connection string.
@@ -430,4 +447,5 @@ public partial class SqlServer
         => source is Dictionary<string, string> dictionary
             ? dictionary.Comparer
             : StringComparer.Ordinal;
+
 }

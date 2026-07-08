@@ -94,6 +94,131 @@ public sealed class DbaXTestDataRecord : IDataRecord
         return _values[i] == null || _values[i] == DBNull.Value;
     }
 }
+
+public sealed class DbaXTestDataReader : IDataReader
+{
+    private readonly string[] _names;
+    private readonly Type[] _types;
+    private readonly object[][] _rows;
+    private int _index = -1;
+    private bool _closed;
+
+    public DbaXTestDataReader(string[] names, Type[] types, object[][] rows)
+    {
+        _names = names;
+        _types = types;
+        _rows = rows;
+    }
+
+    public object this[int i] { get { return GetValue(i); } }
+
+    public object this[string name] { get { return GetValue(GetOrdinal(name)); } }
+
+    public int Depth { get { return 0; } }
+
+    public bool IsClosed { get { return _closed; } }
+
+    public int RecordsAffected { get { return -1; } }
+
+    public int FieldCount { get { return _names.Length; } }
+
+    public void Close() { _closed = true; }
+
+    public void Dispose() { Close(); }
+
+    public bool GetBoolean(int i) { return Convert.ToBoolean(GetValue(i)); }
+
+    public byte GetByte(int i) { return Convert.ToByte(GetValue(i)); }
+
+    public long GetBytes(int i, long fieldOffset, byte[] buffer, int bufferoffset, int length) { throw new NotSupportedException(); }
+
+    public char GetChar(int i) { return Convert.ToChar(GetValue(i)); }
+
+    public long GetChars(int i, long fieldoffset, char[] buffer, int bufferoffset, int length) { throw new NotSupportedException(); }
+
+    public IDataReader GetData(int i) { throw new NotSupportedException(); }
+
+    public string GetDataTypeName(int i) { return GetFieldType(i).Name; }
+
+    public DateTime GetDateTime(int i) { return Convert.ToDateTime(GetValue(i)); }
+
+    public decimal GetDecimal(int i) { return Convert.ToDecimal(GetValue(i)); }
+
+    public double GetDouble(int i) { return Convert.ToDouble(GetValue(i)); }
+
+    public Type GetFieldType(int i) { return _types[i]; }
+
+    public float GetFloat(int i) { return Convert.ToSingle(GetValue(i)); }
+
+    public Guid GetGuid(int i) { return (Guid)GetValue(i); }
+
+    public short GetInt16(int i) { return Convert.ToInt16(GetValue(i)); }
+
+    public int GetInt32(int i) { return Convert.ToInt32(GetValue(i)); }
+
+    public long GetInt64(int i) { return Convert.ToInt64(GetValue(i)); }
+
+    public string GetName(int i) { return _names[i]; }
+
+    public int GetOrdinal(string name)
+    {
+        for (int index = 0; index < _names.Length; index++)
+        {
+            if (string.Equals(_names[index], name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    public DataTable GetSchemaTable()
+    {
+        var schema = new DataTable();
+        schema.Columns.Add("ColumnName", typeof(string));
+        schema.Columns.Add("ColumnOrdinal", typeof(int));
+        schema.Columns.Add("DataType", typeof(Type));
+        schema.Columns.Add("AllowDBNull", typeof(bool));
+        schema.Columns.Add("ColumnSize", typeof(int));
+        for (int index = 0; index < _names.Length; index++)
+        {
+            schema.Rows.Add(_names[index], index, _types[index], true, _types[index] == typeof(string) ? 4000 : 0);
+        }
+
+        return schema;
+    }
+
+    public string GetString(int i) { return Convert.ToString(GetValue(i)); }
+
+    public object GetValue(int i) { return _rows[_index][i]; }
+
+    public int GetValues(object[] values)
+    {
+        var count = Math.Min(values.Length, _names.Length);
+        Array.Copy(_rows[_index], values, count);
+        return count;
+    }
+
+    public bool IsDBNull(int i)
+    {
+        var value = GetValue(i);
+        return value == null || value == DBNull.Value;
+    }
+
+    public bool NextResult() { return false; }
+
+    public bool Read()
+    {
+        if (_index + 1 >= _rows.Length)
+        {
+            return false;
+        }
+
+        _index++;
+        return true;
+    }
+}
 '@
 }
 
@@ -184,6 +309,70 @@ describe 'Write-DbaXTableData cmdlet' {
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastBulkTable = $null
+        }
+    }
+
+    it 'streams single SQL Server IDataReader input to the provider bulk layer' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastReaderInsert = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $reader, $options)
+            $rows = 0
+            $firstName = $null
+            while ($reader.Read()) {
+                if ($null -eq $firstName) {
+                    $firstName = $reader.GetValue(1)
+                }
+                $rows++
+            }
+
+            $script:lastReaderInsert = [pscustomobject]@{
+                Provider = $cmdlet.Provider.ToString()
+                DestinationTable = $cmdlet.DestinationTable
+                BatchSize = $cmdlet.BatchSize
+                BulkCopyTimeout = $cmdlet.BulkCopyTimeout
+                ReaderType = $reader.GetType().FullName
+                FieldCount = $reader.FieldCount
+                Rows = $rows
+                FirstName = $firstName
+                MappedName = $options.ColumnMappings['Name']
+            }
+        })
+
+        try {
+            $reader = [DbaXTestDataReader]::new(
+                [string[]]@('Id', 'Name'),
+                [type[]]@([int], [string]),
+                [object[][]]@(
+                    [object[]]@(1, 'Alpha'),
+                    [object[]]@(2, 'Beta')
+                ))
+
+            $result = Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -InputObject (, $reader) `
+                -ColumnMap @{ Name = 'DisplayName' } `
+                -BatchSize 100 `
+                -BulkCopyTimeout 30 `
+                -PassThru
+
+            $script:lastReaderInsert.Provider | Should -Be 'SqlServer'
+            $script:lastReaderInsert.DestinationTable | Should -Be 'dbo.Import'
+            $script:lastReaderInsert.BatchSize | Should -Be 100
+            $script:lastReaderInsert.BulkCopyTimeout | Should -Be 30
+            $script:lastReaderInsert.ReaderType | Should -Be 'DBAClientX.PowerShell.CountingDataReader'
+            $script:lastReaderInsert.FieldCount | Should -Be 2
+            $script:lastReaderInsert.Rows | Should -Be 2
+            $script:lastReaderInsert.FirstName | Should -Be 'Alpha'
+            $script:lastReaderInsert.MappedName | Should -Be 'DisplayName'
+            $result.Rows | Should -Be 2
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastReaderInsert = $null
         }
     }
 

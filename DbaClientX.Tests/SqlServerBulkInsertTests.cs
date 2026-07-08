@@ -18,6 +18,8 @@ public class SqlServerBulkInsertTests
         public string? ConnectionString { get; private set; }
         public SqlBulkCopyOptions Options { get; private set; }
         public int NotifyAfter { get; private set; }
+        public int ReaderRows { get; private set; }
+        public int ReaderFieldCount { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
@@ -53,9 +55,33 @@ public class SqlServerBulkInsertTests
             }
         }
 
+        protected override void WriteToServer(SqlBulkCopy bulkCopy, IDataReader reader)
+        {
+            BatchSize = bulkCopy.BatchSize;
+            Timeout = bulkCopy.BulkCopyTimeout;
+            Destination = bulkCopy.DestinationTableName;
+            NotifyAfter = bulkCopy.NotifyAfter;
+            ReaderFieldCount = reader.FieldCount;
+            foreach (SqlBulkCopyColumnMapping mapping in bulkCopy.ColumnMappings)
+            {
+                Mappings.Add((mapping.SourceOrdinal.ToString(CultureInfo.InvariantCulture), mapping.DestinationColumn));
+            }
+
+            while (reader.Read())
+            {
+                ReaderRows++;
+            }
+        }
+
         protected override Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
         {
             WriteToServer(bulkCopy, table);
+            return Task.CompletedTask;
+        }
+
+        protected override Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken)
+        {
+            WriteToServer(bulkCopy, reader);
             return Task.CompletedTask;
         }
 
@@ -180,6 +206,38 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_WithDataReaderAutoCreate_CreatesSchemaFromReader()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        var displayName = table.Columns.Add("DisplayName", typeof(string));
+        displayName.MaxLength = 100;
+        displayName.AllowDBNull = false;
+        table.Columns.Add("IsActive", typeof(bool));
+        table.Rows.Add("Alpha", true);
+        using var reader = table.CreateDataReader();
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            AutoCreateTable = true,
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["DisplayName"] = "Name"
+            }
+        };
+
+        sqlServer.BulkInsert("s", "db", true, reader, "[stage].[ImportRows]", options);
+
+        Assert.Equal(2, sqlServer.SetupCommands.Count);
+        var createTable = sqlServer.SetupCommands[1].CommandText;
+        Assert.Equal("[stage].[ImportRows]", sqlServer.SetupCommands[1].Parameters["@objectName"]);
+        Assert.Contains("CREATE TABLE [stage].[ImportRows]", createTable);
+        Assert.Contains("[Name] nvarchar(100) NOT NULL", createTable);
+        Assert.Contains("[IsActive] bit NULL", createTable);
+        Assert.Equal(1, sqlServer.ReaderRows);
+        Assert.Contains(sqlServer.Mappings, mapping => mapping.Source == "0" && mapping.Destination == "Name");
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_WithAutoCreateTable_CreatesDefaultSchemaTable()
     {
         using var sqlServer = new AutoCreateBulkCopySqlServer();
@@ -294,6 +352,58 @@ public class SqlServerBulkInsertTests
         Assert.Equal(0, sqlServer.AsyncDisposeCalls);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Name" && m.Destination == "Name");
+    }
+
+    [Fact]
+    public void BulkInsert_WithDataReader_StreamsRowsAndAppliesMappings()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("DisplayName", typeof(string));
+        table.Rows.Add(1, "Alpha");
+        table.Rows.Add(2, "Beta");
+        using var reader = table.CreateDataReader();
+        var options = new DBAClientX.SqlServerBulkInsertOptions
+        {
+            BulkCopyOptions = SqlBulkCopyOptions.TableLock,
+            NotifyAfter = 25,
+            ColumnMappings = new Dictionary<string, string>
+            {
+                ["DisplayName"] = "Name"
+            }
+        };
+
+        sqlServer.BulkInsert("s", "db", true, reader, "dbo.Dest", options, batchSize: 100, bulkCopyTimeout: 60);
+
+        Assert.Equal(SqlBulkCopyOptions.TableLock, sqlServer.Options);
+        Assert.Equal(100, sqlServer.BatchSize);
+        Assert.Equal(60, sqlServer.Timeout);
+        Assert.Equal(25, sqlServer.NotifyAfter);
+        Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(2, sqlServer.ReaderFieldCount);
+        Assert.Equal(2, sqlServer.ReaderRows);
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "0" && m.Destination == "Id");
+        Assert.Contains(sqlServer.Mappings, m => m.Source == "1" && m.Destination == "Name");
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WithDataReader_StreamsRowsAndDisposesConnection()
+    {
+        using var sqlServer = new CaptureBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        table.Rows.Add(2);
+        using var reader = table.CreateDataReader();
+
+        await sqlServer.BulkInsertAsync("Server=s;Database=db;Encrypt=True", reader, "dbo.Dest");
+
+        Assert.Equal("Server=s;Database=db;Encrypt=True", sqlServer.ConnectionString);
+        Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.Equal(2, sqlServer.ReaderRows);
+        Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
     }
 
     [Fact]

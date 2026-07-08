@@ -135,6 +135,11 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
                 return;
             }
 
+            if (TryWriteSqlServerReaderInput())
+            {
+                return;
+            }
+
             var table = PowerShellDataTableConverter.ToDataTable(_input, DestinationTable);
             if (table.Rows.Count == 0 && !ShouldWriteSchemaOnlyTable())
             {
@@ -152,12 +157,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             }
 
             var providerAlias = GetProviderAlias(Provider);
-            if (!PowerShellHelpers.TryValidateConnection(
-                    this,
-                    providerAlias,
-                    ConnectionString,
-                    _errorAction,
-                    allowedUnsupportedOptions: Provider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null))
+            if (!TryValidateProviderConnection(providerAlias))
             {
                 return;
             }
@@ -213,6 +213,79 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
 
     private bool ShouldWriteSchemaOnlyTable()
         => Provider == DbaXBulkProvider.SqlServer && AutoCreateTable.IsPresent;
+
+    private bool TryWriteSqlServerReaderInput()
+    {
+        if (Provider != DbaXBulkProvider.SqlServer || _input.Count != 1)
+        {
+            return false;
+        }
+
+        if (!TryGetSingleSqlServerReader(out var reader))
+        {
+            return false;
+        }
+
+        if (!TryValidateProviderConnection("sqlserver"))
+        {
+            return true;
+        }
+
+        var startedAt = DateTimeOffset.UtcNow;
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var countingReader = new CountingDataReader(reader);
+        var sqlServerOptions = BuildSqlServerOptions(totalRows: null);
+        if (BulkInsertOverride != null)
+        {
+            BulkInsertOverride.InvokeWithContext(
+                functionsToDefine: null,
+                variablesToDefine: null,
+                args: new object?[] { this, countingReader, sqlServerOptions });
+        }
+        else
+        {
+            InvokeSqlServerReaderBulkInsert(countingReader, sqlServerOptions);
+        }
+
+        timer.Stop();
+
+        CompleteProgressIfNeeded();
+
+        if (PassThru.IsPresent)
+        {
+            WriteObject(new PSObject(new
+            {
+                Provider,
+                DestinationTable,
+                Rows = countingReader.RowsRead,
+                StartedAt = startedAt,
+                CompletedAt = DateTimeOffset.UtcNow,
+                ElapsedMilliseconds = Math.Round(timer.Elapsed.TotalMilliseconds, 2)
+            }));
+        }
+
+        return true;
+    }
+
+    private bool TryGetSingleSqlServerReader(out IDataReader reader)
+    {
+        reader = null!;
+        var candidate = PowerShellDataTableConverter.UnwrapInput(_input[0]);
+        if (candidate is IDataReader directReader)
+        {
+            reader = directReader;
+            return true;
+        }
+
+        if (candidate is object?[] { Length: 1 } singleItemArray &&
+            PowerShellDataTableConverter.UnwrapInput(singleItemArray[0]) is IDataReader wrappedReader)
+        {
+            reader = wrappedReader;
+            return true;
+        }
+
+        return false;
+    }
 
     private void ValidateOptions()
     {
@@ -294,6 +367,18 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         }
     }
 
+    private void InvokeSqlServerReaderBulkInsert(IDataReader reader, SqlServerBulkInsertOptions? sqlServerOptions)
+    {
+        using var sqlServer = new DBAClientX.SqlServer();
+        if (sqlServerOptions == null)
+        {
+            sqlServer.BulkInsert(ConnectionString, reader, DestinationTable, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+            return;
+        }
+
+        sqlServer.BulkInsert(ConnectionString, reader, DestinationTable, sqlServerOptions, batchSize: BatchSize, bulkCopyTimeout: BulkCopyTimeout);
+    }
+
     private static string GetProviderAlias(DbaXBulkProvider provider)
         => provider switch
         {
@@ -311,6 +396,9 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             : table;
 
     private SqlServerBulkInsertOptions? BuildSqlServerOptions(DataTable table)
+        => BuildSqlServerOptions(table.Rows.Count);
+
+    private SqlServerBulkInsertOptions? BuildSqlServerOptions(int? totalRows)
     {
         if (Provider != DbaXBulkProvider.SqlServer || !HasSqlServerOnlyOptions())
         {
@@ -326,8 +414,16 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             AutoCreateTable.IsPresent,
             ConvertColumnMap(),
             NotifyAfter,
-            NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(table.Rows.Count, rowsCopied) : null);
+            NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(totalRows, rowsCopied) : null);
     }
+
+    private bool TryValidateProviderConnection(string providerAlias)
+        => PowerShellHelpers.TryValidateConnection(
+            this,
+            providerAlias,
+            ConnectionString,
+            _errorAction,
+            allowedUnsupportedOptions: Provider == DbaXBulkProvider.MySql ? PowerShellHelpers.MySqlBulkCopyAllowedUnsupportedOptions : null);
 
     private bool HasSqlServerOnlyOptions()
         => ColumnMap is { Count: > 0 } ||
@@ -367,13 +463,14 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         return mappings;
     }
 
-    private void WriteRowsCopiedProgress(int totalRows, long rowsCopied)
+    private void WriteRowsCopiedProgress(int? totalRows, long rowsCopied)
     {
+        var percentComplete = totalRows.GetValueOrDefault() > 0
+            ? Math.Min(100, (int)Math.Round(rowsCopied * 100d / totalRows.GetValueOrDefault()))
+            : -1;
         var progress = new ProgressRecord(1, $"Writing {DestinationTable}", $"{rowsCopied} row(s) copied")
         {
-            PercentComplete = totalRows > 0
-                ? Math.Min(100, (int)Math.Round(rowsCopied * 100d / totalRows))
-                : 100
+            PercentComplete = percentComplete
         };
 
         WriteProgress(progress);
