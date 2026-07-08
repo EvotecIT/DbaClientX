@@ -353,11 +353,12 @@ Use the CSV export benchmark when you want the ARPE-style export-only view: SQL 
     -Server localhost `
     -Database tempdb `
     -RowCount 100000 `
-    -Engine DbaClientX,dbatools,bcp `
-    -Iterations 3
+    -Engine DbaClientX,dbatools,bcp,FastBCP `
+    -Iterations 3 `
+    -UpdateReadme
 ```
 
-The DbaClientX lane reads with `Invoke-DbaXQuery -ReturnType DataTable` and writes with PSWriteOffice `Export-OfficeCsv -NoHeader`. The dbatools lane uses `Export-DbaCsv`. The native lane uses `bcp queryout` with character mode, comma field terminators, LF row terminators, UTF-8 code page, and trusted authentication. Successful lanes validate the exported line count and file size before cleanup.
+The DbaClientX lane reads with `Invoke-DbaXQuery -ReturnType DataTable` and writes with PSWriteOffice `Export-OfficeCsv -NoHeader`. The dbatools lane uses `Export-DbaCsv`. The native lane uses `bcp queryout` with character mode, comma field terminators, LF row terminators, UTF-8 code page, and trusted authentication. The optional FastBCP lane uses the documented SQL Server table export shape with `--connectiontype mssql`, trusted authentication, UTF-8 CSV output, `--parallelmethod Ntile`, `--distributekeycolumn Id`, `--paralleldegree -2`, and split-file output. Successful lanes validate data-row count plus `Id` min/max/sum integrity and file size before cleanup.
 
 Inspect the matrix without touching SQL Server:
 
@@ -365,12 +366,12 @@ Inspect the matrix without touching SQL Server:
 .\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Plan
 ```
 
-The benchmark skips unavailable optional engines. `bcp` must be on `PATH`, dbatools must expose `Connect-DbaInstance` and `Export-DbaCsv`, and the DbaClientX lane requires PSWriteOffice with `Export-OfficeCsv`.
+The benchmark skips unavailable optional engines. `bcp` must be on `PATH`, dbatools must expose `Connect-DbaInstance` and `Export-DbaCsv`, and the DbaClientX lane requires PSWriteOffice with `Export-OfficeCsv`. FastBCP must be on `PATH`, passed through `-FastBcpPath`, or provided through `$env:FASTBCP_PATH`; use `-FastBcpParallelMethod` and `-FastBcpParallelDegree` to change the FastBCP partitioning mode.
 
-The ARPE/FastBCP comparison is useful because it separates export-only throughput from a full file/database round trip. This benchmark covers the same local SQL Server to CSV shape for the open engines we can validate here: DbaClientX + PSWriteOffice, dbatools `Export-DbaCsv`, and native `bcp queryout`. FastBCP-specific lanes such as parallel partitioned export, direct cloud-file targets, Parquet/JSON output, and paid-tool execution are tracked as product-scope gaps unless a local FastBCP installation and stable command contract are provided.
+The ARPE/FastBCP comparison is useful because it separates export-only throughput from a full file/database round trip. This benchmark covers the same local SQL Server to CSV shape for DbaClientX + PSWriteOffice, dbatools `Export-DbaCsv`, native `bcp queryout`, and FastBCP when the executable is locally available. FastBCP cloud-file targets and Parquet/JSON output remain product-scope gaps for this CSV/Excel benchmark story.
 
 <!-- sqlserver-csv-export-benchmark:start -->
-Run `.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,dbatools,bcp -RowCount 100000 -Iterations 3` to refresh this export-only table.
+Run `.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,dbatools,bcp,FastBCP -RowCount 100000 -Iterations 3 -UpdateReadme` to refresh this export-only table.
 <!-- sqlserver-csv-export-benchmark:end -->
 
 ## Office File Round-Trip Benchmark
@@ -437,7 +438,7 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | Multi-character delimiters | Supported by the Dataplat/dbatools CSV library | OfficeIMO.CSV supports `DelimiterText`; PSWriteOffice exposes `-DelimiterText` on CSV read/write surfaces | Covered by OfficeIMO.CSV and PSWriteOffice CSV tests; not part of the default SQL round-trip timing lane |
 | Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice exposes `Import-OfficeCsv -AsDataTable -InferSchema` before `Write-DbaXTableData -AutoCreateTable` | Covered by PSWriteOffice CSV tests; not yet a separate SQL benchmark lane |
 | Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
-| Parallel partitioned CSV export | FastBCP-style split export can partition source data and write multiple files | Not a current DbaClientX + PSWriteOffice feature; current export benchmark writes one local CSV file per lane | Documented gap; do not treat single-file results as a parallel-export comparison |
+| Parallel partitioned CSV export | FastBCP-style split export can partition source data and write multiple files | DbaClientX + PSWriteOffice writes one local CSV file; the optional FastBCP benchmark lane measures split-file partitioned export when FastBCP is available | Covered as a separate optional engine; do not treat single-file DbaClientX results as a parallel-export comparison |
 | Direct cloud/object-storage output | FastBCP publishes local and cloud target support | Current DbaClientX + PSWriteOffice examples write local files; upload/sync belongs in a storage owner above the CSV writer | Documented gap; not benchmarked |
 | Parquet/JSON export | FastBCP positions Parquet/JSON as additional output formats | PSWriteOffice owns CSV/Excel here; DbaClientX stays database/provider focused | Out of scope for CSV/Excel benchmark story |
 | Cross-platform module use | dbatools export is commonly Windows-first in the ARPE table | DbaClientX provider libraries target Windows and Linux/macOS on modern .NET; the PowerShell module targets Windows PowerShell/.NET Framework on Windows and PowerShell 7/.NET on all platforms | Platform matrix below; benchmark engines still depend on locally available tools |
@@ -450,8 +451,8 @@ The comparison is split by ownership so the benchmark does not cherry-pick only 
 | --- | --- | --- | --- |
 | Native `bcp queryout` SQL-to-CSV export | `Invoke-DbaXQuery -ReturnType DataTable` plus `Export-OfficeCsv -NoHeader` | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,bcp` | `sqlserver-csv-export-benchmark` |
 | dbatools `Export-DbaCsv` SQL-to-CSV export | `Invoke-DbaXQuery -ReturnType DataTable` plus `Export-OfficeCsv -NoHeader` | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,dbatools` | `sqlserver-csv-export-benchmark` |
-| ARPE/FastBCP single-purpose SQL-to-CSV export | DbaClientX SQL read plus PSWriteOffice CSV write | Same export-only benchmark shape, but no FastBCP engine is checked in yet | Covered as a scenario shape, not as a paid-tool lane |
-| ARPE/FastBCP parallel partitioned export | Future DbaClientX parallel export or an external FastBCP run | Not currently represented | Honest gap |
+| ARPE/FastBCP single-purpose SQL-to-CSV export | DbaClientX SQL read plus PSWriteOffice CSV write | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientX,FastBCP` | FastBCP lane is skipped unless the executable is available |
+| ARPE/FastBCP parallel partitioned export | Optional FastBCP split-file export with `Ntile` and `Id` distribution | `Benchmark.SqlServerCsvExport.ps1 -Engine FastBCP -FastBcpParallelMethod Ntile` | FastBCP lane is skipped unless the executable is available |
 | dbatools `Export-DbaCsv` plus `Import-DbaCsv` SQL round trip | DbaClientX SQL read/write plus PSWriteOffice CSV | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind Csv` | `office-file-roundtrip-benchmark` |
 | dbatools compressed CSV round trip | DbaClientX SQL read/write plus PSWriteOffice `.csv.gz` | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind CsvGZip` | `office-file-roundtrip-benchmark` |
 | dbatools `Write-DbaDbTableData` client-side import | `Write-DbaXTableData` from `DataTable`, objects, classes, and `IDataReader` | `Benchmark.SqlServerDataMovement.ps1 -Operation Write` | `sqlserver-data-movement-write-benchmark` |

@@ -16,8 +16,13 @@ param(
         }
     ),
     [string] $PSWriteOfficeModulePath = $(if ($env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH) { $env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH } else { 'PSWriteOffice' }),
+    [string] $FastBcpPath = $(if ($env:FASTBCP_PATH) { $env:FASTBCP_PATH } else { 'FastBCP.exe' }),
+    [ValidateSet('None', 'Random', 'RangeId', 'Ntile')]
+    [string] $FastBcpParallelMethod = 'Ntile',
+    [int] $FastBcpParallelDegree = -2,
     [string] $OutputRoot,
     [switch] $Plan,
+    [switch] $UpdateReadme,
     [switch] $KeepArtifacts
 )
 
@@ -57,7 +62,7 @@ $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'bcp')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'bcp', 'FastBCP')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -81,9 +86,12 @@ $settings = {
     $database = $Database
     $modulePath = $ModulePath
     $psWriteOfficeModulePath = $PSWriteOfficeModulePath
+    $fastBcpPath = $FastBcpPath
+    $fastBcpParallelMethod = $FastBcpParallelMethod
+    $fastBcpParallelDegree = $FastBcpParallelDegree
+    $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
-    $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX', 'dbatools', 'bcp') }
 
     function Test-DbaClientXCsvExportCommands {
         param([string] $ModulePath)
@@ -108,6 +116,25 @@ $settings = {
 
     function Test-BcpCommand {
         return [bool] (Get-Command bcp -ErrorAction SilentlyContinue)
+    }
+
+    function Resolve-FastBcpCommand {
+        param([string] $Path)
+
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            $Path = 'FastBCP.exe'
+        }
+
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Path).Path
+        }
+
+        $command = Get-Command $Path -ErrorAction SilentlyContinue
+        if ($command) {
+            return $command.Source
+        }
+
+        return $null
     }
 
     function Get-DbaClientXCsvExportCreateTableQuery {
@@ -149,28 +176,67 @@ FROM numbers;
 "@
     }
 
-    function Get-DbaClientXCsvExportLineCount {
-        param([string] $Path)
+    function Get-DbaClientXCsvExportFileMetrics {
+        param(
+            [string[]] $Path,
+            [char] $Delimiter = ','
+        )
 
-        $count = 0
-        $reader = [System.IO.StreamReader]::new($Path)
-        try {
-            while ($null -ne $reader.ReadLine()) {
-                $count++
+        $dataRows = 0
+        $lineCount = 0
+        $fileBytes = 0L
+        $idMin = [int]::MaxValue
+        $idMax = [int]::MinValue
+        $idSum = [int64] 0
+
+        foreach ($item in @($Path)) {
+            if (-not (Test-Path -LiteralPath $item -PathType Leaf)) {
+                continue
             }
-        } finally {
-            $reader.Dispose()
+
+            $fileBytes += (Get-Item -LiteralPath $item).Length
+            $reader = [System.IO.StreamReader]::new($item)
+            try {
+                while ($null -ne ($line = $reader.ReadLine())) {
+                    $lineCount++
+                    if ([string]::IsNullOrWhiteSpace($line)) {
+                        continue
+                    }
+
+                    $firstDelimiter = $line.IndexOf($Delimiter)
+                    $firstField = if ($firstDelimiter -ge 0) { $line.Substring(0, $firstDelimiter) } else { $line }
+                    $id = 0
+                    if (-not [int]::TryParse($firstField.Trim('"'), [ref] $id)) {
+                        continue
+                    }
+
+                    $dataRows++
+                    $idSum += $id
+                    if ($id -lt $idMin) { $idMin = $id }
+                    if ($id -gt $idMax) { $idMax = $id }
+                }
+            } finally {
+                $reader.Dispose()
+            }
         }
 
-        $count
+        [pscustomobject]@{
+            LineCount = $lineCount
+            DataRows = $dataRows
+            FileBytes = $fileBytes
+            IdMin = if ($dataRows -gt 0) { $idMin } else { 0 }
+            IdMax = if ($dataRows -gt 0) { $idMax } else { 0 }
+            IdSum = $idSum
+        }
     }
 
     $testOfficeCsvCommands = ${function:Test-DbaClientXCsvExportCommands}
     $testDbaToolsExportCommand = ${function:Test-DbaToolsExportCommand}
     $testBcpCommand = ${function:Test-BcpCommand}
+    $resolveFastBcpCommand = ${function:Resolve-FastBcpCommand}
     $getCreateTableQuery = ${function:Get-DbaClientXCsvExportCreateTableQuery}
     $getSeedQuery = ${function:Get-DbaClientXCsvExportSeedQuery}
-    $getLineCount = ${function:Get-DbaClientXCsvExportLineCount}
+    $getFileMetrics = ${function:Get-DbaClientXCsvExportFileMetrics}
 
     benchmark 'sqlserver-csv-export' -out $outputRootBase {
         policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
@@ -194,6 +260,8 @@ FROM numbers;
             $run.KeepArtifacts = $keepArtifacts
             $run.SourceTable = 'DbaClientXBench_CsvExport_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_CsvExport_{0}_{1}_{2}.csv' -f $case.Engine, $case.RowCount, ([guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $run.FastBcpDirectory = Join-Path $outputRootBase ('DbaClientXBench_CsvExport_FastBCP_{0}_{1}' -f $case.RowCount, ([guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $run.FastBcpFileName = 'DbaClientXBench_CsvExport_FastBCP.csv'
             $run.Query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
             $run.DropQuery = "IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.SourceTable);"
 
@@ -235,6 +303,10 @@ FROM numbers;
                 return -not (& $testBcpCommand)
             }
 
+            if ($case.Engine -eq 'FastBCP') {
+                return [string]::IsNullOrWhiteSpace((& $resolveFastBcpCommand -Path $fastBcpPath))
+            }
+
             return $false
         }
 
@@ -270,8 +342,6 @@ FROM numbers;
                 $command = Get-Command Export-DbaCsv -ErrorAction Stop
                 if ($command.Parameters.ContainsKey('NoHeader')) {
                     $parameters.NoHeader = $true
-                } else {
-                    $run.ExpectedHeaderRows = 1
                 }
                 if ($command.Parameters.ContainsKey('EnableException')) {
                     $parameters.EnableException = $true
@@ -306,26 +376,94 @@ FROM numbers;
             }
         }
 
+        engine FastBCP {
+            operation Export {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $command = & $resolveFastBcpCommand -Path $fastBcpPath
+                if ([string]::IsNullOrWhiteSpace($command)) {
+                    throw "FastBCP executable '$fastBcpPath' could not be resolved."
+                }
+
+                New-Item -ItemType Directory -Force -Path $run.FastBcpDirectory | Out-Null
+                $arguments = @(
+                    '--connectiontype', 'mssql',
+                    '--server', $run.Server,
+                    '--database', $run.Database,
+                    '--trusted',
+                    '--sourceschema', 'dbo',
+                    '--sourcetable', $run.SourceTable,
+                    '--directory', $run.FastBcpDirectory,
+                    '--fileoutput', $run.FastBcpFileName,
+                    '--decimalseparator', '.',
+                    '--delimiter', ',',
+                    '--dateformat', 'yyyy-MM-dd HH:mm:ss',
+                    '--encoding', 'UTF-8',
+                    '--parallelmethod', $fastBcpParallelMethod
+                )
+
+                if ($fastBcpParallelMethod -ne 'None') {
+                    $arguments += @(
+                        '--distributekeycolumn', 'Id',
+                        '--paralleldegree', ([string] $fastBcpParallelDegree),
+                        '--merge', 'False',
+                        '--runid', ('dbaclientx_csv_export_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8)))
+                    )
+                }
+
+                $output = & $command @arguments 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    throw "FastBCP export failed with exit code $LASTEXITCODE. Output: $($output -join [Environment]::NewLine)"
+                }
+            }
+        }
+
         validate {
             param($case, $run)
 
-            if (-not (Test-Path -LiteralPath $run.FilePath)) {
-                throw "$($case.Engine) did not create CSV file '$($run.FilePath)'."
+            $outputFiles = if ($case.Engine -eq 'FastBCP') {
+                if (-not (Test-Path -LiteralPath $run.FastBcpDirectory -PathType Container)) {
+                    throw "FastBCP did not create output directory '$($run.FastBcpDirectory)'."
+                }
+
+                @(Get-ChildItem -LiteralPath $run.FastBcpDirectory -File -Filter '*.csv' -ErrorAction Stop | ForEach-Object FullName)
+            } else {
+                if (-not (Test-Path -LiteralPath $run.FilePath -PathType Leaf)) {
+                    throw "$($case.Engine) did not create CSV file '$($run.FilePath)'."
+                }
+
+                @($run.FilePath)
             }
 
-            $lineCount = & $getLineCount -Path $run.FilePath
-            $headerRows = if ($null -ne $run.ExpectedHeaderRows) { [int] $run.ExpectedHeaderRows } else { 0 }
-            $expectedLines = [int] $case.RowCount + $headerRows
-            if ($lineCount -ne $expectedLines) {
-                throw "$($case.Engine) exported $lineCount line(s), expected $expectedLines."
+            if ($outputFiles.Count -eq 0) {
+                throw "$($case.Engine) did not create any CSV output files."
+            }
+
+            $metrics = & $getFileMetrics -Path $outputFiles -Delimiter ','
+            $expectedRows = [int] $case.RowCount
+            $expectedIdSum = [int64] ($expectedRows * ($expectedRows + 1) / 2)
+            if ($metrics.DataRows -ne $expectedRows) {
+                throw "$($case.Engine) exported $($metrics.DataRows) data row(s), expected $expectedRows."
+            }
+
+            if ($metrics.IdMin -ne 1 -or $metrics.IdMax -ne $expectedRows -or $metrics.IdSum -ne $expectedIdSum) {
+                throw "$($case.Engine) exported unexpected Id integrity. Min=$($metrics.IdMin), Max=$($metrics.IdMax), Sum=$($metrics.IdSum), expected Sum=$expectedIdSum."
             }
 
             $run.RowsExported = [int] $case.RowCount
-            $run.FileBytes = (Get-Item -LiteralPath $run.FilePath).Length
+            $run.FileBytes = $metrics.FileBytes
+            $run.OutputFileCount = $outputFiles.Count
 
             if (-not $run.KeepArtifacts) {
                 Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -ErrorAction Stop | Out-Null
-                Remove-Item -LiteralPath $run.FilePath -Force -ErrorAction SilentlyContinue
+                foreach ($outputFile in $outputFiles) {
+                    Remove-Item -LiteralPath $outputFile -Force -ErrorAction SilentlyContinue
+                }
+
+                if ($case.Engine -eq 'FastBCP' -and (Test-Path -LiteralPath $run.FastBcpDirectory -PathType Container)) {
+                    Remove-Item -LiteralPath $run.FastBcpDirectory -Recurse -Force -ErrorAction SilentlyContinue
+                }
             }
         }
 
@@ -341,6 +479,12 @@ FROM numbers;
             $run.FileBytes
         }
 
+        metric OutputFileCount {
+            param($case, $run)
+
+            if ($null -ne $run.OutputFileCount) { $run.OutputFileCount } else { 1 }
+        }
+
         metric RowsPerSecond {
             param($case, $run)
 
@@ -352,7 +496,7 @@ FROM numbers;
         }
 
         comparison Engine -Baseline DbaClientX -Metric MedianMs
-        if (Test-Path -LiteralPath $readmePath) {
+        if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
             readme $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
         }
         artifacts Json, Csv, Markdown
