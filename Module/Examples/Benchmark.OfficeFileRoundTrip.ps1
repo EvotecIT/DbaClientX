@@ -2,7 +2,7 @@ param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(1000),
-    [string[]] $FileKind = @('Csv', 'Excel'),
+    [string[]] $FileKind = @('Csv', 'CsvGZip', 'Excel'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string[]] $Engine,

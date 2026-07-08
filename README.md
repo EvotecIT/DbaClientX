@@ -33,7 +33,9 @@ DbaClientX is a lightweight database client for .NET and PowerShell. It keeps th
 
 ## What it's all about
 
-DbaClientX is meant to be the thin, reusable database layer behind higher-level tooling. For example, PSWriteOffice can focus on fast Excel import/export while DbaClientX handles provider-specific database writes. The PowerShell module stays small and operator-friendly; the heavy database logic remains in C#.
+DbaClientX is meant to be the thin, reusable database layer behind higher-level tooling. It owns provider connections, query execution, transactions, metadata, and bulk-copy behavior. PSWriteOffice and OfficeIMO own CSV and Excel parsing, writing, compression, and file-format rules. Together they form the intended file/database pair: PSWriteOffice shapes rows from files, DbaClientX moves those rows into or out of databases, and the boundary stays a normal `DataTable`, `IDataReader`, or object stream.
+
+The PowerShell module stays small and operator-friendly; the heavy database logic remains in C#. That keeps user scripts clean without forcing people to pick low-level parser settings just to get good performance.
 
 Use it when you need:
 
@@ -64,7 +66,9 @@ Start with the job you need to finish:
 | Write PowerShell objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported rows to a table | `Write-DbaXTableData` | DbaClientX provider packages own the database write |
 | Load a SQL Server staging table and let the command create the table, map columns, lock the table, preserve identities/nulls, fire triggers, check constraints, or report progress | `Write-DbaXTableData -Provider SqlServer` | SQL Server-specific knobs map to `SqlServerBulkInsertOptions` |
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | `DBAClientX.Core` owns the copy contracts/runner; provider packages own concrete adapters |
-| Export SQL rows to CSV or Excel and import the file back | DbaClientX cmdlets plus PSWriteOffice `Export-OfficeCsv` / `Import-OfficeCsv` or `Export-OfficeExcel` / `Import-OfficeExcel` | DbaClientX owns database work; PSWriteOffice/OfficeIMO owns file-format work |
+| Export SQL rows to CSV, compressed CSV, or Excel | `Invoke-DbaXQuery -ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | DbaClientX owns the database read; PSWriteOffice/OfficeIMO owns file writing |
+| Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataTable` / `Import-OfficeExcel -AsDataTable` plus `Write-DbaXTableData` | PSWriteOffice/OfficeIMO owns file parsing; DbaClientX owns the database write |
+| Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | The producer owns the reader; DbaClientX streams it into `SqlBulkCopy` |
 
 The CSV round-trip path requires a PSWriteOffice build that exposes `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`. Compressed CSV, null/date formatting, duplicate-header behavior, quote parsing, and static metadata columns require the newer PSWriteOffice CSV surface backed by OfficeIMO.CSV. When those CSV cmdlets are not available, use the Excel lane or pass `-PSWriteOfficeModulePath` to a compatible local PSWriteOffice build.
 
@@ -174,6 +178,32 @@ Import-OfficeCsv .\Users.csv -AsDataTable |
         -BatchSize 5000
 ```
 
+Export SQL rows to CSV or compressed CSV by keeping the database read and file write in their owning libraries:
+
+```powershell
+$rows = Invoke-DbaXQuery `
+    -Server 'sql01' `
+    -Database 'App' `
+    -Query 'SELECT Id, DisplayName, CreatedUtc FROM dbo.Users' `
+    -ReturnType DataTable `
+    -TrustServerCertificate
+
+$rows | Export-OfficeCsv -Path .\Users.csv
+$rows | Export-OfficeCsv -Path .\Users.csv.gz -CompressionType GZip
+```
+
+Load compressed CSV back into SQL Server with the same table-write command:
+
+```powershell
+Import-OfficeCsv .\Users.csv.gz -CompressionType GZip -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'dbo.ImportUsers' `
+        -AutoCreateTable `
+        -BatchSize 5000
+```
+
 The same database write path accepts Excel-imported tables:
 
 ```powershell
@@ -194,6 +224,18 @@ Run the full SQL Server -> file -> SQL Server examples when you want to prove bo
 ```
 
 The examples create SQL Server source rows, export them to a `.csv` or `.xlsx` file with PSWriteOffice, import the file back as a `DataTable`, write it to SQL Server with `-AutoCreateTable`, and fail if any row count does not match.
+
+When another library already gives you an `IDataReader`, pass the reader as one object so the SQL Server path stays streaming:
+
+```powershell
+Write-DbaXTableData `
+    -Provider SqlServer `
+    -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+    -DestinationTable 'dbo.ImportUsers' `
+    -InputObject (, $reader) `
+    -BatchSize 5000 `
+    -TableLock
+```
 
 When the destination table has SQL Server-specific requirements, opt into the needed knobs explicitly:
 
@@ -315,6 +357,18 @@ Use the office file round-trip benchmark when you want evidence for the combined
     -Iterations 3
 ```
 
+Use the apples-to-apples CSV comparison when checking the same kind of lane dbatools publishes for its CSV library:
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 100000 `
+    -FileKind Csv,CsvGZip `
+    -Engine DbaClientX,dbatools `
+    -Iterations 3
+```
+
 The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind Csv,CsvGZip` to compare the DbaClientX + PSWriteOffice CSV round trip with dbatools' CSV fast path (`Export-DbaCsv` plus `Import-DbaCsv` into SQL Server bulk copy). `CsvGZip` uses a `.csv.gz` file so both sides exercise compressed CSV. The dbatools engine is CSV-only; Excel remains a DbaClientX + PSWriteOffice lane because dbatools does not own Excel import/export.
 
 ```powershell
@@ -353,6 +407,20 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | Multi-character delimiters | Supported by the Dataplat/dbatools CSV library | OfficeIMO.CSV and PSWriteOffice currently support single-character delimiters only | Documented boundary; not benchmarked as an equivalent lane |
 | Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice `-AsDataTable` remains string/DataTable-oriented before `Write-DbaXTableData -AutoCreateTable` | Not benchmarked yet as a SQL type-inference lane |
 | Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
+
+### Benchmark Coverage Map
+
+The comparison is split by ownership so the benchmark does not cherry-pick only our strongest lanes or mix unlike work into one table.
+
+| Competitor lane | DbaClientX / OfficeIMO lane | Where to run it | Current README evidence |
+| --- | --- | --- | --- |
+| dbatools `Export-DbaCsv` plus `Import-DbaCsv` SQL round trip | DbaClientX SQL read/write plus PSWriteOffice CSV | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind Csv` | `office-file-roundtrip-benchmark` |
+| dbatools compressed CSV round trip | DbaClientX SQL read/write plus PSWriteOffice `.csv.gz` | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind CsvGZip` | `office-file-roundtrip-benchmark` |
+| dbatools `Write-DbaDbTableData` client-side import | `Write-DbaXTableData` from `DataTable`, objects, classes, and `IDataReader` | `Benchmark.SqlServerDataMovement.ps1 -Operation Write` | `sqlserver-data-movement-write-benchmark` |
+| dbatools `Invoke-DbaQuery` materialization | `Invoke-DbaXQuery` to `DataTable` or PowerShell objects | `Benchmark.SqlServerDataMovement.ps1 -Operation Read` | `sqlserver-data-movement-read-benchmark` |
+| Dataplat/dbatools raw parser small, medium, large, wide, quoted, modern Sep/Sylvan/CsvHelper, all-values, and quick-test single/all-column lanes | OfficeIMO.CSV raw parser and reader bridge | OfficeIMO.CSV benchmark suite, including the dbatools-library parity benchmark | Tracked in OfficeIMO.CSV, not duplicated in DbaClientX |
+| Excel to or from SQL | DbaClientX SQL read/write plus PSWriteOffice Excel | `Benchmark.OfficeFileRoundTrip.ps1 -FileKind Excel -Engine DbaClientX` | Validated as a DbaClientX + PSWriteOffice lane; dbatools CSV has no equivalent Excel lane |
+| CSV type-converter/vector microbenchmarks | Future typed schema/import work, if it becomes part of the file/database contract | Not currently a DbaClientX SQL round-trip lane | Documented as out of scope for this suite |
 
 <!-- office-file-roundtrip-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
@@ -465,7 +533,7 @@ var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
+- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1), [`Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
@@ -473,8 +541,10 @@ Useful example files:
 
 - [`Example.QuerySqlServer.ps1`](Module/Examples/Example.QuerySqlServer.ps1)
 - [`Example.SqlServerDataMovement.ps1`](Module/Examples/Example.SqlServerDataMovement.ps1)
+- [`Example.CsvRoundTrip.ps1`](Module/Examples/Example.CsvRoundTrip.ps1)
 - [`Example.ExcelRoundTrip.ps1`](Module/Examples/Example.ExcelRoundTrip.ps1)
 - [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
+- [`Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)
 - [`Example.QueryOracle.ps1`](Module/Examples/Example.QueryOracle.ps1)

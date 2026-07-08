@@ -2,10 +2,12 @@
 
 Use this guide when a script or service needs to move rows into or between databases. Keep higher-level tools focused on their own domain work, then hand tabular data to DbaClientX for provider-specific writes.
 
+DbaClientX and PSWriteOffice are intended to work together rather than compete for ownership. DbaClientX owns provider connections, query execution, transactions, metadata, and bulk-copy behavior. PSWriteOffice and OfficeIMO own CSV and Excel parsing, writing, compression, and file-format rules. The shared boundary is a normal `DataTable`, `IDataReader`, or object stream.
+
 Pick the flow that matches the job:
 
 - SQL Server staging tables for reports, inventories, or synchronization jobs.
-- PSWriteOffice import/export jobs that read Excel into `DataTable` objects and bulk-write them to a database.
+- PSWriteOffice import/export jobs that read CSV, compressed CSV, or Excel into `DataTable` objects and bulk-write them to a database.
 - Cross-provider scripts where the same PowerShell shape writes to SQL Server, PostgreSQL, MySQL, SQLite, or Oracle.
 - Table-to-table migrations between provider connections, such as SQLite history stores moving into SQL Server.
 - .NET services that should reference provider packages through DbaClientX instead of repeating provider-specific connection and bulk-copy code.
@@ -72,6 +74,28 @@ finally {
 
 Prefer a real tabular shape at the boundary. `Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects.
 
+CSV and compressed CSV:
+
+```powershell
+Import-OfficeCsv .\Customers.csv -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'staging.Customers' `
+        -AutoCreateTable `
+        -BatchSize 5000
+
+Import-OfficeCsv .\Customers.csv.gz -CompressionType GZip -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'staging.CustomersCompressed' `
+        -AutoCreateTable `
+        -BatchSize 5000
+```
+
+Excel:
+
 ```powershell
 Import-OfficeExcel .\Customers.xlsx -AsDataTable |
     Write-DbaXTableData `
@@ -83,13 +107,31 @@ Import-OfficeExcel .\Customers.xlsx -AsDataTable |
 
 If the upstream library is OfficeIMO or another .NET component, keep the reusable document/file-format work there, return `DataTable` or `IDataReader`, and let DbaClientX own the database write.
 
-Run this when you want to prove the full SQL Server -> Excel -> SQL Server path:
+Run these when you want to prove the full SQL Server -> file -> SQL Server path:
 
 ```powershell
+.\Module\Examples\Example.CsvRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 .\Module\Examples\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 ```
 
-That example exports SQL Server rows to an `.xlsx` workbook with PSWriteOffice, imports the workbook back as a `DataTable`, bulk-writes the data through DbaClientX, and fails if the exported, imported, written, source, and destination row counts do not match.
+Those examples export SQL Server rows to `.csv` or `.xlsx` files with PSWriteOffice, import the file back as a `DataTable`, bulk-write the data through DbaClientX, and fail if the exported, imported, written, source, and destination row counts do not match.
+
+## Move Rows From A Database To A File
+
+Read rows with DbaClientX, then let PSWriteOffice own the file format:
+
+```powershell
+$rows = Invoke-DbaXQuery `
+    -Server 'sql01' `
+    -Database 'warehouse' `
+    -Query 'SELECT CustomerId, DisplayName, ModifiedUtc FROM dbo.Customers' `
+    -ReturnType DataTable `
+    -TrustServerCertificate
+
+$rows | Export-OfficeCsv -Path .\Customers.csv
+$rows | Export-OfficeCsv -Path .\Customers.csv.gz -CompressionType GZip
+$rows | Export-OfficeExcel -Path .\Customers.xlsx -WorksheetName Customers
+```
 
 ## Load A SQL Server Staging Table
 
@@ -427,3 +469,19 @@ Use `-Plan` to inspect the resolved benchmark matrix without creating SQL Server
 Interpret the numbers as local evidence, not a universal ranking. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
 
 The README includes benchmark blocks that the suite can refresh with normalized comparison tables. JSON, CSV, and Markdown artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`.
+
+## Benchmark File And Database Round Trips
+
+Use the office file benchmark when the question is not only "how fast is bulk copy?" but "how fast is the whole SQL -> CSV/Excel -> SQL workflow?"
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 100000 `
+    -FileKind Csv,CsvGZip `
+    -Engine DbaClientX,dbatools `
+    -Iterations 3
+```
+
+That matrix compares DbaClientX + PSWriteOffice against dbatools `Export-DbaCsv` and `Import-DbaCsv` for plain and compressed CSV. Excel remains a DbaClientX + PSWriteOffice lane because the dbatools CSV library does not own Excel. Raw parser microbenchmarks against Dataplat/dbatools, Sep, Sylvan, CsvHelper, and LumenWorks belong in OfficeIMO.CSV, where the parser engine lives; DbaClientX keeps the database/file round-trip benchmark focused on provider and file workflow behavior.

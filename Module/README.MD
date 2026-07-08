@@ -76,4 +76,28 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
+## Pair With PSWriteOffice For CSV And Excel
+
+Use PSWriteOffice for the file format and DbaClientX for the database write:
+
+```powershell
+Import-OfficeCsv .\Users.csv -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=.;Database=tempdb;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'dbo.ImportUsers' `
+        -AutoCreateTable `
+        -BatchSize 5000
+
+Import-OfficeExcel .\Users.xlsx -AsDataTable |
+    Write-DbaXTableData `
+        -Provider SqlServer `
+        -ConnectionString 'Server=.;Database=tempdb;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
+        -DestinationTable 'dbo.ImportUsersFromExcel' `
+        -AutoCreateTable `
+        -BatchSize 5000
+```
+
+For full workflow proof, run `Module/Examples/Example.CsvRoundTrip.ps1`, `Module/Examples/Example.ExcelRoundTrip.ps1`, or `Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`.
+
 The scripts in `Module/Examples` are runnable how-to examples. They use `Import-Module DbaClientX` and public cmdlet parameters, not local build-output paths.
