@@ -19,6 +19,7 @@ param(
     [string] $PSWriteOfficeModulePath = $(if ($env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH) { $env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH } else { 'PSWriteOffice' }),
     [string] $OutputRoot,
     [switch] $Plan,
+    [switch] $UpdateReadme,
     [switch] $KeepArtifacts
 )
 
@@ -63,7 +64,7 @@ if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt
 if ($FileKind.Count -eq 0) {
     throw 'FileKind must contain at least one value.'
 }
-Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'Excel')
+Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped', 'Excel')
 Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
@@ -89,6 +90,7 @@ $settings = {
     $database = $Database
     $modulePath = $ModulePath
     $psWriteOfficeModulePath = $PSWriteOfficeModulePath
+    $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
     $fileKinds = $FileKind
@@ -97,7 +99,8 @@ $settings = {
     function Test-DbaClientXOfficeCsvCommandAvailability {
         param(
             [string] $ModulePath,
-            [switch] $RequireCompression
+            [switch] $RequireCompression,
+            [switch] $RequireInferSchema
         )
 
         try {
@@ -124,6 +127,11 @@ $settings = {
             (-not @($exportCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }) -or
              -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }))) {
             Write-Warning "Skipping compressed CSV office file benchmark lane because the imported PSWriteOffice module does not expose CSV compression parameters."
+            return $false
+        }
+
+        if ($RequireInferSchema.IsPresent -and -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('InferSchema') })) {
+            Write-Warning "Skipping typed CSV office file benchmark lane because Import-OfficeCsv does not expose -InferSchema."
             return $false
         }
 
@@ -160,7 +168,8 @@ $settings = {
 
     function Test-DbaToolsCsvCommandAvailability {
         param(
-            [switch] $RequireCompression
+            [switch] $RequireCompression,
+            [switch] $RequireTypeDetection
         )
 
         $connectCommand = Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue
@@ -172,6 +181,11 @@ $settings = {
 
         if ($RequireCompression.IsPresent -and -not $exportCommand.Parameters.ContainsKey('CompressionType')) {
             Write-Warning "Skipping compressed dbatools CSV benchmark lane because Export-DbaCsv does not expose -CompressionType."
+            return $false
+        }
+
+        if ($RequireTypeDetection.IsPresent -and -not $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
+            Write-Warning "Skipping typed dbatools CSV benchmark lane because Import-DbaCsv does not expose -DetectColumnTypes."
             return $false
         }
 
@@ -288,6 +302,8 @@ FROM numbers;
             $extension = switch ($case.FileKind) {
                 'Csv' { '.csv' }
                 'CsvGZip' { '.csv.gz' }
+                'CsvTyped' { '.csv' }
+                'CsvGZipTyped' { '.csv.gz' }
                 default { '.xlsx' }
             }
             $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}{3}' -f $case.Engine, $case.FileKind, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
@@ -324,15 +340,15 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             param($case)
 
             if ($case.Engine -eq 'dbatools') {
-                if ($case.FileKind -notin @('Csv', 'CsvGZip')) {
+                if ($case.FileKind -notin @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
                     return $true
                 }
 
-                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -eq 'CsvGZip'))
+                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireTypeDetection:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')))
             }
 
-            if ($case.FileKind -in @('Csv', 'CsvGZip')) {
-                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -eq 'CsvGZip'))
+            if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
+                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireInferSchema:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')))
             }
 
             return -not (& $testOfficeExcelCommands -ModulePath $psWriteOfficeModulePath)
@@ -353,7 +369,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     -ReturnType DataTable `
                     -ErrorAction Stop
 
-                if ($case.FileKind -in @('Csv', 'CsvGZip')) {
+                if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
                     $csvExportParameters = @{
                         Path = $run.FilePath
                         ErrorAction = 'Stop'
@@ -363,9 +379,13 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         AsDataTable = $true
                         ErrorAction = 'Stop'
                     }
-                    if ($case.FileKind -eq 'CsvGZip') {
+                    if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) {
                         $csvExportParameters.CompressionType = 'GZip'
                         $csvImportParameters.CompressionType = 'GZip'
+                    }
+                    if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
+                        $csvImportParameters.InferSchema = $true
+                        $csvImportParameters.SchemaSampleSize = [Math]::Min([int] $case.RowCount, 1000)
                     }
 
                     $data | Export-OfficeCsv @csvExportParameters
@@ -406,10 +426,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 if ($exportCommand.Parameters.ContainsKey('QuotingBehavior')) {
                     $exportParameters.QuotingBehavior = 'Always'
                 }
-                if ($case.FileKind -eq 'CsvGZip' -and $exportCommand.Parameters.ContainsKey('CompressionType')) {
+                if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped') -and $exportCommand.Parameters.ContainsKey('CompressionType')) {
                     $exportParameters.CompressionType = 'GZip'
                 }
-                if ($case.FileKind -eq 'CsvGZip' -and $exportCommand.Parameters.ContainsKey('CompressionLevel')) {
+                if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped') -and $exportCommand.Parameters.ContainsKey('CompressionLevel')) {
                     $exportParameters.CompressionLevel = 'Optimal'
                 }
                 if ($exportCommand.Parameters.ContainsKey('EnableException')) {
@@ -439,6 +459,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
                 if ($importCommand.Parameters.ContainsKey('NoProgress')) {
                     $importParameters.NoProgress = $true
+                }
+                if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
+                    $importParameters.DetectColumnTypes = $true
+                }
+                if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('SampleRows')) {
+                    $importParameters.SampleRows = [Math]::Min([int] $case.RowCount, 1000)
                 }
 
                 Import-DbaCsv @importParameters | Out-Null
@@ -512,7 +538,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
         if ($selectedEngines.Count -gt 1) {
             comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs
-            if (Test-Path -LiteralPath $readmePath) {
+            if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
             }
         }
