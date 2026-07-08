@@ -450,7 +450,7 @@ Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
     -Database tempdb `
     -RowCount 1000, 5000, 20000, 100000 `
     -BatchSize 5000 `
-    -InputKind DataTable, PSCustomObject, Class `
+    -InputKind DataTable, DataReader, PSCustomObject, Class `
     -Iterations 3
 ```
 
@@ -469,6 +469,8 @@ Use `-Plan` to inspect the resolved benchmark matrix without creating SQL Server
 Interpret the numbers as local evidence, not a universal ranking. SQL Server version, disk, network, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result.
 
 The README includes benchmark blocks that the suite can refresh with normalized comparison tables. JSON, CSV, and Markdown artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`.
+
+The top-level README keeps the broader comparison map: SQL Server bulk import/export, dbatools CSV round trips, compressed CSV, FastBCP-style export-only lanes, raw parser parity in OfficeIMO.CSV, Excel round trips through PSWriteOffice, and the current gaps such as parallel CSV-to-SQL import and direct cloud/object-storage output.
 
 ## Benchmark File And Database Round Trips
 
