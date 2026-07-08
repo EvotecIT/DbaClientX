@@ -118,8 +118,8 @@ $settings = {
             return $false
         }
 
-        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
-            Write-Warning "Skipping CSV office file benchmark lane because Import-OfficeCsv does not expose -AsDataTable."
+        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataReader') })) {
+            Write-Warning "Skipping CSV office file benchmark lane because Import-OfficeCsv does not expose -AsDataReader."
             return $false
         }
 
@@ -201,7 +201,7 @@ $settings = {
 IF OBJECT_ID(N'dbo.$TableName', N'U') IS NOT NULL DROP TABLE dbo.$TableName;
 CREATE TABLE dbo.$TableName
 (
-    Id int NOT NULL,
+    Id int NOT NULL CONSTRAINT PK_${TableName}_Id PRIMARY KEY CLUSTERED,
     DisplayName nvarchar(100) NOT NULL,
     Score decimal(18,2) NOT NULL,
     CreatedUtc datetime2 NOT NULL
@@ -319,8 +319,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
-            Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -ErrorAction Stop | Out-Null
-            Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getSeedQuery -TableName $run.SourceTable -RowCount ([int] $case.RowCount)) -ErrorAction Stop | Out-Null
+            Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getSeedQuery -TableName $run.SourceTable -RowCount ([int] $case.RowCount)) -QueryTimeout 120 -ErrorAction Stop | Out-Null
 
             if ($case.Engine -eq 'dbatools') {
                 $connectCommand = Get-Command Connect-DbaInstance -ErrorAction Stop
@@ -366,6 +366,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     -Database $run.Database `
                     -TrustServerCertificate `
                     -Query $query `
+                    -QueryTimeout 120 `
                     -ReturnType DataTable `
                     -ErrorAction Stop
 
@@ -376,7 +377,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     }
                     $csvImportParameters = @{
                         Path = $run.FilePath
-                        AsDataTable = $true
+                        AsDataReader = $true
                         ErrorAction = 'Stop'
                     }
                     if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) {
@@ -385,7 +386,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     }
                     if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
                         $csvImportParameters.InferSchema = $true
-                        $csvImportParameters.SchemaSampleSize = [Math]::Min([int] $case.RowCount, 1000)
+                        $csvImportParameters.SchemaSampleSize = [int] $case.RowCount
                     }
 
                     $data | Export-OfficeCsv @csvExportParameters
@@ -395,16 +396,25 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
                 }
 
-                $writeResult = $imported | Write-DbaXTableData `
-                    -Provider SqlServer `
-                    -ConnectionString $run.ConnectionString `
-                    -DestinationTable "dbo.$($run.DestinationTable)" `
-                    -AutoCreateTable `
-                    -BatchSize 5000 `
-                    -TableLock `
-                    -PassThru `
-                    -ErrorAction Stop
-                $run.RowsWritten = [int] $writeResult.Rows
+                try {
+                    $inputObject = if ($imported -is [System.Data.IDataReader]) { (, $imported) } else { $imported }
+                    $writeResult = Write-DbaXTableData `
+                        -Provider SqlServer `
+                        -ConnectionString $run.ConnectionString `
+                        -DestinationTable "dbo.$($run.DestinationTable)" `
+                        -InputObject $inputObject `
+                        -AutoCreateTable `
+                        -BatchSize 5000 `
+                        -BulkCopyTimeout 120 `
+                        -TableLock `
+                        -PassThru `
+                        -ErrorAction Stop
+                    $run.RowsWritten = [int] $writeResult.Rows
+                } finally {
+                    if ($imported -is [System.IDisposable]) {
+                        $imported.Dispose()
+                    }
+                }
             }
         }
 
@@ -463,9 +473,6 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
                     $importParameters.DetectColumnTypes = $true
                 }
-                if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('SampleRows')) {
-                    $importParameters.SampleRows = [Math]::Min([int] $case.RowCount, 1000)
-                }
 
                 Import-DbaCsv @importParameters | Out-Null
             }
@@ -480,6 +487,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 -Database $run.Database `
                 -TrustServerCertificate `
                 -Query "SELECT COUNT(*) AS [Rows], MIN(CAST(Id AS int)) AS [MinId], MAX(CAST(Id AS int)) AS [MaxId], SUM(CAST(Id AS bigint)) AS [IdSum], SUM(CAST(Score AS decimal(38,2))) AS [ScoreSum] FROM dbo.$($run.DestinationTable);" `
+                -QueryTimeout 120 `
                 -ReturnType PSObject `
                 -ErrorAction Stop
             $actual = [pscustomobject]@{
@@ -501,7 +509,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             $run.ScoreSum = $actual.ScoreSum
 
             if (-not $run.KeepArtifacts) {
-                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -ErrorAction Stop | Out-Null
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
                 if (Test-Path -LiteralPath $run.FilePath) {
                     Remove-Item -LiteralPath $run.FilePath -Force
                 }

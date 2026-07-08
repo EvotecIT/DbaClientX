@@ -12,12 +12,16 @@ param(
 
 # Use this example to prove the SQL Server -> CSV -> SQL Server workflow:
 # DbaClientX reads source rows, PSWriteOffice writes and reads the CSV file,
-# and DbaClientX writes the imported DataTable back to SQL Server.
+# and DbaClientX streams the imported CSV reader back to SQL Server.
 # Example:
 #   .\Example.CsvRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
-Import-Module DbaClientX -Force
-Import-Module PSWriteOffice -Force
+if (-not (Get-Command Invoke-DbaXQuery -ErrorAction SilentlyContinue)) {
+    Import-Module DbaClientX -ErrorAction Stop
+}
+if (-not (Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue)) {
+    Import-Module PSWriteOffice -ErrorAction Stop
+}
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
@@ -25,8 +29,8 @@ if ($RowCount -lt 1) {
 
 $exportOfficeCsv = Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue
 $importOfficeCsv = Get-Command Import-OfficeCsv -ErrorAction SilentlyContinue
-if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataTable') -and $_.Parameters.ContainsKey('InferSchema') })) {
-    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataTable -InferSchema. Import or install a compatible PSWriteOffice build before running the example.'
+if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataReader') -and $_.Parameters.ContainsKey('InferSchema') })) {
+    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataReader -InferSchema. Import or install a compatible PSWriteOffice build before running the example.'
 }
 if ($CompressionType -ne 'Auto' -and
     (-not $exportOfficeCsv.Parameters.ContainsKey('CompressionType') -or
@@ -85,8 +89,9 @@ try {
     }
     $csvImportParameters = @{
         Path = $CsvPath
-        AsDataTable = $true
+        AsDataReader = $true
         InferSchema = $true
+        SchemaSampleSize = $RowCount
         ProgressInterval = 50000
         ParseErrorAction = 'Throw'
         ErrorAction = 'Stop'
@@ -98,18 +103,24 @@ try {
 
     $rows | Export-OfficeCsv @csvExportParameters | Out-Null
 
-    $csvTable = Import-OfficeCsv @csvImportParameters
-
-    $writeResult = $csvTable |
-        Write-DbaXTableData `
+    $csvReader = $null
+    try {
+        $csvReader = Import-OfficeCsv @csvImportParameters
+        $writeResult = Write-DbaXTableData `
             -Provider SqlServer `
             -ConnectionString $connectionString `
             -DestinationTable $DestinationTable `
+            -InputObject (, $csvReader) `
             -AutoCreateTable `
             -TableLock `
             -BatchSize 5000 `
             -PassThru `
             -ErrorAction Stop
+    } finally {
+        if ($null -ne $csvReader) {
+            $csvReader.Dispose()
+        }
+    }
 
     $verification = Invoke-DbaXQuery `
         -Server $Server `
@@ -123,13 +134,12 @@ try {
     $destinationRows = [int] $verification.Tables[1].Rows[0]['DestinationRows']
 
     $hasMismatch = $rows.Count -ne $RowCount -or
-        $csvTable.Rows.Count -ne $RowCount -or
         $writeResult.Rows -ne $RowCount -or
         $sourceRows -ne $RowCount -or
         $destinationRows -ne $RowCount
 
     if ($hasMismatch) {
-        throw "Round-trip row count mismatch. Exported=$($rows.Count), Imported=$($csvTable.Rows.Count), Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
+        throw "Round-trip row count mismatch. Exported=$($rows.Count), Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
     }
 
     [pscustomobject]@{
@@ -140,7 +150,7 @@ try {
         SourceTable = $SourceTable
         DestinationTable = $DestinationTable
         ExportedRows = $rows.Count
-        ImportedRows = $csvTable.Rows.Count
+        ImportedRows = $writeResult.Rows
         WrittenRows = $writeResult.Rows
         SourceRows = $sourceRows
         DestinationRows = $destinationRows

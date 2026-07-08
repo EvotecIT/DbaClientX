@@ -81,13 +81,21 @@ Copy-DbaXTableData `
 Use PSWriteOffice for the file format and DbaClientX for the database write:
 
 ```powershell
-Import-OfficeCsv .\Users.csv -AsDataTable |
+$reader = $null
+try {
+    $reader = Import-OfficeCsv .\Users.csv -AsDataReader -InferSchema
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=tempdb;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
         -DestinationTable 'dbo.ImportUsers' `
+        -InputObject (, $reader) `
         -AutoCreateTable `
         -BatchSize 5000
+} finally {
+    if ($null -ne $reader) {
+        $reader.Dispose()
+    }
+}
 
 Import-OfficeExcel .\Users.xlsx -AsDataTable |
     Write-DbaXTableData `
