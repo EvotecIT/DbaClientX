@@ -3,7 +3,7 @@ param(
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(5000),
     [int[]] $BatchSize = @(5000),
-    [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
+    [ValidateSet('DataTable', 'DataReader', 'PSCustomObject', 'Class')]
     [string[]] $InputKind = @('DataTable', 'PSCustomObject', 'Class'),
     [ValidateSet('DataTableAll', 'DataSetAll', 'PSObjectAll')]
     [string[]] $ReadShape = @('DataTableAll', 'PSObjectAll'),
@@ -74,12 +74,12 @@ $settings = {
     function New-DbaClientXBenchmarkData {
         param(
             [int] $RowCount,
-            [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
+            [ValidateSet('DataTable', 'DataReader', 'PSCustomObject', 'Class')]
             [string] $InputKind,
             [datetime] $CreatedUtc
         )
 
-        if ($InputKind -eq 'DataTable') {
+        if ($InputKind -eq 'DataTable' -or $InputKind -eq 'DataReader') {
             $table = [System.Data.DataTable]::new('DbaClientXBenchmark')
             [void] $table.Columns.Add('Id', [int])
             [void] $table.Columns.Add('DisplayName', [string])
@@ -349,6 +349,10 @@ CREATE TABLE dbo.$TableName
                     return $true
                 }
 
+                if ($case.InputKind -eq 'DataReader' -and $case.Engine -ne 'DbaClientX') {
+                    return $true
+                }
+
                 return $false
             }
 
@@ -357,14 +361,30 @@ CREATE TABLE dbo.$TableName
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                    Write-DbaXTableData `
-                        -Provider SqlServer `
-                        -ConnectionString $run.ConnectionString `
-                        -DestinationTable "dbo.$($run.TableName)" `
-                        -InputObject $run.Data `
-                        -BatchSize ([int] $case.BatchSize) `
-                        -TableLock `
-                        -ErrorAction Stop | Out-Null
+                    if ($case.InputKind -eq 'DataReader') {
+                        $reader = $run.Data.CreateDataReader()
+                        try {
+                            Write-DbaXTableData `
+                                -Provider SqlServer `
+                                -ConnectionString $run.ConnectionString `
+                                -DestinationTable "dbo.$($run.TableName)" `
+                                -InputObject (, $reader) `
+                                -BatchSize ([int] $case.BatchSize) `
+                                -TableLock `
+                                -ErrorAction Stop | Out-Null
+                        } finally {
+                            $reader.Dispose()
+                        }
+                    } else {
+                        Write-DbaXTableData `
+                            -Provider SqlServer `
+                            -ConnectionString $run.ConnectionString `
+                            -DestinationTable "dbo.$($run.TableName)" `
+                            -InputObject $run.Data `
+                            -BatchSize ([int] $case.BatchSize) `
+                            -TableLock `
+                            -ErrorAction Stop | Out-Null
+                    }
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
                         Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }

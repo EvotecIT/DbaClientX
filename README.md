@@ -244,11 +244,11 @@ Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
     -Database tempdb `
     -RowCount 1000, 5000, 20000, 100000 `
     -BatchSize 5000 `
-    -InputKind DataTable, PSCustomObject, Class `
+    -InputKind DataTable, DataReader, PSCustomObject, Class `
     -Iterations 3
 ```
 
-The suite benchmarks SQL Server writes and reads separately. The write suite covers DbaClientX across `DataTable`, `PSCustomObject`, and typed class input shapes, and adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available. The dbatools `DataTable` write lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
+The suite benchmarks SQL Server writes and reads separately. The write suite covers DbaClientX across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes, and adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into `SqlBulkCopy`; dbatools and native SqlServer module comparisons remain on their documented client-side input shapes. The dbatools `DataTable` write lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
 
 The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery` when dbatools is available. By default it reads every row as both `DataTable` and PowerShell-object output; `DataSet` can be selected with `-ReadShape DataSetAll` for local diagnosis. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
 
