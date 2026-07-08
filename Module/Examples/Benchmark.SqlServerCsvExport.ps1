@@ -62,7 +62,7 @@ $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'dbatools', 'bcp', 'FastBCP')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'dbatools', 'bcp', 'FastBCP')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -267,7 +267,7 @@ FROM numbers;
 
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             Import-Module $modulePath -Global -Force -ErrorAction Stop
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream')) {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader')) {
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
@@ -291,7 +291,7 @@ FROM numbers;
         skip {
             param($case)
 
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream')) {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader')) {
                 return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
             }
 
@@ -341,6 +341,38 @@ FROM numbers;
                     -ReturnType DataRow `
                     -ErrorAction Stop |
                     Export-OfficeCsv -Path $run.FilePath -NoHeader -ErrorAction Stop
+            }
+        }
+
+        engine DbaClientXReader {
+            operation Export {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
+                    $run.Server,
+                    $run.Database,
+                    $true,
+                    $null,
+                    $null,
+                    $null,
+                    $null,
+                    $true,
+                    $null,
+                    $null)
+
+                $client = [DBAClientX.SqlServer]::new()
+                $reader = $null
+                try {
+                    $reader = $client.QueryReader($connectionString, $run.Query)
+                    Export-OfficeCsv -InputObject $reader -Path $run.FilePath -NoHeader -ErrorAction Stop
+                } finally {
+                    if ($null -ne $reader) {
+                        $reader.Dispose()
+                    }
+
+                    $client.Dispose()
+                }
             }
         }
 
@@ -512,7 +544,7 @@ FROM numbers;
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison Engine -Baseline DbaClientX -Metric MedianMs
+        comparison Engine -Baseline DbaClientXReader -Metric MedianMs
         if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
             readme $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
         }
