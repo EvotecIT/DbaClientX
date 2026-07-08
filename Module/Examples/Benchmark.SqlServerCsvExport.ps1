@@ -62,7 +62,7 @@ $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'bcp', 'FastBCP')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'dbatools', 'bcp', 'FastBCP')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -267,7 +267,7 @@ FROM numbers;
 
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             Import-Module $modulePath -Global -Force -ErrorAction Stop
-            if ($case.Engine -eq 'DbaClientX') {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream')) {
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
@@ -291,7 +291,7 @@ FROM numbers;
         skip {
             param($case)
 
-            if ($case.Engine -eq 'DbaClientX') {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream')) {
                 return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
             }
 
@@ -324,6 +324,23 @@ FROM numbers;
                     -ErrorAction Stop
 
                 $data | Export-OfficeCsv -Path $run.FilePath -NoHeader -ErrorAction Stop
+            }
+        }
+
+        engine DbaClientXStream {
+            operation Export {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                Invoke-DbaXQuery `
+                    -Server $run.Server `
+                    -Database $run.Database `
+                    -TrustServerCertificate `
+                    -Query $run.Query `
+                    -Stream `
+                    -ReturnType DataRow `
+                    -ErrorAction Stop |
+                    Export-OfficeCsv -Path $run.FilePath -NoHeader -ErrorAction Stop
             }
         }
 
