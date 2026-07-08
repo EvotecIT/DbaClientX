@@ -763,7 +763,6 @@ $result = Invoke-BenchmarkSuite @parameters
 if ($Plan) {
     $result | ForEach-Object {
         [pscustomobject]@{
-            Suite = $_.Values.Suite
             Scenario = $_.Scenario
             Engine = $_.Engine
             Operation = $_.Operation
@@ -773,7 +772,7 @@ if ($Plan) {
             ReadShape = $_.Values.ReadShape
             Skipped = [bool] $_.IsSkipped
         }
-    } | Sort-Object Suite, Scenario, Engine | Format-Table -AutoSize
+    } | Sort-Object Operation, Scenario, Engine | Format-Table -AutoSize
     return
 }
 if (-not $Plan -and $result.Summary) {
