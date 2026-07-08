@@ -26,6 +26,10 @@ function Convert-DbaClientXBenchmarkList {
 
     @(
         foreach ($item in @($Value)) {
+            if ($null -eq $item) {
+                continue
+            }
+
             foreach ($part in ([string] $item -split ',')) {
                 $normalized = $part.Trim()
                 if (-not [string]::IsNullOrWhiteSpace($normalized)) {
@@ -43,7 +47,7 @@ function Assert-DbaClientXBenchmarkValue {
         [string[]] $ValidValue
     )
 
-    $invalidValues = @($Value | Where-Object { $_ -notin $ValidValue })
+    $invalidValues = @($Value | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -notin $ValidValue })
     if ($invalidValues.Count -gt 0) {
         throw "$Name must contain only: $($ValidValue -join ', '). Invalid value(s): $($invalidValues -join ', ')."
     }
