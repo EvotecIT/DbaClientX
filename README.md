@@ -357,7 +357,8 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 <!-- office-file-roundtrip-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 1000 rows / Csv | FileKind=Csv, RowCount=1000 | Core-7.6.3 | RoundTrip | 1.00x (113ms) | 2.18x (247ms) | DbaClientX fastest |
+| 100000 rows / Csv | FileKind=Csv, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (1.38s) | 2.18x (3.02s) | DbaClientX fastest |
+| 100000 rows / CsvGZip | FileKind=CsvGZip, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (1.35s) | 2.27x (3.06s) | DbaClientX fastest |
 <!-- office-file-roundtrip-benchmark:end -->
 
 ## .NET Usage

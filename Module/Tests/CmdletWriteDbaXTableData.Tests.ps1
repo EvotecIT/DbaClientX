@@ -1,7 +1,7 @@
 Import-Module "$PSScriptRoot/../DbaClientX.psd1" -Force
 
 if (-not ('DbaXTestDataRecord' -as [type])) {
-    $referencedAssemblies = if ($PSVersionTable.PSEdition -eq 'Core') { @('System.Data.Common') } else { @('System.Data') }
+    $referencedAssemblies = if ($PSVersionTable.PSEdition -eq 'Core') { @('System.Data.Common') } else { @('System.Data', 'System.Xml') }
     Add-Type -ReferencedAssemblies $referencedAssemblies -TypeDefinition @'
 using System;
 using System.Data;

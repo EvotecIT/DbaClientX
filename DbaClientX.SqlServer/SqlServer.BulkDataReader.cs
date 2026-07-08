@@ -300,9 +300,9 @@ public partial class SqlServer
     private static bool ContainsColumn(IDataReader reader, string columnName, IDictionary<string, string> columnMappings)
     {
         var comparer = GetComparer(columnMappings);
-        for (var index = 0; index < reader.FieldCount; index++)
+        foreach (var sourceName in GetReaderSourceNames(reader, columnMappings))
         {
-            if (comparer.Equals(reader.GetName(index), columnName))
+            if (comparer.Equals(sourceName, columnName))
             {
                 return true;
             }
@@ -315,14 +315,13 @@ public partial class SqlServer
     {
         var columns = new List<SqlServerBulkSourceColumn>(reader.FieldCount);
         var schemaRows = GetReaderSchemaRows(reader);
+        var sourceNames = GetReaderSourceNames(reader, columnMappings);
         for (var ordinal = 0; ordinal < reader.FieldCount; ordinal++)
         {
-            var sourceName = reader.GetName(ordinal);
-            var destinationName = !string.IsNullOrWhiteSpace(sourceName) && columnMappings?.TryGetValue(sourceName, out var mappedColumn) == true
+            var sourceName = sourceNames[ordinal];
+            var destinationName = columnMappings?.TryGetValue(sourceName, out var mappedColumn) == true
                 ? mappedColumn
-                : string.IsNullOrWhiteSpace(sourceName)
-                    ? $"Column{ordinal + 1}"
-                    : sourceName;
+                : sourceName;
             var schemaRow = schemaRows.TryGetValue(ordinal, out var row) ? row : null;
             columns.Add(new SqlServerBulkSourceColumn(
                 ordinal,
@@ -334,6 +333,36 @@ public partial class SqlServer
         }
 
         return columns;
+    }
+
+    private static IReadOnlyList<string> GetReaderSourceNames(IDataReader reader, IDictionary<string, string>? columnMappings)
+    {
+        var sourceNames = new List<string>(reader.FieldCount);
+        var comparer = columnMappings == null ? StringComparer.Ordinal : GetComparer(columnMappings);
+        var seen = new HashSet<string>(comparer);
+        for (var ordinal = 0; ordinal < reader.FieldCount; ordinal++)
+        {
+            sourceNames.Add(GetUniqueReaderSourceName(reader, ordinal, seen));
+        }
+
+        return sourceNames;
+    }
+
+    private static string GetUniqueReaderSourceName(IDataReader reader, int ordinal, HashSet<string> seen)
+    {
+        var sourceName = reader.GetName(ordinal);
+        var baseName = string.IsNullOrWhiteSpace(sourceName)
+            ? $"Column{ordinal + 1}"
+            : sourceName;
+        var uniqueName = baseName;
+        var suffix = 2;
+        while (!seen.Add(uniqueName))
+        {
+            uniqueName = $"{baseName}_{suffix}";
+            suffix++;
+        }
+
+        return uniqueName;
     }
 
     private static Dictionary<int, DataRow> GetReaderSchemaRows(IDataReader reader)

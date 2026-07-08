@@ -271,12 +271,6 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     {
         reader = null!;
         var candidate = PowerShellDataTableConverter.UnwrapInput(_input[0]);
-        if (candidate is IDataReader directReader)
-        {
-            reader = directReader;
-            return true;
-        }
-
         if (candidate is object?[] { Length: 1 } singleItemArray &&
             PowerShellDataTableConverter.UnwrapInput(singleItemArray[0]) is IDataReader wrappedReader)
         {
