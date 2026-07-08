@@ -10,6 +10,8 @@ namespace DBAClientX.PowerShell;
 /// </summary>
 internal static class PowerShellDataTableConverter
 {
+    internal static object? UnwrapInput(object? item) => Unwrap(item);
+
     internal static DataTable ToDataTable(IReadOnlyList<object?> input, string? tableName = null)
     {
         if (input == null)

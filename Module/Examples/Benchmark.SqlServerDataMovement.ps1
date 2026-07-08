@@ -1,11 +1,10 @@
+[CmdletBinding()]
 param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
-    [int[]] $RowCount = @(5000),
-    [int[]] $BatchSize = @(5000),
-    [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
-    [string[]] $InputKind = @('DataTable', 'PSCustomObject', 'Class'),
-    [ValidateSet('DataTableAll', 'DataSetAll', 'PSObjectAll')]
+    [object[]] $RowCount = @(5000),
+    [object[]] $BatchSize = @(5000),
+    [string[]] $InputKind = @('DataTable', 'DataReader', 'PSCustomObject', 'Class'),
     [string[]] $ReadShape = @('DataTableAll', 'PSObjectAll'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
@@ -20,12 +19,68 @@ param(
         }
     ),
     [string[]] $Engine,
-    [ValidateSet('Read', 'Write')]
     [string[]] $Operation,
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $KeepTables
 )
+
+function Convert-DbaClientXBenchmarkList {
+    param([object[]] $Value)
+
+    @(
+        foreach ($item in @($Value)) {
+            if ($null -eq $item) {
+                continue
+            }
+
+            foreach ($part in ([string] $item -split ',')) {
+                $normalized = $part.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+                    $normalized
+                }
+            }
+        }
+    ) | Select-Object -Unique
+}
+
+function Assert-DbaClientXBenchmarkValue {
+    param(
+        [string] $Name,
+        [string[]] $Value,
+        [string[]] $ValidValue
+    )
+
+    $invalidValues = @($Value | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -notin $ValidValue })
+    if ($invalidValues.Count -gt 0) {
+        throw "$Name must contain only: $($ValidValue -join ', '). Invalid value(s): $($invalidValues -join ', ')."
+    }
+}
+
+function Convert-DbaClientXBenchmarkIntList {
+    param(
+        [string] $Name,
+        [object[]] $Value
+    )
+
+    @(
+        foreach ($item in (Convert-DbaClientXBenchmarkList -Value $Value)) {
+            $parsedValue = 0
+            if (-not [int]::TryParse($item, [ref] $parsedValue)) {
+                throw "$Name must contain integer values. Invalid value: $item."
+            }
+
+            $parsedValue
+        }
+    )
+}
+
+$RowCount = Convert-DbaClientXBenchmarkIntList -Name RowCount -Value $RowCount
+$BatchSize = Convert-DbaClientXBenchmarkIntList -Name BatchSize -Value $BatchSize
+$InputKind = Convert-DbaClientXBenchmarkList -Value $InputKind
+$ReadShape = Convert-DbaClientXBenchmarkList -Value $ReadShape
+$Engine = Convert-DbaClientXBenchmarkList -Value $Engine
+$Operation = Convert-DbaClientXBenchmarkList -Value $Operation
 
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
@@ -39,6 +94,10 @@ if ($InputKind.Count -eq 0) {
 if ($ReadShape.Count -eq 0) {
     throw 'ReadShape must contain at least one value.'
 }
+Assert-DbaClientXBenchmarkValue -Name InputKind -Value $InputKind -ValidValue @('DataTable', 'DataReader', 'PSCustomObject', 'Class')
+Assert-DbaClientXBenchmarkValue -Name ReadShape -Value $ReadShape -ValidValue @('DataTableAll', 'DataSetAll', 'PSObjectAll')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'SqlServer')
+Assert-DbaClientXBenchmarkValue -Name Operation -Value $Operation -ValidValue @('Read', 'Write')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -74,12 +133,12 @@ $settings = {
     function New-DbaClientXBenchmarkData {
         param(
             [int] $RowCount,
-            [ValidateSet('DataTable', 'PSCustomObject', 'Class')]
+            [ValidateSet('DataTable', 'DataReader', 'PSCustomObject', 'Class')]
             [string] $InputKind,
             [datetime] $CreatedUtc
         )
 
-        if ($InputKind -eq 'DataTable') {
+        if ($InputKind -eq 'DataTable' -or $InputKind -eq 'DataReader') {
             $table = [System.Data.DataTable]::new('DbaClientXBenchmark')
             [void] $table.Columns.Add('Id', [int])
             [void] $table.Columns.Add('DisplayName', [string])
@@ -349,6 +408,10 @@ CREATE TABLE dbo.$TableName
                     return $true
                 }
 
+                if ($case.InputKind -eq 'DataReader' -and $case.Engine -ne 'DbaClientX') {
+                    return $true
+                }
+
                 return $false
             }
 
@@ -357,14 +420,30 @@ CREATE TABLE dbo.$TableName
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                    Write-DbaXTableData `
-                        -Provider SqlServer `
-                        -ConnectionString $run.ConnectionString `
-                        -DestinationTable "dbo.$($run.TableName)" `
-                        -InputObject $run.Data `
-                        -BatchSize ([int] $case.BatchSize) `
-                        -TableLock `
-                        -ErrorAction Stop | Out-Null
+                    if ($case.InputKind -eq 'DataReader') {
+                        $reader = $run.Data.CreateDataReader()
+                        try {
+                            Write-DbaXTableData `
+                                -Provider SqlServer `
+                                -ConnectionString $run.ConnectionString `
+                                -DestinationTable "dbo.$($run.TableName)" `
+                                -InputObject (, $reader) `
+                                -BatchSize ([int] $case.BatchSize) `
+                                -TableLock `
+                                -ErrorAction Stop | Out-Null
+                        } finally {
+                            $reader.Dispose()
+                        }
+                    } else {
+                        Write-DbaXTableData `
+                            -Provider SqlServer `
+                            -ConnectionString $run.ConnectionString `
+                            -DestinationTable "dbo.$($run.TableName)" `
+                            -InputObject $run.Data `
+                            -BatchSize ([int] $case.BatchSize) `
+                            -TableLock `
+                            -ErrorAction Stop | Out-Null
+                    }
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
                         Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
@@ -560,6 +639,10 @@ CREATE TABLE dbo.$TableName
             skip {
                 param($case)
 
+                if ($case.Engine -eq 'SqlServer') {
+                    return $true
+                }
+
                 if ($case.Engine -eq 'dbatools' -and -not (Get-Command Invoke-DbaQuery -ErrorAction SilentlyContinue)) {
                     return $true
                 }
@@ -621,6 +704,12 @@ CREATE TABLE dbo.$TableName
                     if ($run.Iteration -lt 0 -and -not $run.KeepTables) {
                         Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
                     }
+                }
+            }
+
+            engine SqlServer {
+                operation Read {
+                    throw 'The SqlServer module read lane is not implemented for this benchmark suite.'
                 }
             }
 
@@ -692,6 +781,21 @@ if ($Plan) {
 }
 
 $result = Invoke-BenchmarkSuite @parameters
+if ($Plan) {
+    $result | ForEach-Object {
+        [pscustomobject]@{
+            Scenario = $_.Scenario
+            Engine = $_.Engine
+            Operation = $_.Operation
+            RowCount = $_.Values.RowCount
+            BatchSize = $_.Values.BatchSize
+            InputKind = $_.Values.InputKind
+            ReadShape = $_.Values.ReadShape
+            Skipped = [bool] $_.IsSkipped
+        }
+    } | Sort-Object Operation, Scenario, Engine | Format-Table -AutoSize
+    return
+}
 if (-not $Plan -and $result.Summary) {
     $failedRows = @($result.Summary | Where-Object { $_.FailureCount -gt 0 -or $_.Status -eq 'Failed' })
     if ($failedRows.Count -gt 0) {

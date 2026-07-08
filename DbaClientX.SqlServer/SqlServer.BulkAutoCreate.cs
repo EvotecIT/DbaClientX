@@ -39,6 +39,35 @@ public partial class SqlServer
             new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName });
     }
 
+    private void EnsureAutoCreatedDestinationTable(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        IDataReader reader,
+        string destinationTable,
+        SqlServerBulkInsertOptions? options)
+    {
+        if (options?.AutoCreateTable != true)
+        {
+            return;
+        }
+
+        var destination = SqlServerDestinationTable.Parse(destinationTable);
+        if (!IsDefaultSchema(destination.SchemaName))
+        {
+            ExecuteBulkInsertSetupCommand(
+                connection,
+                transaction,
+                "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName });
+        }
+
+        ExecuteBulkInsertSetupCommand(
+            connection,
+            transaction,
+            BuildCreateTableCommand(reader, destination, options.ColumnMappings),
+            new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName });
+    }
+
     private async Task EnsureAutoCreatedDestinationTableAsync(
         SqlConnection connection,
         SqlTransaction? transaction,
@@ -68,6 +97,40 @@ public partial class SqlServer
                 connection,
                 transaction,
                 BuildCreateTableCommand(table, destination, options.ColumnMappings),
+                new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task EnsureAutoCreatedDestinationTableAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        IDataReader reader,
+        string destinationTable,
+        SqlServerBulkInsertOptions? options,
+        CancellationToken cancellationToken)
+    {
+        if (options?.AutoCreateTable != true)
+        {
+            return;
+        }
+
+        var destination = SqlServerDestinationTable.Parse(destinationTable);
+        if (!IsDefaultSchema(destination.SchemaName))
+        {
+            await ExecuteBulkInsertSetupCommandAsync(
+                    connection,
+                    transaction,
+                    "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                    new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await ExecuteBulkInsertSetupCommandAsync(
+                connection,
+                transaction,
+                BuildCreateTableCommand(reader, destination, options.ColumnMappings),
                 new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -164,13 +227,54 @@ public partial class SqlServer
         return builder.ToString();
     }
 
+    private static string BuildCreateTableCommand(
+        IDataReader reader,
+        SqlServerDestinationTable destination,
+        IDictionary<string, string>? columnMappings)
+    {
+        var columns = GetReaderColumns(reader, columnMappings);
+        var builder = new StringBuilder();
+        builder.AppendLine("IF OBJECT_ID(@objectName, N'U') IS NULL");
+        builder.AppendLine("BEGIN");
+        builder.Append("    CREATE TABLE ").Append(destination.QuotedFullName).AppendLine();
+        builder.AppendLine("    (");
+
+        for (var index = 0; index < columns.Count; index++)
+        {
+            var column = columns[index];
+            builder.Append("        ")
+                .Append(QuoteSqlServerIdentifier(column.DestinationName))
+                .Append(' ')
+                .Append(GetSqlServerColumnType(column.DataType, column.MaxLength))
+                .Append(column.AllowDBNull ? " NULL" : " NOT NULL");
+
+            if (index + 1 < columns.Count)
+            {
+                builder.Append(',');
+            }
+
+            builder.AppendLine();
+        }
+
+        builder.AppendLine("    );");
+        builder.AppendLine("END");
+        return builder.ToString();
+    }
+
     private static string GetSqlServerColumnType(DataColumn column)
     {
         var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType;
+        int? maxLength = column.MaxLength is > 0 ? column.MaxLength : null;
+        return GetSqlServerColumnType(type, maxLength);
+    }
+
+    private static string GetSqlServerColumnType(Type dataType, int? maxLength)
+    {
+        var type = Nullable.GetUnderlyingType(dataType) ?? dataType;
         if (type == typeof(string))
         {
-            return column.MaxLength is > 0 and <= 4000
-                ? $"nvarchar({column.MaxLength})"
+            return maxLength is > 0 and <= 4000
+                ? $"nvarchar({maxLength.Value})"
                 : "nvarchar(max)";
         }
 
@@ -216,7 +320,7 @@ public partial class SqlServer
 
         if (type == typeof(decimal))
         {
-            return GetSqlServerDecimalColumnType(column);
+            return GetSqlServerDecimalColumnType();
         }
 
         if (type == typeof(DateTime))
@@ -252,7 +356,7 @@ public partial class SqlServer
         return "nvarchar(max)";
     }
 
-    private static string GetSqlServerDecimalColumnType(DataColumn column)
+    private static string GetSqlServerDecimalColumnType()
         => "decimal(38,18)";
 
     private static string QuoteSqlServerIdentifier(string identifier)
