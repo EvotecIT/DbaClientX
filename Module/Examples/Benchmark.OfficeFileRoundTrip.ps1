@@ -4,6 +4,7 @@ param(
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(1000),
     [string[]] $FileKind = @('Csv', 'CsvGZip', 'Excel'),
+    [string[]] $ColumnShape = @('Default'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string[]] $Engine,
@@ -56,6 +57,7 @@ function Assert-DbaClientXBenchmarkValue {
 }
 
 $FileKind = Convert-DbaClientXBenchmarkList -Value $FileKind
+$ColumnShape = Convert-DbaClientXBenchmarkList -Value $ColumnShape
 $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
 
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
@@ -64,7 +66,11 @@ if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt
 if ($FileKind.Count -eq 0) {
     throw 'FileKind must contain at least one value.'
 }
+if ($ColumnShape.Count -eq 0) {
+    throw 'ColumnShape must contain at least one value.'
+}
 Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped', 'Excel')
+Assert-DbaClientXBenchmarkValue -Name ColumnShape -Value $ColumnShape -ValidValue @('Default', 'Mapped')
 Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
@@ -94,6 +100,7 @@ $settings = {
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
     $fileKinds = $FileKind
+    $columnShapes = $ColumnShape
     $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
 
     function Test-DbaClientXOfficeCsvCommandAvailability {
@@ -169,7 +176,8 @@ $settings = {
     function Test-DbaToolsCsvCommandAvailability {
         param(
             [switch] $RequireCompression,
-            [switch] $RequireTypeDetection
+            [switch] $RequireTypeDetection,
+            [switch] $RequireColumnMapping
         )
 
         $connectCommand = Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue
@@ -186,6 +194,11 @@ $settings = {
 
         if ($RequireTypeDetection.IsPresent -and -not $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
             Write-Warning "Skipping typed dbatools CSV benchmark lane because Import-DbaCsv does not expose -DetectColumnTypes."
+            return $false
+        }
+
+        if ($RequireColumnMapping.IsPresent -and -not $importCommand.Parameters.ContainsKey('ColumnMap')) {
+            Write-Warning "Skipping mapped-column dbatools CSV benchmark lane because Import-DbaCsv does not expose -ColumnMap."
             return $false
         }
 
@@ -280,10 +293,19 @@ FROM numbers;
         caseSource {
             foreach ($rowCount in $rowCounts) {
                 foreach ($fileKind in $fileKinds) {
-                    [pscustomobject]@{
-                        Scenario = "$rowCount rows / $fileKind"
-                        RowCount = $rowCount
-                        FileKind = $fileKind
+                    foreach ($columnShape in $columnShapes) {
+                        $scenario = if ($columnShape -eq 'Default') {
+                            "$rowCount rows / $fileKind"
+                        } else {
+                            "$rowCount rows / $fileKind / $columnShape columns"
+                        }
+
+                        [pscustomobject]@{
+                            Scenario = $scenario
+                            RowCount = $rowCount
+                            FileKind = $fileKind
+                            ColumnShape = $columnShape
+                        }
                     }
                 }
             }
@@ -299,6 +321,18 @@ FROM numbers;
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $run.DestinationTable = 'DbaClientXBench_FileDest_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
+            if ($case.ColumnShape -eq 'Mapped') {
+                $run.SelectQuery = "SELECT Id AS CustomerId, DisplayName AS CustomerName, Score AS WeightedScore, CreatedUtc AS SeenUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+                $run.ColumnMap = @{
+                    CustomerId = 'Id'
+                    CustomerName = 'DisplayName'
+                    WeightedScore = 'Score'
+                    SeenUtc = 'CreatedUtc'
+                }
+            } else {
+                $run.SelectQuery = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+                $run.ColumnMap = $null
+            }
             $extension = switch ($case.FileKind) {
                 'Csv' { '.csv' }
                 'CsvGZip' { '.csv.gz' }
@@ -306,7 +340,7 @@ FROM numbers;
                 'CsvGZipTyped' { '.csv.gz' }
                 default { '.xlsx' }
             }
-            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}{3}' -f $case.Engine, $case.FileKind, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
+            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}_{3}{4}' -f $case.Engine, $case.FileKind, $case.ColumnShape, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
             $run.DropQuery = @"
 IF OBJECT_ID(N'dbo.$($run.DestinationTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.DestinationTable);
 IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.SourceTable);
@@ -344,7 +378,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     return $true
                 }
 
-                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireTypeDetection:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')))
+                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireTypeDetection:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) -RequireColumnMapping:($case.ColumnShape -eq 'Mapped'))
             }
 
             if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
@@ -360,12 +394,11 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
 
-                $query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
                 $data = Invoke-DbaXQuery `
                     -Server $run.Server `
                     -Database $run.Database `
                     -TrustServerCertificate `
-                    -Query $query `
+                    -Query $run.SelectQuery `
                     -QueryTimeout 120 `
                     -ReturnType DataTable `
                     -ErrorAction Stop
@@ -398,17 +431,23 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                 try {
                     $inputObject = if ($imported -is [System.Data.IDataReader]) { (, $imported) } else { $imported }
-                    $writeResult = Write-DbaXTableData `
-                        -Provider SqlServer `
-                        -ConnectionString $run.ConnectionString `
-                        -DestinationTable "dbo.$($run.DestinationTable)" `
-                        -InputObject $inputObject `
-                        -AutoCreateTable `
-                        -BatchSize 5000 `
-                        -BulkCopyTimeout 120 `
-                        -TableLock `
-                        -PassThru `
-                        -ErrorAction Stop
+                    $writeParameters = @{
+                        Provider = 'SqlServer'
+                        ConnectionString = $run.ConnectionString
+                        DestinationTable = "dbo.$($run.DestinationTable)"
+                        InputObject = $inputObject
+                        AutoCreateTable = $true
+                        BatchSize = 5000
+                        BulkCopyTimeout = 120
+                        TableLock = $true
+                        PassThru = $true
+                        ErrorAction = 'Stop'
+                    }
+                    if ($null -ne $run.ColumnMap) {
+                        $writeParameters.ColumnMap = $run.ColumnMap
+                    }
+
+                    $writeResult = Write-DbaXTableData @writeParameters
                     $run.RowsWritten = [int] $writeResult.Rows
                 } finally {
                     if ($imported -is [System.IDisposable]) {
@@ -424,11 +463,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
 
-                $query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
                 $exportParameters = @{
                     SqlInstance = $run.DbatoolsInstance
                     Database = $run.Database
-                    Query = $query
+                    Query = $run.SelectQuery
                     Path = $run.FilePath
                     Delimiter = ','
                 }
@@ -472,6 +510,9 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
                 if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
                     $importParameters.DetectColumnTypes = $true
+                }
+                if ($null -ne $run.ColumnMap -and $importCommand.Parameters.ContainsKey('ColumnMap')) {
+                    $importParameters.ColumnMap = $run.ColumnMap
                 }
 
                 Import-DbaCsv @importParameters | Out-Null
@@ -576,6 +617,7 @@ if ($Plan) {
             Operation = $_.Operation
             RowCount = $_.Values.RowCount
             FileKind = $_.Values.FileKind
+            ColumnShape = $_.Values.ColumnShape
             Skipped = [bool] $_.IsSkipped
         }
     } | Sort-Object Scenario, Engine | Format-Table -AutoSize

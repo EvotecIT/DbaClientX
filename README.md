@@ -399,12 +399,13 @@ Use the CSV export benchmark when you want the ARPE-style export-only view: SQL 
     -Server localhost `
     -Database tempdb `
     -RowCount 100000 `
-    -Engine DbaClientX,DbaClientXReader,DbaClientXStream,dbatools,bcp,FastBCP `
+    -Engine DbaClientX,DbaClientXReader,DbaClientXStream,DbaClientXPartitionedReader,dbatools,bcp,FastBCP `
+    -DbaClientXPartitionDegree 4 `
     -Iterations 3 `
     -UpdateReadme
 ```
 
-The DbaClientX lane reads with `Invoke-DbaXQuery -ReturnType DataTable` and writes with PSWriteOffice `Export-OfficeCsv -NoHeader`. `DbaClientXReader` opens a DbaClientX-owned SQL Server `IDataReader` and writes it directly with `Export-OfficeCsv`, avoiding `DataTable` and `DataRow` materialization. `DbaClientXStream` uses the existing public stream shape, `Invoke-DbaXQuery -Stream -ReturnType DataRow`, then writes the streamed rows with `Export-OfficeCsv`. The dbatools lane uses `Export-DbaCsv`. The native lane uses `bcp queryout` with character mode, comma field terminators, LF row terminators, UTF-8 code page, and trusted authentication. The optional FastBCP lane uses the documented SQL Server table export shape with `--connectiontype mssql`, trusted authentication, UTF-8 CSV output, `--parallelmethod Ntile`, `--distributekeycolumn Id`, `--paralleldegree -2`, and split-file output. Successful lanes validate data-row count plus `Id` min/max/sum integrity and file size before cleanup.
+The DbaClientX lane reads with `Invoke-DbaXQuery -ReturnType DataTable` and writes with PSWriteOffice `Export-OfficeCsv -NoHeader`. `DbaClientXReader` opens a DbaClientX-owned SQL Server `IDataReader` and writes it directly with `Export-OfficeCsv`, avoiding `DataTable` and `DataRow` materialization. `DbaClientXStream` uses the existing public stream shape, `Invoke-DbaXQuery -Stream -ReturnType DataRow`, then writes the streamed rows with `Export-OfficeCsv`. `DbaClientXPartitionedReader` is the in-repo split-file lane: it partitions the SQL Server source with `NTILE` over `Id`, opens one DbaClientX reader per partition, and lets PSWriteOffice write each partition as a CSV file. The dbatools lane uses `Export-DbaCsv`. The native lane uses `bcp queryout` with character mode, comma field terminators, LF row terminators, UTF-8 code page, and trusted authentication. The optional FastBCP lane uses the documented SQL Server table export shape with `--connectiontype mssql`, trusted authentication, UTF-8 CSV output, `--parallelmethod Ntile`, `--distributekeycolumn Id`, `--paralleldegree -2`, and split-file output. Successful lanes validate data-row count plus `Id` min/max/sum integrity and file size before cleanup.
 
 Inspect the matrix without touching SQL Server:
 
@@ -412,9 +413,9 @@ Inspect the matrix without touching SQL Server:
 .\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Plan
 ```
 
-The benchmark skips unavailable optional engines. `bcp` must be on `PATH`, dbatools must expose `Connect-DbaInstance` and `Export-DbaCsv`, and the DbaClientX lanes require PSWriteOffice with `Export-OfficeCsv`. FastBCP must be on `PATH`, passed through `-FastBcpPath`, or provided through `$env:FASTBCP_PATH`; use `-FastBcpParallelMethod` and `-FastBcpParallelDegree` to change the FastBCP partitioning mode.
+The benchmark skips unavailable optional engines. `bcp` must be on `PATH`, dbatools must expose `Connect-DbaInstance` and `Export-DbaCsv`, and the DbaClientX lanes require PSWriteOffice with `Export-OfficeCsv`. `DbaClientXPartitionedReader` also requires `Start-ThreadJob`; use `-DbaClientXPartitionDegree` to set the split count, or leave it at `0` to use the current processor count. FastBCP must be on `PATH`, passed through `-FastBcpPath`, or provided through `$env:FASTBCP_PATH`; use `-FastBcpParallelMethod` and `-FastBcpParallelDegree` to change the FastBCP partitioning mode.
 
-The ARPE/FastBCP comparison is useful because it separates export-only throughput from a full file/database round trip. This benchmark covers the same local SQL Server to CSV shape for DbaClientX + PSWriteOffice, dbatools `Export-DbaCsv`, native `bcp queryout`, and FastBCP when the executable is locally available. The current snapshot shows the direct DbaClientX reader path ahead of dbatools and `bcp`; the older `DataTable` and `DataRow` lanes remain slower because they measure materialization and PowerShell row-shaping overhead in addition to file writing. FastBCP cloud-file targets and Parquet/JSON output remain product-scope gaps for this CSV/Excel benchmark story.
+The ARPE/FastBCP comparison is useful because it separates export-only throughput from a full file/database round trip. This benchmark covers the same local SQL Server to CSV shape for DbaClientX + PSWriteOffice, dbatools `Export-DbaCsv`, native `bcp queryout`, an in-repo DbaClientX partitioned split-file lane, and FastBCP when the executable is locally available. The current snapshot shows the direct DbaClientX reader path ahead of dbatools and `bcp`; the older `DataTable` and `DataRow` lanes remain slower because they measure materialization and PowerShell row-shaping overhead in addition to file writing. FastBCP cloud-file targets and Parquet/JSON output remain product-scope gaps for this CSV/Excel benchmark story.
 
 <!-- sqlserver-csv-export-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientX | DbaClientXStream | dbatools | FastBCP | Result |
@@ -432,6 +433,7 @@ Use the office file round-trip benchmark when you want evidence for the combined
     -Database tempdb `
     -RowCount 1000,5000 `
     -FileKind Csv,CsvGZip,Excel `
+    -ColumnShape Default `
     -Iterations 3
 ```
 
@@ -443,11 +445,12 @@ Use the apples-to-apples CSV comparison when checking the same kind of lane dbat
     -Database tempdb `
     -RowCount 100000 `
     -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped `
+    -ColumnShape Default,Mapped `
     -Engine DbaClientX,dbatools `
     -Iterations 3
 ```
 
-The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped` to compare the DbaClientX + PSWriteOffice CSV round trip with dbatools' CSV fast path (`Export-DbaCsv` plus `Import-DbaCsv` into SQL Server bulk copy). `CsvGZip` and `CsvGZipTyped` use `.csv.gz` files so both sides exercise compressed CSV. `CsvTyped` and `CsvGZipTyped` exercise CSV type detection: PSWriteOffice uses `Import-OfficeCsv -AsDataReader -InferSchema` with a full-row schema sample for this benchmark, while dbatools uses `Import-DbaCsv -DetectColumnTypes`. The dbatools engine is CSV-only; Excel remains a DbaClientX + PSWriteOffice lane because dbatools does not own Excel import/export.
+The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped` to compare the DbaClientX + PSWriteOffice CSV round trip with dbatools' CSV fast path (`Export-DbaCsv` plus `Import-DbaCsv` into SQL Server bulk copy). `CsvGZip` and `CsvGZipTyped` use `.csv.gz` files so both sides exercise compressed CSV. `CsvTyped` and `CsvGZipTyped` exercise CSV type detection: PSWriteOffice uses `Import-OfficeCsv -AsDataReader -InferSchema` with a full-row schema sample for this benchmark, while dbatools uses `Import-DbaCsv -DetectColumnTypes`. Add `-ColumnShape Mapped` to export aliased file columns and import them with `ColumnMap`/`Write-DbaXTableData -ColumnMap` back into the canonical SQL columns. The dbatools engine is CSV-only; Excel remains a DbaClientX + PSWriteOffice lane because dbatools does not own Excel import/export.
 
 ```powershell
 .\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
@@ -455,6 +458,7 @@ The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind C
     -Database tempdb `
     -RowCount 1000,5000 `
     -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped `
+    -ColumnShape Default,Mapped `
     -Engine DbaClientX,dbatools `
     -Iterations 3 `
     -UpdateReadme
@@ -468,7 +472,7 @@ To inspect the matrix without touching SQL Server:
 .\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
 ```
 
-If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataReader`, the wrapper skips the DbaClientX CSV lane and runs any remaining file kinds. The compressed CSV lanes also require PSWriteOffice CSV compression parameters so the benchmark cannot accidentally measure an uncompressed `.csv.gz` file. The typed CSV lanes require `Import-OfficeCsv -InferSchema`. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets. If dbatools is not installed or does not expose `Export-DbaCsv` and `Import-DbaCsv`, the wrapper skips the dbatools CSV lane. The compressed dbatools lane also requires `Export-DbaCsv -CompressionType`, and the typed dbatools lane requires `Import-DbaCsv -DetectColumnTypes`.
+If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataReader`, the wrapper skips the DbaClientX CSV lane and runs any remaining file kinds. The compressed CSV lanes also require PSWriteOffice CSV compression parameters so the benchmark cannot accidentally measure an uncompressed `.csv.gz` file. The typed CSV lanes require `Import-OfficeCsv -InferSchema`. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets. If dbatools is not installed or does not expose `Export-DbaCsv` and `Import-DbaCsv`, the wrapper skips the dbatools CSV lane. The compressed dbatools lane also requires `Export-DbaCsv -CompressionType`, the typed dbatools lane requires `Import-DbaCsv -DetectColumnTypes`, and the mapped-column dbatools lane requires `Import-DbaCsv -ColumnMap`.
 
 The benchmark is intentionally paired with feature coverage, because the useful target is not only the fastest happy path. dbatools documents a broad CSV-to-SQL surface in `Import-DbaCsv` and `Export-DbaCsv`; this table keeps the comparable DbaClientX + PSWriteOffice surface visible while the remaining gaps are closed in the owning libraries.
 
@@ -481,7 +485,7 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | Excel to or from SQL | Not a dbatools CSV feature | `Export-OfficeExcel` / `Import-OfficeExcel -AsDataTable` with `Write-DbaXTableData` | `Excel` round trip covers the direct Excel path |
 | Bulk-write knobs | `BatchSize`, `TableLock`, `CheckConstraints`, `FireTriggers`, `KeepIdentity`, `KeepNulls` | `Write-DbaXTableData` exposes the same SQL Server bulk-copy knobs | Covered by data-movement and office round-trip suites |
 | Auto-create destination table | `Import-DbaCsv -AutoCreateTable` with optional column optimization | `Write-DbaXTableData -AutoCreateTable`; typed columns come from the incoming `DataTable`, `IDataReader`, or object shape | Covered by round-trip suites |
-| Column mapping and selected columns | `Column`, `ColumnMap`, ordinal fallback | `Write-DbaXTableData -ColumnMap`; select or shape columns before the file/database boundary | Covered by command tests, not yet by office round-trip benchmark |
+| Column mapping and selected columns | `Column`, `ColumnMap`, ordinal fallback | `Write-DbaXTableData -ColumnMap`; select or shape columns before the file/database boundary | `-ColumnShape Mapped` covers aliased file columns in the office round-trip benchmark; command tests cover edge cases |
 | CSV dialect basics | Delimiter, no header, quote, encoding, null value, date format, UTC conversion, culture-oriented parsing | Delimiter, no header/header, quote mode, encoding, null value, date format, UTC conversion, culture, trimming, comments, W3C headers | Covered by PSWriteOffice CSV tests; round-trip benchmark uses the default dialect |
 | Messy CSV handling | Skip rows, comments, duplicate header behavior, mismatched rows, quote mode, static columns, parse-error collection | Skip rows, comments, W3C headers, duplicate header behavior, column-count mismatch policy, strict/lenient quote parsing, static columns, parse-error collection/skip-row, field-length limits, quote normalization, string interning | Mostly covered by PSWriteOffice CSV tests; round-trip benchmark keeps the default happy path |
 | Security limits | Max field length and decompression protection | OfficeIMO.CSV owns `MaxFieldLength` and `MaxDecompressedBytes`; PSWriteOffice exposes both on file-reading CSV cmdlets | Covered by OfficeIMO.CSV and PSWriteOffice CSV tests; not timed by default |
@@ -502,8 +506,9 @@ The comparison is split by ownership so the benchmark does not cherry-pick only 
 | Native `bcp queryout` SQL-to-CSV export | DbaClientX reader/DataTable/DataRow SQL read plus PSWriteOffice CSV write | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientXReader,DbaClientX,DbaClientXStream,bcp` | `sqlserver-csv-export-benchmark` |
 | dbatools `Export-DbaCsv` SQL-to-CSV export | DbaClientX reader/DataTable/DataRow SQL read plus PSWriteOffice CSV write | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientXReader,DbaClientX,DbaClientXStream,dbatools` | `sqlserver-csv-export-benchmark` |
 | ARPE/FastBCP single-purpose SQL-to-CSV export | DbaClientX reader/DataTable/DataRow SQL read plus PSWriteOffice CSV write | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientXReader,DbaClientX,DbaClientXStream,FastBCP` | FastBCP lane is skipped unless the executable is available |
-| ARPE/FastBCP parallel partitioned export | Optional FastBCP split-file export with `Ntile` and `Id` distribution | `Benchmark.SqlServerCsvExport.ps1 -Engine FastBCP -FastBcpParallelMethod Ntile` | FastBCP lane is skipped unless the executable is available |
+| ARPE/FastBCP parallel partitioned export | DbaClientX partitioned SQL readers plus PSWriteOffice split-file CSV, and optional FastBCP split-file export with `Ntile` and `Id` distribution | `Benchmark.SqlServerCsvExport.ps1 -Engine DbaClientXPartitionedReader,FastBCP -DbaClientXPartitionDegree 4 -FastBcpParallelMethod Ntile` | DbaClientX partitioned lane is in-repo; FastBCP lane is skipped unless the executable is available |
 | dbatools `Export-DbaCsv` plus `Import-DbaCsv` SQL round trip | DbaClientX SQL read/write plus PSWriteOffice CSV | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind Csv` | `office-file-roundtrip-benchmark` |
+| dbatools mapped-column CSV import | DbaClientX SQL read/write plus PSWriteOffice CSV and `Write-DbaXTableData -ColumnMap` | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind Csv -ColumnShape Mapped` | Covered by the office round-trip benchmark when mapped lanes are selected |
 | dbatools compressed CSV round trip | DbaClientX SQL read/write plus PSWriteOffice `.csv.gz` | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind CsvGZip` | `office-file-roundtrip-benchmark` |
 | dbatools typed CSV import round trip | DbaClientX SQL read/write plus PSWriteOffice inferred CSV import | `Benchmark.OfficeFileRoundTrip.ps1 -Engine DbaClientX,dbatools -FileKind CsvTyped,CsvGZipTyped` | `office-file-roundtrip-benchmark` |
 | dbatools `Write-DbaDbTableData` client-side import | `Write-DbaXTableData` from `DataTable`, objects, classes, and `IDataReader` | `Benchmark.SqlServerDataMovement.ps1 -Operation Write` | `sqlserver-data-movement-write-benchmark` |
