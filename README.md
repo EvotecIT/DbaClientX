@@ -315,7 +315,13 @@ The default engine is `DbaClientX`. Add `-Engine DbaClientX,dbatools -FileKind C
     -Iterations 3
 ```
 
-By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` modules. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or `$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH` when benchmarking local source builds. To inspect the matrix without touching SQL Server:
+By default the wrapper imports installed `DbaClientX` and `PSWriteOffice` modules. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or `$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH` when benchmarking local source builds. Single-engine runs produce validated JSON/CSV/Markdown artifacts; README comparison tables are generated for engine comparisons such as `DbaClientX` versus `dbatools`.
+
+To inspect the matrix without touching SQL Server:
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
+```
 
 If the imported PSWriteOffice module does not expose `Export-OfficeCsv` and `Import-OfficeCsv -AsDataTable`, the wrapper skips the DbaClientX CSV lane and runs any remaining file kinds. The `CsvGZip` lane also requires PSWriteOffice CSV compression parameters so the benchmark cannot accidentally measure an uncompressed `.csv.gz` file. Use `-FileKind Excel` for installed PSWriteOffice versions without those CSV cmdlets. If dbatools is not installed or does not expose `Export-DbaCsv` and `Import-DbaCsv`, the wrapper skips the dbatools CSV lane. The compressed dbatools lane also requires `Export-DbaCsv -CompressionType`, and passes `GZip` explicitly when it is available.
 
@@ -335,10 +341,6 @@ The benchmark is intentionally paired with feature coverage, because the useful 
 | Multi-character delimiters | Supported by the Dataplat/dbatools CSV library | OfficeIMO.CSV and PSWriteOffice currently support single-character delimiters only | Documented boundary; not benchmarked as an equivalent lane |
 | Type detection for CSV import | `SampleRows` and `DetectColumnTypes` can drive SQL column creation | OfficeIMO.CSV has schema inference in the C# core; PSWriteOffice `-AsDataTable` remains string/DataTable-oriented before `Write-DbaXTableData -AutoCreateTable` | Not benchmarked yet as a SQL type-inference lane |
 | Parallel CSV import | `Parallel`, `ThrottleLimit`, `ParallelBatchSize` | Database/provider parallel query helpers exist, but CSV-to-SQL parallel import is not a current round-trip feature | Not benchmarked yet |
-
-```powershell
-.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
-```
 
 <!-- office-file-roundtrip-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |

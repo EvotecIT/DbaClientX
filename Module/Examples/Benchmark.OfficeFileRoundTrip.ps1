@@ -2,7 +2,6 @@ param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(1000),
-    [ValidateSet('Csv', 'CsvGZip', 'Excel')]
     [string[]] $FileKind = @('Csv', 'Excel'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
@@ -22,29 +21,45 @@ param(
     [switch] $KeepArtifacts
 )
 
+function Convert-DbaClientXBenchmarkList {
+    param([object[]] $Value)
+
+    @(
+        foreach ($item in @($Value)) {
+            foreach ($part in ([string] $item -split ',')) {
+                $normalized = $part.Trim()
+                if (-not [string]::IsNullOrWhiteSpace($normalized)) {
+                    $normalized
+                }
+            }
+        }
+    ) | Select-Object -Unique
+}
+
+function Assert-DbaClientXBenchmarkValue {
+    param(
+        [string] $Name,
+        [string[]] $Value,
+        [string[]] $ValidValue
+    )
+
+    $invalidValues = @($Value | Where-Object { $_ -notin $ValidValue })
+    if ($invalidValues.Count -gt 0) {
+        throw "$Name must contain only: $($ValidValue -join ', '). Invalid value(s): $($invalidValues -join ', ')."
+    }
+}
+
+$FileKind = Convert-DbaClientXBenchmarkList -Value $FileKind
+$Engine = Convert-DbaClientXBenchmarkList -Value $Engine
+
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
 if ($FileKind.Count -eq 0) {
     throw 'FileKind must contain at least one value.'
 }
-
-$Engine = @(
-    foreach ($engineName in @($Engine)) {
-        foreach ($part in ([string] $engineName -split ',')) {
-            $normalized = $part.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($normalized)) {
-                $normalized
-            }
-        }
-    }
-) | Select-Object -Unique
-
-$validEngines = @('DbaClientX', 'dbatools')
-$invalidEngines = @($Engine | Where-Object { $_ -notin $validEngines })
-if ($invalidEngines.Count -gt 0) {
-    throw "Engine must contain only: $($validEngines -join ', '). Invalid value(s): $($invalidEngines -join ', ')."
-}
+Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'Excel')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -158,7 +173,6 @@ $settings = {
         return $true
     }
 
-    $comparisonBaseline = if ($fileKinds -contains 'Csv') { 'Csv' } elseif ($fileKinds -contains 'CsvGZip') { 'CsvGZip' } else { $fileKinds[0] }
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
     function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
@@ -493,11 +507,9 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
         if ($selectedEngines.Count -gt 1) {
             comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs
-        } else {
-            comparison FileKind -Baseline $comparisonBaseline -Metric MedianMs
-        }
-        if (Test-Path -LiteralPath $readmePath) {
-            readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
+            if (Test-Path -LiteralPath $readmePath) {
+                readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
+            }
         }
         artifacts Json, Csv, Markdown
     }
@@ -517,6 +529,19 @@ if ($Plan) {
 }
 
 $result = Invoke-BenchmarkSuite @parameters
+if ($Plan) {
+    $result | ForEach-Object {
+        [pscustomobject]@{
+            Scenario = $_.Scenario
+            Engine = $_.Engine
+            Operation = $_.Operation
+            RowCount = $_.Values.RowCount
+            FileKind = $_.Values.FileKind
+            Skipped = [bool] $_.IsSkipped
+        }
+    } | Sort-Object Scenario, Engine | Format-Table -AutoSize
+    return
+}
 if (-not $Plan -and $result.Summary) {
     $failedRows = @($result.Summary | Where-Object { $_.FailureCount -gt 0 -or $_.Status -eq 'Failed' })
     if ($failedRows.Count -gt 0) {
