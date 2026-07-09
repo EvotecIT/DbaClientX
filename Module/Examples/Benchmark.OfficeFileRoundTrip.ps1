@@ -103,6 +103,8 @@ $settings = {
     $fileKinds = $FileKind
     $columnShapes = $ColumnShape
     $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
+    $benchmarkWarmupCount = $WarmupCount
+    $benchmarkIterationCount = $Iterations
 
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
@@ -214,7 +216,7 @@ FROM numbers;
     $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
     $assertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
     benchmark 'office-file-roundtrip' -out $outputRootBase {
-        policy -Warmup $WarmupCount -Iterations $Iterations -Order Rotated -OutlierMode None
+        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -OutlierMode None
         profile Current -Cleanup KeepOnFailure
 
         caseSource {
@@ -288,6 +290,9 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -QueryTimeout 120 -ErrorAction Stop | Out-Null
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getSeedQuery -TableName $run.SourceTable -RowCount ([int] $case.RowCount)) -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            if ($case.ColumnShape -eq 'Mapped') {
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.DestinationTable) -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            }
 
             if ($case.Engine -eq 'dbatools') {
                 $run.DbatoolsInstance = Connect-DbaInstance `
