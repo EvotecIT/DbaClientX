@@ -6,12 +6,14 @@ param(
     [string] $ExcelPath = (Join-Path $PWD 'DbaClientXExcelRoundTrip.xlsx'),
     [string] $WorksheetName = 'Rows',
     [int] $RowCount = 100,
+    [int] $QueryTimeout = 120,
     [switch] $KeepArtifacts
 )
 
 # Use this example to prove the SQL Server -> Excel -> SQL Server workflow:
 # DbaClientX reads source rows, PSWriteOffice writes and reads the workbook,
-# and DbaClientX writes the imported DataTable back to SQL Server.
+# and DbaClientX streams the imported Excel reader back to SQL Server when
+# the installed PSWriteOffice build exposes the reader surface.
 # Example:
 #   .\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
@@ -21,6 +23,13 @@ Import-Module PSWriteOffice -Force
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
 }
+if ($QueryTimeout -lt 0) {
+    throw 'QueryTimeout cannot be negative.'
+}
+
+$importOfficeExcel = Get-Command Import-OfficeExcel -All -ErrorAction SilentlyContinue |
+    Where-Object { $_.ModuleName -eq 'PSWriteOffice' }
+$canImportExcelAsDataReader = @($importOfficeExcel | Where-Object { $_.Parameters.ContainsKey('AsDataReader') }).Count -gt 0
 
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
 
@@ -53,44 +62,62 @@ FROM numbers;
 "@ -ErrorAction Stop | Out-Null
 
 try {
-    $rows = @(
-        Invoke-DbaXQuery `
-            -Server $Server `
-            -Database $Database `
-            -TrustServerCertificate `
-            -Query "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;" `
-            -ReturnType PSObject `
-            -ErrorAction Stop
-    )
-
     if (Test-Path -LiteralPath $ExcelPath) {
         Remove-Item -LiteralPath $ExcelPath -Force
     }
 
-    $rows |
+    $client = [DBAClientX.SqlServer]::new()
+    $sqlReader = $null
+    try {
+        $client.CommandTimeout = $QueryTimeout
+        $sqlReader = $client.QueryReader($connectionString, "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;")
         Export-OfficeExcel `
+            -InputObject $sqlReader `
             -Path $ExcelPath `
             -WorksheetName $WorksheetName `
             -TableName 'DbaClientXRows' `
             -AutoFit `
             -ErrorAction Stop | Out-Null
+    } finally {
+        if ($null -ne $sqlReader) {
+            $sqlReader.Dispose()
+        }
 
-    $excelTable = Import-OfficeExcel `
-        -Path $ExcelPath `
-        -WorksheetName $WorksheetName `
-        -AsDataTable `
-        -ErrorAction Stop
+        $client.Dispose()
+    }
 
-    $writeResult = $excelTable |
-        Write-DbaXTableData `
+    $importedExcel = if ($canImportExcelAsDataReader) {
+        Import-OfficeExcel `
+            -Path $ExcelPath `
+            -WorksheetName $WorksheetName `
+            -AsDataReader `
+            -ErrorAction Stop
+    } else {
+        Write-Warning 'Import-OfficeExcel does not expose -AsDataReader in the installed PSWriteOffice module; falling back to -AsDataTable for this example.'
+        Import-OfficeExcel `
+            -Path $ExcelPath `
+            -WorksheetName $WorksheetName `
+            -AsDataTable `
+            -ErrorAction Stop
+    }
+
+    try {
+        $inputObject = if ($importedExcel -is [System.Data.IDataReader]) { (, $importedExcel) } else { $importedExcel }
+        $writeResult = Write-DbaXTableData `
             -Provider SqlServer `
             -ConnectionString $connectionString `
             -DestinationTable $DestinationTable `
+            -InputObject $inputObject `
             -AutoCreateTable `
             -TableLock `
             -BatchSize 5000 `
             -PassThru `
             -ErrorAction Stop
+    } finally {
+        if ($importedExcel -is [System.IDisposable]) {
+            $importedExcel.Dispose()
+        }
+    }
 
     $verification = Invoke-DbaXQuery `
         -Server $Server `
@@ -103,14 +130,12 @@ try {
     $sourceRows = [int] $verification.Tables[0].Rows[0]['SourceRows']
     $destinationRows = [int] $verification.Tables[1].Rows[0]['DestinationRows']
 
-    $hasMismatch = $rows.Count -ne $RowCount -or
-        $excelTable.Rows.Count -ne $RowCount -or
-        $writeResult.Rows -ne $RowCount -or
+    $hasMismatch = $writeResult.Rows -ne $RowCount -or
         $sourceRows -ne $RowCount -or
         $destinationRows -ne $RowCount
 
     if ($hasMismatch) {
-        throw "Round-trip row count mismatch. Exported=$($rows.Count), Imported=$($excelTable.Rows.Count), Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
+        throw "Round-trip row count mismatch. Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
     }
 
     [pscustomobject]@{
@@ -119,8 +144,8 @@ try {
         ExcelPath = $ExcelPath
         SourceTable = $SourceTable
         DestinationTable = $DestinationTable
-        ExportedRows = $rows.Count
-        ImportedRows = $excelTable.Rows.Count
+        ExportedRows = $RowCount
+        ImportedRows = $writeResult.Rows
         WrittenRows = $writeResult.Rows
         SourceRows = $sourceRows
         DestinationRows = $destinationRows

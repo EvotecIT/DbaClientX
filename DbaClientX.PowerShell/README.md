@@ -63,13 +63,18 @@ Import-OfficeCsv .\Users.csv -AsDataTable |
 ```
 
 ```powershell
-Import-OfficeExcel .\Users.xlsx -AsDataTable |
+$reader = Import-OfficeExcel .\Users.xlsx -AsDataReader
+try {
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
         -DestinationTable 'dbo.ImportUsers' `
+        -InputObject (, $reader) `
         -AutoCreateTable `
         -TableLock
+} finally {
+    $reader.Dispose()
+}
 ```
 
 ## Copy A Table Between Providers
