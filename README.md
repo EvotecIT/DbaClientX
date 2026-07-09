@@ -385,8 +385,8 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 | --- | --- | --- | --- | ---: | ---: | --- |
 | 100000 rows / Csv | ColumnShape=Default, FileKind=Csv, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (639ms) | 4.07x (2.60s) | DbaClientX fastest |
 | 100000 rows / CsvGZip | ColumnShape=Default, FileKind=CsvGZip, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (658ms) | 3.99x (2.63s) | DbaClientX fastest |
-| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (359ms) | 0.80x (287ms) | DbaClientX slower than dbatools |
-| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (358ms) | 0.89x (319ms) | DbaClientX slower than dbatools |
+| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (561ms) | 1.10x (614ms) | DbaClientX fastest |
+| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (567ms) | 1.18x (671ms) | DbaClientX fastest |
 | 100000 rows / CsvTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (282ms) | 1.92x (541ms) | DbaClientX fastest |
 <!-- office-file-roundtrip-benchmark:end -->
 
