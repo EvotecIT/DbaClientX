@@ -69,7 +69,7 @@ internal static class PowerShellDataTableConverter
             return item;
         }
 
-        return psObject.BaseObject is DataTable or DataView or IDataReader or DataRow or DataRowView or IDataRecord or IDictionary ||
+        return psObject.BaseObject is DataTable or DataView or IDataReader or DataRow or DataRowView or IDataRecord or IDictionary or IEnumerable ||
                TabularDataTableBuilder.IsScalarValue(psObject.BaseObject)
             ? psObject.BaseObject
             : psObject;
