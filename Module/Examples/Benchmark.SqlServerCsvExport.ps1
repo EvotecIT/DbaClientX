@@ -20,6 +20,7 @@ param(
     [ValidateSet('None', 'Random', 'RangeId', 'Ntile')]
     [string] $FastBcpParallelMethod = 'Ntile',
     [int] $FastBcpParallelDegree = -2,
+    [int] $DbaClientXPartitionDegree = 0,
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $UpdateReadme,
@@ -62,12 +63,15 @@ $Engine = Convert-DbaClientXBenchmarkList -Value $Engine
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'dbatools', 'bcp', 'FastBCP')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader', 'dbatools', 'bcp', 'FastBCP')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
 if ($WarmupCount -lt 0) {
     throw 'WarmupCount cannot be negative.'
+}
+if ($DbaClientXPartitionDegree -lt 0) {
+    throw 'DbaClientXPartitionDegree cannot be negative. Use 0 to default to the current processor count.'
 }
 
 Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
@@ -89,6 +93,7 @@ $settings = {
     $fastBcpPath = $FastBcpPath
     $fastBcpParallelMethod = $FastBcpParallelMethod
     $fastBcpParallelDegree = $FastBcpParallelDegree
+    $dbaClientXPartitionDegree = $DbaClientXPartitionDegree
     $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
@@ -116,6 +121,10 @@ $settings = {
 
     function Test-BcpCommand {
         return [bool] (Get-Command bcp -ErrorAction SilentlyContinue)
+    }
+
+    function Test-ThreadJobCommand {
+        return [bool] (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
     }
 
     function Resolve-FastBcpCommand {
@@ -233,6 +242,7 @@ FROM numbers;
     $testOfficeCsvCommands = ${function:Test-DbaClientXCsvExportCommands}
     $testDbaToolsExportCommand = ${function:Test-DbaToolsExportCommand}
     $testBcpCommand = ${function:Test-BcpCommand}
+    $testThreadJobCommand = ${function:Test-ThreadJobCommand}
     $resolveFastBcpCommand = ${function:Resolve-FastBcpCommand}
     $getCreateTableQuery = ${function:Get-DbaClientXCsvExportCreateTableQuery}
     $getSeedQuery = ${function:Get-DbaClientXCsvExportSeedQuery}
@@ -258,16 +268,45 @@ FROM numbers;
             $run.Server = $server
             $run.Database = $database
             $run.KeepArtifacts = $keepArtifacts
+            $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $run.SourceTable = 'DbaClientXBench_CsvExport_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
             $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_CsvExport_{0}_{1}_{2}.csv' -f $case.Engine, $case.RowCount, ([guid]::NewGuid().ToString('N').Substring(0, 8)))
+            $run.PartitionDirectory = Join-Path $outputRootBase ('DbaClientXBench_CsvExport_DbaClientXPartitioned_{0}_{1}' -f $case.RowCount, ([guid]::NewGuid().ToString('N').Substring(0, 8)))
             $run.FastBcpDirectory = Join-Path $outputRootBase ('DbaClientXBench_CsvExport_FastBCP_{0}_{1}' -f $case.RowCount, ([guid]::NewGuid().ToString('N').Substring(0, 8)))
             $run.FastBcpFileName = 'DbaClientXBench_CsvExport_FastBCP.csv'
             $run.Query = "SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+            $requestedPartitionDegree = if ($dbaClientXPartitionDegree -gt 0) { $dbaClientXPartitionDegree } else { [Environment]::ProcessorCount }
+            $run.PartitionDegree = [Math]::Max(1, [Math]::Min([int] $case.RowCount, [int] $requestedPartitionDegree))
+            $run.PartitionFiles = @(
+                for ($partition = 1; $partition -le $run.PartitionDegree; $partition++) {
+                    Join-Path $run.PartitionDirectory ('DbaClientXBench_CsvExport_Part{0:D4}.csv' -f $partition)
+                }
+            )
+            $run.PartitionQueries = @(
+                for ($partition = 1; $partition -le $run.PartitionDegree; $partition++) {
+                    @"
+WITH DbaXPartitioned AS
+(
+    SELECT
+        Id,
+        DisplayName,
+        Score,
+        CreatedUtc,
+        NTILE($($run.PartitionDegree)) OVER (ORDER BY Id) AS DbaXPartitionNumber
+    FROM dbo.$($run.SourceTable)
+)
+SELECT Id, DisplayName, Score, CreatedUtc
+FROM DbaXPartitioned
+WHERE DbaXPartitionNumber = $partition
+ORDER BY Id;
+"@
+                }
+            )
             $run.DropQuery = "IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.SourceTable);"
 
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             Import-Module $modulePath -Global -Force -ErrorAction Stop
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader')) {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
@@ -291,7 +330,11 @@ FROM numbers;
         skip {
             param($case)
 
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader')) {
+            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
+                if ($case.Engine -eq 'DbaClientXPartitionedReader' -and -not (& $testThreadJobCommand)) {
+                    return $true
+                }
+
                 return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
             }
 
@@ -372,6 +415,59 @@ FROM numbers;
                     }
 
                     $client.Dispose()
+                }
+            }
+        }
+
+        engine DbaClientXPartitionedReader {
+            operation Export {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                New-Item -ItemType Directory -Force -Path $run.PartitionDirectory | Out-Null
+                $jobs = @(
+                    for ($index = 0; $index -lt $run.PartitionDegree; $index++) {
+                        Start-ThreadJob -Name ('DbaClientXCsvPartition{0}' -f ($index + 1)) -ArgumentList @(
+                            $modulePath,
+                            $psWriteOfficeModulePath,
+                            $run.ConnectionString,
+                            $run.PartitionQueries[$index],
+                            $run.PartitionFiles[$index]
+                        ) -ScriptBlock {
+                            param(
+                                [string] $ModulePath,
+                                [string] $PSWriteOfficeModulePath,
+                                [string] $ConnectionString,
+                                [string] $Query,
+                                [string] $Path
+                            )
+
+                            $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                            Import-Module $ModulePath -Global -Force -ErrorAction Stop
+                            Import-Module $PSWriteOfficeModulePath -Global -Force -ErrorAction Stop
+                            $client = [DBAClientX.SqlServer]::new()
+                            $reader = $null
+                            try {
+                                $reader = $client.QueryReader($ConnectionString, $Query)
+                                Export-OfficeCsv -InputObject $reader -Path $Path -NoHeader -ErrorAction Stop
+                            } finally {
+                                if ($null -ne $reader) {
+                                    $reader.Dispose()
+                                }
+
+                                $client.Dispose()
+                            }
+                        }
+                    }
+                )
+
+                try {
+                    $jobs | Wait-Job | Out-Null
+                    foreach ($job in $jobs) {
+                        Receive-Job -Job $job -ErrorAction Stop | Out-Null
+                    }
+                } finally {
+                    $jobs | Remove-Job -Force -ErrorAction SilentlyContinue
                 }
             }
         }
@@ -477,6 +573,12 @@ FROM numbers;
                 }
 
                 @(Get-ChildItem -LiteralPath $run.FastBcpDirectory -File -Filter '*.csv' -ErrorAction Stop | ForEach-Object FullName)
+            } elseif ($case.Engine -eq 'DbaClientXPartitionedReader') {
+                if (-not (Test-Path -LiteralPath $run.PartitionDirectory -PathType Container)) {
+                    throw "DbaClientXPartitionedReader did not create output directory '$($run.PartitionDirectory)'."
+                }
+
+                @(Get-ChildItem -LiteralPath $run.PartitionDirectory -File -Filter '*.csv' -ErrorAction Stop | ForEach-Object FullName)
             } else {
                 if (-not (Test-Path -LiteralPath $run.FilePath -PathType Leaf)) {
                     throw "$($case.Engine) did not create CSV file '$($run.FilePath)'."
@@ -512,6 +614,10 @@ FROM numbers;
 
                 if ($case.Engine -eq 'FastBCP' -and (Test-Path -LiteralPath $run.FastBcpDirectory -PathType Container)) {
                     Remove-Item -LiteralPath $run.FastBcpDirectory -Recurse -Force -ErrorAction SilentlyContinue
+                }
+
+                if ($case.Engine -eq 'DbaClientXPartitionedReader' -and (Test-Path -LiteralPath $run.PartitionDirectory -PathType Container)) {
+                    Remove-Item -LiteralPath $run.PartitionDirectory -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }
         }
