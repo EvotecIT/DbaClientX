@@ -464,7 +464,18 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         $client.Dispose()
                     }
 
-                    $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataReader -SchemaSampleSize ([int] $case.RowCount) -ErrorAction Stop
+                    $excelImportParameters = @{
+                        Path = $run.FilePath
+                        WorksheetName = 'Data'
+                        AsDataReader = $true
+                        ErrorAction = 'Stop'
+                    }
+                    $excelImportCommand = Get-Command Import-OfficeExcel -ErrorAction Stop
+                    if ($excelImportCommand.Parameters.ContainsKey('SchemaSampleSize')) {
+                        $excelImportParameters.SchemaSampleSize = [int] $case.RowCount
+                    }
+
+                    $imported = Import-OfficeExcel @excelImportParameters
                 } else {
                     $data = Invoke-DbaXQuery `
                         -Server $run.Server `
