@@ -201,6 +201,7 @@ public partial class SqlServer
     private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, IDataReader reader, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
         bulkCopy.DestinationTableName = ResolveBulkCopyDestinationTableName(destinationTable, options);
+        bulkCopy.EnableStreaming = true;
         if (batchSize.HasValue)
         {
             bulkCopy.BatchSize = batchSize.Value;

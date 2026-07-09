@@ -122,6 +122,8 @@ public sealed class DbaXTestDataReader : IDataReader
 
     public int FieldCount { get { return _names.Length; } }
 
+    public int SchemaTableCallCount { get; private set; }
+
     public void Close() { _closed = true; }
 
     public void Dispose() { Close(); }
@@ -175,6 +177,7 @@ public sealed class DbaXTestDataReader : IDataReader
 
     public DataTable GetSchemaTable()
     {
+        SchemaTableCallCount++;
         var schema = new DataTable();
         schema.Columns.Add("ColumnName", typeof(string));
         schema.Columns.Add("ColumnOrdinal", typeof(int));
@@ -319,6 +322,8 @@ describe 'Write-DbaXTableData cmdlet' {
         $script:lastReaderInsert = $null
         $prop.SetValue($null, [scriptblock]{
             param($cmdlet, $reader, $options)
+            $null = $reader.GetSchemaTable()
+            $null = $reader.GetSchemaTable()
             $rows = 0
             $firstName = $null
             while ($reader.Read()) {
@@ -370,9 +375,43 @@ describe 'Write-DbaXTableData cmdlet' {
             $script:lastReaderInsert.FirstName | Should -Be 'Alpha'
             $script:lastReaderInsert.MappedName | Should -Be 'DisplayName'
             $result.Rows | Should -Be 2
+            $reader.SchemaTableCallCount | Should -Be 1
         } finally {
             $prop.SetValue($null, $orig)
             $script:lastReaderInsert = $null
+        }
+    }
+
+    it 'streams single SQL Server IDataReader input without counting wrapper when PassThru is not requested' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetProperty('BulkInsertOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $script:lastReaderType = $null
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $reader, $options)
+            $script:lastReaderType = $reader.GetType().FullName
+            while ($reader.Read()) { }
+        })
+
+        try {
+            $reader = [DbaXTestDataReader]::new(
+                [string[]]@('Id', 'Name'),
+                [type[]]@([int], [string]),
+                [object[][]]@(
+                    [object[]]@(1, 'Alpha'),
+                    [object[]]@(2, 'Beta')
+                ))
+
+            Write-DbaXTableData `
+                -Provider SqlServer `
+                -ConnectionString 'Server=s;Database=db;Encrypt=True' `
+                -DestinationTable dbo.Import `
+                -InputObject (, $reader)
+
+            $script:lastReaderType | Should -Be 'DbaXTestDataReader'
+        } finally {
+            $prop.SetValue($null, $orig)
+            $script:lastReaderType = $null
         }
     }
 

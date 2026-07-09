@@ -1,6 +1,6 @@
 # SQL Server benchmark notes
 
-The SQL Server data-movement benchmark is a PSPublishModule/PowerForge benchmark suite, not a hand-rolled timing loop. DbaClientX declares the SQL Server scenarios and provider operations in `Module/Examples/Benchmark.SqlServerDataMovement.ps1`; the shared runner owns warmup iterations, measured iterations, rotated ordering, normalized artifacts, comparison output, and README block updates.
+The SQL Server data-movement benchmark is a PSPublishModule/PowerForge benchmark suite, not a hand-rolled timing loop. `Module/Examples/Benchmark.SqlServerDataMovement.ps1` declares the SQL Server scenarios and provider operations, and the shared runner handles warmup iterations, measured iterations, rotated ordering, normalized artifacts, comparison output, and README block updates.
 
 Run the benchmark:
 
@@ -30,6 +30,26 @@ Use `-Plan` to inspect the matrix without touching SQL Server:
 The write suite benchmarks DbaClientX `Write-DbaXTableData` across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes. It adds dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` only when those commands are available. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into SQL Server bulk copy; dbatools and the SqlServer module stay on their documented client-side input shapes. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
 
 The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery` when dbatools is available. By default it reads every row as full-result `DataTable` and PowerShell-object output; pass `-ReadShape DataSetAll` to include a `DataSet` materialization lane for local diagnosis. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected.
+
+## CSV export and office round trips
+
+`Benchmark.SqlServerCsvExport.ps1` measures export-only throughput from SQL
+Server to CSV. The DbaClientX reader lane opens a SQL Server `IDataReader` and
+passes it directly to PSWriteOffice `Export-OfficeCsv`; the buffered lane uses a
+`DataTable`; the stream lane uses the public `Invoke-DbaXQuery -Stream` shape;
+and the partitioned lane opens one reader per partition and writes split CSV
+files. Comparison lanes cover dbatools `Export-DbaCsv`, native `bcp queryout`,
+and FastBCP when those tools are installed.
+
+`Benchmark.OfficeFileRoundTrip.ps1` measures the combined database/file
+workflow: read source rows with DbaClientX, write CSV, compressed CSV, or Excel
+with PSWriteOffice, import the file back as a tabular reader, then bulk-write to
+SQL Server through `Write-DbaXTableData`.
+The dbatools comparison is CSV-only; Excel remains a DbaClientX + PSWriteOffice
+lane.
+
+The benchmark commands expect matching DbaClientX, PSWriteOffice, and OfficeIMO
+packages. Use module-path parameters only when validating a local source build.
 
 Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`:
 

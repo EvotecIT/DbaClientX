@@ -16,26 +16,11 @@ param(
 # Example:
 #   .\Example.CsvRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
-if (-not (Get-Command Invoke-DbaXQuery -ErrorAction SilentlyContinue)) {
-    Import-Module DbaClientX -ErrorAction Stop
-}
-if (-not (Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue)) {
-    Import-Module PSWriteOffice -ErrorAction Stop
-}
+Import-Module DbaClientX -ErrorAction Stop
+Import-Module PSWriteOffice -ErrorAction Stop
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
-}
-
-$exportOfficeCsv = Get-Command Export-OfficeCsv -ErrorAction SilentlyContinue
-$importOfficeCsv = Get-Command Import-OfficeCsv -ErrorAction SilentlyContinue
-if (-not $exportOfficeCsv -or -not @($importOfficeCsv | Where-Object { $_.Parameters.ContainsKey('AsDataReader') -and $_.Parameters.ContainsKey('InferSchema') })) {
-    throw 'This CSV round-trip example requires PSWriteOffice with Export-OfficeCsv and Import-OfficeCsv -AsDataReader -InferSchema. Import or install a compatible PSWriteOffice build before running the example.'
-}
-if ($CompressionType -ne 'Auto' -and
-    (-not $exportOfficeCsv.Parameters.ContainsKey('CompressionType') -or
-     -not $importOfficeCsv.Parameters.ContainsKey('CompressionType'))) {
-    throw 'This compressed CSV round-trip requires PSWriteOffice with Export-OfficeCsv -CompressionType and Import-OfficeCsv -CompressionType.'
 }
 
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
@@ -69,16 +54,6 @@ FROM numbers;
 "@ -ErrorAction Stop | Out-Null
 
 try {
-    $rows = @(
-        Invoke-DbaXQuery `
-            -Server $Server `
-            -Database $Database `
-            -TrustServerCertificate `
-            -Query "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;" `
-            -ReturnType PSObject `
-            -ErrorAction Stop
-    )
-
     if (Test-Path -LiteralPath $CsvPath) {
         Remove-Item -LiteralPath $CsvPath -Force
     }
@@ -90,9 +65,12 @@ try {
     $csvImportParameters = @{
         Path = $CsvPath
         AsDataReader = $true
-        InferSchema = $true
-        SchemaSampleSize = $RowCount
-        ProgressInterval = 50000
+        ColumnType = @{
+            Id = [int]
+            DisplayName = [string]
+            Score = [decimal]
+            CreatedUtc = [datetime]
+        }
         ParseErrorAction = 'Throw'
         ErrorAction = 'Stop'
     }
@@ -101,7 +79,18 @@ try {
         $csvImportParameters.CompressionType = $CompressionType
     }
 
-    $rows | Export-OfficeCsv @csvExportParameters | Out-Null
+    $client = [DBAClientX.SqlServer]::new()
+    $sqlReader = $null
+    try {
+        $sqlReader = $client.QueryReader($connectionString, "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;")
+        Export-OfficeCsv -InputObject $sqlReader @csvExportParameters | Out-Null
+    } finally {
+        if ($null -ne $sqlReader) {
+            $sqlReader.Dispose()
+        }
+
+        $client.Dispose()
+    }
 
     $csvReader = $null
     try {
@@ -133,13 +122,12 @@ try {
     $sourceRows = [int] $verification.Tables[0].Rows[0]['SourceRows']
     $destinationRows = [int] $verification.Tables[1].Rows[0]['DestinationRows']
 
-    $hasMismatch = $rows.Count -ne $RowCount -or
-        $writeResult.Rows -ne $RowCount -or
+    $hasMismatch = $writeResult.Rows -ne $RowCount -or
         $sourceRows -ne $RowCount -or
         $destinationRows -ne $RowCount
 
     if ($hasMismatch) {
-        throw "Round-trip row count mismatch. Exported=$($rows.Count), Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
+        throw "Round-trip row count mismatch. Written=$($writeResult.Rows), Source=$sourceRows, Destination=$destinationRows, Expected=$RowCount."
     }
 
     [pscustomobject]@{
@@ -149,7 +137,7 @@ try {
         CompressionType = $CompressionType
         SourceTable = $SourceTable
         DestinationTable = $DestinationTable
-        ExportedRows = $rows.Count
+        ExportedRows = $sourceRows
         ImportedRows = $writeResult.Rows
         WrittenRows = $writeResult.Rows
         SourceRows = $sourceRows

@@ -98,21 +98,6 @@ $settings = {
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
 
-    function Test-DbaClientXCsvExportCommands {
-        param([string] $ModulePath)
-
-        try {
-            $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
-        } catch {
-            Write-Warning "Skipping DbaClientX CSV export lane because PSWriteOffice could not be imported from '$ModulePath': $($_.Exception.Message)"
-            return $false
-        }
-
-        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
-        $exportCommand = Get-Command Export-OfficeCsv -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        return [bool] $exportCommand
-    }
-
     function Test-DbaToolsExportCommand {
         $connectCommand = Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue
         $exportCommand = Get-Command Export-DbaCsv -ErrorAction SilentlyContinue
@@ -239,7 +224,6 @@ FROM numbers;
         }
     }
 
-    $testOfficeCsvCommands = ${function:Test-DbaClientXCsvExportCommands}
     $testDbaToolsExportCommand = ${function:Test-DbaToolsExportCommand}
     $testBcpCommand = ${function:Test-BcpCommand}
     $testThreadJobCommand = ${function:Test-ThreadJobCommand}
@@ -335,7 +319,7 @@ ORDER BY Id;
                     return $true
                 }
 
-                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath)
+                return $false
             }
 
             if ($case.Engine -eq 'dbatools') {
