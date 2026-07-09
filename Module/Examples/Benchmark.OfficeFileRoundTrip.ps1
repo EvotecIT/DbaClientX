@@ -3,7 +3,7 @@ param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(1000),
-    [string[]] $FileKind = @('Csv', 'CsvGZip', 'Excel'),
+    [string[]] $FileKind = @('Csv', 'CsvGZip', 'Excel', 'ExcelReader', 'ExcelReaderMapped'),
     [string[]] $ColumnShape = @('Default'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
@@ -69,7 +69,7 @@ if ($FileKind.Count -eq 0) {
 if ($ColumnShape.Count -eq 0) {
     throw 'ColumnShape must contain at least one value.'
 }
-Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped', 'Excel')
+Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped', 'Excel', 'ExcelReader', 'ExcelReaderMapped')
 Assert-DbaClientXBenchmarkValue -Name ColumnShape -Value $ColumnShape -ValidValue @('Default', 'Mapped')
 Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools')
 if ($Iterations -lt 1) {
@@ -147,7 +147,8 @@ $settings = {
 
     function Test-DbaClientXOfficeExcelCommandAvailability {
         param(
-            [string] $ModulePath
+            [string] $ModulePath,
+            [switch] $RequireDataReader
         )
 
         try {
@@ -167,6 +168,11 @@ $settings = {
 
         if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
             Write-Warning "Skipping Excel office file benchmark lane because Import-OfficeExcel does not expose -AsDataTable."
+            return $false
+        }
+
+        if ($RequireDataReader.IsPresent -and -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataReader') })) {
+            Write-Warning "Skipping Excel reader office file benchmark lane because Import-OfficeExcel does not expose -AsDataReader."
             return $false
         }
 
@@ -385,7 +391,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireInferSchema:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')))
             }
 
-            return -not (& $testOfficeExcelCommands -ModulePath $psWriteOfficeModulePath)
+            return -not (& $testOfficeExcelCommands -ModulePath $psWriteOfficeModulePath -RequireDataReader:($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')))
         }
 
         engine DbaClientX {
@@ -394,16 +400,23 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
 
-                $data = Invoke-DbaXQuery `
-                    -Server $run.Server `
-                    -Database $run.Database `
-                    -TrustServerCertificate `
-                    -Query $run.SelectQuery `
-                    -QueryTimeout 120 `
-                    -ReturnType DataTable `
-                    -ErrorAction Stop
+                $useExcelReaderMap = $case.FileKind -eq 'ExcelReaderMapped'
+                $query = if ($useExcelReaderMap) {
+                    "SELECT Id AS SourceId, DisplayName AS SourceDisplayName, Score AS SourceScore, CreatedUtc AS SourceCreatedUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
+                } else {
+                    $run.SelectQuery
+                }
 
                 if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
+                    $data = Invoke-DbaXQuery `
+                        -Server $run.Server `
+                        -Database $run.Database `
+                        -TrustServerCertificate `
+                        -Query $query `
+                        -QueryTimeout 120 `
+                        -ReturnType DataTable `
+                        -ErrorAction Stop
+
                     $csvExportParameters = @{
                         Path = $run.FilePath
                         ErrorAction = 'Stop'
@@ -424,7 +437,43 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                     $data | Export-OfficeCsv @csvExportParameters
                     $imported = Import-OfficeCsv @csvImportParameters
+                } elseif ($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')) {
+                    $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
+                        $run.Server,
+                        $run.Database,
+                        $true,
+                        $null,
+                        $null,
+                        $null,
+                        $null,
+                        $true,
+                        $null,
+                        $null)
+
+                    $client = [DBAClientX.SqlServer]::new()
+                    $reader = $null
+                    try {
+                        $reader = $client.QueryReader($connectionString, $query)
+                        Export-OfficeExcel -InputObject $reader -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
+                    } finally {
+                        if ($null -ne $reader) {
+                            $reader.Dispose()
+                        }
+
+                        $client.Dispose()
+                    }
+
+                    $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataReader -SchemaSampleSize ([int] $case.RowCount) -ErrorAction Stop
                 } else {
+                    $data = Invoke-DbaXQuery `
+                        -Server $run.Server `
+                        -Database $run.Database `
+                        -TrustServerCertificate `
+                        -Query $query `
+                        -QueryTimeout 120 `
+                        -ReturnType DataTable `
+                        -ErrorAction Stop
+
                     $data | Export-OfficeExcel -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
                     $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
                 }
@@ -445,6 +494,14 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     }
                     if ($null -ne $run.ColumnMap) {
                         $writeParameters.ColumnMap = $run.ColumnMap
+                    }
+                    if ($useExcelReaderMap) {
+                        $writeParameters.ColumnMap = @{
+                            SourceId = 'Id'
+                            SourceDisplayName = 'DisplayName'
+                            SourceScore = 'Score'
+                            SourceCreatedUtc = 'CreatedUtc'
+                        }
                     }
 
                     $writeResult = Write-DbaXTableData @writeParameters

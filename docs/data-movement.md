@@ -97,12 +97,17 @@ Import-OfficeCsv .\Customers.csv.gz -CompressionType GZip -AsDataTable |
 Excel:
 
 ```powershell
-Import-OfficeExcel .\Customers.xlsx -AsDataTable |
+$reader = Import-OfficeExcel .\Customers.xlsx -AsDataReader
+try {
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
         -DestinationTable 'staging.Customers' `
+        -InputObject (, $reader) `
         -BatchSize 5000
+} finally {
+    $reader.Dispose()
+}
 ```
 
 If the upstream library is OfficeIMO or another .NET component, keep the reusable document/file-format work there, return `DataTable` or `IDataReader`, and let DbaClientX own the database write.
