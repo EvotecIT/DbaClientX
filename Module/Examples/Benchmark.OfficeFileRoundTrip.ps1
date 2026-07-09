@@ -374,10 +374,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
                         $csvImportParameters.ColumnType = if ($case.ColumnShape -eq 'Mapped') {
                             @{
-                                SourceId = [int]
-                                SourceDisplayName = [string]
-                                SourceScore = [decimal]
-                                SourceCreatedUtc = [datetime]
+                                CustomerId = [int]
+                                CustomerName = [string]
+                                WeightedScore = [decimal]
+                                SeenUtc = [datetime]
                             }
                         } else {
                             @{
