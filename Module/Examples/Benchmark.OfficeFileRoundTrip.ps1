@@ -453,6 +453,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     $client = [DBAClientX.SqlServer]::new()
                     $reader = $null
                     try {
+                        $client.CommandTimeout = 120
                         $reader = $client.QueryReader($connectionString, $query)
                         Export-OfficeExcel -InputObject $reader -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
                     } finally {
