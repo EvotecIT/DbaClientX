@@ -327,35 +327,10 @@ Invoke-DbaXTransaction -Server 'sql01' -Database 'App' -ScriptBlock {
 
 Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block succeeds, roll back on failure, and dispose the provider client in `finally`.
 
-## SQL Server Benchmark Snapshot
+## SQL Server Benchmarks
 
-Use the SQL Server data-movement benchmark when you want repeatable local evidence for import performance. The benchmark uses the PSPublishModule/PowerForge runner for timing, warmups, rotated ordering, comparison tables, README block updates, and JSON/CSV/Markdown artifacts.
-
-```powershell
-Install-Module PSPublishModule -MinimumVersion 3.0.44 -Scope CurrentUser
-
-.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
-    -Server localhost `
-    -Database tempdb `
-    -RowCount 1000, 5000, 20000, 100000 `
-    -BatchSize 5000 `
-    -InputKind DataTable, DataReader, PSCustomObject, Class `
-    -Iterations 3
-```
-
-The suite benchmarks SQL Server writes and reads separately. The write suite covers DbaClientX across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes, and adds dbatools and SqlServer module lanes only when `Write-DbaDbTableData` or `Write-SqlTableData` are available. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into `SqlBulkCopy`; dbatools and native SqlServer module comparisons remain on their documented client-side input shapes. The dbatools `DataTable` write lane uses a direct value passed to `-InputObject` so it stays on the documented SqlBulkCopy fast path instead of the slower piped-`DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
-
-The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery` when dbatools is available. By default it reads every row as both `DataTable` and PowerShell-object output; `DataSet` can be selected with `-ReadShape DataSetAll` for local diagnosis. Successful lanes verify row counts plus simple data integrity (`Id` min/max/sum and `Score` sum) before dropping their isolated tables; failed lanes leave their table behind for inspection.
-
-By default the wrapper imports the installed `DbaClientX` module. Use `-ModulePath`, `$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, or `$env:DBACLIENTX_DEVELOPMENT_PATH` when benchmarking a local source build.
-
-The checked-in snapshot below uses `DataTable`, `DataReader`, `PSCustomObject`, and typed class write input plus full-result `DataTable` and `PSObject` reads at 1k, 5k, 20k, and 100k rows. Pass additional `-ReadShape` values for a broader local read matrix.
-
-The suite rewrites the marker-delimited tables below when it runs from a source checkout. Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`, which are intentionally ignored by Git. To inspect the matrix without touching SQL Server:
-
-```powershell
-.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
-```
+Current workstation timings are below. Commands, measured operations, validation,
+and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md).
 
 ### Write Benchmark
 
@@ -395,35 +370,7 @@ The suite rewrites the marker-delimited tables below when it runs from a source 
 | 5000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=5000 | Core-7.6.3 | Read | 1.00x (17ms) | 2.90x (51ms) | Skipped | DbaClientX fastest |
 <!-- sqlserver-data-movement-read-benchmark:end -->
 
-Treat benchmark numbers as workstation evidence, not universal rankings. SQL Server version, storage, TLS, table indexes, triggers, recovery model, batch size, and client runtime can dominate the result; rerun the suite in the environment that matters.
-
-## SQL Server CSV Export Benchmark
-
-Use the CSV export benchmark when you want the export-only timing view: SQL
-Server rows out to a CSV file, without importing the file back into a table.
-
-```powershell
-.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 `
-    -Server localhost `
-    -Database tempdb `
-    -RowCount 100000 `
-    -Engine DbaClientX,DbaClientXReader,DbaClientXStream,DbaClientXPartitionedReader,dbatools,bcp,FastBCP `
-    -DbaClientXPartitionDegree 4 `
-    -Iterations 3 `
-    -UpdateReadme
-```
-
-Current signal: the direct DbaClientX reader plus PSWriteOffice CSV writer is
-the fastest checked-in lane.
-
-Inspect the matrix without touching SQL Server:
-
-```powershell
-.\Module\Examples\Benchmark.SqlServerCsvExport.ps1 -Plan
-```
-
-The table below is the timing snapshot to watch. `bcp`, dbatools, and FastBCP
-are comparison lanes; DbaClientX and PSWriteOffice are the product lanes.
+## SQL Server CSV Export
 
 <!-- sqlserver-csv-export-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientX | DbaClientXStream | dbatools | FastBCP | Result |
@@ -431,80 +378,16 @@ are comparison lanes; DbaClientX and PSWriteOffice are the product lanes.
 | 100000 rows / CSV export | RowCount=100000 | Core-7.6.3 | Export | 1.00x (65ms) | 4.17x (273ms) | 6.69x (437ms) | 5.25x (343ms) | 1.58x (103ms) | Skipped | DbaClientXReader fastest |
 <!-- sqlserver-csv-export-benchmark:end -->
 
-## Office File Round-Trip Benchmark
-
-Use the office file round-trip benchmark when you want timing evidence for the
-combined DbaClientX and PSWriteOffice workflow: SQL Server to CSV, compressed
-CSV, or Excel, then back into SQL Server.
-
-```powershell
-.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
-    -Server localhost `
-    -Database tempdb `
-    -RowCount 1000,5000 `
-    -FileKind Csv,CsvGZip,Excel,ExcelReader,ExcelReaderMapped `
-    -ColumnShape Default `
-    -Iterations 3
-```
-
-Use the apples-to-apples CSV comparison when checking the same kind of lane dbatools publishes for its CSV library:
-
-```powershell
-.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
-    -Server localhost `
-    -Database tempdb `
-    -RowCount 100000 `
-    -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped `
-    -ColumnShape Default,Mapped `
-    -Engine DbaClientX,dbatools `
-    -WarmupCount 3 `
-    -Iterations 10
-```
-
-The default engine is `DbaClientX`. Add dbatools when you want the CSV-to-SQL
-comparison. Excel lanes use DbaClientX + PSWriteOffice. Typed CSV lanes use the
-production shape we want: DbaClientX carries known SQL column types into `Import-OfficeCsv -ColumnType`,
-while dbatools uses `Import-DbaCsv -DetectColumnTypes`. Typed lanes also
-validate the destination SQL schema, so a run only counts as typed when `Id`,
-`Score`, and `CreatedUtc` land as typed SQL columns.
-
-```powershell
-.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
-    -Server localhost `
-    -Database tempdb `
-    -RowCount 1000,5000 `
-    -FileKind Csv,CsvGZip,CsvTyped,CsvGZipTyped `
-    -ColumnShape Default,Mapped `
-    -Engine DbaClientX,dbatools `
-    -WarmupCount 3 `
-    -Iterations 10 `
-    -UpdateReadme
-```
-
-By default the wrapper imports installed `DbaClientX` and `PSWriteOffice`
-modules. For local source builds, pass `-ModulePath`,
-`$env:DBACLIENTX_BENCHMARK_MODULE_PATH`, `-PSWriteOfficeModulePath`, or
-`$env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH`.
-
-To inspect the matrix without touching SQL Server:
-
-```powershell
-.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 -Plan
-```
-
-The benchmark commands expect matching DbaClientX, PSWriteOffice, and OfficeIMO
-packages.
+## Office File Round Trip
 
 <!-- office-file-roundtrip-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 100000 rows / Csv | ColumnShape=Default, FileKind=Csv, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (661ms) | 4.04x (2.67s) | DbaClientX fastest |
-| 100000 rows / CsvGZip | ColumnShape=Default, FileKind=CsvGZip, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (660ms) | 4.06x (2.68s) | DbaClientX fastest |
-| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 382ms | Not comparable | DbaClientX creates typed SQL columns |
-| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 385ms | Not comparable | dbatools creates `Score` as text under this contract |
+| 100000 rows / Csv | ColumnShape=Default, FileKind=Csv, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (639ms) | 4.07x (2.60s) | DbaClientX fastest |
+| 100000 rows / CsvGZip | ColumnShape=Default, FileKind=CsvGZip, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (658ms) | 3.99x (2.63s) | DbaClientX fastest |
+| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (359ms) | 0.80x (287ms) | DbaClientX slower than dbatools |
+| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (353ms) | 0.76x (268ms) | DbaClientX slower than dbatools |
 <!-- office-file-roundtrip-benchmark:end -->
-
-The checked-in snapshot above comes from local SQL Server runs with three warmups, fifteen measured iterations for the 100k-row comparison lanes, row-count validation, integrity checks for `IdSum` and `ScoreSum`, and typed-schema validation for typed lanes. DbaClientX + PSWriteOffice is about 4x faster for default CSV and compressed CSV round trips. Typed CSV is shown as a DbaClientX timing because the dbatools typed lane does not create the same SQL schema for this data shape.
 
 ## .NET Usage
 
