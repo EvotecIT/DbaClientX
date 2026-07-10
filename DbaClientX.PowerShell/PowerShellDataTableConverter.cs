@@ -24,7 +24,7 @@ internal static class PowerShellDataTableConverter
             ProjectObject = ProjectPowerShellObject
         });
 
-    private static IReadOnlyDictionary<string, object?>? ProjectPowerShellObject(object? item)
+    private static IReadOnlyDictionary<string, object?>? ProjectPowerShellObject(object? item, IReadOnlyList<string>? _)
     {
         if (item is PSObject psObject &&
             psObject.BaseObject is not DataTable &&
