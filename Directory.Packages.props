@@ -14,7 +14,6 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
     <PackageVersion Include="MySqlConnector" Version="2.6.1" />
-    <PackageVersion Include="OfficeIMO.Data" Version="0.1.0" />
     <PackageVersion Include="Oracle.ManagedDataAccess" Version="23.26.200" />
     <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.200" />
     <PackageVersion Include="PowerShellStandard.Library" Version="5.1.1" />

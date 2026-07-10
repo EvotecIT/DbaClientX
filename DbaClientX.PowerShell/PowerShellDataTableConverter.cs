@@ -2,7 +2,6 @@ using System.Collections;
 using System.Data;
 using System.Linq;
 using System.Management.Automation;
-using OfficeIMO.Data;
 
 namespace DBAClientX.PowerShell;
 

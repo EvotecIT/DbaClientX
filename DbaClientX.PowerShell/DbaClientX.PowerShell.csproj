@@ -15,19 +15,9 @@
 		<Authors>Przemyslaw Klys</Authors>
 		<LangVersion>latest</LangVersion>
         </PropertyGroup>
-        <PropertyGroup>
-                <OfficeIMORoot Condition=" '$(OfficeIMORoot)' == '' ">..\OfficeIMO</OfficeIMORoot>
-                <UseOfficeIMODataProjectReference Condition="Exists('$(OfficeIMORoot)\OfficeIMO.Data\OfficeIMO.Data.csproj')">true</UseOfficeIMODataProjectReference>
-        </PropertyGroup>
         <ItemGroup>
                 <PackageReference Include="PowerShellStandard.Library" PrivateAssets="all" />
                 <PackageReference Include="Microsoft.Data.SqlClient" />
-        </ItemGroup>
-        <ItemGroup Condition="'$(UseOfficeIMODataProjectReference)' == 'true'">
-                <ProjectReference Include="$(OfficeIMORoot)\OfficeIMO.Data\OfficeIMO.Data.csproj" />
-        </ItemGroup>
-        <ItemGroup Condition="'$(UseOfficeIMODataProjectReference)' != 'true'">
-                <PackageReference Include="OfficeIMO.Data" />
         </ItemGroup>
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
                 <PackageReference Include="System.Formats.Asn1" />
