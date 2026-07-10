@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using DBAClientX;
 
@@ -7,6 +8,30 @@ namespace DbaClientX.Tests;
 
 public class SQLiteSessionTests
 {
+    [Fact]
+    public void OpenDbConnection_AppliesManagedOptions()
+    {
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var sqlite = new SQLite();
+            using DbConnection connection = sqlite.OpenDbConnection(path, new SQLiteConnectionOptions
+            {
+                BusyTimeoutMs = 4321,
+                EnableForeignKeys = true,
+                EnableWriteAheadLogging = true
+            });
+
+            Assert.Equal(4321L, ReadPragma(connection, "busy_timeout"));
+            Assert.Equal(1L, ReadPragma(connection, "foreign_keys"));
+            Assert.Equal("wal", ReadPragma(connection, "journal_mode"));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     [Fact]
     public void OpenSession_ReusesConnectionForAttachedDatabase()
     {
@@ -68,6 +93,13 @@ public class SQLiteSessionTests
         TryDelete(path);
         TryDelete(path + "-wal");
         TryDelete(path + "-shm");
+    }
+
+    private static object ReadPragma(DbConnection connection, string name)
+    {
+        using DbCommand command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA {name};";
+        return command.ExecuteScalar()!;
     }
 
     private static void TryDelete(string path)
