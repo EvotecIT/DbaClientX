@@ -1,8 +1,6 @@
 # DbaClientX data movement
 
-Use this guide when a script or service needs to move rows into or between databases. Keep higher-level tools focused on their own domain work, then hand tabular data to DbaClientX for provider-specific writes.
-
-DbaClientX and PSWriteOffice are intended to work together rather than compete for ownership. DbaClientX owns provider connections, query execution, transactions, metadata, and bulk-copy behavior. PSWriteOffice and OfficeIMO own CSV and Excel parsing, writing, compression, and file-format rules. The shared boundary is a normal `DataTable`, `IDataReader`, or object stream.
+Use this guide when a script or service needs to move rows into or between databases. DbaClientX handles provider connections, query execution, transactions, metadata, and bulk-copy commands, and it accepts tabular data from PowerShell objects, `DataTable`, `IDataReader`, CSV, and Excel workflows.
 
 Pick the flow that matches the job:
 
@@ -72,7 +70,7 @@ finally {
 
 ## Move Rows From A File Into A Database
 
-Prefer a real tabular shape at the boundary. `Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects.
+Prefer a real tabular input. `Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects.
 
 CSV and compressed CSV:
 
@@ -279,7 +277,7 @@ Copy-DbaXTableData `
 
 `-DeduplicateSourceBy` partitions the source rows by key, `-DeduplicateSourceOrderBy` picks the winning row for each key using descending order, and `-DeduplicateSourceCaseInsensitive` uses lowercase keys for providers that should merge values such as `Server1` and `server1`. `-TreatMissingTablesAsEmpty` is useful when migrating stores across schema versions where older source databases may not contain every current table.
 
-The reusable .NET core owns the same behavior through `DbaTableCopyDefinition.ColumnMappings`, `ExcludedColumns`, `ColumnTypeConversions`, and `SourceOptions`. PowerShell only maps the friendly `-ExcludeColumn`, `-BooleanColumn`, `-Int32Column`, `-Int64Column`, `-DecimalColumn`, `-StringColumn`, `-DateTimeColumn`, and source-deduplication parameters into that definition.
+The .NET API exposes the same behavior through `DbaTableCopyDefinition.ColumnMappings`, `ExcludedColumns`, `ColumnTypeConversions`, and `SourceOptions`. PowerShell maps the friendly `-ExcludeColumn`, `-BooleanColumn`, `-Int32Column`, `-Int64Column`, `-DecimalColumn`, `-StringColumn`, `-DateTimeColumn`, and source-deduplication parameters into that definition.
 
 The cmdlet supports SQL Server, PostgreSQL, MySQL, SQLite, and Oracle as source or destination providers. SQL Server destinations also support `-TableLock`, `-CheckConstraints`, `-FireTriggers`, `-KeepIdentity`, and `-KeepNulls`. SQLite destination connection strings are normalized with pooling disabled for short-lived file copy workflows.
 
@@ -295,7 +293,7 @@ For the SQLite to SQL Server migration shape used by tools such as TestimoX:
 .\Module\Examples\Example.CopyTableData.ps1 -CopyToSqlServer -Server localhost -Database tempdb -RowCount 1000
 ```
 
-In .NET code, keep product-specific schema creation and table lists in the consumer, then hand the copy loop to `DbaTableCopyEngine` with provider-backed implementations of `IDbaTableCopySource` and `IDbaTableCopyDestination`. That lets consumer projects describe "what tables matter" while DbaClientX owns "how to page, write, verify, and report the movement."
+In .NET code, pass the copy loop to `DbaTableCopyEngine` with provider-backed implementations of `IDbaTableCopySource` and `IDbaTableCopyDestination`. Consumer projects provide their schema and table list; the engine pages, writes, verifies, and reports the movement.
 
 For multi-table migrations, use `DbaTableCopyPlanner` to turn metadata into reusable definitions instead of rebuilding the same mapping/exclusion logic in each consumer:
 
@@ -475,7 +473,7 @@ Interpret the numbers as local evidence, not a universal ranking. SQL Server ver
 
 The README includes benchmark blocks that the suite can refresh with normalized comparison tables. JSON, CSV, and Markdown artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`.
 
-The top-level README keeps the broader comparison map: SQL Server bulk import/export, dbatools CSV round trips, compressed CSV, FastBCP-style export-only lanes, raw parser parity in OfficeIMO.CSV, Excel round trips through PSWriteOffice, and the current gaps such as parallel CSV-to-SQL import and direct cloud/object-storage output.
+The top-level README keeps the broader comparison map: SQL Server bulk import/export, dbatools CSV round trips, compressed CSV, FastBCP-style export-only lanes, raw parser parity in OfficeIMO.CSV, Excel round trips through PSWriteOffice, parallel CSV-to-SQL import, and direct cloud/object-storage output.
 
 ## Benchmark File And Database Round Trips
 
@@ -491,4 +489,4 @@ Use the office file benchmark when the question is not only "how fast is bulk co
     -Iterations 3
 ```
 
-That matrix compares DbaClientX + PSWriteOffice against dbatools `Export-DbaCsv` and `Import-DbaCsv` for plain and compressed CSV. Excel remains a DbaClientX + PSWriteOffice lane because the dbatools CSV library does not own Excel. Raw parser microbenchmarks against Dataplat/dbatools, Sep, Sylvan, CsvHelper, and LumenWorks belong in OfficeIMO.CSV, where the parser engine lives; DbaClientX keeps the database/file round-trip benchmark focused on provider and file workflow behavior.
+That matrix compares DbaClientX + PSWriteOffice against dbatools `Export-DbaCsv` and `Import-DbaCsv` for plain and compressed CSV. Excel lanes use DbaClientX + PSWriteOffice. Raw parser microbenchmarks against Dataplat/dbatools, Sep, Sylvan, CsvHelper, and LumenWorks are tracked in OfficeIMO.CSV; the DbaClientX benchmark stays focused on database/file round-trip behavior.

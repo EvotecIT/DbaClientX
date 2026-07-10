@@ -12,13 +12,12 @@ param(
 
 # Use this example to prove the SQL Server -> Excel -> SQL Server workflow:
 # DbaClientX reads source rows, PSWriteOffice writes and reads the workbook,
-# and DbaClientX streams the imported Excel reader back to SQL Server when
-# the installed PSWriteOffice build exposes the reader surface.
+# and DbaClientX streams the imported Excel reader back to SQL Server.
 # Example:
 #   .\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
-Import-Module DbaClientX -Force
-Import-Module PSWriteOffice -Force
+Import-Module DbaClientX -Force -ErrorAction Stop
+Import-Module PSWriteOffice -Force -ErrorAction Stop
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
@@ -26,10 +25,6 @@ if ($RowCount -lt 1) {
 if ($QueryTimeout -lt 0) {
     throw 'QueryTimeout cannot be negative.'
 }
-
-$importOfficeExcel = Get-Command Import-OfficeExcel -All -ErrorAction SilentlyContinue |
-    Where-Object { $_.ModuleName -eq 'PSWriteOffice' }
-$canImportExcelAsDataReader = @($importOfficeExcel | Where-Object { $_.Parameters.ContainsKey('AsDataReader') }).Count -gt 0
 
 $connectionString = "Server=$Server;Database=$Database;Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
 
@@ -86,20 +81,11 @@ try {
         $client.Dispose()
     }
 
-    $importedExcel = if ($canImportExcelAsDataReader) {
-        Import-OfficeExcel `
-            -Path $ExcelPath `
-            -WorksheetName $WorksheetName `
-            -AsDataReader `
-            -ErrorAction Stop
-    } else {
-        Write-Warning 'Import-OfficeExcel does not expose -AsDataReader in the installed PSWriteOffice module; falling back to -AsDataTable for this example.'
-        Import-OfficeExcel `
-            -Path $ExcelPath `
-            -WorksheetName $WorksheetName `
-            -AsDataTable `
-            -ErrorAction Stop
-    }
+    $importedExcel = Import-OfficeExcel `
+        -Path $ExcelPath `
+        -WorksheetName $WorksheetName `
+        -AsDataReader `
+        -ErrorAction Stop
 
     try {
         $inputObject = if ($importedExcel -is [System.Data.IDataReader]) { (, $importedExcel) } else { $importedExcel }

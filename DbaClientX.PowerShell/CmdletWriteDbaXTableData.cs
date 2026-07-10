@@ -233,18 +233,19 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
 
         var startedAt = DateTimeOffset.UtcNow;
         var timer = System.Diagnostics.Stopwatch.StartNew();
-        var countingReader = new CountingDataReader(reader);
+        CountingDataReader? countingReader = PassThru.IsPresent ? new CountingDataReader(reader) : null;
+        var bulkReader = (IDataReader?)countingReader ?? reader;
         var sqlServerOptions = BuildSqlServerOptions(totalRows: null);
         if (BulkInsertOverride != null)
         {
             BulkInsertOverride.InvokeWithContext(
                 functionsToDefine: null,
                 variablesToDefine: null,
-                args: new object?[] { this, countingReader, sqlServerOptions });
+                args: new object?[] { this, bulkReader, sqlServerOptions });
         }
         else
         {
-            InvokeSqlServerReaderBulkInsert(countingReader, sqlServerOptions);
+            InvokeSqlServerReaderBulkInsert(bulkReader, sqlServerOptions);
         }
 
         timer.Stop();
@@ -257,7 +258,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
             {
                 Provider,
                 DestinationTable,
-                Rows = countingReader.RowsRead,
+                Rows = countingReader!.RowsRead,
                 StartedAt = startedAt,
                 CompletedAt = DateTimeOffset.UtcNow,
                 ElapsedMilliseconds = Math.Round(timer.Elapsed.TotalMilliseconds, 2)

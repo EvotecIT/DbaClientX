@@ -82,6 +82,7 @@ if ($WarmupCount -lt 0) {
 Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkRunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $settings = {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..\..')).Path
     $readmePath = Join-Path $sourceRoot 'README.md'
@@ -102,114 +103,8 @@ $settings = {
     $fileKinds = $FileKind
     $columnShapes = $ColumnShape
     $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
-
-    function Test-DbaClientXOfficeCsvCommandAvailability {
-        param(
-            [string] $ModulePath,
-            [switch] $RequireCompression,
-            [switch] $RequireInferSchema
-        )
-
-        try {
-            $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
-        } catch {
-            Write-Warning "Skipping CSV office file benchmark lane because PSWriteOffice could not be imported from '$ModulePath': $($_.Exception.Message)"
-            return $false
-        }
-
-        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
-        $exportCommand = Get-Command Export-OfficeCsv -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        $importCommand = Get-Command Import-OfficeCsv -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        if (-not $exportCommand -or -not $importCommand) {
-            Write-Warning "Skipping CSV office file benchmark lane because the imported PSWriteOffice module does not expose Export-OfficeCsv and Import-OfficeCsv."
-            return $false
-        }
-
-        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataReader') })) {
-            Write-Warning "Skipping CSV office file benchmark lane because Import-OfficeCsv does not expose -AsDataReader."
-            return $false
-        }
-
-        if ($RequireCompression.IsPresent -and
-            (-not @($exportCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }) -or
-             -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('CompressionType') }))) {
-            Write-Warning "Skipping compressed CSV office file benchmark lane because the imported PSWriteOffice module does not expose CSV compression parameters."
-            return $false
-        }
-
-        if ($RequireInferSchema.IsPresent -and -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('InferSchema') })) {
-            Write-Warning "Skipping typed CSV office file benchmark lane because Import-OfficeCsv does not expose -InferSchema."
-            return $false
-        }
-
-        return $true
-    }
-
-    function Test-DbaClientXOfficeExcelCommandAvailability {
-        param(
-            [string] $ModulePath,
-            [switch] $RequireDataReader
-        )
-
-        try {
-            $importedModule = Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
-        } catch {
-            Write-Warning "Skipping Excel office file benchmark lane because PSWriteOffice could not be imported from '$ModulePath': $($_.Exception.Message)"
-            return $false
-        }
-
-        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
-        $exportCommand = Get-Command Export-OfficeExcel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        $importCommand = Get-Command Import-OfficeExcel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        if (-not $exportCommand -or -not $importCommand) {
-            Write-Warning "Skipping Excel office file benchmark lane because the imported PSWriteOffice module does not expose Export-OfficeExcel and Import-OfficeExcel."
-            return $false
-        }
-
-        if (-not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataTable') })) {
-            Write-Warning "Skipping Excel office file benchmark lane because Import-OfficeExcel does not expose -AsDataTable."
-            return $false
-        }
-
-        if ($RequireDataReader.IsPresent -and -not @($importCommand | Where-Object { $_.Parameters.ContainsKey('AsDataReader') })) {
-            Write-Warning "Skipping Excel reader office file benchmark lane because Import-OfficeExcel does not expose -AsDataReader."
-            return $false
-        }
-
-        return $true
-    }
-
-    function Test-DbaToolsCsvCommandAvailability {
-        param(
-            [switch] $RequireCompression,
-            [switch] $RequireTypeDetection,
-            [switch] $RequireColumnMapping
-        )
-
-        $connectCommand = Get-Command Connect-DbaInstance -ErrorAction SilentlyContinue
-        $exportCommand = Get-Command Export-DbaCsv -ErrorAction SilentlyContinue
-        $importCommand = Get-Command Import-DbaCsv -ErrorAction SilentlyContinue
-        if (-not $connectCommand -or -not $exportCommand -or -not $importCommand) {
-            return $false
-        }
-
-        if ($RequireCompression.IsPresent -and -not $exportCommand.Parameters.ContainsKey('CompressionType')) {
-            Write-Warning "Skipping compressed dbatools CSV benchmark lane because Export-DbaCsv does not expose -CompressionType."
-            return $false
-        }
-
-        if ($RequireTypeDetection.IsPresent -and -not $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
-            Write-Warning "Skipping typed dbatools CSV benchmark lane because Import-DbaCsv does not expose -DetectColumnTypes."
-            return $false
-        }
-
-        if ($RequireColumnMapping.IsPresent -and -not $importCommand.Parameters.ContainsKey('ColumnMap')) {
-            Write-Warning "Skipping mapped-column dbatools CSV benchmark lane because Import-DbaCsv does not expose -ColumnMap."
-            return $false
-        }
-
-        return $true
-    }
+    $benchmarkWarmupCount = $WarmupCount
+    $benchmarkIterationCount = $Iterations
 
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
@@ -285,15 +180,43 @@ FROM numbers;
         }
     }
 
+    function Assert-DbaClientXOfficeBenchmarkTypedSchema {
+        param(
+            [string] $FileKind,
+            [string] $TableName,
+            [object[]] $Columns
+        )
+
+        $actualTypes = @{}
+        foreach ($column in @($Columns)) {
+            $actualTypes[[string] $column.ColumnName] = [string] $column.TypeName
+        }
+
+        $expectedTypes = [ordered] @{
+            Id = @('int')
+            DisplayName = @('nvarchar', 'varchar')
+            Score = @('decimal', 'numeric')
+            CreatedUtc = @('datetime2', 'datetime', 'datetimeoffset')
+        }
+
+        foreach ($entry in $expectedTypes.GetEnumerator()) {
+            if (-not $actualTypes.ContainsKey($entry.Key)) {
+                throw "$FileKind typed round trip did not create expected column '$($entry.Key)' in dbo.$TableName."
+            }
+
+            if ($actualTypes[$entry.Key] -notin $entry.Value) {
+                throw "$FileKind typed round trip created dbo.$TableName.$($entry.Key) as $($actualTypes[$entry.Key]); expected one of: $($entry.Value -join ', ')."
+            }
+        }
+    }
+
     $getCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
     $getSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
     $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
     $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
-    $testOfficeCsvCommands = ${function:Test-DbaClientXOfficeCsvCommandAvailability}
-    $testOfficeExcelCommands = ${function:Test-DbaClientXOfficeExcelCommandAvailability}
-    $testDbaToolsCsvCommands = ${function:Test-DbaToolsCsvCommandAvailability}
+    $assertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
     benchmark 'office-file-roundtrip' -out $outputRootBase {
-        policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
+        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -OutlierMode None
         profile Current -Cleanup KeepOnFailure
 
         caseSource {
@@ -325,8 +248,9 @@ FROM numbers;
             $run.Database = $database
             $run.KeepArtifacts = $keepArtifacts
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
-            $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
-            $run.DestinationTable = 'DbaClientXBench_FileDest_{0}' -f ([guid]::NewGuid().ToString('N').Substring(0, 8))
+            $laneToken = '{0}_{1}_{2}_{3}_{4}' -f $benchmarkRunToken, $case.Engine, $case.FileKind, $case.ColumnShape, $case.RowCount
+            $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f $laneToken
+            $run.DestinationTable = 'DbaClientXBench_FileDest_{0}' -f $laneToken
             if ($case.ColumnShape -eq 'Mapped') {
                 $run.SelectQuery = "SELECT Id AS CustomerId, DisplayName AS CustomerName, Score AS WeightedScore, CreatedUtc AS SeenUtc FROM dbo.$($run.SourceTable) ORDER BY Id;"
                 $run.ColumnMap = @{
@@ -346,7 +270,7 @@ FROM numbers;
                 'CsvGZipTyped' { '.csv.gz' }
                 default { '.xlsx' }
             }
-            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}_{1}_{2}_{3}{4}' -f $case.Engine, $case.FileKind, $case.ColumnShape, ([guid]::NewGuid().ToString('N').Substring(0, 8)), $extension)
+            $run.FilePath = Join-Path $outputRootBase ('DbaClientXBench_{0}{1}' -f $laneToken, $extension)
             $run.DropQuery = @"
 IF OBJECT_ID(N'dbo.$($run.DestinationTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.DestinationTable);
 IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run.SourceTable);
@@ -359,20 +283,22 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
+            Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            if (Test-Path -LiteralPath $run.FilePath) {
+                Remove-Item -LiteralPath $run.FilePath -Force
+            }
+
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -QueryTimeout 120 -ErrorAction Stop | Out-Null
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getSeedQuery -TableName $run.SourceTable -RowCount ([int] $case.RowCount)) -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            if ($case.ColumnShape -eq 'Mapped') {
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.DestinationTable) -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            }
 
             if ($case.Engine -eq 'dbatools') {
-                $connectCommand = Get-Command Connect-DbaInstance -ErrorAction Stop
-                $parameters = @{
-                    SqlInstance = $run.Server
-                    Database = $run.Database
-                }
-                if ($connectCommand.Parameters.ContainsKey('TrustServerCertificate')) {
-                    $parameters.TrustServerCertificate = $true
-                }
-
-                $run.DbatoolsInstance = Connect-DbaInstance @parameters
+                $run.DbatoolsInstance = Connect-DbaInstance `
+                    -SqlInstance $run.Server `
+                    -Database $run.Database `
+                    -TrustServerCertificate
             }
         }
 
@@ -380,18 +306,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             param($case)
 
             if ($case.Engine -eq 'dbatools') {
-                if ($case.FileKind -notin @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
-                    return $true
-                }
-
-                return -not (& $testDbaToolsCsvCommands -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireTypeDetection:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) -RequireColumnMapping:($case.ColumnShape -eq 'Mapped'))
+                return $case.FileKind -notin @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')
             }
 
-            if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
-                return -not (& $testOfficeCsvCommands -ModulePath $psWriteOfficeModulePath -RequireCompression:($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) -RequireInferSchema:($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')))
-            }
-
-            return -not (& $testOfficeExcelCommands -ModulePath $psWriteOfficeModulePath -RequireDataReader:($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')))
+            return $false
         }
 
         engine DbaClientX {
@@ -408,15 +326,6 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
 
                 if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
-                    $data = Invoke-DbaXQuery `
-                        -Server $run.Server `
-                        -Database $run.Database `
-                        -TrustServerCertificate `
-                        -Query $query `
-                        -QueryTimeout 120 `
-                        -ReturnType DataTable `
-                        -ErrorAction Stop
-
                     $csvExportParameters = @{
                         Path = $run.FilePath
                         ErrorAction = 'Stop'
@@ -429,13 +338,40 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) {
                         $csvExportParameters.CompressionType = 'GZip'
                         $csvImportParameters.CompressionType = 'GZip'
+                        $csvExportParameters.CompressionLevel = 'Fastest'
                     }
                     if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
-                        $csvImportParameters.InferSchema = $true
-                        $csvImportParameters.SchemaSampleSize = [int] $case.RowCount
+                        $csvImportParameters.ColumnType = if ($case.ColumnShape -eq 'Mapped') {
+                            @{
+                                CustomerId = [int]
+                                CustomerName = [string]
+                                WeightedScore = [decimal]
+                                SeenUtc = [datetime]
+                            }
+                        } else {
+                            @{
+                                Id = [int]
+                                DisplayName = [string]
+                                Score = [decimal]
+                                CreatedUtc = [datetime]
+                            }
+                        }
                     }
 
-                    $data | Export-OfficeCsv @csvExportParameters
+                    $client = [DBAClientX.SqlServer]::new()
+                    $reader = $null
+                    try {
+                        $client.CommandTimeout = 120
+                        $reader = $client.QueryReader($run.ConnectionString, $query)
+                        Export-OfficeCsv -InputObject $reader @csvExportParameters
+                    } finally {
+                        if ($null -ne $reader) {
+                            $reader.Dispose()
+                        }
+
+                        $client.Dispose()
+                    }
+
                     $imported = Import-OfficeCsv @csvImportParameters
                 } elseif ($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')) {
                     $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
@@ -468,11 +404,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         Path = $run.FilePath
                         WorksheetName = 'Data'
                         AsDataReader = $true
+                        SchemaSampleSize = [int] $case.RowCount
                         ErrorAction = 'Stop'
-                    }
-                    $excelImportCommand = Get-Command Import-OfficeExcel -ErrorAction Stop
-                    if ($excelImportCommand.Parameters.ContainsKey('SchemaSampleSize')) {
-                        $excelImportParameters.SchemaSampleSize = [int] $case.RowCount
                     }
 
                     $imported = Import-OfficeExcel @excelImportParameters
@@ -501,7 +434,6 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         BatchSize = 5000
                         BulkCopyTimeout = 120
                         TableLock = $true
-                        PassThru = $true
                         ErrorAction = 'Stop'
                     }
                     if ($null -ne $run.ColumnMap) {
@@ -516,8 +448,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         }
                     }
 
-                    $writeResult = Write-DbaXTableData @writeParameters
-                    $run.RowsWritten = [int] $writeResult.Rows
+                    Write-DbaXTableData @writeParameters
                 } finally {
                     if ($imported -is [System.IDisposable]) {
                         $imported.Dispose()
@@ -538,19 +469,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     Query = $run.SelectQuery
                     Path = $run.FilePath
                     Delimiter = ','
+                    QuotingBehavior = 'AsNeeded'
+                    EnableException = $true
                 }
-                $exportCommand = Get-Command Export-DbaCsv -ErrorAction Stop
-                if ($exportCommand.Parameters.ContainsKey('QuotingBehavior')) {
-                    $exportParameters.QuotingBehavior = 'Always'
-                }
-                if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped') -and $exportCommand.Parameters.ContainsKey('CompressionType')) {
+                if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) {
                     $exportParameters.CompressionType = 'GZip'
-                }
-                if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped') -and $exportCommand.Parameters.ContainsKey('CompressionLevel')) {
-                    $exportParameters.CompressionLevel = 'Optimal'
-                }
-                if ($exportCommand.Parameters.ContainsKey('EnableException')) {
-                    $exportParameters.EnableException = $true
+                    $exportParameters.CompressionLevel = 'Fastest'
                 }
 
                 Export-DbaCsv @exportParameters | Out-Null
@@ -565,22 +489,17 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     BatchSize = 5000
                     TableLock = $true
                     Delimiter = ','
+                    EnableException = $true
+                    NoProgress = $true
                 }
-                $importCommand = Get-Command Import-DbaCsv -ErrorAction Stop
                 $currentCultureName = [System.Globalization.CultureInfo]::CurrentCulture.Name
-                if ($importCommand.Parameters.ContainsKey('Culture') -and -not [string]::IsNullOrWhiteSpace($currentCultureName)) {
+                if (-not [string]::IsNullOrWhiteSpace($currentCultureName)) {
                     $importParameters.Culture = $currentCultureName
                 }
-                if ($importCommand.Parameters.ContainsKey('EnableException')) {
-                    $importParameters.EnableException = $true
-                }
-                if ($importCommand.Parameters.ContainsKey('NoProgress')) {
-                    $importParameters.NoProgress = $true
-                }
-                if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped') -and $importCommand.Parameters.ContainsKey('DetectColumnTypes')) {
+                if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
                     $importParameters.DetectColumnTypes = $true
                 }
-                if ($null -ne $run.ColumnMap -and $importCommand.Parameters.ContainsKey('ColumnMap')) {
+                if ($null -ne $run.ColumnMap) {
                     $importParameters.ColumnMap = $run.ColumnMap
                 }
 
@@ -609,6 +528,19 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
             $expected = & $getExpectedIntegrity -RowCount ([int] $case.RowCount)
             & $assertIntegrity -FileKind $case.FileKind -TableName $run.DestinationTable -Actual $actual -Expected $expected
+
+            if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
+                $schema = Invoke-DbaXQuery `
+                    -Server $run.Server `
+                    -Database $run.Database `
+                    -TrustServerCertificate `
+                    -Query "SELECT c.name AS ColumnName, ty.name AS TypeName FROM sys.columns c JOIN sys.types ty ON ty.user_type_id = c.user_type_id WHERE c.object_id = OBJECT_ID(N'dbo.$($run.DestinationTable)', N'U') ORDER BY c.column_id;" `
+                    -QueryTimeout 120 `
+                    -ReturnType PSObject `
+                    -ErrorAction Stop
+
+                & $assertTypedSchema -FileKind $case.FileKind -TableName $run.DestinationTable -Columns @($schema)
+            }
 
             if ($null -ne $run.RowsWritten -and $run.RowsWritten -ne [int] $case.RowCount) {
                 throw "$($case.FileKind) round trip wrote $($run.RowsWritten) of $($case.RowCount) expected row(s)."
@@ -677,7 +609,23 @@ if ($Plan) {
     $parameters.Plan = $true
 }
 
-$result = Invoke-BenchmarkSuite @parameters
+$originalCulture = [System.Threading.Thread]::CurrentThread.CurrentCulture
+$originalUICulture = [System.Threading.Thread]::CurrentThread.CurrentUICulture
+$originalDefaultCulture = [System.Globalization.CultureInfo]::DefaultThreadCurrentCulture
+$originalDefaultUICulture = [System.Globalization.CultureInfo]::DefaultThreadCurrentUICulture
+$benchmarkCulture = [System.Globalization.CultureInfo]::InvariantCulture
+try {
+    [System.Threading.Thread]::CurrentThread.CurrentCulture = $benchmarkCulture
+    [System.Threading.Thread]::CurrentThread.CurrentUICulture = $benchmarkCulture
+    [System.Globalization.CultureInfo]::DefaultThreadCurrentCulture = $benchmarkCulture
+    [System.Globalization.CultureInfo]::DefaultThreadCurrentUICulture = $benchmarkCulture
+    $result = Invoke-BenchmarkSuite @parameters
+} finally {
+    [System.Threading.Thread]::CurrentThread.CurrentCulture = $originalCulture
+    [System.Threading.Thread]::CurrentThread.CurrentUICulture = $originalUICulture
+    [System.Globalization.CultureInfo]::DefaultThreadCurrentCulture = $originalDefaultCulture
+    [System.Globalization.CultureInfo]::DefaultThreadCurrentUICulture = $originalDefaultUICulture
+}
 if ($Plan) {
     $result | ForEach-Object {
         [pscustomobject]@{

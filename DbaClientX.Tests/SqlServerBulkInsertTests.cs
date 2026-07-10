@@ -18,6 +18,7 @@ public class SqlServerBulkInsertTests
         public string? ConnectionString { get; private set; }
         public SqlBulkCopyOptions Options { get; private set; }
         public int NotifyAfter { get; private set; }
+        public bool EnableStreaming { get; private set; }
         public int ReaderRows { get; private set; }
         public int ReaderFieldCount { get; private set; }
         public List<(string Source, string Destination)> Mappings { get; } = new();
@@ -61,6 +62,7 @@ public class SqlServerBulkInsertTests
             Timeout = bulkCopy.BulkCopyTimeout;
             Destination = bulkCopy.DestinationTableName;
             NotifyAfter = bulkCopy.NotifyAfter;
+            EnableStreaming = bulkCopy.EnableStreaming;
             ReaderFieldCount = reader.FieldCount;
             foreach (SqlBulkCopyColumnMapping mapping in bulkCopy.ColumnMappings)
             {
@@ -492,6 +494,7 @@ public class SqlServerBulkInsertTests
         Assert.Equal(100, sqlServer.BatchSize);
         Assert.Equal(60, sqlServer.Timeout);
         Assert.Equal(25, sqlServer.NotifyAfter);
+        Assert.True(sqlServer.EnableStreaming);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
         Assert.Equal(2, sqlServer.ReaderFieldCount);
         Assert.Equal(2, sqlServer.ReaderRows);
@@ -513,6 +516,7 @@ public class SqlServerBulkInsertTests
 
         Assert.Equal("Server=s;Database=db;Encrypt=True", sqlServer.ConnectionString);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
+        Assert.True(sqlServer.EnableStreaming);
         Assert.Equal(2, sqlServer.ReaderRows);
         Assert.Equal(0, sqlServer.SyncDisposeCalls);
         Assert.Equal(1, sqlServer.AsyncDisposeCalls);

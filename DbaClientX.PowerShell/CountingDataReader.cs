@@ -8,6 +8,7 @@ namespace DBAClientX.PowerShell;
 internal sealed class CountingDataReader : IDataReader
 {
     private readonly IDataReader _inner;
+    private DataTable? _schemaTable;
 
     internal CountingDataReader(IDataReader inner)
         => _inner = inner ?? throw new ArgumentNullException(nameof(inner));
@@ -68,7 +69,7 @@ internal sealed class CountingDataReader : IDataReader
 
     public int GetOrdinal(string name) => _inner.GetOrdinal(name);
 
-    public DataTable? GetSchemaTable() => _inner.GetSchemaTable();
+    public DataTable? GetSchemaTable() => _schemaTable ??= _inner.GetSchemaTable();
 
     public string GetString(int i) => _inner.GetString(i);
 

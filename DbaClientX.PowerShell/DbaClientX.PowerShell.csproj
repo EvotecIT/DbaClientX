@@ -1,5 +1,5 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-	<PropertyGroup>
+        <PropertyGroup>
                 <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">
                         net472;net8.0
                 </TargetFrameworks>
