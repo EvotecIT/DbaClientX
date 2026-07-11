@@ -252,10 +252,6 @@ public sealed class SqliteMaintenanceExecutionTests
                 source,
                 destination,
                 new SqliteBackupOptions { PagesPerStep = 4097 }));
-            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sqlite.BackupDatabaseIncrementalAsync(
-                source,
-                destination,
-                new SqliteBackupOptions { BusyTimeoutMs = 1001 }));
         }
         finally
         {
@@ -268,6 +264,7 @@ public sealed class SqliteMaintenanceExecutionTests
     [InlineData(null, 5000, 1000)]
     [InlineData(null, 250, 250)]
     [InlineData(750, 5000, 750)]
+    [InlineData(5000, 5000, 1000)]
     public void ResolveBackupBusyTimeoutMs_DefaultAndExplicitValues_AreBounded(
         int? requested,
         int instance,

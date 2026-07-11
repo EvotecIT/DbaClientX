@@ -338,12 +338,6 @@ public partial class SQLite
         {
             throw new ArgumentOutOfRangeException(nameof(options.BusyTimeoutMs), "Busy timeout cannot be negative.");
         }
-        if (options.BusyTimeoutMs > MaximumBackupBusyTimeoutMs)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(options.BusyTimeoutMs),
-                $"Busy timeout cannot exceed {MaximumBackupBusyTimeoutMs} milliseconds so cancellation remains responsive.");
-        }
     }
 
     internal static int ResolveBackupBusyTimeoutMs(int? requestedBusyTimeoutMs, int instanceBusyTimeoutMs)
