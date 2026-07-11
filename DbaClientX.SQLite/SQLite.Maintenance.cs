@@ -215,9 +215,13 @@ public partial class SQLite
 
     private void EnsureNoActiveTransaction()
     {
-        if (IsInTransaction)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("SQLite maintenance cannot run while a transaction is active.");
+            if (_transaction != null || _transactionInitializing)
+            {
+                throw new DbaTransactionException(
+                    "SQLite maintenance cannot run while a transaction is active or starting.");
+            }
         }
     }
 
