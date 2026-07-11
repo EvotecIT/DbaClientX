@@ -168,6 +168,22 @@ public class SQLiteTransactionAsyncTests
     }
 
     [Fact]
+    public async Task BackupDatabaseIncrementalAsync_WhileAsyncTransactionInitializationIsReserved_Throws()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+
+        Task transactionStart = sqlite.BeginTransactionAsync(":memory:");
+        await Assert.ThrowsAsync<DBAClientX.DbaTransactionException>(() =>
+            sqlite.BackupDatabaseIncrementalAsync(":memory:", "maintenance-startup-race.sqlite"));
+
+        await transactionStart;
+        Assert.True(sqlite.IsInTransaction);
+
+        await sqlite.RollbackAsync();
+        Assert.False(sqlite.IsInTransaction);
+    }
+
+    [Fact]
     public async Task CommitAsync_CallsCommitOnTransaction()
     {
         using var sqlite = new TestSQLite();

@@ -152,7 +152,7 @@ public partial class SQLite
         }
     }
 
-    private async Task ExecuteMaintenancePragmaAsync(
+    private Task ExecuteMaintenancePragmaAsync(
         string database,
         string pragma,
         CancellationToken cancellationToken,
@@ -163,12 +163,30 @@ public partial class SQLite
         EnsureNoActiveTransaction();
         EnsureMaintenanceDatabaseExists(database);
 
-        SqliteConnection? connection = null;
+        return RunDedicatedMaintenanceAsync(
+            () =>
+            {
+                ExecuteMaintenancePragmaCore(database, pragma, busyTimeoutMs, cancellationToken);
+                return true;
+            },
+            cancellationToken);
+    }
+
+    private void ExecuteMaintenancePragmaCore(
+        string database,
+        string pragma,
+        int? busyTimeoutMs,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            connection = new SqliteConnection(BuildOperationalConnectionString(database));
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
+            using var connection = new SqliteConnection(BuildOperationalConnectionString(database));
+            connection.Open();
+            ApplyBusyTimeout(connection, busyTimeoutMs);
+            using CancellationTokenRegistration registration = cancellationToken.Register(
+                static state => SQLitePCL.raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
+                connection);
 
             using var command = connection.CreateCommand();
             command.CommandText = pragma;
@@ -178,30 +196,32 @@ public partial class SQLite
                 command.CommandTimeout = commandTimeout;
             }
 
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            command.ExecuteNonQuery();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (SqliteException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute SQLite maintenance command.", pragma, ex);
         }
-        finally
-        {
-            if (connection != null)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
-        }
     }
 
     private void EnsureNoActiveTransaction()
     {
-        if (IsInTransaction)
+        lock (_syncRoot)
         {
-            throw new DbaTransactionException("SQLite maintenance cannot run while a transaction is active.");
+            if (_transaction != null || _transactionInitializing)
+            {
+                throw new DbaTransactionException(
+                    "SQLite maintenance cannot run while a transaction is active or starting.");
+            }
         }
     }
 
