@@ -60,7 +60,14 @@ public class SqlServerTransactionAsyncTests
     {
         private readonly object _syncRoot = new();
         public FakeSqlConnection? Connection { get; private set; }
+        public string? ConnectionString { get; private set; }
         public FakeSqlTransaction? Transaction { get; private set; }
+
+        public override Task BeginTransactionAsync(string connectionString, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            ConnectionString = connectionString;
+            return BeginTransactionAsync("s", "db", true, isolationLevel, cancellationToken);
+        }
 
         public override async Task BeginTransactionAsync(string serverOrInstance, string database, bool integratedSecurity, CancellationToken cancellationToken = default, string? username = null, string? password = null)
         {
@@ -210,6 +217,20 @@ public class SqlServerTransactionAsyncTests
         });
 
         Assert.Equal(42, result);
+        Assert.Null(server.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WithConnectionString_PreservesConnectionOptions()
+    {
+        using var server = new TestSqlServer();
+        const string connectionString = "Server=s;Database=db;Integrated Security=true;Encrypt=true;MultiSubnetFailover=true";
+
+        var result = await server.RunInTransactionAsync(connectionString, (_, _) => Task.FromResult(42), IsolationLevel.Serializable);
+
+        Assert.Equal(42, result);
+        Assert.Equal(connectionString, server.ConnectionString);
+        Assert.Equal(IsolationLevel.Serializable, server.Connection!.Level);
         Assert.Null(server.Transaction);
     }
 

@@ -61,7 +61,14 @@ public class OracleTransactionAsyncTests
     {
         private readonly object _syncRoot = new();
         public FakeOracleConnection? Connection { get; private set; }
+        public string? ConnectionString { get; private set; }
         public FakeOracleTransaction? Transaction { get; private set; }
+
+        public override Task BeginTransactionAsync(string connectionString, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            ConnectionString = connectionString;
+            return BeginTransactionAsync("h", "svc", "u", "p", isolationLevel, cancellationToken);
+        }
 
         public override async Task BeginTransactionAsync(string host, string serviceName, string username, string password, CancellationToken cancellationToken = default)
         {
@@ -214,6 +221,20 @@ public class OracleTransactionAsyncTests
         });
 
         Assert.Equal(42, result);
+        Assert.Null(oracle.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WithConnectionString_PreservesConnectionOptions()
+    {
+        using var oracle = new TestOracle();
+        const string connectionString = "Data Source=h/svc;User Id=u;Password=p;Pooling=true;Connection Timeout=15";
+
+        var result = await oracle.RunInTransactionAsync(connectionString, (_, _) => Task.FromResult(42), IsolationLevel.Serializable);
+
+        Assert.Equal(42, result);
+        Assert.Equal(connectionString, oracle.ConnectionString);
+        Assert.Equal(IsolationLevel.Serializable, oracle.Connection!.Level);
         Assert.Null(oracle.Transaction);
     }
 

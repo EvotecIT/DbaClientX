@@ -60,6 +60,29 @@ public partial class PostgreSql
     /// </summary>
     public virtual async Task BeginTransactionAsync(string host, string database, string username, string password, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
     {
+        var connectionString = BuildConnectionString(host, database, username, password);
+        await BeginTransactionAsync(connectionString, isolationLevel, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Begins a transaction asynchronously using an existing PostgreSQL connection string and the default isolation level.
+    /// </summary>
+    /// <param name="connectionString">Complete PostgreSQL connection string.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
+    public virtual Task BeginTransactionAsync(string connectionString, CancellationToken cancellationToken = default)
+        => BeginTransactionAsync(connectionString, IsolationLevel.ReadCommitted, cancellationToken);
+
+    /// <summary>
+    /// Begins a transaction asynchronously using an existing PostgreSQL connection string.
+    /// </summary>
+    /// <param name="connectionString">Complete PostgreSQL connection string.</param>
+    /// <param name="isolationLevel">Isolation level to apply to the transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <exception cref="DbaTransactionException">Thrown when a transaction is already active.</exception>
+    public virtual async Task BeginTransactionAsync(string connectionString, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+    {
+        ValidateConnectionString(connectionString);
         NpgsqlConnection? connection = null;
         NpgsqlTransaction? transaction = null;
         try
@@ -69,7 +92,6 @@ public partial class PostgreSql
                 ReserveTransactionStart(_transaction, ref _transactionInitializing);
             }
 
-            var connectionString = BuildConnectionString(host, database, username, password);
             var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
             connection = CreateConnection(connectionString);
@@ -205,6 +227,64 @@ public partial class PostgreSql
 
         return await ExecuteInTransactionAsync(
             token => BeginTransactionAsync(host, database, username, password, isolationLevel, token),
+            token => operation(this, token),
+            CommitAsync,
+            RollbackAsync,
+            () => IsInTransaction,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a PostgreSQL transaction created from a complete connection string and commits on success.
+    /// </summary>
+    /// <param name="connectionString">Complete PostgreSQL connection string.</param>
+    /// <param name="operation">Operation to execute with the transaction-aware client.</param>
+    /// <param name="isolationLevel">Isolation level to apply to the transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    public virtual Task RunInTransactionAsync(
+        string connectionString,
+        Func<PostgreSql, CancellationToken, Task> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return RunInTransactionAsync(
+            connectionString,
+            async (client, token) =>
+            {
+                await operation(client, token).ConfigureAwait(false);
+                return true;
+            },
+            isolationLevel,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Runs the provided asynchronous callback inside a PostgreSQL transaction created from a complete connection string and commits on success.
+    /// </summary>
+    /// <typeparam name="TResult">Type returned by the operation.</typeparam>
+    /// <param name="connectionString">Complete PostgreSQL connection string.</param>
+    /// <param name="operation">Operation to execute with the transaction-aware client.</param>
+    /// <param name="isolationLevel">Isolation level to apply to the transaction.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The operation result.</returns>
+    public virtual async Task<TResult> RunInTransactionAsync<TResult>(
+        string connectionString,
+        Func<PostgreSql, CancellationToken, Task<TResult>> operation,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken cancellationToken = default)
+    {
+        if (operation == null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        return await ExecuteInTransactionAsync(
+            token => BeginTransactionAsync(connectionString, isolationLevel, token),
             token => operation(this, token),
             CommitAsync,
             RollbackAsync,

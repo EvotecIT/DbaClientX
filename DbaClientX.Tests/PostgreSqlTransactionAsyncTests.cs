@@ -62,7 +62,14 @@ public class PostgreSqlTransactionAsyncTests
     {
         private readonly object _syncRoot = new();
         public FakeNpgsqlConnection? Connection { get; private set; }
+        public string? ConnectionString { get; private set; }
         public FakeNpgsqlTransaction? Transaction { get; private set; }
+
+        public override Task BeginTransactionAsync(string connectionString, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            ConnectionString = connectionString;
+            return BeginTransactionAsync("h", "d", "u", "p", isolationLevel, cancellationToken);
+        }
 
         public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
         {
@@ -212,6 +219,20 @@ public class PostgreSqlTransactionAsyncTests
         });
 
         Assert.Equal(42, result);
+        Assert.Null(pg.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WithConnectionString_PreservesConnectionOptions()
+    {
+        using var pg = new TestPostgreSql();
+        const string connectionString = "Host=h;Database=d;Username=u;Password=p;SSL Mode=Require;Target Session Attributes=read-write";
+
+        var result = await pg.RunInTransactionAsync(connectionString, (_, _) => Task.FromResult(42), IsolationLevel.Serializable);
+
+        Assert.Equal(42, result);
+        Assert.Equal(connectionString, pg.ConnectionString);
+        Assert.Equal(IsolationLevel.Serializable, pg.Connection!.Level);
         Assert.Null(pg.Transaction);
     }
 

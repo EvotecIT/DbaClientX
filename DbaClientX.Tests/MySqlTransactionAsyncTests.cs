@@ -63,7 +63,14 @@ public class MySqlTransactionAsyncTests
     {
         private readonly object _syncRoot = new();
         public FakeMySqlConnection? Connection { get; private set; }
+        public string? ConnectionString { get; private set; }
         public FakeMySqlTransaction? Transaction { get; private set; }
+
+        public override Task BeginTransactionAsync(string connectionString, IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
+        {
+            ConnectionString = connectionString;
+            return BeginTransactionAsync("h", "d", "u", "p", isolationLevel, cancellationToken);
+        }
 
         public override async Task BeginTransactionAsync(string host, string database, string username, string password, CancellationToken cancellationToken = default)
         {
@@ -213,6 +220,20 @@ public class MySqlTransactionAsyncTests
         });
 
         Assert.Equal(42, result);
+        Assert.Null(mySql.Transaction);
+    }
+
+    [Fact]
+    public async Task RunInTransactionAsync_WithConnectionString_PreservesConnectionOptions()
+    {
+        using var mySql = new TestMySql();
+        const string connectionString = "Server=h;Database=d;User ID=u;Password=p;SslMode=Required;Connection Timeout=15";
+
+        var result = await mySql.RunInTransactionAsync(connectionString, (_, _) => Task.FromResult(42), IsolationLevel.Serializable);
+
+        Assert.Equal(42, result);
+        Assert.Equal(connectionString, mySql.ConnectionString);
+        Assert.Equal(IsolationLevel.Serializable, mySql.Connection!.Level);
         Assert.Null(mySql.Transaction);
     }
 
