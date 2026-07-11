@@ -7,7 +7,8 @@ public sealed class SqliteBackupOptions
 {
     /// <summary>
     /// Gets or sets the number of database pages copied by each online-backup step.
-    /// Smaller values release the source read lock more frequently.
+    /// Smaller values release the source read lock more frequently. Values above 4096 are rejected so cancellation
+    /// remains responsive while native backup work is in progress.
     /// </summary>
     public int PagesPerStep { get; set; } = 256;
 
@@ -28,7 +29,8 @@ public sealed class SqliteBackupOptions
     public TimeSpan BusyRetryTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Gets or sets an optional SQLite busy timeout applied to the source and destination connections.
+    /// Gets or sets an optional SQLite busy timeout applied to the source and destination connections. Values above
+    /// 1000 milliseconds are rejected so a native backup step cannot defer cancellation for an extended period.
     /// </summary>
     public int? BusyTimeoutMs { get; set; }
 

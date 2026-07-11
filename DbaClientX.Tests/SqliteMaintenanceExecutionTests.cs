@@ -101,6 +101,122 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task BackupDatabaseIncrementalAsync_CanceledOverwrite_PreservesExistingDestination()
+    {
+        string source = CreateDatabase(rowCount: 512);
+        string destination = CreateDatabase(rowCount: 1);
+        using var cancellationSource = new CancellationTokenSource();
+        try
+        {
+            using var sqlite = new SQLite();
+            var progress = new InlineProgress<SqliteBackupProgress>(value =>
+            {
+                if (value.CopiedPages > 0)
+                {
+                    cancellationSource.Cancel();
+                }
+            });
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions
+                {
+                    PagesPerStep = 1,
+                    StepDelay = TimeSpan.FromMilliseconds(5),
+                    OverwriteDestination = true
+                },
+                progress,
+                cancellationSource.Token));
+
+            Assert.Equal(1, await CountRowsAsync(destination));
+            string directory = Path.GetDirectoryName(destination)!;
+            Assert.Empty(Directory.GetFiles(directory, $"{Path.GetFileName(destination)}.*.partial"));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabaseIncrementalAsync_CompletedOverwrite_AtomicallyReplacesDestination()
+    {
+        string source = CreateDatabase(rowCount: 128);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            using var sqlite = new SQLite();
+
+            await sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions
+                {
+                    PagesPerStep = 4,
+                    OverwriteDestination = true
+                });
+
+            Assert.Equal(128, await CountRowsAsync(destination));
+            string directory = Path.GetDirectoryName(destination)!;
+            Assert.Empty(Directory.GetFiles(directory, $"{Path.GetFileName(destination)}.*.partial"));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabaseIncrementalAsync_ActiveClientTransaction_FailsBeforeCreatingDestination()
+    {
+        string source = CreateDatabase();
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-transaction-backup-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            using var sqlite = new SQLite();
+            sqlite.BeginTransaction(source);
+
+            await Assert.ThrowsAsync<DbaTransactionException>(() => sqlite.BackupDatabaseIncrementalAsync(source, destination));
+            Assert.False(File.Exists(destination));
+
+            sqlite.Rollback();
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabaseIncrementalAsync_UnboundedNativeStepOptions_AreRejected()
+    {
+        string source = CreateDatabase();
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-option-bounds-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions { PagesPerStep = 4097 }));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions { BusyTimeoutMs = 1001 }));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
     public async Task MaintenanceAsync_PreCanceledToken_DoesNotCreateWorkOrDestination()
     {
         string source = CreateDatabase();
@@ -145,6 +261,15 @@ public sealed class SqliteMaintenanceExecutionTests
         }
         transaction.Commit();
         return path;
+    }
+
+    private static async Task<long> CountRowsAsync(string database)
+    {
+        await using var connection = new SqliteConnection(SQLite.BuildConnectionString(database));
+        await connection.OpenAsync();
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM backup_contract;";
+        return (long)(await command.ExecuteScalarAsync())!;
     }
 
     private static void Cleanup(string path)

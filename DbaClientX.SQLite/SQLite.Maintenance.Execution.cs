@@ -6,6 +6,9 @@ namespace DBAClientX;
 
 public partial class SQLite
 {
+    private const int MaximumBackupPagesPerStep = 4096;
+    private const int MaximumBackupBusyTimeoutMs = 1000;
+
     /// <summary>
     /// Runs an SQLite integrity check on a dedicated thread so the provider's synchronous execution cannot block
     /// an asynchronous caller or scheduler.
@@ -52,6 +55,7 @@ public partial class SQLite
     {
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
+        EnsureNoActiveTransaction();
         SqliteBackupOptions effectiveOptions = options ?? new SqliteBackupOptions();
         ValidateBackupOptions(effectiveOptions);
 
@@ -147,105 +151,120 @@ public partial class SQLite
         {
             Directory.CreateDirectory(destinationDirectory);
         }
-        if (File.Exists(destinationPath))
+        bool destinationExisted = File.Exists(destinationPath);
+        if (destinationExisted)
         {
             if (!options.OverwriteDestination)
             {
                 throw new IOException($"SQLite backup destination already exists: {destinationPath}");
             }
-
-            File.Delete(destinationPath);
         }
+
+        string workingPath = destinationExisted
+            ? $"{destinationPath}.{Guid.NewGuid():N}.partial"
+            : destinationPath;
 
         var stopwatch = Stopwatch.StartNew();
         bool completed = false;
+        int totalPages = 0;
         try
         {
-            using var source = new SqliteConnection(BuildOperationalConnectionString(sourcePath, readOnly: true));
-            using var destination = new SqliteConnection(BuildOperationalConnectionString(destinationPath));
-            source.Open();
-            destination.Open();
-            ApplyBusyTimeout(source, options.BusyTimeoutMs);
-            ApplyBusyTimeout(destination, options.BusyTimeoutMs);
-            using CancellationTokenRegistration sourceRegistration = cancellationToken.Register(
-                static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                source);
-            using CancellationTokenRegistration destinationRegistration = cancellationToken.Register(
-                static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                destination);
-
-            sqlite3_backup? backup = raw.sqlite3_backup_init(destination.Handle, "main", source.Handle, "main");
-            if (backup == null || backup.IsInvalid)
             {
-                string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                throw new DbaQueryExecutionException("Failed to initialize SQLite online backup.", "SQLite online backup", new InvalidOperationException(message));
-            }
+                using var source = new SqliteConnection(BuildOperationalConnectionString(sourcePath, readOnly: true));
+                using var destination = new SqliteConnection(BuildOperationalConnectionString(workingPath));
+                source.Open();
+                destination.Open();
+                ApplyBusyTimeout(source, options.BusyTimeoutMs);
+                ApplyBusyTimeout(destination, options.BusyTimeoutMs);
+                using CancellationTokenRegistration sourceRegistration = cancellationToken.Register(
+                    static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
+                    source);
+                using CancellationTokenRegistration destinationRegistration = cancellationToken.Register(
+                    static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
+                    destination);
 
-            int resultCode = raw.SQLITE_OK;
-            int totalPages = 0;
-            int remainingPages = 0;
-            Stopwatch? busyStopwatch = null;
-            Exception? backupFailure = null;
-            try
-            {
-                while (resultCode != raw.SQLITE_DONE)
+                sqlite3_backup? backup = raw.sqlite3_backup_init(destination.Handle, "main", source.Handle, "main");
+                if (backup == null || backup.IsInvalid)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    resultCode = raw.sqlite3_backup_step(backup, options.PagesPerStep);
-                    totalPages = raw.sqlite3_backup_pagecount(backup);
-                    remainingPages = raw.sqlite3_backup_remaining(backup);
-                    ReportBackupProgress(progress, totalPages, remainingPages, stopwatch.Elapsed);
+                    string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
+                    throw new DbaQueryExecutionException("Failed to initialize SQLite online backup.", "SQLite online backup", new InvalidOperationException(message));
+                }
 
-                    if (resultCode == raw.SQLITE_DONE)
+                int resultCode = raw.SQLITE_OK;
+                int remainingPages = 0;
+                TimeSpan cumulativeBusyDuration = TimeSpan.Zero;
+                Exception? backupFailure = null;
+                try
+                {
+                    while (resultCode != raw.SQLITE_DONE)
                     {
-                        break;
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var stepStopwatch = Stopwatch.StartNew();
+                        resultCode = raw.sqlite3_backup_step(backup, options.PagesPerStep);
+                        stepStopwatch.Stop();
+                        totalPages = raw.sqlite3_backup_pagecount(backup);
+                        remainingPages = raw.sqlite3_backup_remaining(backup);
+                        ReportBackupProgress(progress, totalPages, remainingPages, stopwatch.Elapsed);
+
+                        if (resultCode == raw.SQLITE_DONE)
+                        {
+                            break;
+                        }
+                        if (resultCode != raw.SQLITE_OK && resultCode != raw.SQLITE_BUSY && resultCode != raw.SQLITE_LOCKED)
+                        {
+                            string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
+                            throw new DbaQueryExecutionException(
+                                $"SQLite online backup failed with result code {resultCode}.",
+                                "SQLite online backup",
+                                new InvalidOperationException(message));
+                        }
+
+                        bool isBusy = resultCode == raw.SQLITE_BUSY || resultCode == raw.SQLITE_LOCKED;
+                        if (isBusy)
+                        {
+                            cumulativeBusyDuration += stepStopwatch.Elapsed;
+                            ThrowIfBusyRetryTimeoutExceeded(cumulativeBusyDuration, options.BusyRetryTimeout);
+                        }
+
+                        TimeSpan delay = isBusy
+                            ? options.BusyRetryDelay
+                            : options.StepDelay;
+                        if (isBusy && delay > TimeSpan.Zero)
+                        {
+                            var delayStopwatch = Stopwatch.StartNew();
+                            WaitWithCancellation(delay, cancellationToken);
+                            delayStopwatch.Stop();
+                            cumulativeBusyDuration += delayStopwatch.Elapsed;
+                            ThrowIfBusyRetryTimeoutExceeded(cumulativeBusyDuration, options.BusyRetryTimeout);
+                        }
+                        else
+                        {
+                            WaitWithCancellation(delay, cancellationToken);
+                        }
                     }
-                    if (resultCode != raw.SQLITE_OK && resultCode != raw.SQLITE_BUSY && resultCode != raw.SQLITE_LOCKED)
+                }
+                catch (Exception exception)
+                {
+                    backupFailure = exception;
+                    throw;
+                }
+                finally
+                {
+                    int finishCode = raw.sqlite3_backup_finish(backup);
+                    if (backupFailure == null && resultCode == raw.SQLITE_DONE && finishCode != raw.SQLITE_OK)
                     {
                         string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
                         throw new DbaQueryExecutionException(
-                            $"SQLite online backup failed with result code {resultCode}.",
+                            $"SQLite online backup finalization failed with result code {finishCode}.",
                             "SQLite online backup",
                             new InvalidOperationException(message));
                     }
-                    bool isBusy = resultCode == raw.SQLITE_BUSY || resultCode == raw.SQLITE_LOCKED;
-                    if (isBusy)
-                    {
-                        busyStopwatch ??= Stopwatch.StartNew();
-                    }
-                    else
-                    {
-                        busyStopwatch = null;
-                    }
-                    if (isBusy &&
-                        options.BusyRetryTimeout > TimeSpan.Zero &&
-                        busyStopwatch!.Elapsed >= options.BusyRetryTimeout)
-                    {
-                        throw new TimeoutException($"SQLite online backup remained busy or locked for {busyStopwatch.Elapsed:g}.");
-                    }
+                }
+            }
 
-                    TimeSpan delay = isBusy
-                        ? options.BusyRetryDelay
-                        : options.StepDelay;
-                    WaitWithCancellation(delay, cancellationToken);
-                }
-            }
-            catch (Exception exception)
+            if (destinationExisted)
             {
-                backupFailure = exception;
-                throw;
-            }
-            finally
-            {
-                int finishCode = raw.sqlite3_backup_finish(backup);
-                if (backupFailure == null && resultCode == raw.SQLITE_DONE && finishCode != raw.SQLITE_OK)
-                {
-                    string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                    throw new DbaQueryExecutionException(
-                        $"SQLite online backup finalization failed with result code {finishCode}.",
-                        "SQLite online backup",
-                        new InvalidOperationException(message));
-                }
+                File.Replace(workingPath, destinationPath, null, ignoreMetadataErrors: true);
             }
 
             stopwatch.Stop();
@@ -268,7 +287,7 @@ public partial class SQLite
         {
             if (!completed && options.DeleteDestinationOnFailure)
             {
-                TryDeleteBackupDestination(destinationPath);
+                TryDeleteBackupDestination(workingPath);
             }
         }
     }
@@ -293,6 +312,12 @@ public partial class SQLite
         {
             throw new ArgumentOutOfRangeException(nameof(options.PagesPerStep), "Pages per step must be positive.");
         }
+        if (options.PagesPerStep > MaximumBackupPagesPerStep)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options.PagesPerStep),
+                $"Pages per step cannot exceed {MaximumBackupPagesPerStep} so cancellation remains responsive.");
+        }
         if (options.StepDelay < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(options.StepDelay), "Step delay cannot be negative.");
@@ -308,6 +333,20 @@ public partial class SQLite
         if (options.BusyTimeoutMs < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(options.BusyTimeoutMs), "Busy timeout cannot be negative.");
+        }
+        if (options.BusyTimeoutMs > MaximumBackupBusyTimeoutMs)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options.BusyTimeoutMs),
+                $"Busy timeout cannot exceed {MaximumBackupBusyTimeoutMs} milliseconds so cancellation remains responsive.");
+        }
+    }
+
+    private static void ThrowIfBusyRetryTimeoutExceeded(TimeSpan elapsed, TimeSpan timeout)
+    {
+        if (timeout > TimeSpan.Zero && elapsed >= timeout)
+        {
+            throw new TimeoutException($"SQLite online backup cumulative busy or locked time reached {elapsed:g}.");
         }
     }
 
@@ -350,9 +389,13 @@ public partial class SQLite
     {
         try
         {
-            if (File.Exists(path))
+            foreach (string suffix in new[] { string.Empty, "-wal", "-shm" })
             {
-                File.Delete(path);
+                string candidate = path + suffix;
+                if (File.Exists(candidate))
+                {
+                    File.Delete(candidate);
+                }
             }
         }
         catch
