@@ -178,6 +178,7 @@ public sealed class SqliteMaintenanceExecutionTests
         {
             File.WriteAllText(destination + "-wal", "stale-wal");
             File.WriteAllText(destination + "-shm", "stale-shm");
+            File.WriteAllText(destination + "-journal", "stale-journal");
             using var sqlite = new SQLite();
 
             await sqlite.BackupDatabaseIncrementalAsync(
@@ -187,6 +188,7 @@ public sealed class SqliteMaintenanceExecutionTests
 
             Assert.False(File.Exists(destination + "-wal"));
             Assert.False(File.Exists(destination + "-shm"));
+            Assert.False(File.Exists(destination + "-journal"));
             Assert.Equal(128, await CountRowsAsync(destination));
         }
         finally
@@ -279,6 +281,37 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public void SnapshotBackupOptions_CallerMutation_DoesNotChangeValidatedSnapshot()
+    {
+        var options = new SqliteBackupOptions
+        {
+            PagesPerStep = 64,
+            StepDelay = TimeSpan.FromMilliseconds(10),
+            BusyRetryDelay = TimeSpan.FromMilliseconds(20),
+            BusyRetryTimeout = TimeSpan.FromSeconds(3),
+            BusyTimeoutMs = 500,
+            OverwriteDestination = true,
+            DeleteDestinationOnFailure = false
+        };
+        var method = typeof(SQLite).GetMethod(
+            "SnapshotBackupOptions",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        var snapshot = Assert.IsType<SqliteBackupOptions>(method.Invoke(null, new object?[] { options }));
+        options.PagesPerStep = 4096;
+        options.OverwriteDestination = false;
+
+        Assert.NotSame(options, snapshot);
+        Assert.Equal(64, snapshot.PagesPerStep);
+        Assert.Equal(TimeSpan.FromMilliseconds(10), snapshot.StepDelay);
+        Assert.Equal(TimeSpan.FromMilliseconds(20), snapshot.BusyRetryDelay);
+        Assert.Equal(TimeSpan.FromSeconds(3), snapshot.BusyRetryTimeout);
+        Assert.Equal(500, snapshot.BusyTimeoutMs);
+        Assert.True(snapshot.OverwriteDestination);
+        Assert.False(snapshot.DeleteDestinationOnFailure);
+    }
+
+    [Fact]
     public async Task MaintenanceAsync_PreCanceledToken_DoesNotCreateWorkOrDestination()
     {
         string source = CreateDatabase();
@@ -336,7 +369,7 @@ public sealed class SqliteMaintenanceExecutionTests
 
     private static void Cleanup(string path)
     {
-        foreach (string suffix in new[] { string.Empty, "-wal", "-shm" })
+        foreach (string suffix in new[] { string.Empty, "-wal", "-shm", "-journal" })
         {
             string candidate = path + suffix;
             if (File.Exists(candidate))

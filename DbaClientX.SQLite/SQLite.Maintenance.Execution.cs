@@ -57,7 +57,7 @@ public partial class SQLite
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
         EnsureNoActiveTransaction();
-        SqliteBackupOptions effectiveOptions = options ?? new SqliteBackupOptions();
+        SqliteBackupOptions effectiveOptions = SnapshotBackupOptions(options);
         ValidateBackupOptions(effectiveOptions);
         int backupBusyTimeoutMs = ResolveBackupBusyTimeoutMs(effectiveOptions.BusyTimeoutMs, BusyTimeoutMs);
 
@@ -349,13 +349,28 @@ public partial class SQLite
     internal static int ResolveBackupBusyTimeoutMs(int? requestedBusyTimeoutMs, int instanceBusyTimeoutMs)
         => Math.Min(requestedBusyTimeoutMs ?? instanceBusyTimeoutMs, MaximumBackupBusyTimeoutMs);
 
+    internal static SqliteBackupOptions SnapshotBackupOptions(SqliteBackupOptions? options)
+    {
+        SqliteBackupOptions source = options ?? new SqliteBackupOptions();
+        return new SqliteBackupOptions
+        {
+            PagesPerStep = source.PagesPerStep,
+            StepDelay = source.StepDelay,
+            BusyRetryDelay = source.BusyRetryDelay,
+            BusyRetryTimeout = source.BusyRetryTimeout,
+            BusyTimeoutMs = source.BusyTimeoutMs,
+            OverwriteDestination = source.OverwriteDestination,
+            DeleteDestinationOnFailure = source.DeleteDestinationOnFailure
+        };
+    }
+
     private static void ReplaceBackupDestination(string workingPath, string destinationPath)
     {
         var quarantinedSidecars = new List<KeyValuePair<string, string>>();
         bool replaced = false;
         try
         {
-            foreach (string suffix in new[] { "-wal", "-shm" })
+            foreach (string suffix in new[] { "-wal", "-shm", "-journal" })
             {
                 string sidecarPath = destinationPath + suffix;
                 if (!File.Exists(sidecarPath))
