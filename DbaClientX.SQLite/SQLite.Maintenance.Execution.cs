@@ -31,6 +31,7 @@ public partial class SQLite
         {
             throw new ArgumentOutOfRangeException(nameof(maxIssues), "Maximum issue count must be positive.");
         }
+        EnsureNoActiveTransaction();
 
         return RunDedicatedMaintenanceAsync(
             () => CheckIntegrityCore(database, fullCheck, maxIssues, busyTimeoutMs, cancellationToken),
@@ -58,12 +59,14 @@ public partial class SQLite
         EnsureNoActiveTransaction();
         SqliteBackupOptions effectiveOptions = options ?? new SqliteBackupOptions();
         ValidateBackupOptions(effectiveOptions);
+        int backupBusyTimeoutMs = ResolveBackupBusyTimeoutMs(effectiveOptions.BusyTimeoutMs, BusyTimeoutMs);
 
         return RunDedicatedMaintenanceAsync(
             () => BackupDatabaseIncrementalCore(
                 sourceDatabase,
                 destinationDatabase,
                 effectiveOptions,
+                backupBusyTimeoutMs,
                 progress,
                 cancellationToken),
             cancellationToken);
@@ -131,6 +134,7 @@ public partial class SQLite
         string sourceDatabase,
         string destinationDatabase,
         SqliteBackupOptions options,
+        int backupBusyTimeoutMs,
         IProgress<SqliteBackupProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -174,8 +178,8 @@ public partial class SQLite
                 using var destination = new SqliteConnection(BuildOperationalConnectionString(workingPath));
                 source.Open();
                 destination.Open();
-                ApplyBusyTimeout(source, options.BusyTimeoutMs);
-                ApplyBusyTimeout(destination, options.BusyTimeoutMs);
+                ApplyBusyTimeout(source, backupBusyTimeoutMs);
+                ApplyBusyTimeout(destination, backupBusyTimeoutMs);
                 using CancellationTokenRegistration sourceRegistration = cancellationToken.Register(
                     static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
                     source);
@@ -264,7 +268,7 @@ public partial class SQLite
 
             if (destinationExisted)
             {
-                File.Replace(workingPath, destinationPath, null, ignoreMetadataErrors: true);
+                ReplaceBackupDestination(workingPath, destinationPath);
             }
 
             stopwatch.Stop();
@@ -339,6 +343,55 @@ public partial class SQLite
             throw new ArgumentOutOfRangeException(
                 nameof(options.BusyTimeoutMs),
                 $"Busy timeout cannot exceed {MaximumBackupBusyTimeoutMs} milliseconds so cancellation remains responsive.");
+        }
+    }
+
+    internal static int ResolveBackupBusyTimeoutMs(int? requestedBusyTimeoutMs, int instanceBusyTimeoutMs)
+        => Math.Min(requestedBusyTimeoutMs ?? instanceBusyTimeoutMs, MaximumBackupBusyTimeoutMs);
+
+    private static void ReplaceBackupDestination(string workingPath, string destinationPath)
+    {
+        var quarantinedSidecars = new List<KeyValuePair<string, string>>();
+        bool replaced = false;
+        try
+        {
+            foreach (string suffix in new[] { "-wal", "-shm" })
+            {
+                string sidecarPath = destinationPath + suffix;
+                if (!File.Exists(sidecarPath))
+                {
+                    continue;
+                }
+
+                string quarantinePath = $"{destinationPath}.{Guid.NewGuid():N}.stale{suffix}";
+                File.Move(sidecarPath, quarantinePath);
+                quarantinedSidecars.Add(new KeyValuePair<string, string>(sidecarPath, quarantinePath));
+            }
+
+            File.Replace(workingPath, destinationPath, null, ignoreMetadataErrors: true);
+            replaced = true;
+        }
+        finally
+        {
+            foreach (KeyValuePair<string, string> sidecar in quarantinedSidecars)
+            {
+                try
+                {
+                    if (replaced)
+                    {
+                        File.Delete(sidecar.Value);
+                    }
+                    else if (!File.Exists(sidecar.Key))
+                    {
+                        File.Move(sidecar.Value, sidecar.Key);
+                    }
+                }
+                catch
+                {
+                    // A quarantined sidecar cannot affect the promoted backup; failed restoration is surfaced by
+                    // the original replacement exception while cleanup remains best effort.
+                }
+            }
         }
     }
 

@@ -170,6 +170,33 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task BackupDatabaseIncrementalAsync_CompletedOverwrite_RemovesStaleDestinationSidecars()
+    {
+        string source = CreateDatabase(rowCount: 128);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            File.WriteAllText(destination + "-wal", "stale-wal");
+            File.WriteAllText(destination + "-shm", "stale-shm");
+            using var sqlite = new SQLite();
+
+            await sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions { OverwriteDestination = true });
+
+            Assert.False(File.Exists(destination + "-wal"));
+            Assert.False(File.Exists(destination + "-shm"));
+            Assert.Equal(128, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
     public async Task BackupDatabaseIncrementalAsync_ActiveClientTransaction_FailsBeforeCreatingDestination()
     {
         string source = CreateDatabase();
@@ -188,6 +215,25 @@ public sealed class SqliteMaintenanceExecutionTests
         {
             Cleanup(source);
             Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task CheckIntegrityAsync_ActiveClientTransaction_FailsBeforeStartingMaintenance()
+    {
+        string source = CreateDatabase();
+        try
+        {
+            using var sqlite = new SQLite();
+            sqlite.BeginTransaction(source);
+
+            await Assert.ThrowsAsync<DbaTransactionException>(() => sqlite.CheckIntegrityAsync(source));
+
+            sqlite.Rollback();
+        }
+        finally
+        {
+            Cleanup(source);
         }
     }
 
@@ -214,6 +260,22 @@ public sealed class SqliteMaintenanceExecutionTests
             Cleanup(source);
             Cleanup(destination);
         }
+    }
+
+    [Theory]
+    [InlineData(null, 5000, 1000)]
+    [InlineData(null, 250, 250)]
+    [InlineData(750, 5000, 750)]
+    public void ResolveBackupBusyTimeoutMs_DefaultAndExplicitValues_AreBounded(
+        int? requested,
+        int instance,
+        int expected)
+    {
+        var method = typeof(SQLite).GetMethod(
+            "ResolveBackupBusyTimeoutMs",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        Assert.Equal(expected, method.Invoke(null, new object?[] { requested, instance }));
     }
 
     [Fact]
