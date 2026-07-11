@@ -221,6 +221,47 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task BackupDatabaseIncrementalAsync_LockedSource_EnforcesExplicitBusyDeadline()
+    {
+        string source = CreateDatabase();
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-busy-deadline-{Guid.NewGuid():N}.sqlite");
+        await using var lockConnection = new SqliteConnection(SQLite.BuildConnectionString(source));
+        try
+        {
+            await lockConnection.OpenAsync();
+            await using SqliteCommand lockCommand = lockConnection.CreateCommand();
+            lockCommand.CommandText = "BEGIN EXCLUSIVE;";
+            await lockCommand.ExecuteNonQueryAsync();
+            using var sqlite = new SQLite();
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            await Assert.ThrowsAsync<TimeoutException>(() => sqlite.BackupDatabaseIncrementalAsync(
+                source,
+                destination,
+                new SqliteBackupOptions
+                {
+                    BusyRetryDelay = TimeSpan.FromMilliseconds(20),
+                    BusyRetryTimeout = TimeSpan.FromMilliseconds(100)
+                }));
+
+            stopwatch.Stop();
+            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"Busy deadline took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            if (lockConnection.State == System.Data.ConnectionState.Open)
+            {
+                await using SqliteCommand rollback = lockConnection.CreateCommand();
+                rollback.CommandText = "ROLLBACK;";
+                await rollback.ExecuteNonQueryAsync();
+            }
+            await lockConnection.CloseAsync();
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
     public async Task CheckIntegrityAsync_ActiveClientTransaction_FailsBeforeStartingMaintenance()
     {
         string source = CreateDatabase();
@@ -260,23 +301,6 @@ public sealed class SqliteMaintenanceExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData(null, 5000, 1000)]
-    [InlineData(null, 250, 250)]
-    [InlineData(750, 5000, 750)]
-    [InlineData(5000, 5000, 1000)]
-    public void ResolveBackupBusyTimeoutMs_DefaultAndExplicitValues_AreBounded(
-        int? requested,
-        int instance,
-        int expected)
-    {
-        var method = typeof(SQLite).GetMethod(
-            "ResolveBackupBusyTimeoutMs",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-
-        Assert.Equal(expected, method.Invoke(null, new object?[] { requested, instance }));
-    }
-
     [Fact]
     public void SnapshotBackupOptions_CallerMutation_DoesNotChangeValidatedSnapshot()
     {
@@ -286,7 +310,6 @@ public sealed class SqliteMaintenanceExecutionTests
             StepDelay = TimeSpan.FromMilliseconds(10),
             BusyRetryDelay = TimeSpan.FromMilliseconds(20),
             BusyRetryTimeout = TimeSpan.FromSeconds(3),
-            BusyTimeoutMs = 500,
             OverwriteDestination = true,
             DeleteDestinationOnFailure = false
         };
@@ -303,7 +326,6 @@ public sealed class SqliteMaintenanceExecutionTests
         Assert.Equal(TimeSpan.FromMilliseconds(10), snapshot.StepDelay);
         Assert.Equal(TimeSpan.FromMilliseconds(20), snapshot.BusyRetryDelay);
         Assert.Equal(TimeSpan.FromSeconds(3), snapshot.BusyRetryTimeout);
-        Assert.Equal(500, snapshot.BusyTimeoutMs);
         Assert.True(snapshot.OverwriteDestination);
         Assert.False(snapshot.DeleteDestinationOnFailure);
     }

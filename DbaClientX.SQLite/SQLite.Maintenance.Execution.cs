@@ -7,7 +7,6 @@ namespace DBAClientX;
 public partial class SQLite
 {
     private const int MaximumBackupPagesPerStep = 4096;
-    private const int MaximumBackupBusyTimeoutMs = 1000;
 
     /// <summary>
     /// Runs an SQLite integrity check on a dedicated thread so the provider's synchronous execution cannot block
@@ -59,14 +58,12 @@ public partial class SQLite
         EnsureNoActiveTransaction();
         SqliteBackupOptions effectiveOptions = SnapshotBackupOptions(options);
         ValidateBackupOptions(effectiveOptions);
-        int backupBusyTimeoutMs = ResolveBackupBusyTimeoutMs(effectiveOptions.BusyTimeoutMs, BusyTimeoutMs);
 
         return RunDedicatedMaintenanceAsync(
             () => BackupDatabaseIncrementalCore(
                 sourceDatabase,
                 destinationDatabase,
                 effectiveOptions,
-                backupBusyTimeoutMs,
                 progress,
                 cancellationToken),
             cancellationToken);
@@ -134,7 +131,6 @@ public partial class SQLite
         string sourceDatabase,
         string destinationDatabase,
         SqliteBackupOptions options,
-        int backupBusyTimeoutMs,
         IProgress<SqliteBackupProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -178,8 +174,6 @@ public partial class SQLite
                 using var destination = new SqliteConnection(BuildOperationalConnectionString(workingPath));
                 source.Open();
                 destination.Open();
-                ApplyBusyTimeout(source, backupBusyTimeoutMs);
-                ApplyBusyTimeout(destination, backupBusyTimeoutMs);
                 using CancellationTokenRegistration sourceRegistration = cancellationToken.Register(
                     static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
                     source);
@@ -334,14 +328,7 @@ public partial class SQLite
         {
             throw new ArgumentOutOfRangeException(nameof(options.BusyRetryTimeout), "Busy retry timeout cannot be negative.");
         }
-        if (options.BusyTimeoutMs < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options.BusyTimeoutMs), "Busy timeout cannot be negative.");
-        }
     }
-
-    internal static int ResolveBackupBusyTimeoutMs(int? requestedBusyTimeoutMs, int instanceBusyTimeoutMs)
-        => Math.Min(requestedBusyTimeoutMs ?? instanceBusyTimeoutMs, MaximumBackupBusyTimeoutMs);
 
     internal static SqliteBackupOptions SnapshotBackupOptions(SqliteBackupOptions? options)
     {
@@ -352,7 +339,6 @@ public partial class SQLite
             StepDelay = source.StepDelay,
             BusyRetryDelay = source.BusyRetryDelay,
             BusyRetryTimeout = source.BusyRetryTimeout,
-            BusyTimeoutMs = source.BusyTimeoutMs,
             OverwriteDestination = source.OverwriteDestination,
             DeleteDestinationOnFailure = source.DeleteDestinationOnFailure
         };
