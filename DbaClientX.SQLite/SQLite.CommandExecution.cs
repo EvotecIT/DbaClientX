@@ -167,10 +167,6 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return base.ExecuteNonQuery(connection, transaction, query, parameters, dbTypes, parameterDirections);
         }
-        catch (DbaTransactionException)
-        {
-            throw;
-        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
@@ -209,7 +205,7 @@ public partial class SQLite
         try
         {
             connection.Open();
-            ApplyBusyTimeout(connection, busyTimeoutMs);
+            ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
             return (connection, null, true);
         }
         catch

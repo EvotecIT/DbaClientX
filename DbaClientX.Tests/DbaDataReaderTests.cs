@@ -9,6 +9,19 @@ namespace DbaClientX.Tests;
 public class DbaDataReaderTests
 {
     [Fact]
+    public void SqlServerAsyncReaderApis_ReturnOwnedReaderType()
+    {
+        var methods = typeof(DBAClientX.SqlServer)
+            .GetMethods()
+            .Where(method => method.Name == nameof(DBAClientX.SqlServer.QueryReaderAsync))
+            .ToArray();
+
+        Assert.NotEmpty(methods);
+        Assert.All(methods, method =>
+            Assert.Equal(typeof(Task<DBAClientX.DbaDataReader>), method.ReturnType));
+    }
+
+    [Fact]
     public void Dispose_DisposesReaderCommandAndOwnedConnectionOnce()
     {
         var table = new DataTable();

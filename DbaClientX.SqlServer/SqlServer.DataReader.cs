@@ -83,13 +83,13 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="DbDataReader"/> asynchronously.
+    /// Opens a SQL Server query as an asynchronously disposable streaming <see cref="DbaDataReader"/>.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual async Task<DbDataReader> QueryReaderAsync(
+    public virtual async Task<DbaDataReader> QueryReaderAsync(
         string serverOrInstance,
         string database,
         bool integratedSecurity,
@@ -108,13 +108,13 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="DbDataReader"/> asynchronously using a full connection string.
+    /// Opens a SQL Server query as an asynchronously disposable streaming <see cref="DbaDataReader"/> using a full connection string.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual async Task<DbDataReader> QueryReaderAsync(
+    public virtual async Task<DbaDataReader> QueryReaderAsync(
         string connectionString,
         string query,
         IDictionary<string, object?>? parameters = null,

@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
@@ -179,5 +180,93 @@ public sealed class SQLiteGenericExecutorsTests
             SqliteConnection.ClearAllPools();
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteNonQueryWithConnectionString_PreservesExplicitDefaultTimeout(bool asyncExecution)
+    {
+        var path = Path.Join(Path.GetTempPath(), $"dbax-timeout-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var blocker = new SqliteConnection($"Data Source={path};Pooling=False");
+            blocker.Open();
+            using (var setup = blocker.CreateCommand())
+            {
+                setup.CommandText = "CREATE TABLE timeout_contract (id INTEGER NOT NULL);";
+                setup.ExecuteNonQuery();
+            }
+
+            using var transaction = blocker.BeginTransaction();
+            using (var acquireWriteLock = blocker.CreateCommand())
+            {
+                acquireWriteLock.Transaction = transaction;
+                acquireWriteLock.CommandText = "INSERT INTO timeout_contract (id) VALUES (1);";
+                acquireWriteLock.ExecuteNonQuery();
+            }
+
+            using var sqlite = new DBAClientX.SQLite { BusyTimeoutMs = 10000 };
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Pooling = false,
+                DefaultTimeout = 1
+            }.ConnectionString;
+            var stopwatch = Stopwatch.StartNew();
+
+            if (asyncExecution)
+            {
+                await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+                    sqlite.ExecuteNonQueryWithConnectionStringAsync(
+                        connectionString,
+                        "INSERT INTO timeout_contract (id) VALUES (2);"));
+            }
+            else
+            {
+                Assert.Throws<DBAClientX.DbaQueryExecutionException>(() =>
+                    sqlite.ExecuteNonQueryWithConnectionString(
+                        connectionString,
+                        "INSERT INTO timeout_contract (id) VALUES (2);"));
+            }
+
+            stopwatch.Stop();
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+                $"Explicit one-second timeout was overwritten; execution took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteNonQuery_WhenTransactionIsMissing_PreservesExecutionExceptionContract(bool asyncExecution)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        DBAClientX.DbaQueryExecutionException exception;
+
+        if (asyncExecution)
+        {
+            exception = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+                sqlite.ExecuteNonQueryWithConnectionStringAsync(
+                    "Data Source=:memory:;Pooling=False",
+                    "UPDATE items SET id = 1;",
+                    useTransaction: true));
+        }
+        else
+        {
+            exception = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() =>
+                sqlite.ExecuteNonQuery(
+                    ":memory:",
+                    "UPDATE items SET id = 1;",
+                    useTransaction: true));
+        }
+
+        Assert.IsType<DBAClientX.DbaTransactionException>(exception.InnerException);
     }
 }

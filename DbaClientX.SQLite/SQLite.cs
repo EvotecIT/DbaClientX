@@ -283,6 +283,17 @@ public partial class SQLite : DatabaseClientBase
         return effectiveTimeout;
     }
 
+    private static int? ResolveConnectionBusyTimeout(string connectionString, int? busyTimeoutMs)
+    {
+        if (busyTimeoutMs.HasValue)
+        {
+            return busyTimeoutMs;
+        }
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        return builder.ContainsKey("Default Timeout") ? 0 : null;
+    }
+
     private void ApplyBusyTimeout(SqliteConnection connection, int? busyTimeoutMs = null)
     {
         var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);

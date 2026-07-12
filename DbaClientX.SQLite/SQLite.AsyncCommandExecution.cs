@@ -312,10 +312,6 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (DbaTransactionException)
-        {
-            throw;
-        }
         catch (Exception ex)
         {
             throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
@@ -385,7 +381,10 @@ public partial class SQLite
         try
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
+            await ApplyBusyTimeoutAsync(
+                connection,
+                ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
+                cancellationToken).ConfigureAwait(false);
             return (connection, null, true);
         }
         catch
