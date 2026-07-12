@@ -232,7 +232,12 @@ public partial class SQLite
 #endif
             }
 
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            if (IsCallerCancellation(ex, cancellationToken))
+            {
+                throw;
+            }
+
+            throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
         }
         finally
         {

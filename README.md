@@ -41,6 +41,7 @@ Use it when you need:
 
 - one codebase for SQL Server, PostgreSQL, MySQL, SQLite, and Oracle
 - sync and async query execution
+- consistent caller cancellation across query, scalar, non-query, reader, streaming, stored procedure, and bulk APIs; provider-specific cancellation failures are normalized to `OperationCanceledException` with the caller's token
 - parameterized commands and provider-specific parameter type preservation
 - transaction helpers that commit on success and roll back on failure
 - provider-native bulk insert paths for staging tables and direct table writes

@@ -152,7 +152,12 @@ public partial class SqlServer
                 await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
             }
 
-            throw new DbaQueryExecutionException("Failed to open query reader.", query, ex);
+            if (IsCallerCancellation(ex, cancellationToken))
+            {
+                throw;
+            }
+
+            throw CreateQueryExecutionOrCancellationException("Failed to open query reader.", query, ex, cancellationToken);
         }
     }
 
@@ -207,7 +212,9 @@ public partial class SqlServer
         {
             try
             {
-                return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                return await AwaitWithCallerCancellationAsync(
+                    () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
             {

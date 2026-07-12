@@ -136,22 +136,19 @@ public partial class SqlServer
                 command.CommandTimeout = commandTimeout;
             }
 
-            var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-            var tableIndex = 0;
-            do
-            {
-                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            }
-            while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            var dataSet = await ReadStoredProcedureResultsAsync(command, cancellationToken).ConfigureAwait(false);
 
             return BuildResult(dataSet);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (SqlException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
         }
         catch (SqlException ex)
         {

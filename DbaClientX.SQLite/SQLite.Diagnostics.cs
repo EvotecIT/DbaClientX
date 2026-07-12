@@ -39,7 +39,9 @@ public partial class SQLite
             }
 
             using var connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => connection.OpenAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
 
             diagnostics.CanConnect = true;
@@ -159,7 +161,9 @@ public partial class SQLite
                 command.CommandTimeout = commandTimeout;
             }
 
-            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteScalarAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
 

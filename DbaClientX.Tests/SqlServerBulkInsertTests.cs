@@ -118,6 +118,17 @@ public class SqlServerBulkInsertTests
         }
     }
 
+    private sealed class TokenlessCancellationBulkCopySqlServer : CaptureBulkCopySqlServer
+    {
+        public required CancellationTokenSource CancellationSource { get; init; }
+
+        protected override Task WriteToServerAsync(SqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
+        {
+            CancellationSource.Cancel();
+            return Task.FromException(new OperationCanceledException());
+        }
+    }
+
     private class AutoCreateBulkCopySqlServer : CaptureBulkCopySqlServer
     {
         public List<(string CommandText, Dictionary<string, object?> Parameters)> SetupCommands { get; } = new();
@@ -871,6 +882,31 @@ public class SqlServerBulkInsertTests
 
         Assert.IsType<InvalidOperationException>(ex.InnerException);
         Assert.Equal(0, sqlServer.SyncDisposeCalls);
+        Assert.Equal(1, sqlServer.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenBulkCopyThrowsTokenlessCancellation_NormalizesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var sqlServer = new TokenlessCancellationBulkCopySqlServer
+        {
+            CancellationSource = cancellation
+        };
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            sqlServer.BulkInsertAsync(
+                "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+                table,
+                "dbo.Dest",
+                cancellationToken: cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
+        Assert.Equal(default, providerException.CancellationToken);
         Assert.Equal(1, sqlServer.AsyncDisposeCalls);
     }
 
