@@ -26,6 +26,7 @@
   "PlanOutputPath": "../Artefacts/ProjectBuild/project.build.plan.json",
   "UpdateVersions": true,
   "Build": true,
+  "IncludeSymbols": true,
   "PublishNuget": false,
   "PublishGitHub": false,
   "CreateReleaseZip": true,
