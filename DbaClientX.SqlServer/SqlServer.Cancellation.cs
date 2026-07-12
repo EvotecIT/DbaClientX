@@ -18,7 +18,7 @@ public partial class SqlServer
             if (sqlException.Number != 0 ||
                 sqlException.Class != 11 ||
                 sqlException.State != 0 ||
-                sqlException.Errors.Count < 2)
+                sqlException.Errors.Count == 0)
             {
                 return false;
             }

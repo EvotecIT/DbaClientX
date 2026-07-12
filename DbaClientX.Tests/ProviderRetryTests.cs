@@ -185,8 +185,9 @@ public class ProviderRetryTests
         using var mySql = new MySqlRetryClient();
         using var oracle = new OracleRetryClient();
 
+        Assert.True(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 11, state: 0, errorCount: 1)));
         Assert.True(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 11, state: 0, errorCount: 2)));
-        Assert.False(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 11, state: 0, errorCount: 1)));
+        Assert.False(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 10, state: 0, errorCount: 1)));
         Assert.True(sqlite.IsCancellation(new SqliteException("interrupted", 9)));
         Assert.False(sqlite.IsCancellation(new SqliteException("busy", 5)));
         Assert.True(postgreSql.IsCancellation(new PostgresException("cancelled", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
