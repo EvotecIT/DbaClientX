@@ -249,6 +249,9 @@ public class DbaConnectionFactoryTests
     [InlineData("FullUri=file:../secrets.db")]
     [InlineData("Data Source=C:..\\secrets.db")]
     [InlineData("FullUri=file:C:../secrets.db")]
+    [InlineData("FullUri=file:..%2Fsecrets.db")]
+    [InlineData("FullUri=file:..%5Csecrets.db")]
+    [InlineData("FullUri=file:%2E%2E/secrets.db")]
     public void Validate_SqlitePrefixedParentTraversal_IsRejected(string connectionString)
     {
         var result = DbaConnectionFactory.Validate("sqlite", connectionString);

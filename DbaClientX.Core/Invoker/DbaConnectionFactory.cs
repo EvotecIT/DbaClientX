@@ -316,6 +316,8 @@ public static class DbaConnectionFactory
             candidate = candidate.Substring("file:".Length);
         }
 
+        candidate = Uri.UnescapeDataString(candidate);
+
         if (candidate.Length >= 2 && char.IsLetter(candidate[0]) && candidate[1] == ':')
         {
             candidate = candidate.Substring(2);
