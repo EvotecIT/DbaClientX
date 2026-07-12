@@ -6,8 +6,7 @@ on:
       - master
     paths-ignore:
       - '*.md'
-      - 'Docs/**'
-      - 'Examples/**'
+      - 'docs/**'
       - '.gitignore'
   pull_request:
     branches:
@@ -18,25 +17,27 @@ permissions:
   contents: read
 
 env:
-  DOTNET_VERSION: '8.x'
   BUILD_CONFIGURATION: 'Release'
 
 jobs:
   test:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.os }} (${{ matrix.framework }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
+        framework: [net8.0, net10.0]
     timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+          dotnet-version: |
+            8.x
+            10.x
 
       - name: Restore dependencies
         run: dotnet restore DbaClientX.sln
@@ -45,26 +46,26 @@ jobs:
         run: dotnet build DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
       - name: Run tests
-        run: dotnet test DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --framework net8.0 --no-build --verbosity normal --logger trx --collect:"XPlat Code Coverage"
+        run: dotnet test DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --framework ${{ matrix.framework }} --no-build --verbosity normal --logger trx --collect:"XPlat Code Coverage"
         env:
           DNSCLIENTX_DEBUG_SYSTEMDNS: '1'
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: test-results-${{ matrix.os }}
+          name: test-results-${{ matrix.os }}-${{ matrix.framework }}
           path: '**/*.trx'
 
       - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: coverage-reports-${{ matrix.os }}
+          name: coverage-reports-${{ matrix.os }}-${{ matrix.framework }}
           path: '**/coverage.cobertura.xml'
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         continue-on-error: true
         with:
           files: '**/coverage.cobertura.xml'

@@ -59,12 +59,45 @@ public class QueryCompilerCacheTests
     {
         QueryCompiler.ClearCache();
         var compiler = new QueryCompiler(SqlDialect.PostgreSql);
-        var q1 = new Query().Select("u.id").From("users u").Join("orders o", "u.id = o.user_id");
-        var q2 = new Query().Select("u.id").From("users u").Join("orders o", "u.email = o.email");
+        var q1 = new Query().Select("u.id").From("users", "u").JoinRaw("orders o", "u.id = o.user_id");
+        var q2 = new Query().Select("u.id").From("users", "u").JoinRaw("orders o", "u.email = o.email");
 
         var (sql1, _) = compiler.CompileWithParameters(q1);
         var (sql2, _) = compiler.CompileWithParameters(q2);
 
         Assert.NotEqual(sql1, sql2);
+    }
+
+    [Fact]
+    public void CompileWithParameters_DistinguishesRawAndIdentifierExpressions()
+    {
+        QueryCompiler.ClearCache();
+        var compiler = new QueryCompiler(SqlDialect.PostgreSql);
+
+        var (identifierSql, _) = compiler.CompileWithParameters(new Query().Select("COUNT(*)").From("users"));
+        var (rawSql, _) = compiler.CompileWithParameters(new Query().SelectRaw("COUNT(*)").From("users"));
+
+        Assert.Equal("SELECT \"COUNT(*)\" FROM \"users\"", identifierSql);
+        Assert.Equal("SELECT COUNT(*) FROM \"users\"", rawSql);
+    }
+
+    [Fact]
+    public void CompileWithParameters_DistinguishesRawPredicateSubqueries()
+    {
+        QueryCompiler.ClearCache();
+        var compiler = new QueryCompiler(SqlDialect.PostgreSql);
+        var activeUsers = new Query().Select("user_id").From("active_users").Where("enabled", true);
+        var archivedUsers = new Query().Select("user_id").From("archived_users").Where("enabled", true);
+        var first = new Query().Select("*").From("users").WhereRaw("LOWER(name)", "IN", activeUsers);
+        var second = new Query().Select("*").From("users").WhereRaw("LOWER(name)", "IN", archivedUsers);
+
+        var (firstSql, firstParameters) = compiler.CompileWithParameters(first);
+        var (secondSql, secondParameters) = compiler.CompileWithParameters(second);
+
+        Assert.Contains("FROM \"active_users\"", firstSql);
+        Assert.Contains("FROM \"archived_users\"", secondSql);
+        Assert.NotEqual(firstSql, secondSql);
+        Assert.Equal(new object[] { true }, firstParameters);
+        Assert.Equal(new object[] { true }, secondParameters);
     }
 }

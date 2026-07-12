@@ -34,7 +34,7 @@ Provider aliases, canonical names, and generic executor type names come from `Db
 
 `DbInvoker` enumerates input lazily when no batch size is set. Parallel execution uses a fixed worker set, so the number of queued operations does not grow with the input sequence; `ParallelDegree` is capped by `DbExecutionOptions.MaximumParallelDegree`.
 
-## Query builder (string-safe, provider-aware quoting)
+## Query builder (safe identifiers and explicit raw SQL)
 
 ```csharp
 using DBAClientX.QueryBuilder;
@@ -46,6 +46,29 @@ var sql = QueryBuilder
     .OrderBy("Name")
     .Compile(SqlDialect.SqlServer);
 ```
+
+Identifier methods quote every identifier; spaces and parentheses no longer switch the compiler into raw-SQL mode. Use an explicit raw method only for trusted expressions:
+
+```csharp
+var aggregate = new Query()
+    .Select("DepartmentId")
+    .SelectRaw("COUNT(*)")
+    .From("Employees")
+    .GroupBy("DepartmentId")
+    .HavingRaw("COUNT(*)", ">", 5)
+    .OrderByRaw("COUNT(*) DESC");
+```
+
+For aliased joins, prefer the identifier overload so tables, aliases, and both sides of the condition are quoted:
+
+```csharp
+var joined = new Query()
+    .Select("u.Id", "o.Total")
+    .From("Users", "u")
+    .Join("Orders", "o", "u.Id", "=", "o.UserId");
+```
+
+`SelectRaw`, `FromRaw`, `JoinRaw`, `WhereRaw`, `GroupByRaw`, `HavingRaw`, and `OrderByRaw` emit caller-authored SQL. Never pass user input to these methods. The legacy two-string join overloads remain available for migration but are obsolete because they treat both arguments as raw SQL. Comparison operators are limited to the supported safe operator set, and `Limit`, `Offset`, and `Top` reject negative values.
 
 For multipart table or schema names, `DbaIdentifierPath` provides the shared delimiter-aware split and unquote behavior used by bulk operations and table-copy planning.
 

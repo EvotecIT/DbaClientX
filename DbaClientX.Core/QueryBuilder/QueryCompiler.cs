@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text;
 
@@ -10,7 +9,7 @@ namespace DBAClientX.QueryBuilder;
 /// <summary>
 /// Compiles <see cref="Query"/> objects into SQL text tailored to a specific <see cref="SqlDialect"/>.
 /// </summary>
-public class QueryCompiler
+public partial class QueryCompiler
 {
     private readonly SqlDialect _dialect;
 
@@ -94,19 +93,30 @@ public class QueryCompiler
     {
         var sb = new StringBuilder();
         sb.Append(_dialect).Append('|');
-        sb.Append(string.Join(",", query.SelectColumns)).Append('|');
+        foreach (var expression in query.SelectExpressions)
+        {
+            sb.Append(expression.IsRaw ? "SR:" : "SI:").Append(expression.Text).Append('|');
+        }
         sb.Append(query.IsDistinct).Append('|');
-        sb.Append(query.Table ?? string.Empty).Append('|');
+        if (query.TableExpression is { } table)
+        {
+            sb.Append(table.IsRaw ? "FR:" : "FI:").Append(table.Text).Append(':').Append(query.TableAlias ?? string.Empty).Append('|');
+        }
         if (query.FromSubquery.HasValue)
         {
             var (sub, alias) = query.FromSubquery.Value;
             sb.Append("SUB:").Append(BuildCacheKey(sub)).Append(':').Append(alias).Append('|');
         }
-        if (query.Joins.Count > 0)
+        if (query.JoinClauses.Count > 0)
         {
-            foreach (var j in query.Joins)
+            foreach (var j in query.JoinClauses)
             {
-                sb.Append('J').Append(j.Type).Append(':').Append(j.Table).Append(':').Append(j.Condition ?? string.Empty).Append('|');
+                sb.Append('J').Append(j.Type).Append(':')
+                    .Append(j.Table.IsRaw ? "R:" : "I:").Append(j.Table.Text).Append(':')
+                    .Append(j.Alias ?? string.Empty).Append(':')
+                    .Append(j.RawCondition ?? j.LeftColumn ?? string.Empty).Append(':')
+                    .Append(j.Operator ?? string.Empty).Append(':')
+                    .Append(j.RightColumn ?? string.Empty).Append('|');
             }
         }
         if (query.WhereTokens.Count > 0)
@@ -116,7 +126,14 @@ public class QueryCompiler
                 switch (token)
                 {
                     case ConditionToken cond:
-                        sb.Append("WC:").Append(cond.Column).Append(':').Append(cond.Operator).Append('|');
+                        sb.Append("WCI:").Append(cond.Column).Append(':').Append(cond.Operator).Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
+                        break;
+                    case RawConditionToken cond:
+                        sb.Append("WCR:").Append(cond.Expression).Append(':').Append(cond.Operator).Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
                         break;
                     case OperatorToken op:
                         sb.Append("WO:").Append(op.Operator).Append('|');
@@ -128,29 +145,74 @@ public class QueryCompiler
                         sb.Append("WG)").Append('|');
                         break;
                     case NullToken n:
-                        sb.Append("WN:").Append(n.Column).Append('|');
+                        sb.Append("WNI:").Append(n.Column).Append('|');
+                        break;
+                    case RawNullToken n:
+                        sb.Append("WNR:").Append(n.Expression).Append('|');
                         break;
                     case NotNullToken nn:
-                        sb.Append("WNN:").Append(nn.Column).Append('|');
+                        sb.Append("WNNI:").Append(nn.Column).Append('|');
+                        break;
+                    case RawNotNullToken nn:
+                        sb.Append("WNNR:").Append(nn.Expression).Append('|');
                         break;
                     case InToken it:
-                        sb.Append("WI:").Append(it.Column).Append(':').Append(it.Values.Count).Append('|');
+                        sb.Append("WII:").Append(it.Column).Append(':');
+                        AppendCacheValueShapes(sb, it.Values);
+                        sb.Append('|');
+                        break;
+                    case RawInToken it:
+                        sb.Append("WIR:").Append(it.Expression).Append(':');
+                        AppendCacheValueShapes(sb, it.Values);
+                        sb.Append('|');
                         break;
                     case NotInToken nit:
-                        sb.Append("WNI:").Append(nit.Column).Append(':').Append(nit.Values.Count).Append('|');
+                        sb.Append("WNII:").Append(nit.Column).Append(':');
+                        AppendCacheValueShapes(sb, nit.Values);
+                        sb.Append('|');
+                        break;
+                    case RawNotInToken nit:
+                        sb.Append("WNIR:").Append(nit.Expression).Append(':');
+                        AppendCacheValueShapes(sb, nit.Values);
+                        sb.Append('|');
                         break;
                     case BetweenToken bt:
-                        sb.Append("WB:").Append(bt.Column).Append('|');
+                        sb.Append("WBI:").Append(bt.Column).Append(':');
+                        AppendCacheValueShape(sb, bt.Start);
+                        AppendCacheValueShape(sb, bt.End);
+                        sb.Append('|');
+                        break;
+                    case RawBetweenToken bt:
+                        sb.Append("WBR:").Append(bt.Expression).Append(':');
+                        AppendCacheValueShape(sb, bt.Start);
+                        AppendCacheValueShape(sb, bt.End);
+                        sb.Append('|');
                         break;
                     case NotBetweenToken nbt:
-                        sb.Append("WNB:").Append(nbt.Column).Append('|');
+                        sb.Append("WNBI:").Append(nbt.Column).Append(':');
+                        AppendCacheValueShape(sb, nbt.Start);
+                        AppendCacheValueShape(sb, nbt.End);
+                        sb.Append('|');
+                        break;
+                    case RawNotBetweenToken nbt:
+                        sb.Append("WNBR:").Append(nbt.Expression).Append(':');
+                        AppendCacheValueShape(sb, nbt.Start);
+                        AppendCacheValueShape(sb, nbt.End);
+                        sb.Append('|');
                         break;
                 }
             }
         }
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
         {
-            sb.Append("I:").Append(query.InsertTable!).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':').Append(query.InsertValues.Count).Append('|');
+            sb.Append("I:").Append(query.InsertTable!).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':');
+            foreach (var row in query.InsertValues)
+            {
+                sb.Append('[');
+                AppendCacheValueShapes(sb, row);
+                sb.Append(']');
+            }
+            sb.Append('|');
             if (query.IsUpsert)
             {
                 sb.Append("U:").Append(string.Join(",", query.ConflictColumns)).Append('|');
@@ -162,25 +224,40 @@ public class QueryCompiler
         }
         if (!string.IsNullOrWhiteSpace(query.UpdateTable))
         {
-            sb.Append("UP:").Append(query.UpdateTable!).Append('(').Append(string.Join(",", query.SetValues.Select(s => s.Column))).Append(')').Append('|');
+            sb.Append("UP:").Append(query.UpdateTable!).Append('(');
+            foreach (var set in query.SetValues)
+            {
+                sb.Append(set.Column).Append(':');
+                AppendCacheValueShape(sb, set.Value);
+                sb.Append(',');
+            }
+            sb.Append(")|");
         }
         if (!string.IsNullOrWhiteSpace(query.DeleteTable))
         {
             sb.Append("D:").Append(query.DeleteTable!).Append('|');
         }
-        if (query.OrderByColumns.Count > 0)
+        if (query.OrderByExpressions.Count > 0)
         {
-            sb.Append("O:").Append(string.Join(",", query.OrderByColumns)).Append('|');
-        }
-        if (query.GroupByColumns.Count > 0)
-        {
-            sb.Append("G:").Append(string.Join(",", query.GroupByColumns)).Append('|');
-        }
-        if (query.HavingClauses.Count > 0)
-        {
-            foreach (var h in query.HavingClauses)
+            foreach (var expression in query.OrderByExpressions)
             {
-                sb.Append("H:").Append(h.Column).Append(':').Append(h.Operator).Append('|');
+                sb.Append(expression.IsRaw ? "OR:" : "OI:").Append(expression.Text).Append(':').Append(expression.Descending).Append('|');
+            }
+        }
+        if (query.GroupByExpressions.Count > 0)
+        {
+            foreach (var expression in query.GroupByExpressions)
+            {
+                sb.Append(expression.IsRaw ? "GR:" : "GI:").Append(expression.Text).Append('|');
+            }
+        }
+        if (query.HavingExpressions.Count > 0)
+        {
+            foreach (var h in query.HavingExpressions)
+            {
+                sb.Append(h.IsRaw ? "HR:" : "HI:").Append(h.Expression).Append(':').Append(h.Operator).Append(':');
+                AppendCacheValueShape(sb, h.Value);
+                sb.Append('|');
             }
         }
         if (query.LimitValue.HasValue)
@@ -203,6 +280,25 @@ public class QueryCompiler
             }
         }
         return sb.ToString();
+    }
+
+    private void AppendCacheValueShapes(StringBuilder builder, IReadOnlyList<object> values)
+    {
+        foreach (var value in values)
+        {
+            AppendCacheValueShape(builder, value);
+        }
+    }
+
+    private void AppendCacheValueShape(StringBuilder builder, object value)
+    {
+        if (value is Query subQuery)
+        {
+            builder.Append("Q(").Append(BuildCacheKey(subQuery)).Append(')');
+            return;
+        }
+
+        builder.Append('P');
     }
 
     private string CompileInternal(Query query, List<object>? parameters)
@@ -304,34 +400,61 @@ public class QueryCompiler
             sb.Append("TOP ").Append(query.LimitValue.Value).Append(' ');
         }
 
-        if (query.SelectColumns.Count > 0)
+        if (query.SelectExpressions.Count > 0)
         {
-            var allowStandaloneLiterals = string.IsNullOrWhiteSpace(query.Table) && !query.FromSubquery.HasValue;
-            sb.Append(string.Join(", ", query.SelectColumns.Select(column => QuoteSelectColumn(column, allowStandaloneLiterals))));
+            var allowStandaloneLiterals = query.TableExpression == null && !query.FromSubquery.HasValue;
+            for (var index = 0; index < query.SelectExpressions.Count; index++)
+            {
+                if (index > 0)
+                {
+                    sb.Append(", ");
+                }
+
+                var expression = query.SelectExpressions[index];
+                sb.Append(expression.IsRaw
+                    ? expression.Text
+                    : QuoteSelectColumn(expression.Text, allowStandaloneLiterals));
+            }
         }
         else
         {
             sb.Append("*");
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Table))
+        if (query.TableExpression is { } fromExpression)
         {
-            sb.Append(" FROM ").Append(QuoteIdentifier(query.Table!));
+            sb.Append(" FROM ").Append(fromExpression.IsRaw ? fromExpression.Text : QuoteIdentifier(fromExpression.Text));
+            if (!string.IsNullOrWhiteSpace(query.TableAlias))
+            {
+                AppendAlias(sb, query.TableAlias!);
+            }
         }
         else if (query.FromSubquery.HasValue)
         {
             var (subQuery, alias) = query.FromSubquery.Value;
-            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(") AS ").Append(QuoteIdentifier(alias));
+            sb.Append(" FROM (").Append(CompileInternal(subQuery, parameters)).Append(')');
+            AppendAlias(sb, alias);
         }
 
-        if (query.Joins.Count > 0)
+        if (query.JoinClauses.Count > 0)
         {
-            foreach (var join in query.Joins)
+            foreach (var join in query.JoinClauses)
             {
-                sb.Append(' ').Append(join.Type).Append(' ').Append(QuoteIdentifier(join.Table));
-                if (!string.IsNullOrWhiteSpace(join.Condition))
+                sb.Append(' ').Append(join.Type).Append(' ')
+                    .Append(join.Table.IsRaw ? join.Table.Text : QuoteIdentifier(join.Table.Text));
+                if (!string.IsNullOrWhiteSpace(join.Alias))
                 {
-                    sb.Append(" ON ").Append(join.Condition);
+                    AppendAlias(sb, join.Alias!);
+                }
+                if (!string.IsNullOrWhiteSpace(join.RawCondition))
+                {
+                    sb.Append(" ON ").Append(join.RawCondition);
+                }
+                else if (!string.IsNullOrWhiteSpace(join.LeftColumn))
+                {
+                    sb.Append(" ON ").Append(QuoteIdentifier(join.LeftColumn!))
+                        .Append(' ').Append(join.Operator).Append(' ')
+                        .Append(QuoteIdentifier(join.RightColumn!));
                 }
             }
         }
@@ -342,37 +465,60 @@ public class QueryCompiler
             AppendWhereTokens(sb, query.WhereTokens, parameters);
         }
 
-        if (query.GroupByColumns.Count > 0)
+        if (query.GroupByExpressions.Count > 0)
         {
-            sb.Append(" GROUP BY ").Append(string.Join(", ", query.GroupByColumns.Select(QuoteIdentifier)));
+            sb.Append(" GROUP BY ");
+            for (var index = 0; index < query.GroupByExpressions.Count; index++)
+            {
+                if (index > 0)
+                {
+                    sb.Append(", ");
+                }
+                var expression = query.GroupByExpressions[index];
+                sb.Append(expression.IsRaw ? expression.Text : QuoteIdentifier(expression.Text));
+            }
         }
 
-        if (query.HavingClauses.Count > 0)
+        if (query.HavingExpressions.Count > 0)
         {
             sb.Append(" HAVING ");
             bool first = true;
-            foreach (var clause in query.HavingClauses)
+            foreach (var clause in query.HavingExpressions)
             {
                 if (!first)
                 {
                     sb.Append(" AND ");
                 }
-                sb.Append(QuoteIdentifier(clause.Column)).Append(' ').Append(clause.Operator).Append(' ');
+                sb.Append(clause.IsRaw ? clause.Expression : QuoteIdentifier(clause.Expression))
+                    .Append(' ').Append(clause.Operator).Append(' ');
                 AppendValue(sb, clause.Value, parameters);
                 first = false;
             }
         }
 
-        if (query.OrderByColumns.Count > 0)
+        if (query.OrderByExpressions.Count > 0)
         {
-            sb.Append(" ORDER BY ").Append(string.Join(", ", query.OrderByColumns.Select(QuoteIdentifier)));
+            sb.Append(" ORDER BY ");
+            for (var index = 0; index < query.OrderByExpressions.Count; index++)
+            {
+                if (index > 0)
+                {
+                    sb.Append(", ");
+                }
+                var expression = query.OrderByExpressions[index];
+                sb.Append(expression.IsRaw ? expression.Text : QuoteIdentifier(expression.Text));
+                if (expression.Descending)
+                {
+                    sb.Append(" DESC");
+                }
+            }
         }
 
         if (_dialect == SqlDialect.SqlServer)
         {
             if (query.OffsetValue.HasValue)
             {
-                if (query.OrderByColumns.Count == 0)
+                if (query.OrderByExpressions.Count == 0)
                 {
                     throw new InvalidOperationException("SQL Server OFFSET/FETCH requires ORDER BY.");
                 }
@@ -570,6 +716,10 @@ public class QueryCompiler
                     sb.Append(QuoteIdentifier(cond.Column)).Append(' ').Append(cond.Operator).Append(' ');
                     AppendValue(sb, cond.Value, parameters);
                     break;
+                case RawConditionToken cond:
+                    sb.Append(cond.Expression).Append(' ').Append(cond.Operator).Append(' ');
+                    AppendValue(sb, cond.Value, parameters);
+                    break;
                 case GroupStartToken:
                     sb.Append('(');
                     break;
@@ -579,31 +729,33 @@ public class QueryCompiler
                 case NullToken n:
                     sb.Append(QuoteIdentifier(n.Column)).Append(" IS NULL");
                     break;
+                case RawNullToken n:
+                    sb.Append(n.Expression).Append(" IS NULL");
+                    break;
                 case NotNullToken nn:
                     sb.Append(QuoteIdentifier(nn.Column)).Append(" IS NOT NULL");
                     break;
+                case RawNotNullToken nn:
+                    sb.Append(nn.Expression).Append(" IS NOT NULL");
+                    break;
                 case InToken it:
                     sb.Append(QuoteIdentifier(it.Column)).Append(" IN (");
-                    for (int i = 0; i < it.Values.Count; i++)
-                    {
-                        if (i > 0)
-                        {
-                            sb.Append(", ");
-                        }
-                        AppendValue(sb, it.Values[i], parameters);
-                    }
+                    AppendValues(sb, it.Values, parameters);
+                    sb.Append(')');
+                    break;
+                case RawInToken it:
+                    sb.Append(it.Expression).Append(" IN (");
+                    AppendValues(sb, it.Values, parameters);
                     sb.Append(')');
                     break;
                 case NotInToken nit:
                     sb.Append(QuoteIdentifier(nit.Column)).Append(" NOT IN (");
-                    for (int i = 0; i < nit.Values.Count; i++)
-                    {
-                        if (i > 0)
-                        {
-                            sb.Append(", ");
-                        }
-                        AppendValue(sb, nit.Values[i], parameters);
-                    }
+                    AppendValues(sb, nit.Values, parameters);
+                    sb.Append(')');
+                    break;
+                case RawNotInToken nit:
+                    sb.Append(nit.Expression).Append(" NOT IN (");
+                    AppendValues(sb, nit.Values, parameters);
                     sb.Append(')');
                     break;
                 case BetweenToken bt:
@@ -612,8 +764,20 @@ public class QueryCompiler
                     sb.Append(" AND ");
                     AppendValue(sb, bt.End, parameters);
                     break;
+                case RawBetweenToken bt:
+                    sb.Append(bt.Expression).Append(" BETWEEN ");
+                    AppendValue(sb, bt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, bt.End, parameters);
+                    break;
                 case NotBetweenToken nbt:
                     sb.Append(QuoteIdentifier(nbt.Column)).Append(" NOT BETWEEN ");
+                    AppendValue(sb, nbt.Start, parameters);
+                    sb.Append(" AND ");
+                    AppendValue(sb, nbt.End, parameters);
+                    break;
+                case RawNotBetweenToken nbt:
+                    sb.Append(nbt.Expression).Append(" NOT BETWEEN ");
                     AppendValue(sb, nbt.Start, parameters);
                     sb.Append(" AND ");
                     AppendValue(sb, nbt.End, parameters);
@@ -654,128 +818,4 @@ public class QueryCompiler
         throw new InvalidOperationException($"Upsert column '{columnName}' is missing from the insert column list.");
     }
 
-    private string QuoteIdentifier(string identifier)
-    {
-        if (string.IsNullOrEmpty(identifier))
-        {
-            return identifier;
-        }
-
-        string suffix = string.Empty;
-        if (identifier.EndsWith(" DESC", StringComparison.OrdinalIgnoreCase))
-        {
-            suffix = " DESC";
-            identifier = identifier.Substring(0, identifier.Length - 5);
-        }
-        else if (identifier.EndsWith(" ASC", StringComparison.OrdinalIgnoreCase))
-        {
-            suffix = " ASC";
-            identifier = identifier.Substring(0, identifier.Length - 4);
-        }
-
-        if (identifier == "*" || identifier.Contains(' ') || identifier.Contains('(') || identifier.Contains(')'))
-        {
-            return identifier + suffix;
-        }
-
-        var (open, close) = _dialect switch
-        {
-            SqlDialect.SqlServer => ('[', ']'),
-            SqlDialect.MySql => ('`', '`'),
-            SqlDialect.PostgreSql => ('"', '"'),
-            SqlDialect.SQLite => ('"', '"'),
-            SqlDialect.Oracle => ('"', '"'),
-            _ => ('"', '"')
-        };
-
-        var parts = identifier.Split('.');
-        var sb = new StringBuilder();
-        for (int i = 0; i < parts.Length; i++)
-        {
-            if (i > 0)
-            {
-                sb.Append('.');
-            }
-            var escapedPart = parts[i].Replace(close.ToString(), new string(close, 2));
-            sb.Append(open).Append(escapedPart).Append(close);
-        }
-
-        sb.Append(suffix);
-        return sb.ToString();
-    }
-
-    private string QuoteSelectColumn(string identifier, bool allowStandaloneLiterals)
-    {
-        if (allowStandaloneLiterals && LooksLikeStandaloneLiteral(identifier))
-        {
-            return identifier;
-        }
-
-        return QuoteIdentifier(identifier);
-    }
-
-    private static bool LooksLikeStandaloneLiteral(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-        {
-            return false;
-        }
-
-        if (double.TryParse(identifier, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-        {
-            return true;
-        }
-
-        return string.Equals(identifier, "NULL", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(identifier, "TRUE", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(identifier, "FALSE", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void AppendValue(StringBuilder sb, object value, List<object>? parameters)
-    {
-        if (value is Query q)
-        {
-            sb.Append('(').Append(CompileInternal(q, parameters)).Append(')');
-            return;
-        }
-
-        if (parameters != null)
-        {
-            sb.Append(AddParameter(value, parameters));
-        }
-        else
-        {
-            sb.Append(FormatValue(value));
-        }
-    }
-
-    private string AddParameter(object value, List<object> parameters)
-    {
-        var name = "@p" + parameters.Count;
-        parameters.Add(value);
-        return name;
-    }
-
-    private string FormatValue(object value)
-    {
-        return value switch
-        {
-            string s => $"'{s.Replace("'", "''")}'",
-            null => "NULL",
-            bool b => FormatBooleanLiteral(b),
-            DateTime dt => $"'{dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
-            DateTimeOffset dto => $"'{dto.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture)}'",
-            decimal d => d.ToString(CultureInfo.InvariantCulture),
-            double d => d.ToString(CultureInfo.InvariantCulture),
-            float f => f.ToString(CultureInfo.InvariantCulture),
-            _ => value.ToString() ?? string.Empty
-        };
-    }
-
-    private string FormatBooleanLiteral(bool value)
-        => _dialect switch
-        {
-            SqlDialect.PostgreSql => value ? "TRUE" : "FALSE",
-            _ => value ? "1" : "0"
-        };
 }

@@ -2,7 +2,7 @@
 
 SQL Server provider for DbaClientX. Thin, fast ADO.NET wrapper with streaming, retries, and transactions.
 
-- Target Frameworks: `net8.0`, `net472`
+- Target Frameworks: `net472`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SqlServer`
 
 ## Install
@@ -49,6 +49,23 @@ var rows = await cli.QueryAsListAsync(
 ```
 
 For larger result sets, use `QueryStreamAsync<T>` with the same mapper shape to avoid buffering all rows.
+
+Use the owned `DbDataReader` surface when another API consumes a reader directly:
+
+```csharp
+await using var reader = await cli.QueryReaderAsync(
+    connectionString: "Server=.;Database=App;Integrated Security=True;Encrypt=True",
+    query: "SELECT Id, Name FROM dbo.Users ORDER BY Id",
+    cancellationToken: ct);
+
+while (await reader.ReadAsync(ct))
+{
+    var id = reader.GetInt32(0);
+    var name = reader.GetString(1);
+}
+```
+
+Disposing the reader also disposes its command and any connection opened for it. Output parameters are copied back after the provider reader closes. `DisposeAsync` uses provider asynchronous cleanup when available.
 
 Non-query from a full connection string:
 

@@ -6,8 +6,7 @@ on:
             - master
         paths-ignore:
             - '*.md'
-            - 'Docs/**'
-            - 'Examples/**'
+            - 'docs/**'
             - '.gitignore'
     pull_request:
         branches:
@@ -28,7 +27,7 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup PowerShell modules
               shell: pwsh
@@ -41,7 +40,7 @@ jobs:
                   ./Module/Build/Build-Module.ps1 -RunMode Manifest
 
             - name: Upload refreshed module entry files
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: module-entry
                   path: |
@@ -56,16 +55,16 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Download refreshed module entry files
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: module-entry
                   path: Module
 
             - name: Setup .NET
-              uses: actions/setup-dotnet@v4
+              uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -96,16 +95,16 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Download refreshed module entry files
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: module-entry
                   path: Module
 
             - name: Setup .NET
-              uses: actions/setup-dotnet@v4
+              uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -135,10 +134,10 @@ jobs:
         timeout-minutes: 15
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Setup .NET
-              uses: actions/setup-dotnet@v4
+              uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -173,16 +172,16 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Download refreshed module entry files
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: module-entry
                   path: Module
 
             - name: Setup .NET
-              uses: actions/setup-dotnet@v4
+              uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -220,16 +219,16 @@ jobs:
         timeout-minutes: 10
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v7
 
             - name: Download refreshed module entry files
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   name: module-entry
                   path: Module
 
             - name: Setup .NET
-              uses: actions/setup-dotnet@v4
+              uses: actions/setup-dotnet@v5
               with:
                   dotnet-version: ${{ env.DOTNET_VERSION }}
 
