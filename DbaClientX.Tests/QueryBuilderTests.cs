@@ -604,10 +604,11 @@ public class QueryBuilderTests
     public void GroupByHaving()
     {
         var query = new Query()
-            .Select("age", "COUNT(*)")
+            .Select("age")
+            .SelectRaw("COUNT(*)")
             .From("users")
             .GroupBy("age")
-            .Having("COUNT(*)", ">", 1);
+            .HavingRaw("COUNT(*)", ">", 1);
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
         Assert.Equal("SELECT \"age\", COUNT(*) FROM \"users\" GROUP BY \"age\" HAVING COUNT(*) > 1", sql);
@@ -656,11 +657,11 @@ public class QueryBuilderTests
     {
         var query = new Query()
             .Select("u.name", "o.total")
-            .From("users u")
-            .Join("orders o", "u.id = o.user_id");
+            .From("users", "u")
+            .Join("orders", "o", "u.id", "=", "o.user_id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM users u JOIN orders o ON u.id = o.user_id", sql);
+        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM \"users\" AS \"u\" JOIN \"orders\" AS \"o\" ON \"u\".\"id\" = \"o\".\"user_id\"", sql);
     }
 
     [Fact]
@@ -668,23 +669,23 @@ public class QueryBuilderTests
     {
         var query = new Query()
             .Select("*")
-            .From("users u")
-            .LeftJoin("profiles p", "u.id = p.user_id")
-            .RightJoin("photos ph", "u.id = ph.user_id");
+            .From("users", "u")
+            .LeftJoin("profiles", "p", "u.id", "=", "p.user_id")
+            .RightJoin("photos", "ph", "u.id", "=", "ph.user_id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT * FROM users u LEFT JOIN profiles p ON u.id = p.user_id RIGHT JOIN photos ph ON u.id = ph.user_id", sql);
+        Assert.Equal("SELECT * FROM \"users\" AS \"u\" LEFT JOIN \"profiles\" AS \"p\" ON \"u\".\"id\" = \"p\".\"user_id\" RIGHT JOIN \"photos\" AS \"ph\" ON \"u\".\"id\" = \"ph\".\"user_id\"", sql);
     }
     [Fact]
     public void CrossJoinQueries()
     {
         var query = new Query()
             .Select("*")
-            .From("users u")
-            .CrossJoin("orders o");
+            .From("users", "u")
+            .CrossJoin("orders", "o");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT * FROM users u CROSS JOIN orders o", sql);
+        Assert.Equal("SELECT * FROM \"users\" AS \"u\" CROSS JOIN \"orders\" AS \"o\"", sql);
     }
 
     [Fact]
@@ -692,14 +693,13 @@ public class QueryBuilderTests
     {
         var query = new Query()
             .Select("u.name", "o.total")
-            .From("users u")
-            .FullOuterJoin("orders o", "u.id = o.user_id");
+            .From("users", "u")
+            .FullOuterJoin("orders", "o", "u.id", "=", "o.user_id");
 
         var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
-        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id", sql);
+        Assert.Equal("SELECT \"u\".\"name\", \"o\".\"total\" FROM \"users\" AS \"u\" FULL OUTER JOIN \"orders\" AS \"o\" ON \"u\".\"id\" = \"o\".\"user_id\"", sql);
     }
 
-     
     [Fact]
     public void DecimalFormatting_UsesInvariantCulture()
     {
@@ -861,14 +861,14 @@ public class QueryBuilderTests
     public void FullOuterJoin_WithNullCondition_Throws()
     {
         var query = new Query();
-        Assert.Throws<ArgumentException>(() => query.FullOuterJoin("orders", null!));
+        Assert.Throws<ArgumentException>(() => query.FullOuterJoinRaw("orders", null!));
     }
 
     [Fact]
     public void Join_WithNullCondition_Throws()
     {
         var query = new Query();
-        Assert.Throws<ArgumentException>(() => query.Join("users", null!));
+        Assert.Throws<ArgumentException>(() => query.JoinRaw("users", null!));
     }
 
     [Fact]
