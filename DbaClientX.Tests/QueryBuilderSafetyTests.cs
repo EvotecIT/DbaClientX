@@ -50,6 +50,32 @@ public sealed class QueryBuilderSafetyTests
         Assert.Equal(new object[] { "alice", "bob" }, parameters);
     }
 
+    [Fact]
+    public void WhereInRaw_SubqueryCompilesAsSetInsteadOfScalarListItem()
+    {
+        var subQuery = new Query().Select("user_id").From("active_users");
+
+        var sql = new Query()
+            .Select("*")
+            .From("users")
+            .WhereInRaw("LOWER(name)", subQuery)
+            .Compile(SqlDialect.PostgreSql);
+
+        Assert.Equal(
+            "SELECT * FROM \"users\" WHERE LOWER(name) IN (SELECT \"user_id\" FROM \"active_users\")",
+            sql);
+    }
+
+    [Fact]
+    public void WhereInRaw_ValueListRejectsEmbeddedSubqueries()
+    {
+        var values = new object[] { new Query().Select("user_id").From("active_users") };
+
+        var exception = Assert.Throws<ArgumentException>(() => new Query().WhereInRaw("LOWER(name)", values));
+
+        Assert.Equal("values", exception.ParamName);
+    }
+
     [Theory]
     [InlineData("= 1; DROP TABLE users;--")]
     [InlineData("LIKE/**/OR")]

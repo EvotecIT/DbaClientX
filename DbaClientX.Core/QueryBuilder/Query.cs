@@ -443,6 +443,10 @@ public partial class Query
             {
                 throw new ArgumentException("Values cannot contain null.", nameof(values));
             }
+            if (value is Query)
+            {
+                throw new ArgumentException("Use the Query overload for a subquery instead of passing it as a value-list item.", nameof(values));
+            }
         }
         AddLogicalOperator(logical);
         var list = new List<object>(values);

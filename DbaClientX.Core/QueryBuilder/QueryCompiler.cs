@@ -126,10 +126,14 @@ public partial class QueryCompiler
                 switch (token)
                 {
                     case ConditionToken cond:
-                        sb.Append("WCI:").Append(cond.Column).Append(':').Append(cond.Operator).Append('|');
+                        sb.Append("WCI:").Append(cond.Column).Append(':').Append(cond.Operator).Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
                         break;
                     case RawConditionToken cond:
-                        sb.Append("WCR:").Append(cond.Expression).Append(':').Append(cond.Operator).Append('|');
+                        sb.Append("WCR:").Append(cond.Expression).Append(':').Append(cond.Operator).Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
                         break;
                     case OperatorToken op:
                         sb.Append("WO:").Append(op.Operator).Append('|');
@@ -153,35 +157,62 @@ public partial class QueryCompiler
                         sb.Append("WNNR:").Append(nn.Expression).Append('|');
                         break;
                     case InToken it:
-                        sb.Append("WII:").Append(it.Column).Append(':').Append(it.Values.Count).Append('|');
+                        sb.Append("WII:").Append(it.Column).Append(':');
+                        AppendCacheValueShapes(sb, it.Values);
+                        sb.Append('|');
                         break;
                     case RawInToken it:
-                        sb.Append("WIR:").Append(it.Expression).Append(':').Append(it.Values.Count).Append('|');
+                        sb.Append("WIR:").Append(it.Expression).Append(':');
+                        AppendCacheValueShapes(sb, it.Values);
+                        sb.Append('|');
                         break;
                     case NotInToken nit:
-                        sb.Append("WNII:").Append(nit.Column).Append(':').Append(nit.Values.Count).Append('|');
+                        sb.Append("WNII:").Append(nit.Column).Append(':');
+                        AppendCacheValueShapes(sb, nit.Values);
+                        sb.Append('|');
                         break;
                     case RawNotInToken nit:
-                        sb.Append("WNIR:").Append(nit.Expression).Append(':').Append(nit.Values.Count).Append('|');
+                        sb.Append("WNIR:").Append(nit.Expression).Append(':');
+                        AppendCacheValueShapes(sb, nit.Values);
+                        sb.Append('|');
                         break;
                     case BetweenToken bt:
-                        sb.Append("WBI:").Append(bt.Column).Append('|');
+                        sb.Append("WBI:").Append(bt.Column).Append(':');
+                        AppendCacheValueShape(sb, bt.Start);
+                        AppendCacheValueShape(sb, bt.End);
+                        sb.Append('|');
                         break;
                     case RawBetweenToken bt:
-                        sb.Append("WBR:").Append(bt.Expression).Append('|');
+                        sb.Append("WBR:").Append(bt.Expression).Append(':');
+                        AppendCacheValueShape(sb, bt.Start);
+                        AppendCacheValueShape(sb, bt.End);
+                        sb.Append('|');
                         break;
                     case NotBetweenToken nbt:
-                        sb.Append("WNBI:").Append(nbt.Column).Append('|');
+                        sb.Append("WNBI:").Append(nbt.Column).Append(':');
+                        AppendCacheValueShape(sb, nbt.Start);
+                        AppendCacheValueShape(sb, nbt.End);
+                        sb.Append('|');
                         break;
                     case RawNotBetweenToken nbt:
-                        sb.Append("WNBR:").Append(nbt.Expression).Append('|');
+                        sb.Append("WNBR:").Append(nbt.Expression).Append(':');
+                        AppendCacheValueShape(sb, nbt.Start);
+                        AppendCacheValueShape(sb, nbt.End);
+                        sb.Append('|');
                         break;
                 }
             }
         }
         if (!string.IsNullOrWhiteSpace(query.InsertTable))
         {
-            sb.Append("I:").Append(query.InsertTable!).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':').Append(query.InsertValues.Count).Append('|');
+            sb.Append("I:").Append(query.InsertTable!).Append('(').Append(string.Join(",", query.InsertColumns)).Append(')').Append(':');
+            foreach (var row in query.InsertValues)
+            {
+                sb.Append('[');
+                AppendCacheValueShapes(sb, row);
+                sb.Append(']');
+            }
+            sb.Append('|');
             if (query.IsUpsert)
             {
                 sb.Append("U:").Append(string.Join(",", query.ConflictColumns)).Append('|');
@@ -193,7 +224,14 @@ public partial class QueryCompiler
         }
         if (!string.IsNullOrWhiteSpace(query.UpdateTable))
         {
-            sb.Append("UP:").Append(query.UpdateTable!).Append('(').Append(string.Join(",", query.SetValues.Select(s => s.Column))).Append(')').Append('|');
+            sb.Append("UP:").Append(query.UpdateTable!).Append('(');
+            foreach (var set in query.SetValues)
+            {
+                sb.Append(set.Column).Append(':');
+                AppendCacheValueShape(sb, set.Value);
+                sb.Append(',');
+            }
+            sb.Append(")|");
         }
         if (!string.IsNullOrWhiteSpace(query.DeleteTable))
         {
@@ -217,7 +255,9 @@ public partial class QueryCompiler
         {
             foreach (var h in query.HavingExpressions)
             {
-                sb.Append(h.IsRaw ? "HR:" : "HI:").Append(h.Expression).Append(':').Append(h.Operator).Append('|');
+                sb.Append(h.IsRaw ? "HR:" : "HI:").Append(h.Expression).Append(':').Append(h.Operator).Append(':');
+                AppendCacheValueShape(sb, h.Value);
+                sb.Append('|');
             }
         }
         if (query.LimitValue.HasValue)
@@ -240,6 +280,25 @@ public partial class QueryCompiler
             }
         }
         return sb.ToString();
+    }
+
+    private void AppendCacheValueShapes(StringBuilder builder, IReadOnlyList<object> values)
+    {
+        foreach (var value in values)
+        {
+            AppendCacheValueShape(builder, value);
+        }
+    }
+
+    private void AppendCacheValueShape(StringBuilder builder, object value)
+    {
+        if (value is Query subQuery)
+        {
+            builder.Append("Q(").Append(BuildCacheKey(subQuery)).Append(')');
+            return;
+        }
+
+        builder.Append('P');
     }
 
     private string CompileInternal(Query query, List<object>? parameters)
