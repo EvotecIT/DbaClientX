@@ -93,6 +93,13 @@ public static class DbaIdentifierPath
 
     /// <summary>Splits a multipart identifier while preserving dots inside delimited segments.</summary>
     public static IReadOnlyList<string> SplitSegments(string identifierPath)
+        => SplitSegments(identifierPath, provider: null);
+
+    /// <summary>Splits a multipart identifier using only delimiters recognized by the selected provider.</summary>
+    public static IReadOnlyList<string> SplitSegments(string identifierPath, DbaTableCopyProvider provider)
+        => SplitSegments(identifierPath, (DbaTableCopyProvider?)provider);
+
+    private static IReadOnlyList<string> SplitSegments(string identifierPath, DbaTableCopyProvider? provider)
     {
         if (string.IsNullOrWhiteSpace(identifierPath))
         {
@@ -107,7 +114,7 @@ public static class DbaIdentifierPath
             var value = identifierPath[index];
             if (quote == '\0')
             {
-                if (value is '"' or '[' or '`')
+                if (IsDelimiterStart(value, provider))
                 {
                     quote = value;
                     continue;
@@ -171,6 +178,11 @@ public static class DbaIdentifierPath
 
         return parts;
     }
+
+    private static bool IsDelimiterStart(char value, DbaTableCopyProvider? provider)
+        => value == '"' ||
+           (value == '[' && (provider is null or DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.SQLite)) ||
+           (value == '`' && (provider is null or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite));
 
     /// <summary>Removes segment delimiters while preserving the multipart path structure.</summary>
     public static string NormalizeForDuplicateCheck(string identifierPath)

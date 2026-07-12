@@ -266,6 +266,8 @@ public class PostgreSqlBulkInsertTests
     [Theory]
     [InlineData("[orders]", "COPY \"[orders]\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
     [InlineData("`orders`", "COPY \"`orders`\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    [InlineData("orders[2024", "COPY \"orders[2024\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    [InlineData("orders`2024", "COPY \"orders`2024\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
     public void BuildCopyCommand_PreservesProviderLiteralBracketAndBacktickNames(string destination, string expectedCommand)
     {
         using var pg = new InspectingPostgreSql();

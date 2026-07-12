@@ -299,7 +299,7 @@ public partial class PostgreSql
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
-        return string.Join(".", DbaIdentifierPath.SplitSegments(identifierPath)
+        return string.Join(".", DbaIdentifierPath.SplitSegments(identifierPath, DbaTableCopyProvider.PostgreSql)
             .Select(static part => QuoteIdentifier(DbaIdentifierPath.UnquoteSegment(part, DbaTableCopyProvider.PostgreSql))));
     }
 
