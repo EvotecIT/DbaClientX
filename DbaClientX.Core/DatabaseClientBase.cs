@@ -874,12 +874,16 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             object? result;
-            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false))
+            using (var reader = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
                 {
-                    if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    if (await AwaitWithCallerCancellationAsync(
+                        () => reader.ReadAsync(cancellationToken),
+                        cancellationToken).ConfigureAwait(false))
                     {
                         var table = new DataTable("Table0");
                         for (int i = 0; i < reader.FieldCount; i++)
@@ -911,7 +915,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                         var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
                         dataSet.Tables.Add(table);
                         tableIndex++;
-                    } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+                    } while (!reader.IsClosed && await AwaitWithCallerCancellationAsync(
+                        () => reader.NextResultAsync(cancellationToken),
+                        cancellationToken).ConfigureAwait(false));
 
                     result = BuildResult(dataSet);
                 }
@@ -966,10 +972,14 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             var rows = new List<T>();
-            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false))
+            using (var reader = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 initialize?.Invoke(reader);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                while (await AwaitWithCallerCancellationAsync(
+                    () => reader.ReadAsync(cancellationToken),
+                    cancellationToken).ConfigureAwait(false))
                 {
                     rows.Add(map(reader));
                 }
@@ -1013,7 +1023,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var affected = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteNonQueryAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return affected;
         }
@@ -1052,7 +1064,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            var result = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteScalarAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return result;
         }, cancellationToken).ConfigureAwait(false);
@@ -1329,7 +1343,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         table.BeginLoadData();
         try
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await ReadWithCallerCancellationAsync(reader, cancellationToken).ConfigureAwait(false))
             {
                 reader.GetValues(values);
                 table.Rows.Add(values);
@@ -1341,6 +1355,22 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
 
         return table;
+    }
+
+    private static async Task<bool> ReadWithCallerCancellationAsync(
+        DbDataReader reader,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            ex.CancellationToken != cancellationToken)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
     }
 
     private static string GetUniqueColumnName(string? columnName, int ordinal, HashSet<string> usedNames)

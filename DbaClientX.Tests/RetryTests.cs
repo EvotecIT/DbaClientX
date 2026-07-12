@@ -71,7 +71,7 @@ public class RetryTests
             public override Task<object?> ExecuteScalarAsync(CancellationToken cancellationToken) => Task.FromResult(ExecuteScalar());
         }
 
-        private class FakeParameterCollection : DbParameterCollection
+        internal class FakeParameterCollection : DbParameterCollection
         {
             public override int Count => 0;
             public override object SyncRoot { get; } = new();
@@ -94,7 +94,7 @@ public class RetryTests
             protected override void SetParameter(string parameterName, DbParameter value) { }
         }
 
-        private class FakeParameter : DbParameter
+        internal class FakeParameter : DbParameter
         {
             public override DbType DbType { get; set; }
             public override ParameterDirection Direction { get; set; }
@@ -123,6 +123,63 @@ public class RetryTests
 
         public Exception CreatePublicExecutionException(Exception exception, CancellationToken token)
             => CreateQueryExecutionOrCancellationException("failed", "q", exception, token);
+    }
+
+    private sealed class TokenlessCancellationQueryClient : DBAClientX.DatabaseClientBase
+    {
+        public Task<object?> RunQueryAsync(DbConnection connection, CancellationToken token)
+            => ExecuteQueryAsync(connection, null, "q", cancellationToken: token);
+    }
+
+    private sealed class TokenlessCancellationConnection : DbConnection
+    {
+        private readonly CancellationTokenSource _cancellationSource;
+
+        public TokenlessCancellationConnection(CancellationTokenSource cancellationSource)
+            => _cancellationSource = cancellationSource;
+
+        public override string ConnectionString { get; set; } = string.Empty;
+        public override string Database => string.Empty;
+        public override string DataSource => string.Empty;
+        public override string ServerVersion => string.Empty;
+        public override ConnectionState State => ConnectionState.Open;
+        public override void ChangeDatabase(string databaseName) { }
+        public override void Close() { }
+        public override void Open() { }
+        protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel) => throw new NotSupportedException();
+        protected override DbCommand CreateDbCommand() => new TokenlessCancellationCommand(this, _cancellationSource);
+    }
+
+    private sealed class TokenlessCancellationCommand : DbCommand
+    {
+        private readonly DbConnection _connection;
+        private readonly CancellationTokenSource _cancellationSource;
+
+        public TokenlessCancellationCommand(DbConnection connection, CancellationTokenSource cancellationSource)
+        {
+            _connection = connection;
+            _cancellationSource = cancellationSource;
+        }
+
+        public override string CommandText { get; set; } = string.Empty;
+        public override int CommandTimeout { get; set; }
+        public override CommandType CommandType { get; set; }
+        public override bool DesignTimeVisible { get; set; }
+        public override UpdateRowSource UpdatedRowSource { get; set; }
+        protected override DbConnection DbConnection { get => _connection; set { } }
+        protected override DbParameterCollection DbParameterCollection { get; } = new TransientConnection.FakeParameterCollection();
+        protected override DbTransaction DbTransaction { get; set; } = null!;
+        public override void Cancel() { }
+        public override int ExecuteNonQuery() => throw new NotSupportedException();
+        public override object? ExecuteScalar() => throw new NotSupportedException();
+        public override void Prepare() { }
+        protected override DbParameter CreateDbParameter() => new TransientConnection.FakeParameter();
+        protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) => throw new NotSupportedException();
+        protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+        {
+            _cancellationSource.Cancel();
+            return Task.FromException<DbDataReader>(new OperationCanceledException());
+        }
     }
 
     private class RetryNonQueryClient : DBAClientX.DatabaseClientBase
@@ -283,5 +340,20 @@ public class RetryTests
             client.CreatePublicExecutionException(providerException, cancellation.Token));
 
         Assert.Same(providerException, exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ExecuteQueryAsync_WhenProviderThrowsTokenlessCancellation_NormalizesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var client = new TokenlessCancellationQueryClient();
+        using var connection = new TokenlessCancellationConnection(cancellation);
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            client.RunQueryAsync(connection, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
+        Assert.Equal(default, providerException.CancellationToken);
     }
 }
