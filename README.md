@@ -205,7 +205,7 @@ $rows | Export-OfficeCsv -Path .\Users.csv
 $rows | Export-OfficeCsv -Path .\Users.csv.gz -CompressionType GZip
 ```
 
-For the fastest SQL Server to CSV export path, stream an `IDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
+For the fastest SQL Server to CSV export path, stream an owned `DbDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
 
 ```powershell
 $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
