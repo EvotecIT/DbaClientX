@@ -99,6 +99,10 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <returns><c>true</c> when the exception is transient; otherwise, <c>false</c>.</returns>
     protected virtual bool IsTransient(Exception ex) => false;
 
+    /// <summary>Returns whether an exception represents cancellation requested through the caller's token.</summary>
+    protected static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
+        => exception is OperationCanceledException && cancellationToken.IsCancellationRequested;
+
     /// <summary>
     /// Executes an operation with retry logic for transient failures.
     /// </summary>

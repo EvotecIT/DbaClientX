@@ -136,6 +136,30 @@ public class ProviderMappedQueryParityTests
         }
     }
 
+    private sealed class CancellationSqlServer : DBAClientX.SqlServer
+    {
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromCanceled(cancellationToken);
+    }
+
+    private sealed class CancellationMySql : DBAClientX.MySql
+    {
+        protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromCanceled(cancellationToken);
+    }
+
+    private sealed class CancellationPostgreSql : DBAClientX.PostgreSql
+    {
+        protected override Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+            => Task.FromCanceled(cancellationToken);
+    }
+
+    private sealed class CancellationOracle : DBAClientX.Oracle
+    {
+        protected override Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken)
+            => Task.FromCanceled(cancellationToken);
+    }
+
     [Fact]
     public async Task SqlServerQueryAsListAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
     {
@@ -168,6 +192,20 @@ public class ProviderMappedQueryParityTests
             oracle.QueryAsListAsync<int>(connectionString, "SELECT 1 FROM dual", null!));
 
         Assert.Equal(0, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task PostgreSqlQueryAsListAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
+    {
+        using var postgreSql = new OpenFailurePostgreSql();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            postgreSql.QueryAsListAsync<int>(
+                "Host=dbhost;Database=app;Username=user;Password=password;SslMode=Require",
+                "SELECT 1",
+                null!));
+
+        Assert.Equal(0, postgreSql.AsyncDisposeCalls);
     }
 
     [Fact]
@@ -211,6 +249,135 @@ public class ProviderMappedQueryParityTests
             oracle.QueryStreamAsync<int>(connectionString, "SELECT 1 FROM dual", null!));
 
         Assert.Equal(0, oracle.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public void PostgreSqlQueryStreamAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
+    {
+        using var postgreSql = new OpenFailurePostgreSql();
+
+        Assert.Throws<ArgumentNullException>(() =>
+            postgreSql.QueryStreamAsync<int>(
+                "Host=dbhost;Database=app;Username=user;Password=password;SslMode=Require",
+                "SELECT 1",
+                null!));
+
+        Assert.Equal(0, postgreSql.AsyncDisposeCalls);
+    }
+
+    [Fact]
+    public async Task ProviderQueryAsync_PropagatesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var sqlServer = new CancellationSqlServer();
+        using var mySql = new CancellationMySql();
+        using var postgreSql = new CancellationPostgreSql();
+        using var oracle = new CancellationOracle();
+        using var sqlite = new DBAClientX.SQLite();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlServer.QueryAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => mySql.QueryAsync(
+            "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => postgreSql.QueryAsync(
+            "Host=dbhost;Database=app;Username=user;Password=password;SslMode=Require",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oracle.QueryAsync(
+            DBAClientX.Oracle.BuildConnectionString("dbhost", "svc", "user", "password"),
+            "SELECT 1 FROM dual",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.QueryAsync(
+            ":memory:",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public async Task ProviderStoredProcedureAsync_PropagatesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var sqlServer = new CancellationSqlServer();
+        using var mySql = new CancellationMySql();
+        using var postgreSql = new CancellationPostgreSql();
+        using var oracle = new CancellationOracle();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlServer.ExecuteStoredProcedureAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "sp_test",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => mySql.ExecuteStoredProcedureAsync(
+            "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required",
+            "sp_test",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => postgreSql.ExecuteStoredProcedureAsync(
+            "Host=dbhost;Database=app;Username=user;Password=password;SslMode=Require",
+            "sp_test",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oracle.ExecuteStoredProcedureAsync(
+            DBAClientX.Oracle.BuildConnectionString("dbhost", "svc", "user", "password"),
+            "sp_test",
+            cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public async Task ProviderBulkInsertAsync_PropagatesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        using var sqlServer = new CancellationSqlServer();
+        using var mySql = new CancellationMySql();
+        using var postgreSql = new CancellationPostgreSql();
+        using var oracle = new CancellationOracle();
+        using var sqlite = new DBAClientX.SQLite();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlServer.BulkInsertAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            table,
+            "dbo.Items",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => mySql.BulkInsertAsync(
+            "Server=dbhost;Database=app;User ID=user;Password=password;SslMode=Required",
+            table,
+            "Items",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => postgreSql.BulkInsertAsync(
+            "Host=dbhost;Database=app;Username=user;Password=password;SslMode=Require",
+            table,
+            "Items",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oracle.BulkInsertAsync(
+            DBAClientX.Oracle.BuildConnectionString("dbhost", "svc", "user", "password"),
+            table,
+            "Items",
+            cancellationToken: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.BulkInsertAsync(
+            ":memory:",
+            table,
+            "Items",
+            cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public async Task SqlServerQueryReaderAsync_PropagatesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var sqlServer = new CancellationSqlServer();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlServer.QueryReaderAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
     }
 
     [Fact]

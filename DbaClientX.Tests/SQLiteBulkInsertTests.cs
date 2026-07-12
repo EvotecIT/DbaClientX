@@ -128,10 +128,9 @@ public class SQLiteBulkInsertTests
             using var cts = new CancellationTokenSource();
             sqlite.CancellationSource = cts;
 
-            var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1, cancellationToken: cts.Token));
 
-            Assert.IsAssignableFrom<OperationCanceledException>(ex.InnerException);
             Assert.True(sqlite.RollbackCalled);
             Assert.False(sqlite.RollbackCancellationToken.CanBeCanceled);
 

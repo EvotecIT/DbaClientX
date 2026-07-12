@@ -54,7 +54,7 @@ public partial class SqlServer
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
         }
@@ -88,7 +88,7 @@ public partial class SqlServer
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
@@ -143,7 +143,7 @@ public partial class SqlServer
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
@@ -237,7 +237,7 @@ public partial class SqlServer
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteMappedQueryAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
@@ -275,7 +275,7 @@ public partial class SqlServer
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }

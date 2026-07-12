@@ -160,7 +160,7 @@ public partial class Oracle
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }

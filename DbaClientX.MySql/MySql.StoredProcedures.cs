@@ -151,7 +151,7 @@ public partial class MySql
             UpdateOutputParameters(command, parameters);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
@@ -259,7 +259,7 @@ public partial class MySql
 
             return BuildResult(dataSet);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }

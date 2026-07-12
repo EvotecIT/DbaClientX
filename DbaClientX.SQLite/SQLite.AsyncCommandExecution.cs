@@ -34,7 +34,7 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
@@ -72,7 +72,7 @@ public partial class SQLite
         {
             throw;
         }
-        catch (Exception ex) when (ex is DbException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && (ex is DbException or InvalidOperationException or ArgumentException))
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
@@ -124,7 +124,7 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteMappedQueryAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
@@ -157,7 +157,7 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
         }
@@ -236,7 +236,7 @@ public partial class SQLite
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
@@ -270,7 +270,7 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
         }
@@ -304,7 +304,7 @@ public partial class SQLite
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
         }

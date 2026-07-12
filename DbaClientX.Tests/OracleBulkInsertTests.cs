@@ -166,10 +166,9 @@ public class OracleBulkInsertTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        var ex = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             oracle.BulkInsertAsync("h", "svc", "u", "p", table, "Dest", cancellationToken: cts.Token));
 
-        Assert.IsType<OperationCanceledException>(ex.InnerException);
         Assert.False(oracle.WriteCalled);
     }
 

@@ -150,6 +150,11 @@ public partial class SqlServer
                 await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
             }
 
+            if (IsCallerCancellation(ex, cancellationToken))
+            {
+                throw;
+            }
+
             throw new DbaQueryExecutionException("Failed to open query reader.", query, ex);
         }
     }

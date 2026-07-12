@@ -137,7 +137,7 @@ public partial class SqlServer
             UpdateOutputParameters(command, parameters);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }

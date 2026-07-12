@@ -132,7 +132,7 @@ public partial class PostgreSql
             UpdateOutputParameters(command, parameters);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
@@ -260,16 +260,13 @@ public partial class PostgreSql
 
             return BuildResult(dataSet);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {
-            if (dispose)
-            {
-                DisposeConnection(connection!);
-            }
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
 
