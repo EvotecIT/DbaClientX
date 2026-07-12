@@ -13,8 +13,7 @@ public partial class MySql
             return true;
         }
 
-        return ExceptionChainContains<MySqlException>(
-            exception,
-            static mySqlException => mySqlException.ErrorCode == MySqlErrorCode.QueryInterrupted);
+        return exception is MySqlException mySqlException
+               && mySqlException.ErrorCode == MySqlErrorCode.QueryInterrupted;
     }
 }

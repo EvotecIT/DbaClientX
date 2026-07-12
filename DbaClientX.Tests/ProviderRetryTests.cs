@@ -17,11 +17,11 @@ public class ProviderRetryTests
         public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
-    private static MySqlException CreateMySqlException(MySqlErrorCode code)
+    private static MySqlException CreateMySqlException(MySqlErrorCode code, Exception? innerException = null)
     {
         var ctor = typeof(MySqlException).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance,
             null, new[] { typeof(MySqlErrorCode), typeof(string), typeof(string), typeof(Exception) }, null)!;
-        return (MySqlException)ctor.Invoke(new object?[] { code, null, string.Empty, null });
+        return (MySqlException)ctor.Invoke(new object?[] { code, null, string.Empty, innerException });
     }
 
     [Fact]
@@ -194,6 +194,9 @@ public class ProviderRetryTests
         Assert.False(postgreSql.IsCancellation(new PostgresException("canceling statement due to statement timeout", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
         Assert.False(postgreSql.IsCancellation(new PostgresException("serialization", "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure)));
         Assert.True(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.QueryInterrupted)));
+        Assert.False(mySql.IsCancellation(CreateMySqlException(
+            MySqlErrorCode.CommandTimeoutExpired,
+            CreateMySqlException(MySqlErrorCode.QueryInterrupted))));
         Assert.False(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.LockDeadlock)));
         Assert.False(oracle.IsCancellation(CreateOracleException(1013)));
         Assert.False(oracle.IsCancellation(CreateOracleException(12541)));

@@ -169,7 +169,9 @@ public partial class SqlServer
             await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, table, destinationTable, options, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
-            await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => WriteToServerAsync(bulkCopy, table, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
         {

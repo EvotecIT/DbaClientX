@@ -355,6 +355,15 @@ public class DbaXProviderHelpersTests
     }
 
     [Theory]
+    [InlineData(DbaXProvider.SqlServer, "sqlserver")]
+    [InlineData(DbaXProvider.PostgreSql, "postgresql")]
+    [InlineData(DbaXProvider.MySql, "mysql")]
+    [InlineData(DbaXProvider.Oracle, "oracle")]
+    [InlineData(DbaXProvider.SQLite, "sqlite")]
+    public void GetAlias_UsesSharedProviderRegistry(DbaXProvider provider, string expectedAlias)
+        => Assert.Equal(expectedAlias, DbaXProviderHelpers.GetAlias(provider));
+
+    [Theory]
     [InlineData(":memory:", false)]
     [InlineData("Data Source=:memory:", false)]
     [InlineData("Data Source=shared;Mode=Memory;Cache=Shared", false)]

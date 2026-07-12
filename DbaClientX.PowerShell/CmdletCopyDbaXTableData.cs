@@ -609,13 +609,5 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         };
 
     private static string GetProviderAlias(DbaXBulkProvider provider)
-        => provider switch
-        {
-            DbaXBulkProvider.SqlServer => "sqlserver",
-            DbaXBulkProvider.PostgreSql => "postgresql",
-            DbaXBulkProvider.MySql => "mysql",
-            DbaXBulkProvider.Oracle => "oracle",
-            DbaXBulkProvider.SQLite => "sqlite",
-            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.")
-        };
+        => DbaXProviderHelpers.GetAlias(provider.ToString(), nameof(provider));
 }

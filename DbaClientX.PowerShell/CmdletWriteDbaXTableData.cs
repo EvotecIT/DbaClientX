@@ -375,15 +375,7 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     }
 
     private static string GetProviderAlias(DbaXBulkProvider provider)
-        => provider switch
-        {
-            DbaXBulkProvider.SqlServer => "sqlserver",
-            DbaXBulkProvider.PostgreSql => "postgresql",
-            DbaXBulkProvider.MySql => "mysql",
-            DbaXBulkProvider.Oracle => "oracle",
-            DbaXBulkProvider.SQLite => "sqlite",
-            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
-        };
+        => DbaXProviderHelpers.GetAlias(provider.ToString(), nameof(provider));
 
     private DataTable PrepareProviderBulkTable(DataTable table)
         => Provider == DbaXBulkProvider.PostgreSql

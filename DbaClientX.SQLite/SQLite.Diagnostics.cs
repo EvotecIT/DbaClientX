@@ -161,7 +161,9 @@ public partial class SQLite
                 command.CommandTimeout = commandTimeout;
             }
 
-            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteScalarAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
     }
 
