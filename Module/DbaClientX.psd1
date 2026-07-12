@@ -8,7 +8,7 @@
     Description          = 'Simple project to query Sql Server and other databases using PowerShell'
     FunctionsToExport    = @()
     GUID                 = 'c22cc272-c829-49e2-aaa1-58d3c36edb94'
-    ModuleVersion        = '1.0.2'
+    ModuleVersion        = '1.0.3'
     PowerShellVersion    = '5.1'
     PrivateData          = @{
         PSData = @{
