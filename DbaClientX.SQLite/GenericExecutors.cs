@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using DBAClientX.Invoker;
-using Microsoft.Data.Sqlite;
 
 namespace DBAClientX.SQLiteGeneric;
 
@@ -14,6 +13,8 @@ namespace DBAClientX.SQLiteGeneric;
 /// </summary>
 public static class GenericExecutors
 {
+    internal static Func<DBAClientX.SQLite> ClientFactory { get; set; } = static () => new DBAClientX.SQLite();
+
     /// <summary>
     /// Executes a parameterized SQL statement against the provided database.
     /// </summary>
@@ -23,16 +24,30 @@ public static class GenericExecutors
     /// <param name="ct">Token used to cancel the operation.</param>
     /// <returns>A task producing the number of rows affected by the command.</returns>
     /// <remarks>
-    /// The helper instantiates a new <see cref="DBAClientX.SQLite"/> instance for each invocation, making it suitable for
-    /// dynamic scenarios where maintaining state is impractical. It leverages <see cref="DBAClientX.SQLite.ExecuteNonQueryAsync"/>
-    /// internally, meaning that standard validation and exception behaviors are preserved.
+    /// The helper instantiates and asynchronously disposes a new <see cref="DBAClientX.SQLite"/> instance for each invocation.
+    /// Paths use <see cref="DBAClientX.SQLite.ExecuteNonQueryAsync"/>; full connection strings use
+    /// <see cref="DBAClientX.SQLite.ExecuteNonQueryWithConnectionStringAsync"/> so provider options are preserved.
     /// </remarks>
-    public static Task<int> ExecuteSqlAsync(string connectionStringOrPath, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+    public static async Task<int> ExecuteSqlAsync(string connectionStringOrPath, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
     {
+        ValidateConnectionStringOrPath(connectionStringOrPath);
         ValidateCommandText(sql, nameof(sql), "SQL text");
-        var db = ResolveDatabasePath(connectionStringOrPath);
-        var cli = new DBAClientX.SQLite();
-        return cli.ExecuteNonQueryAsync(db, sql, parameters, cancellationToken: ct);
+        await using var client = ClientFactory();
+        if (DBAClientX.SQLite.IsConnectionString(connectionStringOrPath))
+        {
+            ValidateConnectionString(connectionStringOrPath);
+            return await client.ExecuteNonQueryWithConnectionStringAsync(
+                connectionStringOrPath,
+                sql,
+                parameters,
+                cancellationToken: ct).ConfigureAwait(false);
+        }
+
+        return await client.ExecuteNonQueryAsync(
+            connectionStringOrPath,
+            sql,
+            parameters,
+            cancellationToken: ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -42,25 +57,21 @@ public static class GenericExecutors
     public static Task<int> ExecuteProcedureAsync(string connectionStringOrPath, string procedure, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
         => Task.FromException<int>(new NotSupportedException("SQLite does not support stored procedures."));
 
-    private static string ResolveDatabasePath(string connectionStringOrPath)
+    private static void ValidateConnectionStringOrPath(string connectionStringOrPath)
     {
         if (string.IsNullOrWhiteSpace(connectionStringOrPath))
         {
             throw new ArgumentException("Connection string or database path cannot be null or whitespace.", nameof(connectionStringOrPath));
         }
+    }
 
-        if (connectionStringOrPath.IndexOf('=') >= 0)
+    private static void ValidateConnectionString(string connectionString)
+    {
+        var validationResult = DbaConnectionFactory.Validate("sqlite", connectionString);
+        if (!validationResult.IsValid)
         {
-            var validationResult = DbaConnectionFactory.Validate("sqlite", connectionStringOrPath);
-            if (!validationResult.IsValid)
-            {
-                throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), nameof(connectionStringOrPath));
-            }
-
-            var b = new SqliteConnectionStringBuilder(connectionStringOrPath);
-            return b.DataSource;
+            throw new ArgumentException(DbaConnectionFactory.ToUserMessage(validationResult), "connectionStringOrPath");
         }
-        return connectionStringOrPath;
     }
 
     private static void ValidateCommandText(string value, string paramName, string displayName)

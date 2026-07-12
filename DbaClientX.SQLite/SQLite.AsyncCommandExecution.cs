@@ -260,7 +260,49 @@ public partial class SQLite
     {
         ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
+        return await ExecuteNonQueryCoreAsync(
+            connectionString,
+            query,
+            parameters,
+            useTransaction,
+            cancellationToken,
+            parameterTypes,
+            parameterDirections).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Asynchronously executes a SQL statement using a full SQLite connection string.
+    /// </summary>
+    public virtual async Task<int> ExecuteNonQueryWithConnectionStringAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null)
+    {
+        ValidateCommandText(query);
+        var normalizedConnectionString = NormalizeConnectionString(connectionString);
+        return await ExecuteNonQueryCoreAsync(
+            normalizedConnectionString,
+            query,
+            parameters,
+            useTransaction,
+            cancellationToken,
+            parameterTypes,
+            parameterDirections).ConfigureAwait(false);
+    }
+
+    private async Task<int> ExecuteNonQueryCoreAsync(
+        string connectionString,
+        string query,
+        IDictionary<string, object?>? parameters,
+        bool useTransaction,
+        CancellationToken cancellationToken,
+        IDictionary<string, SqliteType>? parameterTypes,
+        IDictionary<string, ParameterDirection>? parameterDirections)
+    {
         SqliteConnection? connection = null;
         SqliteTransaction? transaction = null;
         var dispose = false;
@@ -269,6 +311,10 @@ public partial class SQLite
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

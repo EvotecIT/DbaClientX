@@ -13,6 +13,14 @@ namespace DBAClientX;
 /// </summary>
 public partial class SQLite : DatabaseClientBase
 {
+    private static readonly HashSet<string> ConnectionStringSourceKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Data Source",
+        "DataSource",
+        "Filename",
+        "FullUri"
+    };
+
     /// <summary>
     /// Default busy timeout used for operational commands when a per-instance value is not overridden.
     /// </summary>
@@ -131,6 +139,20 @@ public partial class SQLite : DatabaseClientBase
         }
 
         return builder.ToString();
+    }
+
+    internal static bool IsConnectionString(string connectionStringOrPath)
+    {
+        foreach (var segment in connectionStringOrPath.Split(';'))
+        {
+            var separator = segment.IndexOf('=');
+            if (separator > 0 && ConnectionStringSourceKeys.Contains(segment.Substring(0, separator).Trim()))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static string TranslateSQLiteFullUri(string connectionString)
