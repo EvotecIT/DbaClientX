@@ -26,8 +26,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     private int _disposeSignaled;
 
     private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
-    private static readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 31 + Thread.CurrentThread.ManagedThreadId)));
-
     /// <summary>
     /// Gets or sets the desired return type for query executions.
     /// </summary>
@@ -107,33 +105,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <returns>The result of the successful operation.</returns>
     /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
     protected T ExecuteWithRetry<T>(Func<T> operation)
-    {
-        var attempts = 0;
-        Exception? lastException = null;
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        while (attempts < maxAttempts)
-        {
-            try
-            {
-                return operation();
-            }
-            catch (Exception ex) when (IsTransient(ex))
-            {
-                lastException = ex;
-                attempts++;
-                if (attempts >= maxAttempts)
-                {
-                    break;
-                }
-                var delay = ComputeBackoffDelay(attempts);
-                if (delay > TimeSpan.Zero)
-                {
-                    Thread.Sleep(delay);
-                }
-            }
-        }
-        throw lastException ?? new Exception("Operation failed.");
-    }
+        => TransientRetry.Run(operation, IsTransient, CreateTransientRetryOptions());
 
     /// <summary>
     /// Asynchronously executes an operation with retry logic for transient failures.
@@ -143,36 +115,12 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Token used to cancel the retries.</param>
     /// <returns>The result of the successful operation.</returns>
     /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
-    protected async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
-    {
-        var attempts = 0;
-        Exception? lastException = null;
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        while (attempts < maxAttempts)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                return await operation().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (IsTransient(ex))
-            {
-                lastException = ex;
-                attempts++;
-                if (attempts >= maxAttempts)
-                {
-                    break;
-                }
-                var delay = ComputeBackoffDelay(attempts);
-                if (delay > TimeSpan.Zero)
-                {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-        throw lastException ?? new Exception("Operation failed.");
-    }
+    protected Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
+        => TransientRetry.RunAsync(
+            _ => operation(),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Asynchronously disposes a resource only when the current operation owns it.
@@ -368,20 +316,16 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="attempt">The one-based retry attempt number.</param>
     /// <returns>The delay before the next retry attempt.</returns>
     protected TimeSpan ComputeBackoffDelay(int attempt)
-    {
-        var baseDelay = RetryDelay;
-        if (baseDelay <= TimeSpan.Zero)
+        => TransientRetry.CalculateBackoffDelay(CreateTransientRetryOptions(), attempt);
+
+    /// <summary>Creates the shared retry options used by core execution and streaming paths.</summary>
+    protected virtual TransientRetryOptions CreateTransientRetryOptions()
+        => new()
         {
-            return TimeSpan.Zero;
-        }
-        // Exponential backoff with jitter (full jitter)
-        var factor = Math.Pow(2, Math.Max(0, attempt - 1));
-        var baseMilliseconds = baseDelay.TotalMilliseconds;
-        var ms = baseMilliseconds * factor;
-        var jitter = _rand.Value!.NextDouble() * baseMilliseconds; // 0..base
-        var total = Math.Min(ms + jitter, MaxBackoffMilliseconds);
-        return TimeSpan.FromMilliseconds(total);
-    }
+            MaxAttempts = Math.Max(1, MaxRetryAttempts),
+            BaseDelay = RetryDelay,
+            MaxDelay = TimeSpan.FromMilliseconds(MaxBackoffMilliseconds)
+        };
 
     /// <summary>
     /// Adds parameters created from dictionaries of values, types, and directions to the supplied command.
@@ -970,9 +914,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         CommandType commandType = CommandType.Text)
     {
         ValidateCommandText(query, commandType);
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
@@ -985,26 +926,11 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandTimeout = commandTimeout;
         }
 
-        async Task<DbDataReader> OpenReaderAsync()
-        {
-            while (true)
-            {
-                try
-                {
-                    return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-                {
-                    var delay = ComputeBackoffDelay(attempt);
-                    if (delay > TimeSpan.Zero)
-                    {
-                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+        await using var reader = await TransientRetry.RunAsync(
+            ct => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var table = new DataTable();
         for (int i = 0; i < reader.FieldCount; i++)
@@ -1060,9 +986,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         {
             throw new ArgumentNullException(nameof(map));
         }
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
@@ -1075,26 +998,11 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandTimeout = commandTimeout;
         }
 
-        async Task<DbDataReader> OpenReaderAsync()
-        {
-            while (true)
-            {
-                try
-                {
-                    return await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-                {
-                    var delay = ComputeBackoffDelay(attempt);
-                    if (delay > TimeSpan.Zero)
-                    {
-                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+        await using var reader = await TransientRetry.RunAsync(
+            ct => command.ExecuteReaderAsync(CommandBehavior.Default, ct),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         initialize?.Invoke(reader);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {

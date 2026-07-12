@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DBAClientX.Mapping;
@@ -20,6 +21,9 @@ public static class DbInvoker
     /// </summary>
     public sealed class DbExecutionOptions
     {
+        /// <summary>Maximum accepted parallel degree, preventing accidental creation of an unbounded worker set.</summary>
+        public const int MaximumParallelDegree = 1024;
+
         /// <summary>
         /// Optional batch size for processing items. When null or less than or equal to 0, processes all items in a single batch.
         /// </summary>
@@ -68,59 +72,16 @@ public static class DbInvoker
         {
             throw new InvalidOperationException($"GenericExecutors for provider '{providerAlias}' not found.");
         }
-        options ??= new DbParameterMapperOptions();
-        execOptions ??= new DbExecutionOptions();
-        var affected = 0;
-        var batchSize = execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0
-            ? execOptions.BatchSize.Value
-            : (int?)null;
-
-        foreach (var batch in EnumerateBatches(items, batchSize))
-        {
-            ct.ThrowIfCancellationRequested();
-            int degree = execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1 ? execOptions.ParallelDegree.Value : 1;
-            if (degree <= 1)
-            {
-                foreach (var item in batch)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                    var task = InvokeExecutor(exec, connectionString, sql, parameters, ct);
-                    affected += await task.ConfigureAwait(false);
-                }
-            }
-            else
-            {
-                using var sem = new SemaphoreSlim(degree, degree);
-                var tasks = new List<Task>();
-                var local = 0;
-
-                async Task ExecuteItemAsync(object item)
-                {
-                    await sem.WaitAsync(ct).ConfigureAwait(false);
-                    try
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                        var rows = await InvokeExecutor(exec, connectionString, sql, parameters, ct).ConfigureAwait(false);
-                        Interlocked.Add(ref local, rows);
-                    }
-                    finally
-                    {
-                        sem.Release();
-                    }
-                }
-
-                foreach (var item in batch)
-                {
-                    tasks.Add(ExecuteItemAsync(item));
-                }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
-                affected += local;
-            }
-        }
-        return affected;
+        return await ExecuteItemsAsync(
+            exec,
+            connectionString,
+            sql,
+            items,
+            map,
+            options ?? new DbParameterMapperOptions(),
+            execOptions ?? new DbExecutionOptions(),
+            ct,
+            ambient).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -162,73 +123,144 @@ public static class DbInvoker
         {
             throw new InvalidOperationException($"GenericExecutors.ExecuteProcedureAsync for provider '{providerAlias}' not found.");
         }
-        options ??= new DbParameterMapperOptions();
-        execOptions ??= new DbExecutionOptions();
-        var affected = 0;
-        var batchSize = execOptions.BatchSize.HasValue && execOptions.BatchSize.Value > 0
-            ? execOptions.BatchSize.Value
-            : (int?)null;
+        return await ExecuteItemsAsync(
+            exec,
+            connectionString,
+            procedure,
+            items,
+            map,
+            options ?? new DbParameterMapperOptions(),
+            execOptions ?? new DbExecutionOptions(),
+            ct,
+            ambient).ConfigureAwait(false);
+    }
 
-        foreach (var batch in EnumerateBatches(items, batchSize))
+    [RequiresUnreferencedCode("DbInvoker maps object properties by reflection. Use a typed mapping surface when trimming.")]
+    private static async Task<int> ExecuteItemsAsync(
+        MethodInfo executor,
+        string connectionString,
+        string commandText,
+        IEnumerable<object> items,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions mappingOptions,
+        DbExecutionOptions executionOptions,
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, object?>? ambient)
+    {
+        var degree = executionOptions.ParallelDegree.GetValueOrDefault(1);
+        if (degree <= 1)
         {
-            ct.ThrowIfCancellationRequested();
-            int degree = execOptions.ParallelDegree.HasValue && execOptions.ParallelDegree.Value > 1 ? execOptions.ParallelDegree.Value : 1;
-            if (degree <= 1)
+            degree = 1;
+        }
+        else if (degree > DbExecutionOptions.MaximumParallelDegree)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(DbExecutionOptions.ParallelDegree),
+                $"ParallelDegree cannot exceed {DbExecutionOptions.MaximumParallelDegree}.");
+        }
+
+        if (executionOptions.BatchSize is not > 0)
+        {
+            return await ExecuteBatchAsync(items, degree, cancellationToken).ConfigureAwait(false);
+        }
+
+        var total = 0;
+        foreach (var batch in EnumerateBatches(items, executionOptions.BatchSize.Value))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            total = checked(total + await ExecuteBatchAsync(batch, degree, cancellationToken).ConfigureAwait(false));
+        }
+
+        return total;
+
+        async Task<int> ExecuteBatchAsync(IEnumerable<object> batch, int parallelDegree, CancellationToken token)
+        {
+            if (parallelDegree == 1)
             {
+                var sequentialAffected = 0;
                 foreach (var item in batch)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                    var task = InvokeExecutor(exec, connectionString, procedure, parameters, ct);
-                    affected += await task.ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                    var parameters = DbParameterMapper.MapItem(item, map, mappingOptions, ambient);
+                    sequentialAffected = checked(sequentialAffected + await InvokeExecutor(executor, connectionString, commandText, parameters, token).ConfigureAwait(false));
                 }
+
+                return sequentialAffected;
             }
-            else
+
+            using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            using var enumerator = batch.GetEnumerator();
+            var enumerationLock = new object();
+            var workerCount = batch switch
             {
-                using var sem = new SemaphoreSlim(degree, degree);
-                var tasks = new List<Task>();
-                var local = 0;
+                IReadOnlyCollection<object> readOnlyCollection => Math.Min(parallelDegree, readOnlyCollection.Count),
+                ICollection<object> collection => Math.Min(parallelDegree, collection.Count),
+                _ => parallelDegree
+            };
+            if (workerCount == 0)
+            {
+                return 0;
+            }
 
-                async Task ExecuteItemAsync(object item)
+            var workers = new Task<int>[workerCount];
+            for (var index = 0; index < workers.Length; index++)
+            {
+                workers[index] = RunWorkerAsync();
+            }
+
+            var results = await Task.WhenAll(workers).ConfigureAwait(false);
+            var parallelAffected = 0;
+            foreach (var result in results)
+            {
+                parallelAffected = checked(parallelAffected + result);
+            }
+
+            return parallelAffected;
+
+            async Task<int> RunWorkerAsync()
+            {
+                var localAffected = 0;
+                try
                 {
-                    await sem.WaitAsync(ct).ConfigureAwait(false);
-                    try
+                    while (true)
                     {
-                        ct.ThrowIfCancellationRequested();
-                        var parameters = DbParameterMapper.MapItem(item, map, options, ambient);
-                        var rows = await InvokeExecutor(exec, connectionString, procedure, parameters, ct).ConfigureAwait(false);
-                        Interlocked.Add(ref local, rows);
-                    }
-                    finally
-                    {
-                        sem.Release();
-                    }
-                }
+                        object item;
+                        lock (enumerationLock)
+                        {
+                            linkedCancellation.Token.ThrowIfCancellationRequested();
+                            if (!enumerator.MoveNext())
+                            {
+                                break;
+                            }
 
-                foreach (var item in batch)
+                            item = enumerator.Current;
+                        }
+
+                        var parameters = DbParameterMapper.MapItem(item, map, mappingOptions, ambient);
+                        localAffected = checked(localAffected + await InvokeExecutor(
+                            executor,
+                            connectionString,
+                            commandText,
+                            parameters,
+                            linkedCancellation.Token).ConfigureAwait(false));
+                    }
+
+                    return localAffected;
+                }
+                catch
                 {
-                    tasks.Add(ExecuteItemAsync(item));
+                    linkedCancellation.Cancel();
+                    throw;
                 }
-
-                await Task.WhenAll(tasks).ConfigureAwait(false);
-                affected += local;
             }
         }
-        return affected;
     }
 
     private static MethodInfo? ResolveExecutor(string providerAlias, Assembly? providerAssembly, string methodName)
     {
-        // Known type names for providers
-        string? typeName = providerAlias?.Trim().ToLowerInvariant() switch
-        {
-            "sqlite" => "DBAClientX.SQLiteGeneric.GenericExecutors",
-            "sqlserver" or "mssql" => "DBAClientX.SqlServerGeneric.GenericExecutors",
-            "postgresql" or "pgsql" or "postgres" => "DBAClientX.PostgreSqlGeneric.GenericExecutors",
-            "mysql" => "DBAClientX.MySqlGeneric.GenericExecutors",
-            "oracle" => "DBAClientX.OracleGeneric.GenericExecutors",
-            _ => null
-        };
+        var typeName = DbaConnectionFactory.TryGetProvider(providerAlias, out var provider)
+            ? provider.GenericExecutorTypeName
+            : null;
 
         // If assembly hint is provided, prefer it
         if (providerAssembly != null)
@@ -324,7 +356,7 @@ public static class DbInvoker
         if (pars.Length == 4 && pars[0].ParameterType == typeof(string))
         {
             // (string connectionString, string sql, IDictionary<string,object?>?, CancellationToken)
-            resultTask = exec.Invoke(null, new object?[] { connectionString, sql, parameters, ct });
+            resultTask = InvokeReflectedExecutor(exec, new object?[] { connectionString, sql, parameters, ct });
         }
         else if (pars.Length == 7)
         {
@@ -336,7 +368,7 @@ public static class DbInvoker
             string service = Try(dict, "service") ?? Try(dict, "servicename") ?? Try(dict, "sid") ?? parsedService;
             string user = Try(dict, "user") ?? Try(dict, "userid") ?? Try(dict, "username") ?? string.Empty;
             string pass = Try(dict, "password") ?? string.Empty;
-            resultTask = exec.Invoke(null, new object?[] { host, service, user, pass, sql, parameters, ct });
+            resultTask = InvokeReflectedExecutor(exec, new object?[] { host, service, user, pass, sql, parameters, ct });
         }
         else
         {
@@ -355,6 +387,19 @@ public static class DbInvoker
         }
 
         throw new InvalidOperationException($"Executor '{exec.DeclaringType?.FullName}.{exec.Name}' returned '{resultTask.GetType().FullName}' instead of a task.");
+    }
+
+    private static object? InvokeReflectedExecutor(MethodInfo executor, object?[] arguments)
+    {
+        try
+        {
+            return executor.Invoke(null, arguments);
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException != null)
+        {
+            ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
+            throw;
+        }
     }
 
     private static async Task<int> AwaitAndZero(Task t)
@@ -422,28 +467,17 @@ public static class DbInvoker
         return (value, value);
     }
 
-    private static IEnumerable<IReadOnlyList<object>> EnumerateBatches(IEnumerable<object> items, int? batchSize)
+    private static IEnumerable<IReadOnlyList<object>> EnumerateBatches(IEnumerable<object> items, int batchSize)
     {
-        if (!batchSize.HasValue || batchSize.Value <= 0)
-        {
-            var allItems = items as IReadOnlyList<object> ?? items.ToList();
-            if (allItems.Count > 0)
-            {
-                yield return allItems;
-            }
-
-            yield break;
-        }
-
-        var size = batchSize.Value;
-        var batch = new List<object>(size);
+        var initialCapacity = Math.Min(batchSize, 4096);
+        var batch = new List<object>(initialCapacity);
         foreach (var item in items)
         {
             batch.Add(item);
-            if (batch.Count == size)
+            if (batch.Count == batchSize)
             {
                 yield return batch;
-                batch = new List<object>(size);
+                batch = new List<object>(initialCapacity);
             }
         }
 

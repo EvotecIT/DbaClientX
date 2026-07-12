@@ -115,6 +115,25 @@ public class RetryTests
         public Task<T> RunOperationAsync<T>(Func<Task<T>> operation, CancellationToken token = default) => ExecuteWithRetryAsync(operation, token);
     }
 
+    private sealed class DeterministicRetryClient : RetryClient
+    {
+        public List<TimeSpan> Delays { get; } = new();
+
+        protected override DBAClientX.TransientRetryOptions CreateTransientRetryOptions()
+            => new()
+            {
+                MaxAttempts = Math.Max(1, MaxRetryAttempts),
+                BaseDelay = RetryDelay,
+                MaxDelay = TimeSpan.FromSeconds(30),
+                JitterFactorProvider = _ => 0,
+                DelayAsync = (delay, _) =>
+                {
+                    Delays.Add(delay);
+                    return Task.CompletedTask;
+                }
+            };
+    }
+
     private class RetryNonQueryClient : DBAClientX.DatabaseClientBase
     {
         protected override bool IsTransient(Exception ex) => ex is TransientTestException;
@@ -244,5 +263,31 @@ public class RetryTests
             }, cts.Token));
 
         Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public async Task ExecuteWithRetryAsync_UsesSharedRetryOptionsAndDelayHook()
+    {
+        using var client = new DeterministicRetryClient
+        {
+            MaxRetryAttempts = 3,
+            RetryDelay = TimeSpan.FromMilliseconds(10)
+        };
+        var attempts = 0;
+
+        var result = await client.RunOperationAsync(() =>
+        {
+            attempts++;
+            if (attempts < 3)
+            {
+                throw new TransientTestException();
+            }
+
+            return Task.FromResult(42);
+        });
+
+        Assert.Equal(42, result);
+        Assert.Equal(3, attempts);
+        Assert.Equal(new[] { TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20) }, client.Delays);
     }
 }
