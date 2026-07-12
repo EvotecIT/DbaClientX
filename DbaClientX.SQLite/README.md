@@ -50,6 +50,27 @@ var rows = await sq.QueryAsListAsync(
 
 For larger result sets, use `QueryStreamAsync<T>` with the same mapper shape to avoid buffering all rows.
 
+Execute against a full connection string without losing provider options:
+
+```csharp
+var connectionString = new SqliteConnectionStringBuilder
+{
+    DataSource = "app.db",
+    Mode = SqliteOpenMode.ReadWrite,
+    Cache = SqliteCacheMode.Shared,
+    Pooling = false,
+    DefaultTimeout = 15
+}.ConnectionString;
+
+await sq.ExecuteNonQueryWithConnectionStringAsync(
+    connectionString,
+    "UPDATE Users SET Name = @name WHERE Id = @id",
+    new Dictionary<string, object?> { ["@name"] = "Alice", ["@id"] = 1 },
+    cancellationToken: ct);
+```
+
+`SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings. File paths containing `=` remain valid paths.
+
 Graceful shutdown maintenance:
 
 ```csharp
