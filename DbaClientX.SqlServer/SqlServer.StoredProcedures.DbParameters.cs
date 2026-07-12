@@ -153,6 +153,10 @@ public partial class SqlServer
         {
             throw;
         }
+        catch (SqlException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
         catch (SqlException ex)
         {
             throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);

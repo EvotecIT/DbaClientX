@@ -113,6 +113,8 @@ public class RetryTests
         public object? Run(DbConnection connection) => ExecuteScalar(connection, null, "q");
         public Task<object?> RunAsync(DbConnection connection, CancellationToken token = default) => ExecuteScalarAsync(connection, null, "q", cancellationToken: token);
         public Task<T> RunOperationAsync<T>(Func<Task<T>> operation, CancellationToken token = default) => ExecuteWithRetryAsync(operation, token);
+        public Exception CreatePublicExecutionException(Exception exception, CancellationToken token)
+            => CreateQueryExecutionOrCancellationException("failed", "q", exception, token);
     }
 
     private class RetryNonQueryClient : DBAClientX.DatabaseClientBase
@@ -244,5 +246,32 @@ public class RetryTests
             }, cts.Token));
 
         Assert.Equal(1, attempts);
+    }
+
+    [Fact]
+    public void CreatePublicExecutionException_WhenProviderReportsCancelledCommand_NormalizesCallerCancellation()
+    {
+        using var client = new RetryClient();
+        using var cancellation = new CancellationTokenSource();
+        var providerException = new InvalidOperationException("provider-specific cancellation");
+        cancellation.Cancel();
+
+        var exception = Assert.IsType<OperationCanceledException>(
+            client.CreatePublicExecutionException(providerException, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.Same(providerException, exception.InnerException);
+    }
+
+    [Fact]
+    public void CreatePublicExecutionException_WhenCallerDidNotCancel_PreservesQueryFailureContract()
+    {
+        using var client = new RetryClient();
+        var providerException = new InvalidOperationException("database failure");
+
+        var exception = Assert.IsType<DBAClientX.DbaQueryExecutionException>(
+            client.CreatePublicExecutionException(providerException, CancellationToken.None));
+
+        Assert.Same(providerException, exception.InnerException);
     }
 }

@@ -56,7 +56,7 @@ public partial class Oracle
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute query.", query, ex, cancellationToken);
         }
         finally
         {
@@ -148,7 +148,7 @@ public partial class Oracle
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute mapped query.", query, ex, cancellationToken);
         }
         finally
         {
@@ -202,7 +202,7 @@ public partial class Oracle
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute scalar query.", query, ex, cancellationToken);
         }
         finally
         {
@@ -236,7 +236,7 @@ public partial class Oracle
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute non-query.", query, ex, cancellationToken);
         }
         finally
         {
@@ -273,7 +273,7 @@ public partial class Oracle
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute non-query.", query, ex, cancellationToken);
         }
         finally
         {

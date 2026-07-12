@@ -153,7 +153,7 @@ public partial class MySql
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute stored procedure.", procedure, ex, cancellationToken);
         }
         finally
         {
@@ -261,7 +261,7 @@ public partial class MySql
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute stored procedure.", procedure, ex, cancellationToken);
         }
         finally
         {

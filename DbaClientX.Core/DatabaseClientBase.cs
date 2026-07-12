@@ -104,6 +104,67 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         => exception is OperationCanceledException && cancellationToken.IsCancellationRequested;
 
     /// <summary>
+    /// Creates the public exception for a failed asynchronous database operation while preserving caller cancellation.
+    /// </summary>
+    /// <remarks>
+    /// Some ADO.NET providers report a canceled command as a provider exception instead of
+    /// <see cref="OperationCanceledException"/>. Once the caller's token is canceled, normalize that provider-specific
+    /// failure back to the standard cancellation contract and retain the original exception as diagnostic context.
+    /// </remarks>
+    protected static Exception CreateQueryExecutionOrCancellationException(
+        string message,
+        string commandText,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return CreateCallerCancellationException(exception, cancellationToken);
+        }
+
+        return new DbaQueryExecutionException(message, commandText, exception);
+    }
+
+    /// <summary>Creates a standard caller-cancellation exception while retaining the provider failure.</summary>
+    protected static OperationCanceledException CreateCallerCancellationException(
+        Exception exception,
+        CancellationToken cancellationToken)
+        => new(
+            "The database operation was canceled by the caller.",
+            exception,
+            cancellationToken);
+
+    /// <summary>Awaits an ADO.NET operation and normalizes provider-specific cancellation failures.</summary>
+    protected static async Task<T> AwaitWithCallerCancellationAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && cancellationToken.IsCancellationRequested)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+    }
+
+    /// <summary>Awaits a non-result ADO.NET operation and normalizes provider-specific cancellation failures.</summary>
+    protected static async Task AwaitWithCallerCancellationAsync(
+        Func<Task> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await operation().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && cancellationToken.IsCancellationRequested)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Executes an operation with retry logic for transient failures.
     /// </summary>
     /// <typeparam name="T">The type of the result produced by the operation.</typeparam>
@@ -995,7 +1056,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                    return await AwaitWithCallerCancellationAsync(
+                        () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {
@@ -1016,7 +1079,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
         }
 
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        while (await AwaitWithCallerCancellationAsync(
+            () => reader.ReadAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false))
         {
             var row = table.NewRow();
             for (int i = 0; i < reader.FieldCount; i++)
@@ -1085,7 +1150,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             {
                 try
                 {
-                    return await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
+                    return await AwaitWithCallerCancellationAsync(
+                        () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
                 {
@@ -1100,7 +1167,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
 
         await using var reader = await OpenReaderAsync().ConfigureAwait(false);
         initialize?.Invoke(reader);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        while (await AwaitWithCallerCancellationAsync(
+            () => reader.ReadAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false))
         {
             yield return map(reader);
         }
@@ -1211,7 +1280,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         table.BeginLoadData();
         try
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await AwaitWithCallerCancellationAsync(
+                () => reader.ReadAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 reader.GetValues(values);
                 table.Rows.Add(values);

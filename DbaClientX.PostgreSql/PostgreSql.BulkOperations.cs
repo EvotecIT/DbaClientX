@@ -142,7 +142,7 @@ public partial class PostgreSql
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
         }
         finally
         {

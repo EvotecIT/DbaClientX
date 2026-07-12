@@ -122,6 +122,10 @@ public partial class SqlServer
         {
             throw;
         }
+        catch (SqlException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
         catch (SqlException ex)
         {
             diagnostic.ErrorCategory = ClassifySqlMonitoringError(ex);
@@ -196,7 +200,9 @@ public partial class SqlServer
         var connectionString = BuildMonitoringConnectionString(target);
 
         using SqlConnection connection = CreateConnection(connectionString);
-        await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+        await AwaitWithCallerCancellationAsync(
+            () => OpenConnectionAsync(connection, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
 
         foreach (SqlServerDatabaseState database in databases)
         {
@@ -223,6 +229,10 @@ public partial class SqlServer
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (SqlException ex) when (cancellationToken.IsCancellationRequested)
+            {
+                throw CreateCallerCancellationException(ex, cancellationToken);
             }
             catch (SqlException ex)
             {
@@ -291,7 +301,9 @@ public partial class SqlServer
         var connectionString = BuildMonitoringConnectionString(target);
         var rows = new List<T>();
         using SqlConnection connection = CreateConnection(connectionString);
-        await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+        await AwaitWithCallerCancellationAsync(
+            () => OpenConnectionAsync(connection, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
         using SqlCommand command = connection.CreateCommand();
         command.CommandText = query;
         command.CommandType = CommandType.Text;
@@ -304,8 +316,12 @@ public partial class SqlServer
         }
         command.Parameters.AddWithValue("@includeFilteredRows", includeFilteredRows ? 1 : 0);
 
-        using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        using SqlDataReader reader = await AwaitWithCallerCancellationAsync(
+            () => command.ExecuteReaderAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        while (await AwaitWithCallerCancellationAsync(
+            () => reader.ReadAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false))
         {
             rows.Add(map(reader));
         }

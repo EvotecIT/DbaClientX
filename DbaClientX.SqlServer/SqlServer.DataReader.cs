@@ -155,7 +155,7 @@ public partial class SqlServer
                 throw;
             }
 
-            throw new DbaQueryExecutionException("Failed to open query reader.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to open query reader.", query, ex, cancellationToken);
         }
     }
 
