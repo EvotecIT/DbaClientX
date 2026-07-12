@@ -300,7 +300,9 @@ public partial class SqlServer : DatabaseClientBase
             var candidate = CreateConnection(connectionString);
             try
             {
-                await OpenConnectionAsync(candidate, cancellationToken).ConfigureAwait(false);
+                await AwaitWithCallerCancellationAsync(
+                    () => OpenConnectionAsync(candidate, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
                 return candidate;
             }
             catch

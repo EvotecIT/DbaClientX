@@ -217,11 +217,15 @@ public partial class SQLite
                     command.CommandTimeout = commandTimeout;
                 }
 
-                using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleResult, cancellationToken).ConfigureAwait(false);
+                using var reader = await AwaitWithCallerCancellationAsync(
+                    () => command.ExecuteReaderAsync(CommandBehavior.SingleResult, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
                 initialize?.Invoke(reader);
 
                 var results = new List<T>();
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                while (await AwaitWithCallerCancellationAsync(
+                    () => reader.ReadAsync(cancellationToken),
+                    cancellationToken).ConfigureAwait(false))
                 {
                     results.Add(map(reader));
                 }
@@ -380,7 +384,9 @@ public partial class SQLite
         var connection = new SqliteConnection(connectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => connection.OpenAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(
                 connection,
                 ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),

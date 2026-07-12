@@ -288,7 +288,9 @@ public partial class PostgreSql
         var connection = CreateConnection(connectionString);
         try
         {
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => OpenConnectionAsync(connection, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             return (connection, null, true);
         }
         catch

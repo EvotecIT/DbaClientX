@@ -94,7 +94,9 @@ public partial class Oracle
 
             var normalizedConnectionString = NormalizeConnectionString(connectionString);
             connection = CreateConnection(connectionString);
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => OpenConnectionAsync(connection, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             transaction = await BeginDbTransactionAsync(connection, isolationLevel, cancellationToken).ConfigureAwait(false);
             lock (_syncRoot)
             {

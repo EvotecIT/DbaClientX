@@ -160,6 +160,20 @@ public class ProviderMappedQueryParityTests
             => Task.FromCanceled(cancellationToken);
     }
 
+    private sealed class TokenlessOpenCancellationSqlServer : DBAClientX.SqlServer
+    {
+        private readonly CancellationTokenSource _cancellationSource;
+
+        public TokenlessOpenCancellationSqlServer(CancellationTokenSource cancellationSource)
+            => _cancellationSource = cancellationSource;
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+        {
+            _cancellationSource.Cancel();
+            return Task.FromException(new OperationCanceledException());
+        }
+    }
+
     [Fact]
     public async Task SqlServerQueryAsListAsync_WithNullMapper_ThrowsBeforeOpeningConnection()
     {
@@ -296,6 +310,22 @@ public class ProviderMappedQueryParityTests
             ":memory:",
             "SELECT 1",
             cancellationToken: cancellation.Token));
+    }
+
+    [Fact]
+    public async Task SqlServerQueryAsync_WhenConnectionOpenThrowsTokenlessCancellation_NormalizesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var sqlServer = new TokenlessOpenCancellationSqlServer(cancellation);
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() => sqlServer.QueryAsync(
+            "Server=.;Database=app;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            "SELECT 1",
+            cancellationToken: cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
+        Assert.Equal(default, providerException.CancellationToken);
     }
 
     [Fact]

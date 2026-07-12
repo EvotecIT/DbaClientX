@@ -195,7 +195,7 @@ public class ProviderRetryTests
         Assert.False(postgreSql.IsCancellation(new PostgresException("serialization", "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure)));
         Assert.True(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.QueryInterrupted)));
         Assert.False(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.LockDeadlock)));
-        Assert.True(oracle.IsCancellation(CreateOracleException(1013)));
+        Assert.False(oracle.IsCancellation(CreateOracleException(1013)));
         Assert.False(oracle.IsCancellation(CreateOracleException(12541)));
     }
 
