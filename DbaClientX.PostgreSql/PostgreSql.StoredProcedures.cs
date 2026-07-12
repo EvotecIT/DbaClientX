@@ -117,16 +117,7 @@ public partial class PostgreSql
             AddParameters(command, parameters, dbTypes, parameterDirections);
             ApplyCommandTimeout(command);
 
-            var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-            var tableIndex = 0;
-            do
-            {
-                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            }
-            while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            var dataSet = await ReadStoredProcedureResultsAsync(command, cancellationToken).ConfigureAwait(false);
 
             var result = BuildResult(dataSet);
             UpdateOutputParameters(command, parameters);
@@ -247,16 +238,7 @@ public partial class PostgreSql
             AddParameters(command, parameters);
             ApplyCommandTimeout(command);
 
-            var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-            var tableIndex = 0;
-            do
-            {
-                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            }
-            while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            var dataSet = await ReadStoredProcedureResultsAsync(command, cancellationToken).ConfigureAwait(false);
 
             return BuildResult(dataSet);
         }

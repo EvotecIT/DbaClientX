@@ -100,7 +100,9 @@ public partial class SqlServer
         {
             connection = CreateConnection(connectionString);
             var connect = Stopwatch.StartNew();
-            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(
+                () => OpenConnectionAsync(connection, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             connect.Stop();
             diagnostic.Connected = true;
             diagnostic.ConnectDuration = connect.Elapsed;
@@ -109,8 +111,12 @@ public partial class SqlServer
             using SqlCommand command = connection.CreateCommand();
             command.CommandText = ConnectionDiagnosticsQuery;
             command.CommandType = CommandType.Text;
-            using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            using SqlDataReader reader = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            if (await AwaitWithCallerCancellationAsync(
+                () => reader.ReadAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 SqlServerMonitoringMappers.PopulateConnectionDiagnostics(reader, diagnostic);
             }
@@ -218,8 +224,12 @@ public partial class SqlServer
             {
                 using SqlCommand command = connection.CreateCommand();
                 command.CommandText = $"DBCC DBINFO({QuoteSqlIdentifier(database.DatabaseName)}) WITH TABLERESULTS";
-                using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                using SqlDataReader reader = await AwaitWithCallerCancellationAsync(
+                    () => command.ExecuteReaderAsync(cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
+                while (await AwaitWithCallerCancellationAsync(
+                    () => reader.ReadAsync(cancellationToken),
+                    cancellationToken).ConfigureAwait(false))
                 {
                     string? field = SqlServerMonitoringMappers.GetString(reader, "Field");
                     if (string.Equals(field, "dbi_dbccLastKnownGood", StringComparison.OrdinalIgnoreCase))

@@ -102,9 +102,8 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <summary>Returns whether an exception carries the caller's cancellation token.</summary>
     protected static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
         => cancellationToken.IsCancellationRequested &&
-           ExceptionChainContains<OperationCanceledException>(
-               exception,
-               cancellationException => cancellationException.CancellationToken == cancellationToken);
+           exception is OperationCanceledException cancellationException &&
+           cancellationException.CancellationToken == cancellationToken;
 
     /// <summary>Returns whether an exception is a provider-specific representation of command cancellation.</summary>
     protected virtual bool IsProviderCancellationException(Exception exception)
@@ -1355,6 +1354,34 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
 
         return table;
+    }
+
+    /// <summary>
+    /// Executes a stored-procedure reader and materializes all result sets while preserving caller cancellation.
+    /// </summary>
+    /// <param name="command">Configured stored-procedure command.</param>
+    /// <param name="cancellationToken">Token used to cancel provider reader operations.</param>
+    /// <returns>A data set containing every result set returned by the command.</returns>
+    protected async Task<DataSet> ReadStoredProcedureResultsAsync(
+        DbCommand command,
+        CancellationToken cancellationToken)
+    {
+        var dataSet = new DataSet();
+        using var reader = await AwaitWithCallerCancellationAsync(
+            () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        var tableIndex = 0;
+        do
+        {
+            var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
+            dataSet.Tables.Add(table);
+            tableIndex++;
+        }
+        while (!reader.IsClosed && await AwaitWithCallerCancellationAsync(
+            () => reader.NextResultAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false));
+
+        return dataSet;
     }
 
     private static async Task<bool> ReadWithCallerCancellationAsync(

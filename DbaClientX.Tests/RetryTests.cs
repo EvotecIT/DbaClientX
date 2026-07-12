@@ -123,6 +123,12 @@ public class RetryTests
 
         public Exception CreatePublicExecutionException(Exception exception, CancellationToken token)
             => CreateQueryExecutionOrCancellationException("failed", "q", exception, token);
+
+        public bool IsCallerCancellationException(Exception exception, CancellationToken token)
+            => IsCallerCancellation(exception, token);
+
+        public Task<DataSet> ReadStoredProcedureAsync(DbCommand command, CancellationToken token)
+            => ReadStoredProcedureResultsAsync(command, token);
     }
 
     private sealed class TokenlessCancellationQueryClient : DBAClientX.DatabaseClientBase
@@ -340,6 +346,35 @@ public class RetryTests
             client.CreatePublicExecutionException(providerException, cancellation.Token));
 
         Assert.Same(providerException, exception.InnerException);
+    }
+
+    [Fact]
+    public void IsCallerCancellation_WhenFailureOnlyWrapsCallerCancellation_ReturnsFalse()
+    {
+        using var client = new CancellationNormalizationClient();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var exception = new InvalidOperationException(
+            "mapper failed",
+            new OperationCanceledException(cancellation.Token));
+
+        Assert.False(client.IsCallerCancellationException(exception, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task ReadStoredProcedureResultsAsync_WhenProviderThrowsTokenlessCancellation_NormalizesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var client = new CancellationNormalizationClient();
+        using var connection = new TokenlessCancellationConnection(cancellation);
+        using var command = new TokenlessCancellationCommand(connection, cancellation);
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            client.ReadStoredProcedureAsync(command, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
+        Assert.Equal(default, providerException.CancellationToken);
     }
 
     [Fact]

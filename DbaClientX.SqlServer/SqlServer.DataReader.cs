@@ -212,7 +212,9 @@ public partial class SqlServer
         {
             try
             {
-                return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                return await AwaitWithCallerCancellationAsync(
+                    () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
             {

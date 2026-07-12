@@ -190,7 +190,8 @@ public class ProviderRetryTests
         Assert.False(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 10, state: 0, errorCount: 1)));
         Assert.True(sqlite.IsCancellation(new SqliteException("interrupted", 9)));
         Assert.False(sqlite.IsCancellation(new SqliteException("busy", 5)));
-        Assert.True(postgreSql.IsCancellation(new PostgresException("cancelled", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
+        Assert.True(postgreSql.IsCancellation(new PostgresException("canceling statement due to user request", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
+        Assert.False(postgreSql.IsCancellation(new PostgresException("canceling statement due to statement timeout", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
         Assert.False(postgreSql.IsCancellation(new PostgresException("serialization", "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure)));
         Assert.True(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.QueryInterrupted)));
         Assert.False(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.LockDeadlock)));

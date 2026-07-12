@@ -15,9 +15,12 @@ public partial class PostgreSql
 
         return ExceptionChainContains<PostgresException>(
             exception,
-            static postgresException => string.Equals(
-                postgresException.SqlState,
-                PostgresErrorCodes.QueryCanceled,
-                StringComparison.Ordinal));
+            static postgresException =>
+                string.Equals(
+                    postgresException.SqlState,
+                    PostgresErrorCodes.QueryCanceled,
+                    StringComparison.Ordinal) &&
+                (postgresException.MessageText.IndexOf("user request", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 (postgresException.Detail?.IndexOf("user request", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0));
     }
 }
