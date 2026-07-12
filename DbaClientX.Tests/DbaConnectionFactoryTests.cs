@@ -319,6 +319,28 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
+    public void Validate_OracleSyntheticExternalAuthenticationOption_IsRejected()
+    {
+        var result = DbaConnectionFactory.Validate("oracle", "Data Source=dbhost/service;External Authentication=true");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.UnsupportedOption, result.Code);
+        Assert.Equal("External Authentication", result.Details);
+        Assert.Contains("User Id=/", result.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Proxy User Id=proxy")]
+    [InlineData("Proxy Password=secret")]
+    public void Validate_OracleExternalAuthenticationWithProxyAttributes_IsRejected(string proxyAttribute)
+    {
+        var result = DbaConnectionFactory.Validate("oracle", $"Data Source=dbhost/service;User Id=/;{proxyAttribute}");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.InvalidParameterValue, result.Code);
+        Assert.Equal("User Id", result.Details);
+        Assert.Contains("proxy authentication", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Validate_OraclePasswordAuthenticationRequiresPassword()
     {
         var result = DbaConnectionFactory.Validate("oracle", "Data Source=dbhost/service;User Id=user");

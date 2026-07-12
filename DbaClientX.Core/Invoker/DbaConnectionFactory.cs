@@ -249,11 +249,12 @@ public static class DbaConnectionFactory
 
     private static ConnectionValidationResult? ValidateOracleAuthentication(DbConnectionStringBuilder builder)
     {
-        if (TryGetNonEmptyValue(builder, "External Authentication", out var externalAuthentication)
-            && bool.TryParse(externalAuthentication, out var usesExternalAuthentication)
-            && usesExternalAuthentication)
+        if (TryGetNonEmptyValue(builder, "External Authentication", out _))
         {
-            return null;
+            return new ConnectionValidationResult(
+                ConnectionValidationErrorCode.UnsupportedOption,
+                "Oracle external authentication must use User Id=/; External Authentication is not an ODP.NET connection attribute.",
+                "External Authentication");
         }
 
         if (TryGetNonEmptyValue(builder, "User Id", out var userId)
@@ -263,6 +264,15 @@ public static class DbaConnectionFactory
         {
             if (string.Equals(userId, "/", StringComparison.Ordinal))
             {
+                if (TryGetNonEmptyValue(builder, "Proxy User Id", out _)
+                    || TryGetNonEmptyValue(builder, "Proxy Password", out _))
+                {
+                    return new ConnectionValidationResult(
+                        ConnectionValidationErrorCode.InvalidParameterValue,
+                        "Oracle User Id=/ cannot be combined with proxy authentication.",
+                        "User Id");
+                }
+
                 return null;
             }
 
@@ -275,7 +285,7 @@ public static class DbaConnectionFactory
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Oracle password authentication requires Password.", "Password");
         }
 
-        return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Oracle connections must include User Id or enable external authentication.", "User Id");
+        return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Oracle connections must include User Id; use User Id=/ for external authentication.", "User Id");
     }
 
     private static ConnectionValidationResult? ValidateSqlitePath(DbConnectionStringBuilder builder)
