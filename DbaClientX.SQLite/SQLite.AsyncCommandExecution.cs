@@ -32,7 +32,7 @@ public partial class SQLite
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteResolvedQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
@@ -66,7 +66,7 @@ public partial class SQLite
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteResolvedQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
         {
@@ -74,7 +74,7 @@ public partial class SQLite
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && (ex is DbException or InvalidOperationException or ArgumentException))
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute query.", query, ex, cancellationToken);
         }
         finally
         {
@@ -155,7 +155,7 @@ public partial class SQLite
         {
             (connection, _, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
             var dbTypes = ConvertParameterTypes(parameterTypes);
-            return await base.ExecuteQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
+            return await ExecuteResolvedQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
@@ -348,6 +348,24 @@ public partial class SQLite
             throw;
         }
     }
+
+    /// <summary>Executes a query after the SQLite connection and optional transaction have been resolved.</summary>
+    protected virtual Task<object?> ExecuteResolvedQueryAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string query,
+        IDictionary<string, object?>? parameters,
+        CancellationToken cancellationToken,
+        IDictionary<string, DbType>? parameterTypes,
+        IDictionary<string, ParameterDirection>? parameterDirections)
+        => base.ExecuteQueryAsync(
+            connection,
+            transaction,
+            query,
+            parameters,
+            cancellationToken,
+            parameterTypes,
+            parameterDirections);
 
     private static ValueTask DisposeSQLiteConnectionAsync(SqliteConnection connection)
     {

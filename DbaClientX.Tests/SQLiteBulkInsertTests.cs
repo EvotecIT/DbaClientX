@@ -12,13 +12,14 @@ public class SQLiteBulkInsertTests
     private sealed class CancellingBulkInsertSqlite : DBAClientX.SQLite
     {
         public CancellationTokenSource? CancellationSource { get; set; }
+        public Exception? Failure { get; set; }
         public bool RollbackCalled { get; private set; }
         public CancellationToken RollbackCancellationToken { get; private set; }
 
         protected override Task ExecuteBulkInsertCommandAsync(Microsoft.Data.Sqlite.SqliteCommand command, CancellationToken cancellationToken)
         {
             CancellationSource?.Cancel();
-            return Task.FromException(new OperationCanceledException(CancellationSource?.Token ?? cancellationToken));
+            return Task.FromException(Failure ?? new OperationCanceledException(CancellationSource?.Token ?? cancellationToken));
         }
 
         protected override async Task RollbackOwnedBulkInsertTransactionAsync(Microsoft.Data.Sqlite.SqliteTransaction transaction, CancellationToken cancellationToken)
@@ -131,6 +132,38 @@ public class SQLiteBulkInsertTests
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1, cancellationToken: cts.Token));
 
+            Assert.True(sqlite.RollbackCalled);
+            Assert.False(sqlite.RollbackCancellationToken.CanBeCanceled);
+
+            var count = await sqlite.ExecuteScalarAsync(path, "SELECT COUNT(*) FROM Dest;");
+            Assert.Equal(0L, count);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_WhenProviderReportsInterrupt_NormalizesCancellationAfterRollback()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new CancellingBulkInsertSqlite();
+            await sqlite.ExecuteNonQueryAsync(path, "CREATE TABLE Dest(Id INTEGER, Name TEXT);");
+
+            var table = CreateTable(2);
+            using var cancellation = new CancellationTokenSource();
+            var providerException = new Microsoft.Data.Sqlite.SqliteException("interrupted", 9);
+            sqlite.CancellationSource = cancellation;
+            sqlite.Failure = providerException;
+
+            var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+                sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1, cancellationToken: cancellation.Token));
+
+            Assert.Equal(cancellation.Token, exception.CancellationToken);
+            Assert.Same(providerException, exception.InnerException);
             Assert.True(sqlite.RollbackCalled);
             Assert.False(sqlite.RollbackCancellationToken.CanBeCanceled);
 

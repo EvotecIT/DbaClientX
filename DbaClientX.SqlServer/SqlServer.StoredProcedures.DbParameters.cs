@@ -153,7 +153,9 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (SqlException ex) when (cancellationToken.IsCancellationRequested)
+        catch (SqlException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
         {
             throw CreateCallerCancellationException(ex, cancellationToken);
         }

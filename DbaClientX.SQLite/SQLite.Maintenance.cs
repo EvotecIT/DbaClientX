@@ -199,9 +199,11 @@ public partial class SQLite
             command.ExecuteNonQuery();
             cancellationToken.ThrowIfCancellationRequested();
         }
-        catch (SqliteException) when (cancellationToken.IsCancellationRequested)
+        catch (SqliteException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
         {
-            throw new OperationCanceledException(cancellationToken);
+            throw CreateCallerCancellationException(ex, cancellationToken);
         }
         catch (OperationCanceledException)
         {

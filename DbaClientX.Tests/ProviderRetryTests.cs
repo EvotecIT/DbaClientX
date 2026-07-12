@@ -14,6 +14,7 @@ public class ProviderRetryTests
     private class MySqlRetryClient : DBAClientX.MySql
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+        public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
     private static MySqlException CreateMySqlException(MySqlErrorCode code)
@@ -44,6 +45,7 @@ public class ProviderRetryTests
     private class PostgreSqlRetryClient : DBAClientX.PostgreSql
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+        public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
     [Fact]
@@ -69,20 +71,24 @@ public class ProviderRetryTests
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
         public bool IsConnectionOpenRetryable(Exception exception) => IsConnectionOpenTransient(exception);
         public bool IsCommandRetryable(Exception exception) => IsTransient(exception);
+        public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
-    private static SqlException CreateSqlException(int number)
+    private static SqlException CreateSqlException(int number, byte errorClass = 0, byte state = 0, int errorCount = 1)
     {
         var errorCtor = typeof(SqlError).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
             .First(c => c.GetParameters().Length == 8);
-        var error = errorCtor.Invoke(new object?[]
-        {
-            number, (byte)0, (byte)0, string.Empty, string.Empty, string.Empty, 1, null
-        });
         var collection = (SqlErrorCollection)typeof(SqlErrorCollection).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)[0]
             .Invoke(null);
-        typeof(SqlErrorCollection).GetMethod("Add", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(collection, new[] { error });
+        for (var index = 0; index < errorCount; index++)
+        {
+            var error = errorCtor.Invoke(new object?[]
+            {
+                number, state, errorClass, string.Empty, string.Empty, string.Empty, 1, null
+            });
+            typeof(SqlErrorCollection).GetMethod("Add", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(collection, new[] { error });
+        }
         var ctor = typeof(SqlException).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
             .First(c => c.GetParameters().Length == 4);
         return (SqlException)ctor.Invoke(new object?[] { "msg", collection, null, Guid.NewGuid() });
@@ -118,6 +124,7 @@ public class ProviderRetryTests
     private class SqliteRetryClient : DBAClientX.SQLite
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+        public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
     [Fact]
@@ -141,6 +148,7 @@ public class ProviderRetryTests
     private class OracleRetryClient : DBAClientX.Oracle
     {
         public T Run<T>(Func<T> operation) => ExecuteWithRetry(operation);
+        public bool IsCancellation(Exception exception) => IsProviderCancellationException(exception);
     }
 
     private static OracleException CreateOracleException(int number)
@@ -166,6 +174,27 @@ public class ProviderRetryTests
         });
         Assert.Equal(1, result);
         Assert.Equal(3, attempts);
+    }
+
+    [Fact]
+    public void ProviderCancellationClassifiers_RecognizeOnlyProviderCancellationCodes()
+    {
+        using var sqlServer = new SqlServerRetryClient();
+        using var sqlite = new SqliteRetryClient();
+        using var postgreSql = new PostgreSqlRetryClient();
+        using var mySql = new MySqlRetryClient();
+        using var oracle = new OracleRetryClient();
+
+        Assert.True(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 11, state: 0, errorCount: 2)));
+        Assert.False(sqlServer.IsCancellation(CreateSqlException(0, errorClass: 11, state: 0, errorCount: 1)));
+        Assert.True(sqlite.IsCancellation(new SqliteException("interrupted", 9)));
+        Assert.False(sqlite.IsCancellation(new SqliteException("busy", 5)));
+        Assert.True(postgreSql.IsCancellation(new PostgresException("cancelled", "ERROR", "ERROR", PostgresErrorCodes.QueryCanceled)));
+        Assert.False(postgreSql.IsCancellation(new PostgresException("serialization", "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure)));
+        Assert.True(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.QueryInterrupted)));
+        Assert.False(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.LockDeadlock)));
+        Assert.True(oracle.IsCancellation(CreateOracleException(1013)));
+        Assert.False(oracle.IsCancellation(CreateOracleException(12541)));
     }
 
     [Fact]

@@ -12,6 +12,7 @@ namespace DbaClientX.Tests;
 public class RetryTests
 {
     private class TransientTestException : Exception { }
+    private class ProviderCancellationTestException : Exception { }
 
     private class TransientConnection : DbConnection
     {
@@ -113,6 +114,13 @@ public class RetryTests
         public object? Run(DbConnection connection) => ExecuteScalar(connection, null, "q");
         public Task<object?> RunAsync(DbConnection connection, CancellationToken token = default) => ExecuteScalarAsync(connection, null, "q", cancellationToken: token);
         public Task<T> RunOperationAsync<T>(Func<Task<T>> operation, CancellationToken token = default) => ExecuteWithRetryAsync(operation, token);
+    }
+
+    private sealed class CancellationNormalizationClient : DBAClientX.DatabaseClientBase
+    {
+        protected override bool IsProviderCancellationException(Exception exception)
+            => exception is ProviderCancellationTestException || base.IsProviderCancellationException(exception);
+
         public Exception CreatePublicExecutionException(Exception exception, CancellationToken token)
             => CreateQueryExecutionOrCancellationException("failed", "q", exception, token);
     }
@@ -251,9 +259,9 @@ public class RetryTests
     [Fact]
     public void CreatePublicExecutionException_WhenProviderReportsCancelledCommand_NormalizesCallerCancellation()
     {
-        using var client = new RetryClient();
+        using var client = new CancellationNormalizationClient();
         using var cancellation = new CancellationTokenSource();
-        var providerException = new InvalidOperationException("provider-specific cancellation");
+        var providerException = new ProviderCancellationTestException();
         cancellation.Cancel();
 
         var exception = Assert.IsType<OperationCanceledException>(
@@ -264,13 +272,15 @@ public class RetryTests
     }
 
     [Fact]
-    public void CreatePublicExecutionException_WhenCallerDidNotCancel_PreservesQueryFailureContract()
+    public void CreatePublicExecutionException_WhenUnrelatedFailureRacesCancellation_PreservesQueryFailureContract()
     {
-        using var client = new RetryClient();
+        using var client = new CancellationNormalizationClient();
+        using var cancellation = new CancellationTokenSource();
         var providerException = new InvalidOperationException("database failure");
+        cancellation.Cancel();
 
         var exception = Assert.IsType<DBAClientX.DbaQueryExecutionException>(
-            client.CreatePublicExecutionException(providerException, CancellationToken.None));
+            client.CreatePublicExecutionException(providerException, cancellation.Token));
 
         Assert.Same(providerException, exception.InnerException);
     }
