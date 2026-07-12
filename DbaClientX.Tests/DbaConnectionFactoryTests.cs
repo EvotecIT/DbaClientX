@@ -50,6 +50,17 @@ public class DbaConnectionFactoryTests
     }
 
     [Theory]
+    [InlineData("Server=;Database=app;", "Server")]
+    [InlineData("Server=dbhost;Database=;", "Database")]
+    public void Validate_EmptyRequiredParameterIsMissing(string connectionString, string expectedParameter)
+    {
+        var result = DbaConnectionFactory.Validate("sqlserver", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal(expectedParameter, result.Details);
+    }
+
+    [Theory]
     [InlineData("AllowLoadLocalInfile")]
     [InlineData("Allow Load Local Infile")]
     [InlineData("LoadLocalInfile")]
@@ -226,6 +237,15 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
+    public void Validate_SqliteDottedFilenameIsAllowed()
+    {
+        var result = DbaConnectionFactory.Validate("sqlite", "Data Source=data..archive.db");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
     public void Validate_Success()
     {
         var result = DbaConnectionFactory.Validate("sqlserver", "Server=.;Database=app;");
@@ -244,12 +264,27 @@ public class DbaConnectionFactoryTests
     }
 
     [Fact]
-    public void Validate_ReservedPort()
+    public void Validate_PrivilegedPort_IsAllowedWhenOtherwiseValid()
     {
-        var result = DbaConnectionFactory.Validate("postgresql", "Server=.;Database=app;Port=22");
-        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.InvalidParameterValue, result.Code);
-        Assert.Equal("Port", result.Details, StringComparer.OrdinalIgnoreCase);
-        Assert.Contains("reserved system range", result.Message, StringComparison.OrdinalIgnoreCase);
+        var result = DbaConnectionFactory.Validate("postgresql", "Server=.;Database=app;Port=22;SslMode=Require");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
+
+    [Theory]
+    [InlineData("sqlserver", "sqlserver", "DBAClientX.SqlServerGeneric.GenericExecutors")]
+    [InlineData("mssql", "sqlserver", "DBAClientX.SqlServerGeneric.GenericExecutors")]
+    [InlineData("postgres", "postgresql", "DBAClientX.PostgreSqlGeneric.GenericExecutors")]
+    [InlineData("pgsql", "postgresql", "DBAClientX.PostgreSqlGeneric.GenericExecutors")]
+    [InlineData("mysql", "mysql", "DBAClientX.MySqlGeneric.GenericExecutors")]
+    [InlineData("sqlite", "sqlite", "DBAClientX.SQLiteGeneric.GenericExecutors")]
+    [InlineData("oracle", "oracle", "DBAClientX.OracleGeneric.GenericExecutors")]
+    public void TryGetProvider_UsesSharedAliasAndExecutorDescriptor(string alias, string canonicalName, string executorTypeName)
+    {
+        Assert.True(DbaConnectionFactory.TryGetProvider(alias, out var descriptor));
+        Assert.Equal(canonicalName, descriptor.CanonicalName);
+        Assert.Equal(executorTypeName, descriptor.GenericExecutorTypeName);
     }
 
     [Fact]
@@ -260,6 +295,24 @@ public class DbaConnectionFactoryTests
 
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_OracleExternalAuthenticationDoesNotRequirePassword()
+    {
+        var result = DbaConnectionFactory.Validate("oracle", "Data Source=dbhost/service;User Id=/");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.None, result.Code);
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_OraclePasswordAuthenticationRequiresPassword()
+    {
+        var result = DbaConnectionFactory.Validate("oracle", "Data Source=dbhost/service;User Id=user");
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingRequiredParameter, result.Code);
+        Assert.Equal("Password", result.Details);
     }
 
     [Fact]

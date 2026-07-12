@@ -219,16 +219,9 @@ public static class DbInvoker
 
     private static MethodInfo? ResolveExecutor(string providerAlias, Assembly? providerAssembly, string methodName)
     {
-        // Known type names for providers
-        string? typeName = providerAlias?.Trim().ToLowerInvariant() switch
-        {
-            "sqlite" => "DBAClientX.SQLiteGeneric.GenericExecutors",
-            "sqlserver" or "mssql" => "DBAClientX.SqlServerGeneric.GenericExecutors",
-            "postgresql" or "pgsql" or "postgres" => "DBAClientX.PostgreSqlGeneric.GenericExecutors",
-            "mysql" => "DBAClientX.MySqlGeneric.GenericExecutors",
-            "oracle" => "DBAClientX.OracleGeneric.GenericExecutors",
-            _ => null
-        };
+        var typeName = DbaConnectionFactory.TryGetProvider(providerAlias, out var provider)
+            ? provider.GenericExecutorTypeName
+            : null;
 
         // If assembly hint is provided, prefer it
         if (providerAssembly != null)

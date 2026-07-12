@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
+using System.Globalization;
 using System.Linq;
-using System.Threading;
 
 namespace DBAClientX.Invoker;
 
@@ -11,11 +11,11 @@ namespace DBAClientX.Invoker;
 /// </summary>
 public static class DbaConnectionFactory
 {
-    static DbaConnectionFactory()
-    {
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => BuilderCache.Dispose();
-        AppDomain.CurrentDomain.DomainUnload += (_, _) => BuilderCache.Dispose();
-    }
+    /// <summary>Describes a supported provider and the shared aliases used to resolve it.</summary>
+    public sealed record ProviderDescriptor(
+        string CanonicalName,
+        IReadOnlyList<string> Aliases,
+        string GenericExecutorTypeName);
 
     /// <summary>
     /// Represents the type of validation failure encountered while preparing a connection.
@@ -57,7 +57,7 @@ public static class DbaConnectionFactory
         IReadOnlyList<string[]> RequiredParameters,
         Func<DbConnectionStringBuilder, ConnectionValidationResult?>? AdditionalValidation = null);
 
-    private static readonly IReadOnlyList<string[]> RequiredServerAndDatabase = new List<string[]>
+    private static readonly IReadOnlyList<string[]> RequiredServerAndDatabase = new[]
     {
         new[] { "Server", "Data Source", "Host" },
         new[] { "Database", "Initial Catalog", "DB" }
@@ -68,31 +68,26 @@ public static class DbaConnectionFactory
         ["sqlserver"] = new("sqlserver", RequiredServerAndDatabase, ValidateSqlServerOptions),
         ["postgresql"] = new("postgresql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidatePostgreSqlOptions(builder)),
         ["mysql"] = new("mysql", RequiredServerAndDatabase, builder => ValidatePortRange(builder) ?? ValidateMySqlOptions(builder)),
-        ["sqlite"] = new("sqlite", new List<string[]>
+        ["sqlite"] = new("sqlite", new[]
         {
             new[] { "Data Source", "DataSource", "Filename", "FullUri" }
         }, ValidateSqlitePath),
-        ["oracle"] = new("oracle", new List<string[]>
+        ["oracle"] = new("oracle", new[]
         {
-            new[] { "Data Source", "DataSource" },
-            new[] { "User Id", "UserID", "User ID", "UID" },
-            new[] { "Password", "Pwd" }
-        })
+            new[] { "Data Source", "DataSource" }
+        }, ValidateOracleAuthentication)
     };
 
-    private static readonly Dictionary<string, string> ProviderAliases = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly IReadOnlyList<ProviderDescriptor> ProviderDescriptorList = Array.AsReadOnly(new[]
     {
-        ["sqlserver"] = "sqlserver",
-        ["mssql"] = "sqlserver",
-        ["postgres"] = "postgresql",
-        ["postgresql"] = "postgresql",
-        ["pgsql"] = "postgresql",
-        ["mysql"] = "mysql",
-        ["sqlite"] = "sqlite",
-        ["oracle"] = "oracle"
-    };
+        new ProviderDescriptor("sqlserver", Array.AsReadOnly(new[] { "sqlserver", "mssql" }), "DBAClientX.SqlServerGeneric.GenericExecutors"),
+        new ProviderDescriptor("postgresql", Array.AsReadOnly(new[] { "postgresql", "postgres", "pgsql" }), "DBAClientX.PostgreSqlGeneric.GenericExecutors"),
+        new ProviderDescriptor("mysql", Array.AsReadOnly(new[] { "mysql" }), "DBAClientX.MySqlGeneric.GenericExecutors"),
+        new ProviderDescriptor("sqlite", Array.AsReadOnly(new[] { "sqlite" }), "DBAClientX.SQLiteGeneric.GenericExecutors"),
+        new ProviderDescriptor("oracle", Array.AsReadOnly(new[] { "oracle" }), "DBAClientX.OracleGeneric.GenericExecutors")
+    });
 
-    private static readonly ThreadLocal<DbConnectionStringBuilder> BuilderCache = new(() => new DbConnectionStringBuilder());
+    private static readonly Dictionary<string, ProviderDescriptor> ProvidersByAlias = CreateProviderAliasMap();
 
     private static readonly Dictionary<string, string> DisallowedOptions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -101,6 +96,25 @@ public static class DbaConnectionFactory
         ["LoadLocalInfile"] = "Loading local files is disabled for security reasons.",
         ["Use Procedure Bodies"] = "Using procedure bodies is disallowed due to injection risk."
     };
+
+    /// <summary>Gets the providers supported by the shared validation and invoker surfaces.</summary>
+    public static IReadOnlyList<ProviderDescriptor> SupportedProviders => ProviderDescriptorList;
+
+    /// <summary>Resolves a provider alias to its shared descriptor.</summary>
+    public static bool TryGetProvider(
+        string? providerAlias,
+        out ProviderDescriptor descriptor)
+    {
+        descriptor = null!;
+        if (string.IsNullOrWhiteSpace(providerAlias)
+            || !ProvidersByAlias.TryGetValue(providerAlias!.Trim(), out var resolved))
+        {
+            return false;
+        }
+
+        descriptor = resolved;
+        return true;
+    }
 
     /// <summary>
     /// Validates a provider alias and connection string combination and returns a structured result describing any issues.
@@ -128,13 +142,12 @@ public static class DbaConnectionFactory
             return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingConnectionString, "Connection string is required.");
         }
 
-        if (!ProviderAliases.TryGetValue(providerAlias, out var normalized))
+        if (!TryGetProvider(providerAlias, out var provider))
         {
             return new ConnectionValidationResult(ConnectionValidationErrorCode.UnsupportedProvider, $"Provider '{providerAlias}' is not supported.");
         }
 
-        var builder = BuilderCache.Value!;
-        builder.Clear();
+        var builder = new DbConnectionStringBuilder();
         try
         {
             builder.ConnectionString = connectionString;
@@ -158,8 +171,8 @@ public static class DbaConnectionFactory
             return disallowedResult;
         }
 
-        ProviderProfiles.TryGetValue(normalized, out var profile);
-        profile ??= new ProviderValidationProfile(normalized, RequiredServerAndDatabase);
+        ProviderProfiles.TryGetValue(provider.CanonicalName, out var profile);
+        profile ??= new ProviderValidationProfile(provider.CanonicalName, RequiredServerAndDatabase);
 
         var requiredParameterResult = ValidateRequiredParameters(profile, builder);
         if (requiredParameterResult != null)
@@ -208,7 +221,7 @@ public static class DbaConnectionFactory
     {
         foreach (var alternatives in profile.RequiredParameters)
         {
-            if (!alternatives.Any(builder.ContainsKey))
+            if (!alternatives.Any(key => TryGetNonEmptyValue(builder, key, out _)))
             {
                 return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, $"{profile.NormalizedName} connection strings must include {alternatives[0]}.", alternatives[0]);
             }
@@ -221,35 +234,66 @@ public static class DbaConnectionFactory
     {
         foreach (var key in new[] { "Port", "PortNumber", "Port No" })
         {
-            if (builder.ContainsKey(key) && builder[key] is string value && !string.IsNullOrWhiteSpace(value))
+            if (TryGetNonEmptyValue(builder, key, out var value))
             {
-                if (!int.TryParse(value, out var port) || port is < 1 or > 65535)
+                if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535)
                 {
                     return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "Port must be between 1 and 65535.", key);
                 }
 
-                if (port < 1024)
-                {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "Port is within the reserved system range (1-1023).", key);
-                }
             }
         }
 
         return null;
     }
 
+    private static ConnectionValidationResult? ValidateOracleAuthentication(DbConnectionStringBuilder builder)
+    {
+        if (TryGetNonEmptyValue(builder, "External Authentication", out var externalAuthentication)
+            && bool.TryParse(externalAuthentication, out var usesExternalAuthentication)
+            && usesExternalAuthentication)
+        {
+            return null;
+        }
+
+        if (TryGetNonEmptyValue(builder, "User Id", out var userId)
+            || TryGetNonEmptyValue(builder, "UserID", out userId)
+            || TryGetNonEmptyValue(builder, "User ID", out userId)
+            || TryGetNonEmptyValue(builder, "UID", out userId))
+        {
+            if (string.Equals(userId, "/", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            if (TryGetNonEmptyValue(builder, "Password", out _)
+                || TryGetNonEmptyValue(builder, "Pwd", out _))
+            {
+                return null;
+            }
+
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Oracle password authentication requires Password.", "Password");
+        }
+
+        return new ConnectionValidationResult(ConnectionValidationErrorCode.MissingRequiredParameter, "Oracle connections must include User Id or enable external authentication.", "User Id");
+    }
+
     private static ConnectionValidationResult? ValidateSqlitePath(DbConnectionStringBuilder builder)
     {
         foreach (var key in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
         {
-            if (builder.ContainsKey(key) && builder[key] is string path)
+            if (!TryGetNonEmptyValue(builder, key, out var path))
             {
-                if (path.IndexOf("..", StringComparison.Ordinal) >= 0)
-                {
-                    return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "SQLite data source contains an unsafe relative path.", key);
-                }
-                break;
+                continue;
             }
+
+            if (path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
+                .Any(static segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+            {
+                return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "SQLite data source contains an unsafe relative path.", key);
+            }
+
+            break;
         }
 
         return null;
@@ -259,7 +303,7 @@ public static class DbaConnectionFactory
     {
         foreach (var key in new[] { "Encrypt", "Encryption" })
         {
-            if (builder.TryGetValue(key, out var encrypt) && encrypt is string encryptValue)
+            if (TryGetNonEmptyValue(builder, key, out var encryptValue))
             {
                 if (encryptValue.Equals("False", StringComparison.OrdinalIgnoreCase)
                     || encryptValue.Equals("No", StringComparison.OrdinalIgnoreCase)
@@ -367,4 +411,30 @@ public static class DbaConnectionFactory
 
     private static string SanitizeExceptionMessage(Exception ex)
         => ex.GetType().Name;
+
+    private static bool TryGetNonEmptyValue(DbConnectionStringBuilder builder, string key, out string value)
+    {
+        value = string.Empty;
+        if (!builder.TryGetValue(key, out var rawValue))
+        {
+            return false;
+        }
+
+        value = Convert.ToString(rawValue, CultureInfo.InvariantCulture) ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static Dictionary<string, ProviderDescriptor> CreateProviderAliasMap()
+    {
+        var aliases = new Dictionary<string, ProviderDescriptor>(StringComparer.OrdinalIgnoreCase);
+        foreach (var descriptor in ProviderDescriptorList)
+        {
+            foreach (var alias in descriptor.Aliases)
+            {
+                aliases.Add(alias, descriptor);
+            }
+        }
+
+        return aliases;
+    }
 }

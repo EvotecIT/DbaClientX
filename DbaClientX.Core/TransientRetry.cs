@@ -66,7 +66,7 @@ public static class TransientRetry {
                     break;
                 }
 
-                var delay = ComputeBackoffDelay(options, attempt);
+                var delay = CalculateBackoffDelay(options, attempt);
                 onRetry?.Invoke(new TransientRetryAttempt(attempt, delay, ex));
                 if (delay > TimeSpan.Zero) {
                     Thread.Sleep(delay);
@@ -143,7 +143,7 @@ public static class TransientRetry {
                     break;
                 }
 
-                var delay = ComputeBackoffDelay(options, attempt);
+                var delay = CalculateBackoffDelay(options, attempt);
                 onRetry?.Invoke(new TransientRetryAttempt(attempt, delay, ex));
 
                 if (delay > TimeSpan.Zero) {
@@ -159,7 +159,7 @@ public static class TransientRetry {
         throw last ?? new InvalidOperationException("Operation failed.");
     }
 
-    private static TimeSpan ComputeBackoffDelay(TransientRetryOptions options, int attempt) {
+    internal static TimeSpan CalculateBackoffDelay(TransientRetryOptions options, int attempt) {
         if (options.BaseDelay <= TimeSpan.Zero || options.MaxDelay <= TimeSpan.Zero) {
             return TimeSpan.Zero;
         }
