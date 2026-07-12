@@ -3,7 +3,7 @@
     [ValidateSet('Manifest', 'Build', 'Publish')]
     [string] $RunMode = 'Build',
 
-    [bool] $SignModule = $(if ($Env:COMPUTERNAME -eq 'EVOMONSTER') { $true } else { $false }),
+    [bool] $SignModule = $true,
 
     [string] $PowerShellGalleryApiKeyPath = 'C:\Support\Important\PowerShellGalleryAPI.txt',
 
@@ -87,23 +87,23 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     New-ConfigurationDocumentation -Enable:$false -PathReadme 'Docs\Readme.md' -Path 'Docs'
 
     $newConfigurationBuildSplat = @{
-        Enable                            = $true
-        SignModule                        = $SignModule
-        MergeModuleOnBuild                = $true
-        MergeFunctionsFromApprovedModules = $true
-        CertificateThumbprint             = '92e95fb58effa6a4a75e77a33cdd6bfe6dd30f1a'
-        DeleteTargetModuleBeforeBuild     = $true
-        NETProjectPath                    = '..\DbaClientX.PowerShell\DbaClientX.PowerShell.csproj'
-        ResolveBinaryConflicts            = $true
-        ResolveBinaryConflictsName        = 'DBAClientX.PowerShell'
-        NETProjectName                    = 'DBAClientX.PowerShell'
-        NETBinaryModule                   = 'DBAClientX.PowerShell.dll'
-        NETBinaryModuleDocumentation      = $true
-        NETConfiguration                  = 'Release'
-        NETFramework                      = 'net472', 'net8.0'
-        NETHandleAssemblyWithSameName     = $true
-        NETAssemblyLoadContext            = $true
-        NETAssemblyTypeAcceleratorMode    = 'Assembly'
+        Enable                               = $true
+        SignModule                           = $SignModule
+        MergeModuleOnBuild                   = $true
+        MergeFunctionsFromApprovedModules    = $true
+        CertificateThumbprint                = '92e95fb58effa6a4a75e77a33cdd6bfe6dd30f1a'
+        DeleteTargetModuleBeforeBuild        = $true
+        NETProjectPath                       = '..\DbaClientX.PowerShell\DbaClientX.PowerShell.csproj'
+        ResolveBinaryConflicts               = $true
+        ResolveBinaryConflictsName           = 'DBAClientX.PowerShell'
+        NETProjectName                       = 'DBAClientX.PowerShell'
+        NETBinaryModule                      = 'DBAClientX.PowerShell.dll'
+        NETBinaryModuleDocumentation         = $true
+        NETConfiguration                     = 'Release'
+        NETFramework                         = 'net472', 'net8.0'
+        NETHandleAssemblyWithSameName        = $true
+        NETAssemblyLoadContext               = $true
+        NETAssemblyTypeAcceleratorMode       = 'Assembly'
         NETAssemblyTypeAcceleratorAssemblies = @(
             'DbaClientX.Core'
             'DbaClientX.SqlServer'
@@ -113,18 +113,18 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
             'DbaClientX.SQLite'
             'DBAClientX.PowerShell'
         )
-        NETHandleRuntimes                 = $true
-        NETIgnoreLibraryOnLoad            = @(
+        NETHandleRuntimes                    = $true
+        NETIgnoreLibraryOnLoad               = @(
             'Microsoft.Data.SqlClient.SNI.arm64.dll'
             'Microsoft.Data.SqlClient.SNI.dll'
             'Microsoft.Data.SqlClient.SNI.x64.dll'
             'Microsoft.Data.SqlClient.SNI.x86.dll'
         )
-        DotSourceLibraries                = $true
-        DotSourceClasses                  = $true
-        NETDevelopmentBinaries            = $true
-        NETDevelopmentBinariesMode        = 'Auto'
-        NETDevelopmentBinariesPath        = '..\DbaClientX.PowerShell\bin'
+        DotSourceLibraries                   = $true
+        DotSourceClasses                     = $true
+        NETDevelopmentBinaries               = $true
+        NETDevelopmentBinariesMode           = 'Auto'
+        NETDevelopmentBinariesPath           = '..\DbaClientX.PowerShell\bin'
         NETDevelopmentSourceBootstrapperMode = 'ReplaceSingleFile'
     }
 
