@@ -300,7 +300,7 @@ public partial class PostgreSql
         }
 
         return string.Join(".", DbaIdentifierPath.SplitSegments(identifierPath)
-            .Select(static part => QuoteIdentifier(DbaIdentifierPath.UnquoteSegment(part))));
+            .Select(static part => QuoteIdentifier(DbaIdentifierPath.UnquoteSegment(part, DbaTableCopyProvider.PostgreSql))));
     }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)

@@ -62,6 +62,13 @@ public static class DbaIdentifierPath
 
     /// <summary>Removes matching SQL identifier delimiters and unescapes their contents.</summary>
     public static string UnquoteSegment(string segment)
+        => UnquoteSegment(segment, provider: null);
+
+    /// <summary>Removes identifier delimiters recognized by the selected provider and unescapes their contents.</summary>
+    public static string UnquoteSegment(string segment, DbaTableCopyProvider provider)
+        => UnquoteSegment(segment, (DbaTableCopyProvider?)provider);
+
+    private static string UnquoteSegment(string segment, DbaTableCopyProvider? provider)
     {
         var trimmed = ValidateAndTrimSegment(segment);
         if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
@@ -69,12 +76,14 @@ public static class DbaIdentifierPath
             return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
-        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
+        if ((provider is null or DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.SQLite) &&
+            trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
         }
 
-        if (trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
+        if ((provider is null or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite) &&
+            trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
         }

@@ -287,8 +287,7 @@ public static class DbaConnectionFactory
                 continue;
             }
 
-            if (path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
-                .Any(static segment => string.Equals(segment, "..", StringComparison.Ordinal)))
+            if (ContainsUnsafeSqliteParentTraversal(path))
             {
                 return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue, "SQLite data source contains an unsafe relative path.", key);
             }
@@ -297,6 +296,23 @@ public static class DbaConnectionFactory
         }
 
         return null;
+    }
+
+    private static bool ContainsUnsafeSqliteParentTraversal(string path)
+    {
+        var candidate = path;
+        if (candidate.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            candidate = candidate.Substring("file:".Length);
+        }
+
+        if (candidate.Length >= 2 && char.IsLetter(candidate[0]) && candidate[1] == ':')
+        {
+            candidate = candidate.Substring(2);
+        }
+
+        return candidate.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries)
+            .Any(static segment => string.Equals(segment, "..", StringComparison.Ordinal));
     }
 
     private static ConnectionValidationResult? ValidateSqlServerOptions(DbConnectionStringBuilder builder)

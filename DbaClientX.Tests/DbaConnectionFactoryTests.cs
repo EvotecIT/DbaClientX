@@ -245,6 +245,18 @@ public class DbaConnectionFactoryTests
         Assert.True(result.IsValid);
     }
 
+    [Theory]
+    [InlineData("FullUri=file:../secrets.db")]
+    [InlineData("Data Source=C:..\\secrets.db")]
+    [InlineData("FullUri=file:C:../secrets.db")]
+    public void Validate_SqlitePrefixedParentTraversal_IsRejected(string connectionString)
+    {
+        var result = DbaConnectionFactory.Validate("sqlite", connectionString);
+
+        Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.InvalidParameterValue, result.Code);
+        Assert.Contains("unsafe relative path", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void Validate_Success()
     {
