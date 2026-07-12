@@ -99,13 +99,16 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <returns><c>true</c> when the exception is transient; otherwise, <c>false</c>.</returns>
     protected virtual bool IsTransient(Exception ex) => false;
 
-    /// <summary>Returns whether an exception represents cancellation requested through the caller's token.</summary>
+    /// <summary>Returns whether an exception carries the caller's cancellation token.</summary>
     protected static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
-        => exception is OperationCanceledException && cancellationToken.IsCancellationRequested;
+        => cancellationToken.IsCancellationRequested &&
+           ExceptionChainContains<OperationCanceledException>(
+               exception,
+               cancellationException => cancellationException.CancellationToken == cancellationToken);
 
     /// <summary>Returns whether an exception is a provider-specific representation of command cancellation.</summary>
     protected virtual bool IsProviderCancellationException(Exception exception)
-        => ExceptionChainContains<OperationCanceledException>(exception, static _ => true);
+        => false;
 
     /// <summary>Searches an exception and its inner-exception chain for a matching provider failure.</summary>
     protected static bool ExceptionChainContains<TException>(
@@ -169,8 +172,15 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         {
             return await operation().ConfigureAwait(false);
         }
-        catch (Exception ex) when (
+        catch (OperationCanceledException ex) when (
             !IsCallerCancellation(ex, cancellationToken) &&
+            cancellationToken.IsCancellationRequested)
+        {
+            // This wrapper encloses only the provider await, so an unassociated OCE still has
+            // provider provenance. Do not apply this inference around user callbacks.
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+        catch (Exception ex) when (
             cancellationToken.IsCancellationRequested &&
             IsProviderCancellationException(ex))
         {
@@ -187,8 +197,15 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         {
             await operation().ConfigureAwait(false);
         }
-        catch (Exception ex) when (
+        catch (OperationCanceledException ex) when (
             !IsCallerCancellation(ex, cancellationToken) &&
+            cancellationToken.IsCancellationRequested)
+        {
+            // This wrapper encloses only the provider await, so an unassociated OCE still has
+            // provider provenance. Do not apply this inference around user callbacks.
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+        catch (Exception ex) when (
             cancellationToken.IsCancellationRequested &&
             IsProviderCancellationException(ex))
         {

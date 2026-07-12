@@ -81,4 +81,36 @@ public class SQLiteCancellationNormalizationTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task QueryAsListAsync_WhenMapperThrowsUnrelatedCancellation_PreservesQueryFailure()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            using var callerCancellation = new CancellationTokenSource();
+            using var mapperCancellation = new CancellationTokenSource();
+            mapperCancellation.Cancel();
+            var mapperException = new OperationCanceledException(mapperCancellation.Token);
+
+            var exception = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
+                sqlite.QueryAsListAsync<int>(
+                    path,
+                    "SELECT 1",
+                    _ =>
+                    {
+                        callerCancellation.Cancel();
+                        throw mapperException;
+                    },
+                    cancellationToken: callerCancellation.Token));
+
+            Assert.Same(mapperException, exception.InnerException);
+            Assert.Equal(mapperCancellation.Token, mapperException.CancellationToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

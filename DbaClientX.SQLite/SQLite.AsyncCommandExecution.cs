@@ -232,7 +232,7 @@ public partial class SQLite
 
             return list;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (IsCallerCancellation(ex, cancellationToken))
         {
             throw;
         }
