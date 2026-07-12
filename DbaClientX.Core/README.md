@@ -32,6 +32,8 @@ await DbInvoker.ExecuteSqlAsync(
 
 Provider aliases, canonical names, and generic executor type names come from `DbaConnectionFactory.SupportedProviders`. Use `DbaConnectionFactory.TryGetProvider` when a host needs to normalize user input without maintaining its own alias switch.
 
+`DbInvoker` enumerates input lazily when no batch size is set. Parallel execution uses a fixed worker set, so the number of queued operations does not grow with the input sequence; `ParallelDegree` is capped by `DbExecutionOptions.MaximumParallelDegree`.
+
 ## Query builder (string-safe, provider-aware quoting)
 
 ```csharp
