@@ -8,7 +8,7 @@ param(
     [string] $PlanPath
 )
 
-Import-Module PSPublishModule -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.55 -Force -ErrorAction Stop
 
 $publishingNuget = $PublishNuget -eq $true
 $publishingGitHub = $PublishGitHub -eq $true
