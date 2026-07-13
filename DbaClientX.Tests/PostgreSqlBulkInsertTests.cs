@@ -263,6 +263,22 @@ public class PostgreSqlBulkInsertTests
         Assert.Equal("COPY \"tenant.v1\".\"Rows.Current\" (\"Id\") FROM STDIN (FORMAT BINARY)", command);
     }
 
+    [Theory]
+    [InlineData("[orders]", "COPY \"[orders]\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    [InlineData("`orders`", "COPY \"`orders`\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    [InlineData("orders[2024", "COPY \"orders[2024\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    [InlineData("orders`2024", "COPY \"orders`2024\" (\"Id\") FROM STDIN (FORMAT BINARY)")]
+    public void BuildCopyCommand_PreservesProviderLiteralBracketAndBacktickNames(string destination, string expectedCommand)
+    {
+        using var pg = new InspectingPostgreSql();
+        using var table = new DataTable();
+        table.Columns.Add("Id");
+
+        var command = pg.BuildCommand(table.Columns, destination);
+
+        Assert.Equal(expectedCommand, command);
+    }
+
     [Fact]
     public void BulkInsert_WithEmptyDestination_Throws()
     {

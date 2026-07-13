@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.DataMovement;
 using Microsoft.Data.Sqlite;
 
 namespace DBAClientX;
@@ -231,7 +232,12 @@ public partial class SQLite
 #endif
             }
 
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            if (IsCallerCancellation(ex, cancellationToken))
+            {
+                throw;
+            }
+
+            throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
         }
         finally
         {
@@ -429,109 +435,14 @@ public partial class SQLite
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
         }
 
-        var parts = SplitIdentifierPath(identifierPath);
-        for (var i = 0; i < parts.Length; i++)
+        var parts = DbaIdentifierPath.SplitSegments(identifierPath);
+        var quotedParts = new string[parts.Count];
+        for (var i = 0; i < parts.Count; i++)
         {
-            if (string.IsNullOrWhiteSpace(parts[i]))
-            {
-                throw new ArgumentException("Identifier cannot contain empty segments.", nameof(identifierPath));
-            }
-
-            parts[i] = QuoteIdentifier(parts[i].Trim());
+            quotedParts[i] = QuoteIdentifier(DbaIdentifierPath.UnquoteSegment(parts[i]));
         }
 
-        return string.Join(".", parts);
-    }
-
-    private static string[] SplitIdentifierPath(string identifierPath)
-    {
-        var parts = new List<string>();
-        var start = 0;
-        var quote = '\0';
-        for (var index = 0; index < identifierPath.Length; index++)
-        {
-            var value = identifierPath[index];
-            if (quote == '\0')
-            {
-                if (value is '"' or '[' or '`')
-                {
-                    quote = value;
-                    continue;
-                }
-
-                if (value == '.')
-                {
-                    parts.Add(NormalizeIdentifierPathSegment(identifierPath.Substring(start, index - start)));
-                    start = index + 1;
-                }
-
-                continue;
-            }
-
-            if (quote == '"' && value == '"')
-            {
-                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '"')
-                {
-                    index++;
-                    continue;
-                }
-
-                quote = '\0';
-                continue;
-            }
-
-            if (quote == '[' && value == ']')
-            {
-                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == ']')
-                {
-                    index++;
-                    continue;
-                }
-
-                quote = '\0';
-                continue;
-            }
-
-            if (quote == '`' && value == '`')
-            {
-                if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '`')
-                {
-                    index++;
-                    continue;
-                }
-
-                quote = '\0';
-            }
-        }
-
-        if (quote != '\0')
-        {
-            throw new ArgumentException($"Identifier '{identifierPath}' contains an unterminated delimited path segment.", nameof(identifierPath));
-        }
-
-        parts.Add(NormalizeIdentifierPathSegment(identifierPath.Substring(start)));
-        return parts.ToArray();
-    }
-
-    private static string NormalizeIdentifierPathSegment(string segment)
-    {
-        var trimmed = segment.Trim();
-        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
-        {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
-        }
-
-        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
-        {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
-        }
-
-        if (trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
-        {
-            return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
-        }
-
-        return trimmed;
+        return string.Join(".", quotedParts);
     }
 
     private static void ApplyBatchValues(SqliteCommand command, DataColumn[] columns, DataTable table, int offset, int rowsPerBatch)

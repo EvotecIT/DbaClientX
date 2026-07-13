@@ -11,13 +11,13 @@ namespace DBAClientX;
 public partial class SqlServer
 {
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="IDataReader"/>.
+    /// Opens a SQL Server query as a streaming <see cref="DbDataReader"/>.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual IDataReader QueryReader(
+    public virtual DbDataReader QueryReader(
         string serverOrInstance,
         string database,
         bool integratedSecurity,
@@ -35,13 +35,13 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="IDataReader"/> using a full connection string.
+    /// Opens a SQL Server query as a streaming <see cref="DbDataReader"/> using a full connection string.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual IDataReader QueryReader(
+    public virtual DbDataReader QueryReader(
         string connectionString,
         string query,
         IDictionary<string, object?>? parameters = null,
@@ -67,7 +67,8 @@ public partial class SqlServer
                 connection,
                 dispose,
                 resource => DisposeConnection((SqlConnection)resource),
-                () => UpdateOutputParameters(command, parameters));
+                () => UpdateOutputParameters(command, parameters),
+                resource => DisposeConnectionAsync((SqlConnection)resource));
         }
         catch (Exception ex)
         {
@@ -82,13 +83,13 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="IDataReader"/> asynchronously.
+    /// Opens a SQL Server query as an asynchronously disposable streaming <see cref="DbaDataReader"/>.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual async Task<IDataReader> QueryReaderAsync(
+    public virtual async Task<DbaDataReader> QueryReaderAsync(
         string serverOrInstance,
         string database,
         bool integratedSecurity,
@@ -107,13 +108,13 @@ public partial class SqlServer
     }
 
     /// <summary>
-    /// Opens a SQL Server query as a streaming <see cref="IDataReader"/> asynchronously using a full connection string.
+    /// Opens a SQL Server query as an asynchronously disposable streaming <see cref="DbaDataReader"/> using a full connection string.
     /// </summary>
     /// <remarks>
     /// The returned reader owns the command and, when DbaClientX opened it, the connection. Dispose the reader after
     /// the consuming API has finished reading.
     /// </remarks>
-    public virtual async Task<IDataReader> QueryReaderAsync(
+    public virtual async Task<DbaDataReader> QueryReaderAsync(
         string connectionString,
         string query,
         IDictionary<string, object?>? parameters = null,
@@ -140,7 +141,8 @@ public partial class SqlServer
                 connection,
                 dispose,
                 resource => DisposeConnection((SqlConnection)resource),
-                () => UpdateOutputParameters(command, parameters));
+                () => UpdateOutputParameters(command, parameters),
+                resource => DisposeConnectionAsync((SqlConnection)resource));
         }
         catch (Exception ex)
         {
@@ -150,7 +152,12 @@ public partial class SqlServer
                 await DisposeOwnedResourceAsync(connection, ownsResource: true, DisposeConnectionAsync).ConfigureAwait(false);
             }
 
-            throw new DbaQueryExecutionException("Failed to open query reader.", query, ex);
+            if (IsCallerCancellation(ex, cancellationToken))
+            {
+                throw;
+            }
+
+            throw CreateQueryExecutionOrCancellationException("Failed to open query reader.", query, ex, cancellationToken);
         }
     }
 
@@ -205,7 +212,9 @@ public partial class SqlServer
         {
             try
             {
-                return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+                return await AwaitWithCallerCancellationAsync(
+                    () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
             {

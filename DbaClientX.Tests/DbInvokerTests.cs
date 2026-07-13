@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DBAClientX.Invoker;
@@ -71,6 +72,87 @@ namespace DbaClientX.Tests
             var call = Assert.Single(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
             Assert.Equal(1, call.Parameters["@Id"]);
             Assert.Equal("Alice", call.Parameters["@Name"]);
+        }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_WithoutBatching_StreamsItemsInsteadOfMaterializingWholeSequence()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+
+            IEnumerable<object> Items()
+            {
+                yield return new { Id = 1 };
+                throw new InvalidOperationException("boom");
+            }
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Value = 1 WHERE Id = @Id",
+                    Items(),
+                    new Dictionary<string, string> { ["Id"] = "@Id" },
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly));
+
+            var call = Assert.Single(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
+            Assert.Equal(1, call.Parameters["@Id"]);
+        }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_ParallelExecutionNeverExceedsConfiguredDegree()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            DBAClientX.SqlServerGeneric.GenericExecutors.BeforeReturnAsync = token => Task.Delay(15, token);
+
+            try
+            {
+                var items = Enumerable.Range(1, 24).Select(static id => (object)new { Id = id });
+                var affected = await DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Value = 1 WHERE Id = @Id",
+                    items,
+                    new Dictionary<string, string> { ["Id"] = "@Id" },
+                    execOptions: new DbInvoker.DbExecutionOptions { ParallelDegree = 3 },
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly);
+
+                Assert.Equal(24, affected);
+                Assert.InRange(DBAClientX.SqlServerGeneric.GenericExecutors.MaximumConcurrency, 2, 3);
+            }
+            finally
+            {
+                DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            }
+        }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_RejectsExcessiveParallelDegreeBeforeEnumeration()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            var enumerated = false;
+
+            IEnumerable<object> Items()
+            {
+                enumerated = true;
+                yield return new { Id = 1 };
+            }
+
+            var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Value = 1 WHERE Id = @Id",
+                    Items(),
+                    new Dictionary<string, string> { ["Id"] = "@Id" },
+                    execOptions: new DbInvoker.DbExecutionOptions
+                    {
+                        ParallelDegree = DbInvoker.DbExecutionOptions.MaximumParallelDegree + 1
+                    },
+                    providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly));
+
+            Assert.Equal("ParallelDegree", exception.ParamName);
+            Assert.False(enumerated);
+            Assert.Empty(DBAClientX.SqlServerGeneric.GenericExecutors.Calls);
         }
 
         [Fact]
@@ -213,6 +295,32 @@ namespace DbaClientX.Tests
 
             Assert.Contains("returned null", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
+
+        [Fact]
+        public async Task ExecuteSqlAsync_UnwrapsSynchronousExecutorFailures()
+        {
+            var asmName = new AssemblyName("DynamicDbInvokerThrowingExecutorTests");
+            var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+            var moduleBuilder = assemblyBuilder.DefineDynamicModule("main");
+            var typeBuilder = moduleBuilder.DefineType("DBAClientX.SqlServerGeneric.GenericExecutors", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            var methodBuilder = typeBuilder.DefineMethod("ExecuteSqlAsync", MethodAttributes.Public | MethodAttributes.Static, typeof(Task<int>), new[] { typeof(string), typeof(string), typeof(IDictionary<string, object?>), typeof(CancellationToken) });
+            var il = methodBuilder.GetILGenerator();
+            il.Emit(OpCodes.Ldstr, "executor failed");
+            il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+            il.Emit(OpCodes.Throw);
+            var dynamicType = typeBuilder.CreateType();
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                DbInvoker.ExecuteSqlAsync(
+                    "sqlserver",
+                    "Server=.;Database=app;",
+                    "UPDATE t SET Value = 1 WHERE Id = @Id",
+                    new object[] { new { Id = 1 } },
+                    new Dictionary<string, string> { ["Id"] = "@Id" },
+                    providerAssembly: dynamicType!.Assembly));
+
+            Assert.Equal("executor failed", exception.Message);
+        }
     }
 }
 
@@ -224,15 +332,51 @@ namespace DBAClientX.SqlServerGeneric
 
         public static ConcurrentBag<Invocation> Calls { get; } = new();
 
+        public static Func<CancellationToken, Task>? BeforeReturnAsync { get; set; }
+
+        public static int MaximumConcurrency => _maximumConcurrency;
+
+        private static int _currentConcurrency;
+        private static int _maximumConcurrency;
+
         public static void Reset()
         {
             while (Calls.TryTake(out _)) { }
+            BeforeReturnAsync = null;
+            _maximumConcurrency = 0;
+            _currentConcurrency = 0;
         }
 
-        public static Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
+        public static async Task<int> ExecuteSqlAsync(string connectionString, string sql, IDictionary<string, object?>? parameters = null, CancellationToken ct = default)
         {
-            Calls.Add(new Invocation(connectionString, sql, parameters ?? new Dictionary<string, object?>()));
-            return Task.FromResult(1);
+            var concurrency = Interlocked.Increment(ref _currentConcurrency);
+            UpdateMaximumConcurrency(concurrency);
+            try
+            {
+                if (BeforeReturnAsync != null)
+                {
+                    await BeforeReturnAsync(ct);
+                }
+
+                Calls.Add(new Invocation(connectionString, sql, parameters ?? new Dictionary<string, object?>()));
+                return 1;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _currentConcurrency);
+            }
+        }
+
+        private static void UpdateMaximumConcurrency(int concurrency)
+        {
+            while (true)
+            {
+                var observed = _maximumConcurrency;
+                if (observed >= concurrency || Interlocked.CompareExchange(ref _maximumConcurrency, concurrency, observed) == observed)
+                {
+                    return;
+                }
+            }
         }
     }
 }

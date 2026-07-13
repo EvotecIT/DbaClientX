@@ -13,6 +13,14 @@ namespace DBAClientX;
 /// </summary>
 public partial class SQLite : DatabaseClientBase
 {
+    private static readonly HashSet<string> ConnectionStringSourceKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Data Source",
+        "DataSource",
+        "Filename",
+        "FullUri"
+    };
+
     /// <summary>
     /// Default busy timeout used for operational commands when a per-instance value is not overridden.
     /// </summary>
@@ -131,6 +139,20 @@ public partial class SQLite : DatabaseClientBase
         }
 
         return builder.ToString();
+    }
+
+    internal static bool IsConnectionString(string connectionStringOrPath)
+    {
+        foreach (var segment in connectionStringOrPath.Split(';'))
+        {
+            var separator = segment.IndexOf('=');
+            if (separator > 0 && ConnectionStringSourceKeys.Contains(segment.Substring(0, separator).Trim()))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static string TranslateSQLiteFullUri(string connectionString)
@@ -261,6 +283,17 @@ public partial class SQLite : DatabaseClientBase
         return effectiveTimeout;
     }
 
+    private static int? ResolveConnectionBusyTimeout(string connectionString, int? busyTimeoutMs)
+    {
+        if (busyTimeoutMs.HasValue)
+        {
+            return busyTimeoutMs;
+        }
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        return builder.ContainsKey("Default Timeout") ? 0 : null;
+    }
+
     private void ApplyBusyTimeout(SqliteConnection connection, int? busyTimeoutMs = null)
     {
         var effectiveTimeout = ResolveBusyTimeoutMs(busyTimeoutMs);
@@ -285,7 +318,9 @@ public partial class SQLite : DatabaseClientBase
         using var command = connection.CreateCommand();
         command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await AwaitWithCallerCancellationAsync(
+            () => command.ExecuteNonQueryAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false);
 #else
         await Task.Yield();
         command.ExecuteNonQuery();

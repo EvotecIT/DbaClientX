@@ -4,6 +4,7 @@ using System.Data;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.DataMovement;
 using Microsoft.Data.SqlClient;
 
 namespace DBAClientX;
@@ -383,104 +384,13 @@ public partial class SqlServer
 
         internal static SqlServerDestinationTable Parse(string destinationTable)
         {
-            var segments = SplitIdentifierPath(destinationTable);
+            var segments = DbaIdentifierPath.SplitSegments(destinationTable);
             return segments.Count switch
             {
-                1 => new SqlServerDestinationTable("dbo", UnquoteIdentifierSegment(segments[0])),
-                2 => new SqlServerDestinationTable(UnquoteIdentifierSegment(segments[0]), UnquoteIdentifierSegment(segments[1])),
+                1 => new SqlServerDestinationTable("dbo", DbaIdentifierPath.UnquoteSegment(segments[0])),
+                2 => new SqlServerDestinationTable(DbaIdentifierPath.UnquoteSegment(segments[0]), DbaIdentifierPath.UnquoteSegment(segments[1])),
                 _ => throw new ArgumentException("AutoCreateTable supports one-part or two-part SQL Server destination table names.", nameof(destinationTable))
             };
-        }
-
-        private static IReadOnlyList<string> SplitIdentifierPath(string identifierPath)
-        {
-            var parts = new List<string>();
-            var start = 0;
-            var quote = '\0';
-            for (var index = 0; index < identifierPath.Length; index++)
-            {
-                var value = identifierPath[index];
-                if (quote == '\0')
-                {
-                    if (value is '"' or '[' or '`')
-                    {
-                        quote = value;
-                        continue;
-                    }
-
-                    if (value == '.')
-                    {
-                        parts.Add(identifierPath.Substring(start, index - start));
-                        start = index + 1;
-                    }
-
-                    continue;
-                }
-
-                if (quote == '"' && value == '"')
-                {
-                    if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '"')
-                    {
-                        index++;
-                        continue;
-                    }
-
-                    quote = '\0';
-                    continue;
-                }
-
-                if (quote == '[' && value == ']')
-                {
-                    if (index + 1 < identifierPath.Length && identifierPath[index + 1] == ']')
-                    {
-                        index++;
-                        continue;
-                    }
-
-                    quote = '\0';
-                    continue;
-                }
-
-                if (quote == '`' && value == '`')
-                {
-                    if (index + 1 < identifierPath.Length && identifierPath[index + 1] == '`')
-                    {
-                        index++;
-                        continue;
-                    }
-
-                    quote = '\0';
-                }
-            }
-
-            if (quote != '\0')
-            {
-                throw new ArgumentException($"Identifier '{identifierPath}' contains an unterminated delimited path segment.", nameof(identifierPath));
-            }
-
-            parts.Add(identifierPath.Substring(start));
-            return parts;
-        }
-
-        private static string UnquoteIdentifierSegment(string segment)
-        {
-            var trimmed = segment.Trim();
-            if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
-            {
-                return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
-            }
-
-            if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
-            {
-                return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
-            }
-
-            if (trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
-            {
-                return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
-            }
-
-            return trimmed;
         }
     }
 }

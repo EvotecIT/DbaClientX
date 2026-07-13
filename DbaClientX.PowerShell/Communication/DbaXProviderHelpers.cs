@@ -14,15 +14,17 @@ namespace DBAClientX.PowerShell;
 internal static class DbaXProviderHelpers
 {
     internal static string GetAlias(DbaXProvider provider)
-        => provider switch
+        => GetAlias(provider.ToString(), nameof(provider));
+
+    internal static string GetAlias(string providerName, string parameterName)
+    {
+        if (DbaConnectionFactory.TryGetProvider(providerName, out var descriptor))
         {
-            DbaXProvider.SqlServer => "sqlserver",
-            DbaXProvider.PostgreSql => "postgresql",
-            DbaXProvider.MySql => "mysql",
-            DbaXProvider.Oracle => "oracle",
-            DbaXProvider.SQLite => "sqlite",
-            _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
-        };
+            return descriptor.CanonicalName;
+        }
+
+        throw new PSArgumentException($"Provider '{providerName}' is not supported.", parameterName);
+    }
 
     internal static DbaTableCopyProvider ToTableCopyProvider(DbaXProvider provider)
         => provider switch

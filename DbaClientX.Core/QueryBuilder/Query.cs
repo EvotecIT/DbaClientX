@@ -7,13 +7,14 @@ namespace DBAClientX.QueryBuilder;
 /// <summary>
 /// Provides a fluent interface for constructing SQL queries in a provider-agnostic manner.
 /// </summary>
-public class Query
+public partial class Query
 {
-    private readonly List<string> _select = new();
+    private readonly List<QueryExpression> _select = new();
     private bool _distinct;
-    private string? _from;
+    private QueryExpression? _from;
+    private string? _fromAlias;
     private (Query Query, string Alias)? _fromSubquery;
-    private readonly List<(string Type, string Table, string? Condition)> _joins = new();
+    private readonly List<QueryJoinClause> _joins = new();
     private readonly List<IWhereToken> _where = new();
     private string? _insertTable;
     private readonly List<string> _insertColumns = new();
@@ -24,9 +25,9 @@ public class Query
     private string? _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
     private string? _deleteTable;
-    private readonly List<string> _orderBy = new();
-    private readonly List<string> _groupBy = new();
-    private readonly List<(string Column, string Operator, object Value)> _having = new();
+    private readonly List<QueryOrderExpression> _orderBy = new();
+    private readonly List<QueryExpression> _groupBy = new();
+    private readonly List<QueryHavingClause> _having = new();
     private int? _limit;
     private int? _offset;
     private bool _useTop;
@@ -41,7 +42,26 @@ public class Query
     public Query Select(params string[] columns)
     {
         ValidateStrings(columns, nameof(columns));
-        _select.AddRange(columns);
+        foreach (var column in columns)
+        {
+            _select.Add(new QueryExpression(column, IsRaw: false));
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Adds one or more caller-authored SQL expressions to the <c>SELECT</c> clause.
+    /// </summary>
+    /// <param name="expressions">Trusted SQL expressions that are emitted without identifier quoting.</param>
+    /// <returns>The current <see cref="Query"/> instance.</returns>
+    /// <remarks>Never pass untrusted input to this method.</remarks>
+    public Query SelectRaw(params string[] expressions)
+    {
+        ValidateStrings(expressions, nameof(expressions));
+        foreach (var expression in expressions)
+        {
+            _select.Add(new QueryExpression(expression, IsRaw: true));
+        }
         return this;
     }
 
@@ -63,7 +83,34 @@ public class Query
     public Query From(string table)
     {
         ValidateString(table, nameof(table));
-        _from = table;
+        _from = new QueryExpression(table, IsRaw: false);
+        _fromAlias = null;
+        _fromSubquery = null;
+        return this;
+    }
+
+    /// <summary>
+    /// Specifies a table and alias for the <c>FROM</c> clause using identifier quoting for both values.
+    /// </summary>
+    public Query From(string table, string alias)
+    {
+        ValidateString(table, nameof(table));
+        ValidateString(alias, nameof(alias));
+        _from = new QueryExpression(table, IsRaw: false);
+        _fromAlias = alias;
+        _fromSubquery = null;
+        return this;
+    }
+
+    /// <summary>
+    /// Specifies a caller-authored SQL expression for the <c>FROM</c> clause.
+    /// </summary>
+    /// <remarks>Never pass untrusted input to this method.</remarks>
+    public Query FromRaw(string expression)
+    {
+        ValidateString(expression, nameof(expression));
+        _from = new QueryExpression(expression, IsRaw: true);
+        _fromAlias = null;
         _fromSubquery = null;
         return this;
     }
@@ -82,69 +129,8 @@ public class Query
         }
         ValidateString(alias, nameof(alias));
         _from = null;
+        _fromAlias = null;
         _fromSubquery = (subQuery, alias);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds an inner join to the query.
-    /// </summary>
-    /// <param name="table">The joined table.</param>
-    /// <param name="condition">The join condition.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query Join(string table, string condition)
-    {
-        ValidateString(table, nameof(table));
-        ValidateString(condition, nameof(condition));
-        _joins.Add(("JOIN", table, condition));
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a left outer join to the query.
-    /// </summary>
-    /// <inheritdoc cref="Join(string, string)"/>
-    public Query LeftJoin(string table, string condition)
-    {
-        ValidateString(table, nameof(table));
-        ValidateString(condition, nameof(condition));
-        _joins.Add(("LEFT JOIN", table, condition));
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a right outer join to the query.
-    /// </summary>
-    /// <inheritdoc cref="Join(string, string)"/>
-    public Query RightJoin(string table, string condition)
-    {
-        ValidateString(table, nameof(table));
-        ValidateString(condition, nameof(condition));
-        _joins.Add(("RIGHT JOIN", table, condition));
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a cross join to the query.
-    /// </summary>
-    /// <param name="table">The joined table.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query CrossJoin(string table)
-    {
-        ValidateString(table, nameof(table));
-        _joins.Add(("CROSS JOIN", table, null));
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a full outer join to the query.
-    /// </summary>
-    /// <inheritdoc cref="Join(string, string)"/>
-    public Query FullOuterJoin(string table, string condition)
-    {
-        ValidateString(table, nameof(table));
-        ValidateString(condition, nameof(condition));
-        _joins.Add(("FULL OUTER JOIN", table, condition));
         return this;
     }
 
@@ -164,6 +150,15 @@ public class Query
     public Query Where(string column, string op, object value)
     {
         return AddCondition(column, op, value);
+    }
+
+    /// <summary>
+    /// Adds a predicate whose left side is a caller-authored SQL expression.
+    /// </summary>
+    /// <remarks>Never pass untrusted input to <paramref name="expression"/>.</remarks>
+    public Query WhereRaw(string expression, string op, object value)
+    {
+        return AddCondition(expression, op, value, isRawExpression: true);
     }
 
     /// <summary>
@@ -191,6 +186,15 @@ public class Query
     public Query OrWhere(string column, string op, object value)
     {
         return AddCondition(column, op, value, "OR");
+    }
+
+    /// <summary>
+    /// Adds an <c>OR</c> predicate whose left side is a caller-authored SQL expression.
+    /// </summary>
+    /// <remarks>Never pass untrusted input to <paramref name="expression"/>.</remarks>
+    public Query OrWhereRaw(string expression, string op, object value)
+    {
+        return AddCondition(expression, op, value, "OR", isRawExpression: true);
     }
 
     /// <summary>
@@ -391,36 +395,42 @@ public class Query
         return this;
     }
 
-    private Query AddCondition(string column, string op, object value, string? logical = null)
+    private Query AddCondition(string column, string op, object value, string? logical = null, bool isRawExpression = false)
     {
         ValidateString(column, nameof(column));
-        ValidateString(op, nameof(op));
+        var normalizedOperator = QueryComparisonOperator.Normalize(op, nameof(op));
         if (value == null)
         {
             throw new ArgumentException("Value cannot be null.", nameof(value));
         }
+        if ((normalizedOperator == "IN" || normalizedOperator == "NOT IN") && value is not Query)
+        {
+            throw new ArgumentException("Use WhereIn/WhereNotIn for value lists; IN operators on this overload require a Query value.", nameof(value));
+        }
         AddLogicalOperator(logical);
-        _where.Add(new ConditionToken(column, op, value));
+        _where.Add(isRawExpression
+            ? new RawConditionToken(column, normalizedOperator, value)
+            : new ConditionToken(column, normalizedOperator, value));
         return this;
     }
 
-    private Query AddNullCondition(string column, string? logical = null)
+    private Query AddNullCondition(string column, string? logical = null, bool isRawExpression = false)
     {
         ValidateString(column, nameof(column));
         AddLogicalOperator(logical);
-        _where.Add(new NullToken(column));
+        _where.Add(isRawExpression ? new RawNullToken(column) : new NullToken(column));
         return this;
     }
 
-    private Query AddNotNullCondition(string column, string? logical = null)
+    private Query AddNotNullCondition(string column, string? logical = null, bool isRawExpression = false)
     {
         ValidateString(column, nameof(column));
         AddLogicalOperator(logical);
-        _where.Add(new NotNullToken(column));
+        _where.Add(isRawExpression ? new RawNotNullToken(column) : new NotNullToken(column));
         return this;
     }
 
-    private Query AddInCondition(string column, object[] values, string? logical = null, bool not = false)
+    private Query AddInCondition(string column, object[] values, string? logical = null, bool not = false, bool isRawExpression = false)
     {
         ValidateString(column, nameof(column));
         if (values == null || values.Length == 0)
@@ -433,21 +443,25 @@ public class Query
             {
                 throw new ArgumentException("Values cannot contain null.", nameof(values));
             }
+            if (value is Query)
+            {
+                throw new ArgumentException("Use the Query overload for a subquery instead of passing it as a value-list item.", nameof(values));
+            }
         }
         AddLogicalOperator(logical);
         var list = new List<object>(values);
         if (not)
         {
-            _where.Add(new NotInToken(column, list));
+            _where.Add(isRawExpression ? new RawNotInToken(column, list) : new NotInToken(column, list));
         }
         else
         {
-            _where.Add(new InToken(column, list));
+            _where.Add(isRawExpression ? new RawInToken(column, list) : new InToken(column, list));
         }
         return this;
     }
 
-    private Query AddBetweenCondition(string column, object start, object end, string? logical = null, bool not = false)
+    private Query AddBetweenCondition(string column, object start, object end, string? logical = null, bool not = false, bool isRawExpression = false)
     {
         ValidateString(column, nameof(column));
         if (start == null || end == null)
@@ -457,11 +471,11 @@ public class Query
         AddLogicalOperator(logical);
         if (not)
         {
-            _where.Add(new NotBetweenToken(column, start, end));
+            _where.Add(isRawExpression ? new RawNotBetweenToken(column, start, end) : new NotBetweenToken(column, start, end));
         }
         else
         {
-            _where.Add(new BetweenToken(column, start, end));
+            _where.Add(isRawExpression ? new RawBetweenToken(column, start, end) : new BetweenToken(column, start, end));
         }
         return this;
     }
@@ -601,121 +615,6 @@ public class Query
     }
 
     /// <summary>
-    /// Adds columns to the <c>ORDER BY</c> clause in ascending order.
-    /// </summary>
-    /// <param name="columns">The columns or expressions to order by.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query OrderBy(params string[] columns)
-    {
-        ValidateStrings(columns, nameof(columns));
-        _orderBy.AddRange(columns);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds columns to the <c>ORDER BY</c> clause in descending order.
-    /// </summary>
-    /// <inheritdoc cref="OrderBy(string[])"/>
-    public Query OrderByDescending(params string[] columns)
-    {
-        ValidateStrings(columns, nameof(columns));
-        foreach (var column in columns)
-        {
-            _orderBy.Add($"{column} DESC");
-        }
-        return this;
-    }
-
-    /// <summary>
-    /// Adds raw expressions to the <c>ORDER BY</c> clause.
-    /// </summary>
-    /// <param name="expressions">Raw ordering expressions.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query OrderByRaw(params string[] expressions)
-    {
-        ValidateStrings(expressions, nameof(expressions));
-        _orderBy.AddRange(expressions);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds columns to the <c>GROUP BY</c> clause.
-    /// </summary>
-    /// <param name="columns">The columns or expressions used for grouping.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query GroupBy(params string[] columns)
-    {
-        ValidateStrings(columns, nameof(columns));
-        _groupBy.AddRange(columns);
-        return this;
-    }
-
-    /// <inheritdoc cref="Having(string, string, object)"/>
-    public Query Having(string column, object value)
-    {
-        return Having(column, "=", value);
-    }
-
-    /// <summary>
-    /// Adds a predicate to the <c>HAVING</c> clause.
-    /// </summary>
-    /// <param name="column">The aggregated column or expression.</param>
-    /// <param name="op">The comparison operator.</param>
-    /// <param name="value">The value to compare with.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query Having(string column, string op, object value)
-    {
-        ValidateString(column, nameof(column));
-        ValidateString(op, nameof(op));
-        if (value == null)
-        {
-            throw new ArgumentException("Value cannot be null.", nameof(value));
-        }
-        _having.Add((column, op, value));
-        return this;
-    }
-
-    /// <summary>
-    /// Applies a <c>LIMIT</c> (or provider equivalent) clause to restrict result count.
-    /// </summary>
-    /// <param name="limit">The maximum number of rows to return.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query Limit(int limit)
-    {
-        _limit = limit;
-        _useTop = false;
-        // Ensure pagination mode is exclusive
-        // Limit/Offset mode should not use TOP
-        return this;
-    }
-
-    /// <summary>
-    /// Applies an <c>OFFSET</c> clause to skip a number of rows.
-    /// </summary>
-    /// <param name="offset">The number of rows to skip.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query Offset(int offset)
-    {
-        _offset = offset;
-        _useTop = false;
-        return this;
-    }
-
-    /// <summary>
-    /// Applies a <c>TOP</c> clause (SQL Server style) to limit results.
-    /// </summary>
-    /// <param name="top">The number of rows to return.</param>
-    /// <returns>The current <see cref="Query"/> instance.</returns>
-    public Query Top(int top)
-    {
-        _limit = top;
-        _useTop = true;
-        // Reset offset when switching to TOP to avoid mixed pagination modes
-        _offset = null;
-        return this;
-    }
-
-    /// <summary>
     /// Adds a <c>UNION</c> compound query.
     /// </summary>
     /// <param name="query">The query to union.</param>
@@ -822,190 +721,5 @@ public class Query
         return compiler.CompileWithParameters(this);
     }
 
-    /// <summary>
-    /// Gets the selected columns for the query.
-    /// </summary>
-    public IReadOnlyList<string> SelectColumns => _select;
-
-    /// <summary>
-    /// Gets the table used in the <c>FROM</c> clause, when not using a subquery.
-    /// </summary>
-    public string? Table => _from;
-
-    /// <summary>
-    /// Gets the subquery used in the <c>FROM</c> clause, if any.
-    /// </summary>
-    public (Query Query, string Alias)? FromSubquery => _fromSubquery;
-
-    /// <summary>
-    /// Gets the sequence of tokens representing the <c>WHERE</c> clause.
-    /// </summary>
-    public IReadOnlyList<IWhereToken> WhereTokens => _where;
-
-    /// <summary>
-    /// Gets the table targeted by an <c>INSERT</c> statement.
-    /// </summary>
-    public string? InsertTable => _insertTable;
-
-    /// <summary>
-    /// Gets the column list used for <c>INSERT</c> statements.
-    /// </summary>
-    public IReadOnlyList<string> InsertColumns => _insertColumns;
-
-    /// <summary>
-    /// Gets the rows of values used for <c>INSERT</c> statements.
-    /// </summary>
-    public IReadOnlyList<IReadOnlyList<object>> InsertValues => _values;
-
-    /// <summary>
-    /// Gets a value indicating whether the query is configured as an upsert.
-    /// </summary>
-    public bool IsUpsert => _isUpsert;
-
-    /// <summary>
-    /// Gets the columns used to detect conflicts during an upsert.
-    /// </summary>
-    public IReadOnlyList<string> ConflictColumns => _conflictColumns;
-
-    /// <summary>
-    /// Gets the subset of columns that should be updated during an upsert.
-    /// </summary>
-    public IReadOnlyList<string> UpsertUpdateOnlyColumns => _upsertUpdateOnly;
-
-    /// <summary>
-    /// Gets the table targeted by an <c>UPDATE</c> statement.
-    /// </summary>
-    public string? UpdateTable => _updateTable;
-
-    /// <summary>
-    /// Gets the column/value pairs configured for an <c>UPDATE</c> statement.
-    /// </summary>
-    public IReadOnlyList<(string Column, object Value)> SetValues => _set;
-
-    /// <summary>
-    /// Gets the table targeted by a <c>DELETE</c> statement.
-    /// </summary>
-    public string? DeleteTable => _deleteTable;
-
-    /// <summary>
-    /// Gets the column expressions used for ordering.
-    /// </summary>
-    public IReadOnlyList<string> OrderByColumns => _orderBy;
-
-    /// <summary>
-    /// Gets the column expressions used for grouping.
-    /// </summary>
-    public IReadOnlyList<string> GroupByColumns => _groupBy;
-
-    /// <summary>
-    /// Gets the predicates configured for the <c>HAVING</c> clause.
-    /// </summary>
-    public IReadOnlyList<(string Column, string Operator, object Value)> HavingClauses => _having;
-
-    /// <summary>
-    /// Gets the join definitions applied to the query.
-    /// </summary>
-    public IReadOnlyList<(string Type, string Table, string? Condition)> Joins => _joins;
-
-    /// <summary>
-    /// Gets the compound queries appended to the current query.
-    /// </summary>
-    public IReadOnlyList<(string Type, Query Query)> CompoundQueries => _compoundQueries;
-
-    /// <summary>
-    /// Gets a value indicating whether the query uses <c>DISTINCT</c>.
-    /// </summary>
-    public bool IsDistinct => _distinct;
-
-    /// <summary>
-    /// Gets the configured <c>LIMIT</c> value, if any.
-    /// </summary>
-    public int? LimitValue => _limit;
-
-    /// <summary>
-    /// Gets the configured <c>OFFSET</c> value, if any.
-    /// </summary>
-    public int? OffsetValue => _offset;
-
-    /// <summary>
-    /// Gets a value indicating whether the query should use <c>TOP</c> semantics.
-    /// </summary>
-    public bool UseTop => _useTop;
-
-    /// <summary>
-    /// Gets the number of open grouping tokens to validate balanced conditions.
-    /// </summary>
-    public int OpenGroups => _openGroups;
 }
-
-/// <summary>
-/// Marker interface for <c>WHERE</c> clause tokens.
-/// </summary>
-public interface IWhereToken { }
-
-/// <summary>
-/// Represents a comparison predicate in the <c>WHERE</c> clause.
-/// </summary>
-/// <param name="Column">The column being compared.</param>
-/// <param name="Operator">The comparison operator.</param>
-/// <param name="Value">The comparison value.</param>
-public sealed record ConditionToken(string Column, string Operator, object Value) : IWhereToken;
-
-/// <summary>
-/// Represents a logical operator token (e.g., AND/OR).
-/// </summary>
-/// <param name="Operator">The logical operator text.</param>
-public sealed record OperatorToken(string Operator) : IWhereToken;
-
-/// <summary>
-/// Marks the start of a grouped condition.
-/// </summary>
-public sealed record GroupStartToken() : IWhereToken;
-
-/// <summary>
-/// Marks the end of a grouped condition.
-/// </summary>
-public sealed record GroupEndToken() : IWhereToken;
-
-/// <summary>
-/// Represents an <c>IS NULL</c> predicate.
-/// </summary>
-/// <param name="Column">The column evaluated for null.</param>
-public sealed record NullToken(string Column) : IWhereToken;
-
-/// <summary>
-/// Represents an <c>IS NOT NULL</c> predicate.
-/// </summary>
-/// <param name="Column">The column evaluated for non-null values.</param>
-public sealed record NotNullToken(string Column) : IWhereToken;
-
-/// <summary>
-/// Represents an <c>IN</c> predicate with literal values.
-/// </summary>
-/// <param name="Column">The column being compared.</param>
-/// <param name="Values">The values to test.</param>
-public sealed record InToken(string Column, IReadOnlyList<object> Values) : IWhereToken;
-
-/// <summary>
-/// Represents a <c>NOT IN</c> predicate with literal values.
-/// </summary>
-/// <param name="Column">The column being compared.</param>
-/// <param name="Values">The values to exclude.</param>
-public sealed record NotInToken(string Column, IReadOnlyList<object> Values) : IWhereToken;
-
-/// <summary>
-/// Represents a <c>BETWEEN</c> predicate.
-/// </summary>
-/// <param name="Column">The column being compared.</param>
-/// <param name="Start">The inclusive start value.</param>
-/// <param name="End">The inclusive end value.</param>
-public sealed record BetweenToken(string Column, object Start, object End) : IWhereToken;
-
-/// <summary>
-/// Represents a <c>NOT BETWEEN</c> predicate.
-/// </summary>
-/// <param name="Column">The column being compared.</param>
-/// <param name="Start">The inclusive start value.</param>
-/// <param name="End">The inclusive end value.</param>
-public sealed record NotBetweenToken(string Column, object Start, object End) : IWhereToken;
 

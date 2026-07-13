@@ -112,9 +112,11 @@ public partial class SQLite
                 }
             }
         }
-        catch (SqliteException) when (cancellationToken.IsCancellationRequested)
+        catch (SqliteException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
         {
-            throw new OperationCanceledException(cancellationToken);
+            throw CreateCallerCancellationException(ex, cancellationToken);
         }
 
         stopwatch.Stop();
@@ -277,9 +279,11 @@ public partial class SQLite
                 Elapsed = stopwatch.Elapsed
             };
         }
-        catch (SqliteException) when (cancellationToken.IsCancellationRequested)
+        catch (SqliteException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
         {
-            throw new OperationCanceledException(cancellationToken);
+            throw CreateCallerCancellationException(ex, cancellationToken);
         }
         finally
         {

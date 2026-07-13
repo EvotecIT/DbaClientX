@@ -42,8 +42,8 @@ public partial class SQLite {
                 query,
                 parameters,
                 cancellationToken).ConfigureAwait(false);
-        } catch (Exception ex) when (ex is SqliteException or InvalidOperationException) {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+        } catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is (SqliteException or InvalidOperationException)) {
+            throw CreateQueryExecutionOrCancellationException("Failed to execute non-query.", query, ex, cancellationToken);
         }
     }
 
@@ -61,8 +61,8 @@ public partial class SQLite {
                 query,
                 parameters,
                 cancellationToken).ConfigureAwait(false);
-        } catch (Exception ex) when (ex is SqliteException or InvalidOperationException) {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+        } catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is (SqliteException or InvalidOperationException)) {
+            throw CreateQueryExecutionOrCancellationException("Failed to execute scalar query.", query, ex, cancellationToken);
         }
     }
 
@@ -88,8 +88,8 @@ public partial class SQLite {
                 initialize,
                 parameters,
                 cancellationToken).ConfigureAwait(false);
-        } catch (Exception ex) when (ex is SqliteException or InvalidOperationException) {
-            throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
+        } catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is (SqliteException or InvalidOperationException)) {
+            throw CreateQueryExecutionOrCancellationException("Failed to execute mapped query.", query, ex, cancellationToken);
         }
     }
 

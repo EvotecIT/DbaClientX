@@ -6,9 +6,9 @@ public static class JoinExample
     {
         var query = new Query()
             .Select("u.name", "o.total")
-            .From("users u")
-            .FullOuterJoin("orders o", "u.id = o.user_id")
-            .CrossJoin("regions r");
+            .From("users", "u")
+            .FullOuterJoin("orders", "o", "u.id", "=", "o.user_id")
+            .CrossJoin("regions", "r");
 
         Console.WriteLine(QueryBuilder.Compile(query));
     }

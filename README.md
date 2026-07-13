@@ -41,6 +41,7 @@ Use it when you need:
 
 - one codebase for SQL Server, PostgreSQL, MySQL, SQLite, and Oracle
 - sync and async query execution
+- consistent caller cancellation across query, scalar, non-query, reader, streaming, stored procedure, and bulk APIs; provider-specific cancellation failures are normalized to `OperationCanceledException` with the caller's token
 - parameterized commands and provider-specific parameter type preservation
 - transaction helpers that commit on success and roll back on failure
 - provider-native bulk insert paths for staging tables and direct table writes
@@ -205,7 +206,7 @@ $rows | Export-OfficeCsv -Path .\Users.csv
 $rows | Export-OfficeCsv -Path .\Users.csv.gz -CompressionType GZip
 ```
 
-For the fastest SQL Server to CSV export path, stream an `IDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
+For the fastest SQL Server to CSV export path, stream an owned `DbDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
 
 ```powershell
 $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
@@ -464,6 +465,24 @@ var query = new Query()
 
 var (sql, parameters) = QueryBuilder.CompileWithParameters(query);
 ```
+
+Identifier methods always quote identifiers. Use explicit raw methods for trusted SQL expressions, and never pass user input to them:
+
+```csharp
+var aggregate = new Query()
+    .Select("DepartmentId")
+    .SelectRaw("COUNT(*)")
+    .From("Employees")
+    .GroupBy("DepartmentId")
+    .HavingRaw("COUNT(*)", ">", 5);
+
+var joined = new Query()
+    .Select("u.Id", "o.Total")
+    .From("Users", "u")
+    .Join("Orders", "o", "u.Id", "=", "o.UserId");
+```
+
+Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 
 ## Supported .NET Versions
 

@@ -7,6 +7,20 @@ namespace DbaClientX.Tests;
 
 public class SqlServerMonitoringTests
 {
+    private sealed class TokenlessCancellationSqlServer : SqlServer
+    {
+        private readonly CancellationTokenSource _cancellationSource;
+
+        public TokenlessCancellationSqlServer(CancellationTokenSource cancellationSource)
+            => _cancellationSource = cancellationSource;
+
+        protected override Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken)
+        {
+            _cancellationSource.Cancel();
+            return Task.FromException(new OperationCanceledException());
+        }
+    }
+
     [Fact]
     public void BuildConnectionString_WithMonitoringOptions_KeepsEncryptionAndAppliesDiagnosticsSettings()
     {
@@ -116,5 +130,24 @@ public class SqlServerMonitoringTests
         Assert.True(target.IntegratedSecurity);
         Assert.Equal("master", target.Database);
         Assert.Equal("DbaClientX.Monitoring", target.ApplicationName);
+    }
+
+    [Fact]
+    public async Task GetConnectionDiagnosticsAsync_WhenProviderThrowsTokenlessCancellation_NormalizesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var sqlServer = new TokenlessCancellationSqlServer(cancellation);
+        var target = new SqlServerMonitoringTarget
+        {
+            ServerOrInstance = "sql01",
+            TrustServerCertificate = true
+        };
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            sqlServer.GetConnectionDiagnosticsAsync(target, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
+        Assert.Equal(default, providerException.CancellationToken);
     }
 }

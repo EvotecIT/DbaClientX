@@ -1,10 +1,12 @@
 namespace DBAClientX.DataMovement;
 
-internal static class DbaIdentifierPath
+/// <summary>Parses and normalizes multipart database identifiers across provider surfaces.</summary>
+public static class DbaIdentifierPath
 {
+    /// <summary>Quotes a plan segment only when it is not already delimited or a simple identifier.</summary>
     public static string QuotePlanSegment(string segment)
     {
-        var trimmed = segment.Trim();
+        var trimmed = ValidateAndTrimSegment(segment);
         if (IsDelimitedSegment(trimmed) || IsSimplePlanSegment(trimmed))
         {
             return trimmed;
@@ -13,12 +15,14 @@ internal static class DbaIdentifierPath
         return "\"" + trimmed.Replace("\"", "\"\"") + "\"";
     }
 
+    /// <summary>Quotes a plan segment when needed to preserve its case under default provider folding.</summary>
     public static string QuotePlanSegmentPreservingCase(string segment)
         => QuotePlanSegmentPreservingCase(segment, provider: null);
 
+    /// <summary>Quotes a plan segment when needed to preserve its case for the selected provider.</summary>
     public static string QuotePlanSegmentPreservingCase(string segment, DbaTableCopyProvider? provider)
     {
-        var trimmed = segment.Trim();
+        var trimmed = ValidateAndTrimSegment(segment);
         if (IsDelimitedSegment(trimmed))
         {
             return trimmed;
@@ -56,20 +60,30 @@ internal static class DbaIdentifierPath
         return "\"" + trimmed.Replace("\"", "\"\"") + "\"";
     }
 
+    /// <summary>Removes matching SQL identifier delimiters and unescapes their contents.</summary>
     public static string UnquoteSegment(string segment)
+        => UnquoteSegment(segment, provider: null);
+
+    /// <summary>Removes identifier delimiters recognized by the selected provider and unescapes their contents.</summary>
+    public static string UnquoteSegment(string segment, DbaTableCopyProvider provider)
+        => UnquoteSegment(segment, (DbaTableCopyProvider?)provider);
+
+    private static string UnquoteSegment(string segment, DbaTableCopyProvider? provider)
     {
-        var trimmed = segment.Trim();
+        var trimmed = ValidateAndTrimSegment(segment);
         if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("\"\"", "\"");
         }
 
-        if (trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
+        if ((provider is null or DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.SQLite) &&
+            trimmed.Length >= 2 && trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("]]", "]");
         }
 
-        if (trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
+        if ((provider is null or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite) &&
+            trimmed.Length >= 2 && trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`')
         {
             return trimmed.Substring(1, trimmed.Length - 2).Replace("``", "`");
         }
@@ -77,8 +91,21 @@ internal static class DbaIdentifierPath
         return trimmed;
     }
 
+    /// <summary>Splits a multipart identifier while preserving dots inside delimited segments.</summary>
     public static IReadOnlyList<string> SplitSegments(string identifierPath)
+        => SplitSegments(identifierPath, provider: null);
+
+    /// <summary>Splits a multipart identifier using only delimiters recognized by the selected provider.</summary>
+    public static IReadOnlyList<string> SplitSegments(string identifierPath, DbaTableCopyProvider provider)
+        => SplitSegments(identifierPath, (DbaTableCopyProvider?)provider);
+
+    private static IReadOnlyList<string> SplitSegments(string identifierPath, DbaTableCopyProvider? provider)
     {
+        if (string.IsNullOrWhiteSpace(identifierPath))
+        {
+            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifierPath));
+        }
+
         var parts = new List<string>();
         var start = 0;
         var quote = '\0';
@@ -87,7 +114,7 @@ internal static class DbaIdentifierPath
             var value = identifierPath[index];
             if (quote == '\0')
             {
-                if (value is '"' or '[' or '`')
+                if (IsDelimiterStart(value, provider))
                 {
                     quote = value;
                     continue;
@@ -144,12 +171,24 @@ internal static class DbaIdentifierPath
         }
 
         parts.Add(identifierPath.Substring(start));
+        if (parts.Any(static part => string.IsNullOrWhiteSpace(part)))
+        {
+            throw new ArgumentException($"Identifier '{identifierPath}' cannot contain empty path segments.", nameof(identifierPath));
+        }
+
         return parts;
     }
 
+    private static bool IsDelimiterStart(char value, DbaTableCopyProvider? provider)
+        => value == '"' ||
+           (value == '[' && (provider is null or DbaTableCopyProvider.SqlServer or DbaTableCopyProvider.SQLite)) ||
+           (value == '`' && (provider is null or DbaTableCopyProvider.MySql or DbaTableCopyProvider.SQLite));
+
+    /// <summary>Removes segment delimiters while preserving the multipart path structure.</summary>
     public static string NormalizeForDuplicateCheck(string identifierPath)
         => string.Join(".", SplitSegments(identifierPath).Select(UnquoteSegment));
 
+    /// <summary>Returns whether an identifier is reserved by the selected provider.</summary>
     public static bool IsReservedIdentifier(string identifier, DbaTableCopyProvider provider)
         => provider switch
         {
@@ -158,11 +197,25 @@ internal static class DbaIdentifierPath
             _ => false
         };
 
-    private static bool IsDelimitedSegment(string segment)
-        => segment.Length >= 2 &&
-           ((segment[0] == '"' && segment[segment.Length - 1] == '"') ||
-            (segment[0] == '[' && segment[segment.Length - 1] == ']') ||
-            (segment[0] == '`' && segment[segment.Length - 1] == '`'));
+    /// <summary>Returns whether a segment has matching SQL identifier delimiters.</summary>
+    public static bool IsDelimitedSegment(string segment)
+    {
+        var trimmed = ValidateAndTrimSegment(segment);
+        return trimmed.Length >= 2 &&
+               ((trimmed[0] == '"' && trimmed[trimmed.Length - 1] == '"') ||
+                (trimmed[0] == '[' && trimmed[trimmed.Length - 1] == ']') ||
+               (trimmed[0] == '`' && trimmed[trimmed.Length - 1] == '`'));
+    }
+
+    private static string ValidateAndTrimSegment(string segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            throw new ArgumentException("Identifier segment cannot be null or whitespace.", nameof(segment));
+        }
+
+        return segment.Trim();
+    }
 
     private static bool IsSimplePlanSegment(string segment)
     {

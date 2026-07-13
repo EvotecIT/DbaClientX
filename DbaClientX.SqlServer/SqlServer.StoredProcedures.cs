@@ -122,24 +122,15 @@ public partial class SqlServer
                 command.CommandTimeout = commandTimeout;
             }
 
-            var dataSet = new DataSet();
-            using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-            var tableIndex = 0;
-            do
-            {
-                var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
-                dataSet.Tables.Add(table);
-                tableIndex++;
-            }
-            while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+            var dataSet = await ReadStoredProcedureResultsAsync(command, cancellationToken).ConfigureAwait(false);
 
             var result = BuildResult(dataSet);
             UpdateOutputParameters(command, parameters);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionOrCancellationException("Failed to execute stored procedure.", procedure, ex, cancellationToken);
         }
         finally
         {

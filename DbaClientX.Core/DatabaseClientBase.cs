@@ -26,8 +26,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     private int _disposeSignaled;
 
     private const int MaxBackoffMilliseconds = 30000; // cap backoff to 30s
-    private static readonly ThreadLocal<Random> _rand = new(() => new Random(unchecked(Environment.TickCount * 31 + Thread.CurrentThread.ManagedThreadId)));
-
     /// <summary>
     /// Gets or sets the desired return type for query executions.
     /// </summary>
@@ -99,6 +97,119 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <returns><c>true</c> when the exception is transient; otherwise, <c>false</c>.</returns>
     protected virtual bool IsTransient(Exception ex) => false;
 
+    /// <summary>Returns whether an exception carries the caller's cancellation token.</summary>
+    protected static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
+        => cancellationToken.IsCancellationRequested &&
+           exception is OperationCanceledException cancellationException &&
+           cancellationException.CancellationToken == cancellationToken;
+
+    /// <summary>Returns whether an exception is a provider-specific representation of command cancellation.</summary>
+    protected virtual bool IsProviderCancellationException(Exception exception)
+        => false;
+
+    /// <summary>Searches an exception and its inner-exception chain for a matching provider failure.</summary>
+    protected static bool ExceptionChainContains<TException>(
+        Exception exception,
+        Func<TException, bool> predicate)
+        where TException : Exception
+    {
+        if (predicate == null)
+        {
+            throw new ArgumentNullException(nameof(predicate));
+        }
+
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            if (current is TException candidate && predicate(candidate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Creates the public exception for a failed asynchronous database operation while preserving caller cancellation.
+    /// </summary>
+    /// <remarks>
+    /// Some ADO.NET providers report a canceled command as a provider exception instead of
+    /// <see cref="OperationCanceledException"/>. Once the caller's token is canceled, normalize that provider-specific
+    /// failure back to the standard cancellation contract and retain the original exception as diagnostic context.
+    /// </remarks>
+    protected Exception CreateQueryExecutionOrCancellationException(
+        string message,
+        string commandText,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested && IsProviderCancellationException(exception))
+        {
+            return CreateCallerCancellationException(exception, cancellationToken);
+        }
+
+        return new DbaQueryExecutionException(message, commandText, exception);
+    }
+
+    /// <summary>Creates a standard caller-cancellation exception while retaining the provider failure.</summary>
+    protected static OperationCanceledException CreateCallerCancellationException(
+        Exception exception,
+        CancellationToken cancellationToken)
+        => new(
+            "The database operation was canceled by the caller.",
+            exception,
+            cancellationToken);
+
+    /// <summary>Awaits an ADO.NET operation and normalizes provider-specific cancellation failures.</summary>
+    protected async Task<T> AwaitWithCallerCancellationAsync<T>(
+        Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (
+            !IsCallerCancellation(ex, cancellationToken) &&
+            cancellationToken.IsCancellationRequested)
+        {
+            // This wrapper encloses only the provider await, so an unassociated OCE still has
+            // provider provenance. Do not apply this inference around user callbacks.
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+        catch (Exception ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+    }
+
+    /// <summary>Awaits a non-result ADO.NET operation and normalizes provider-specific cancellation failures.</summary>
+    protected async Task AwaitWithCallerCancellationAsync(
+        Func<Task> operation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await operation().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (
+            !IsCallerCancellation(ex, cancellationToken) &&
+            cancellationToken.IsCancellationRequested)
+        {
+            // This wrapper encloses only the provider await, so an unassociated OCE still has
+            // provider provenance. Do not apply this inference around user callbacks.
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+        catch (Exception ex) when (
+            cancellationToken.IsCancellationRequested &&
+            IsProviderCancellationException(ex))
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
+    }
+
     /// <summary>
     /// Executes an operation with retry logic for transient failures.
     /// </summary>
@@ -107,33 +218,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <returns>The result of the successful operation.</returns>
     /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
     protected T ExecuteWithRetry<T>(Func<T> operation)
-    {
-        var attempts = 0;
-        Exception? lastException = null;
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        while (attempts < maxAttempts)
-        {
-            try
-            {
-                return operation();
-            }
-            catch (Exception ex) when (IsTransient(ex))
-            {
-                lastException = ex;
-                attempts++;
-                if (attempts >= maxAttempts)
-                {
-                    break;
-                }
-                var delay = ComputeBackoffDelay(attempts);
-                if (delay > TimeSpan.Zero)
-                {
-                    Thread.Sleep(delay);
-                }
-            }
-        }
-        throw lastException ?? new Exception("Operation failed.");
-    }
+        => TransientRetry.Run(operation, IsTransient, CreateTransientRetryOptions());
 
     /// <summary>
     /// Asynchronously executes an operation with retry logic for transient failures.
@@ -143,36 +228,12 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="cancellationToken">Token used to cancel the retries.</param>
     /// <returns>The result of the successful operation.</returns>
     /// <exception cref="Exception">Thrown when all retry attempts fail.</exception>
-    protected async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
-    {
-        var attempts = 0;
-        Exception? lastException = null;
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        while (attempts < maxAttempts)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                return await operation().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (IsTransient(ex))
-            {
-                lastException = ex;
-                attempts++;
-                if (attempts >= maxAttempts)
-                {
-                    break;
-                }
-                var delay = ComputeBackoffDelay(attempts);
-                if (delay > TimeSpan.Zero)
-                {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-        throw lastException ?? new Exception("Operation failed.");
-    }
+    protected Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
+        => TransientRetry.RunAsync(
+            _ => operation(),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Asynchronously disposes a resource only when the current operation owns it.
@@ -368,20 +429,16 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="attempt">The one-based retry attempt number.</param>
     /// <returns>The delay before the next retry attempt.</returns>
     protected TimeSpan ComputeBackoffDelay(int attempt)
-    {
-        var baseDelay = RetryDelay;
-        if (baseDelay <= TimeSpan.Zero)
+        => TransientRetry.CalculateBackoffDelay(CreateTransientRetryOptions(), attempt);
+
+    /// <summary>Creates the shared retry options used by core execution and streaming paths.</summary>
+    protected virtual TransientRetryOptions CreateTransientRetryOptions()
+        => new()
         {
-            return TimeSpan.Zero;
-        }
-        // Exponential backoff with jitter (full jitter)
-        var factor = Math.Pow(2, Math.Max(0, attempt - 1));
-        var baseMilliseconds = baseDelay.TotalMilliseconds;
-        var ms = baseMilliseconds * factor;
-        var jitter = _rand.Value!.NextDouble() * baseMilliseconds; // 0..base
-        var total = Math.Min(ms + jitter, MaxBackoffMilliseconds);
-        return TimeSpan.FromMilliseconds(total);
-    }
+            MaxAttempts = Math.Max(1, MaxRetryAttempts),
+            BaseDelay = RetryDelay,
+            MaxDelay = TimeSpan.FromMilliseconds(MaxBackoffMilliseconds)
+        };
 
     /// <summary>
     /// Adds parameters created from dictionaries of values, types, and directions to the supplied command.
@@ -760,12 +817,16 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             object? result;
-            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false))
+            using (var reader = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
                 {
-                    if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    if (await AwaitWithCallerCancellationAsync(
+                        () => reader.ReadAsync(cancellationToken),
+                        cancellationToken).ConfigureAwait(false))
                     {
                         var table = new DataTable("Table0");
                         for (int i = 0; i < reader.FieldCount; i++)
@@ -797,7 +858,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                         var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
                         dataSet.Tables.Add(table);
                         tableIndex++;
-                    } while (!reader.IsClosed && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+                    } while (!reader.IsClosed && await AwaitWithCallerCancellationAsync(
+                        () => reader.NextResultAsync(cancellationToken),
+                        cancellationToken).ConfigureAwait(false));
 
                     result = BuildResult(dataSet);
                 }
@@ -852,10 +915,14 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             }
 
             var rows = new List<T>();
-            using (var reader = await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false))
+            using (var reader = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
+                cancellationToken).ConfigureAwait(false))
             {
                 initialize?.Invoke(reader);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                while (await AwaitWithCallerCancellationAsync(
+                    () => reader.ReadAsync(cancellationToken),
+                    cancellationToken).ConfigureAwait(false))
                 {
                     rows.Add(map(reader));
                 }
@@ -899,7 +966,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var affected = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteNonQueryAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return affected;
         }
@@ -938,7 +1007,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
                 command.CommandTimeout = commandTimeout;
             }
 
-            var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            var result = await AwaitWithCallerCancellationAsync(
+                () => command.ExecuteScalarAsync(cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return result;
         }, cancellationToken).ConfigureAwait(false);
@@ -970,9 +1041,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         CommandType commandType = CommandType.Text)
     {
         ValidateCommandText(query, commandType);
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
@@ -985,26 +1053,13 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandTimeout = commandTimeout;
         }
 
-        async Task<DbDataReader> OpenReaderAsync()
-        {
-            while (true)
-            {
-                try
-                {
-                    return await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-                {
-                    var delay = ComputeBackoffDelay(attempt);
-                    if (delay > TimeSpan.Zero)
-                    {
-                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+        await using var reader = await TransientRetry.RunAsync(
+            ct => AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct),
+                ct),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var table = new DataTable();
         for (int i = 0; i < reader.FieldCount; i++)
@@ -1012,7 +1067,9 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
         }
 
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        while (await AwaitWithCallerCancellationAsync(
+            () => reader.ReadAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false))
         {
             var row = table.NewRow();
             for (int i = 0; i < reader.FieldCount; i++)
@@ -1060,9 +1117,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         {
             throw new ArgumentNullException(nameof(map));
         }
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.Transaction = transaction;
@@ -1075,28 +1129,17 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandTimeout = commandTimeout;
         }
 
-        async Task<DbDataReader> OpenReaderAsync()
-        {
-            while (true)
-            {
-                try
-                {
-                    return await command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-                {
-                    var delay = ComputeBackoffDelay(attempt);
-                    if (delay > TimeSpan.Zero)
-                    {
-                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
-        }
-
-        await using var reader = await OpenReaderAsync().ConfigureAwait(false);
+        await using var reader = await TransientRetry.RunAsync(
+            ct => AwaitWithCallerCancellationAsync(
+                () => command.ExecuteReaderAsync(CommandBehavior.Default, ct),
+                ct),
+            IsTransient,
+            CreateTransientRetryOptions(),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         initialize?.Invoke(reader);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        while (await AwaitWithCallerCancellationAsync(
+            () => reader.ReadAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false))
         {
             yield return map(reader);
         }
@@ -1207,7 +1250,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         table.BeginLoadData();
         try
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            while (await ReadWithCallerCancellationAsync(reader, cancellationToken).ConfigureAwait(false))
             {
                 reader.GetValues(values);
                 table.Rows.Add(values);
@@ -1219,6 +1262,50 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         }
 
         return table;
+    }
+
+    /// <summary>
+    /// Executes a stored-procedure reader and materializes all result sets while preserving caller cancellation.
+    /// </summary>
+    /// <param name="command">Configured stored-procedure command.</param>
+    /// <param name="cancellationToken">Token used to cancel provider reader operations.</param>
+    /// <returns>A data set containing every result set returned by the command.</returns>
+    protected async Task<DataSet> ReadStoredProcedureResultsAsync(
+        DbCommand command,
+        CancellationToken cancellationToken)
+    {
+        var dataSet = new DataSet();
+        using var reader = await AwaitWithCallerCancellationAsync(
+            () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
+            cancellationToken).ConfigureAwait(false);
+        var tableIndex = 0;
+        do
+        {
+            var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
+            dataSet.Tables.Add(table);
+            tableIndex++;
+        }
+        while (!reader.IsClosed && await AwaitWithCallerCancellationAsync(
+            () => reader.NextResultAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false));
+
+        return dataSet;
+    }
+
+    private static async Task<bool> ReadWithCallerCancellationAsync(
+        DbDataReader reader,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (
+            cancellationToken.IsCancellationRequested &&
+            ex.CancellationToken != cancellationToken)
+        {
+            throw CreateCallerCancellationException(ex, cancellationToken);
+        }
     }
 
     private static string GetUniqueColumnName(string? columnName, int ordinal, HashSet<string> usedNames)
