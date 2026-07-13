@@ -10,7 +10,7 @@
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.55 -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     # Usual defaults as per standard module
