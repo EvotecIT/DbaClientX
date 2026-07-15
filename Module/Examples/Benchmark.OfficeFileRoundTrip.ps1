@@ -113,7 +113,9 @@ $settings = {
     $rowCounts = $RowCount
     $fileKinds = $FileKind
     $columnShapes = $ColumnShape
-    $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
+    $selectedEngines = @(
+        if ($Engine) { $Engine } else { 'DbaClientX' }
+    )
     $benchmarkWarmupCount = $WarmupCount
     $benchmarkIterationCount = $Iterations
 
