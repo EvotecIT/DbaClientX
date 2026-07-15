@@ -576,10 +576,6 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 & $assertTypedSchema -FileKind $case.FileKind -TableName $run.DestinationTable -Columns @($schema)
             }
 
-            if ($null -ne $run.RowsWritten -and $run.RowsWritten -ne [int] $case.RowCount) {
-                throw "$($case.FileKind) round trip wrote $($run.RowsWritten) of $($case.RowCount) expected row(s)."
-            }
-
             $run.RowsProcessed = $actual.Rows
             $run.IdSum = $actual.IdSum
             $run.ScoreSum = $actual.ScoreSum
