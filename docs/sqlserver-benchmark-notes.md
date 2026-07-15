@@ -11,7 +11,8 @@ Run the benchmark:
     -RowCount 1000, 5000, 20000, 100000 `
     -BatchSize 5000 `
     -InputKind DataTable, DataReader, PSCustomObject, Class `
-    -Iterations 3
+    -WarmupCount 5 `
+    -Iterations 20
 ```
 
 Run only one side of the suite when you want a smaller pass:
@@ -29,7 +30,7 @@ Use `-Plan` to inspect the matrix without touching SQL Server:
 
 The write suite benchmarks DbaClientX `Write-DbaXTableData` across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes. It compares DbaClientX with dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` on their supported client-side input shapes. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into SQL Server bulk copy. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
 
-The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery`. By default it reads every row as full-result `DataTable` and PowerShell-object output; pass `-ReadShape DataSetAll` to include a `DataSet` materialization lane for local diagnosis. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected.
+The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery`. By default it reads every row as full-result `DataTable` and PowerShell-object output; pass `-ReadShape DataSetAll` to include a `DataSet` materialization lane for local diagnosis. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected. Full `DataTable` materialization is allocation-heavy and can form GC timing clusters, so the default five warmups and twenty measurements are intentional; do not reduce them for a release comparison.
 
 ## CSV export and office round trips
 
@@ -90,8 +91,11 @@ Run the Excel round-trip lanes:
     -Iterations 5
 ```
 
-The benchmark commands expect matching DbaClientX, PSWriteOffice, and OfficeIMO
-packages. Use module-path parameters only when validating a local source build.
+For unreleased work, build PSWriteOffice with `OfficeIMORoot` pointing at the
+current OfficeIMO checkout and pass `-ModulePath` / `-PSWriteOfficeModulePath`
+to these scripts. That keeps DbaClientX, PSWriteOffice, and OfficeIMO on the
+exact source under test. Published-package measurements belong to a later
+release audit, after matching packages exist.
 
 Artifacts are written under `Ignore\Benchmarks\SqlServerDataMovement\Write` and `Ignore\Benchmarks\SqlServerDataMovement\Read`:
 

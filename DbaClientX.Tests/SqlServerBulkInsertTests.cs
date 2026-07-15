@@ -177,6 +177,8 @@ public class SqlServerBulkInsertTests
 
         public int FieldCount => _names.Length;
 
+        public int SchemaTableCallCount { get; private set; }
+
         public void Close() => IsClosed = true;
 
         public void Dispose() => Close();
@@ -219,6 +221,7 @@ public class SqlServerBulkInsertTests
 
         public DataTable GetSchemaTable()
         {
+            SchemaTableCallCount++;
             var schema = new DataTable();
             schema.Columns.Add("ColumnName", typeof(string));
             schema.Columns.Add("ColumnOrdinal", typeof(int));
@@ -736,6 +739,7 @@ public class SqlServerBulkInsertTests
 
         sqlServer.BulkInsert("s", "db", true, reader, "dbo.Dest", options);
 
+        Assert.Equal(1, reader.SchemaTableCallCount);
         Assert.Contains(sqlServer.Mappings, mapping => mapping.Source == "0" && mapping.Destination == "Id");
     }
 
@@ -755,6 +759,7 @@ public class SqlServerBulkInsertTests
 
         sqlServer.BulkInsert("s", "db", true, reader, "dbo.Dest", options);
 
+        Assert.Equal(1, reader.SchemaTableCallCount);
         Assert.Contains(sqlServer.Mappings, mapping => mapping.Source == "0" && mapping.Destination == "GeneratedId");
         Assert.Contains(sqlServer.Mappings, mapping => mapping.Source == "1" && mapping.Destination == "ExistingColumn");
     }

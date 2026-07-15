@@ -6,8 +6,8 @@ param(
     [object[]] $BatchSize = @(5000),
     [string[]] $InputKind = @('DataTable', 'DataReader', 'PSCustomObject', 'Class'),
     [string[]] $ReadShape = @('DataTableAll', 'PSObjectAll'),
-    [int] $Iterations = 3,
-    [int] $WarmupCount = 1,
+    [int] $Iterations = 20,
+    [int] $WarmupCount = 5,
     [string] $ModulePath = $(
         if ($env:DBACLIENTX_BENCHMARK_MODULE_PATH) {
             $env:DBACLIENTX_BENCHMARK_MODULE_PATH
@@ -22,8 +22,12 @@ param(
     [string[]] $Operation,
     [string] $OutputRoot,
     [switch] $Plan,
-    [switch] $KeepTables
+    [switch] $KeepTables,
+    [switch] $UpdateReadme
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -105,6 +109,21 @@ if ($WarmupCount -lt 0) {
     throw 'WarmupCount cannot be negative.'
 }
 
+if ($Engine -contains 'dbatools') {
+    $requiredCommands = @('Connect-DbaInstance')
+    if (-not $Operation -or $Operation -contains 'Write') { $requiredCommands += 'Write-DbaDbTableData' }
+    if (-not $Operation -or $Operation -contains 'Read') { $requiredCommands += 'Invoke-DbaQuery' }
+    $missingCommands = @($requiredCommands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+    if ($missingCommands.Count -gt 0) {
+        throw "The explicitly requested dbatools benchmark engine is unavailable. Missing command(s): $($missingCommands -join ', ')."
+    }
+}
+if ($Engine -contains 'SqlServer' -and (-not $Operation -or $Operation -contains 'Write')) {
+    if (-not (Get-Command Write-SqlTableData -ErrorAction SilentlyContinue)) {
+        throw 'The explicitly requested SqlServer benchmark engine is unavailable. Missing command: Write-SqlTableData.'
+    }
+}
+
 Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
@@ -124,6 +143,7 @@ $settings = {
     $database = $Database
     $modulePath = $ModulePath
     $keepTables = $KeepTables.IsPresent
+    $updateReadme = $UpdateReadme.IsPresent
     $rowCounts = $RowCount
     $batchSizes = $BatchSize
     $inputKinds = $InputKind
@@ -564,8 +584,8 @@ CREATE TABLE dbo.$TableName
                 [double] $case.RowCount / ($run.DurationMs / 1000)
             }
 
-            comparison Engine -Baseline DbaClientX -Metric MedianMs
-            if (Test-Path -LiteralPath $readmePath) {
+            comparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05
+            if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 readme $readmePath -Block 'sqlserver-data-movement-write-benchmark' -Renderer ComparisonTable
             }
             artifacts Json, Csv, Markdown
@@ -758,8 +778,8 @@ CREATE TABLE dbo.$TableName
                 [double] $case.RowCount / ($run.DurationMs / 1000)
             }
 
-            comparison Engine -Baseline DbaClientX -Metric MedianMs
-            if (Test-Path -LiteralPath $readmePath) {
+            comparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05
+            if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 readme $readmePath -Block 'sqlserver-data-movement-read-benchmark' -Renderer ComparisonTable
             }
             artifacts Json, Csv, Markdown
@@ -788,9 +808,9 @@ if ($Plan) {
             Engine = $_.Engine
             Operation = $_.Operation
             RowCount = $_.Values.RowCount
-            BatchSize = $_.Values.BatchSize
-            InputKind = $_.Values.InputKind
-            ReadShape = $_.Values.ReadShape
+            BatchSize = if ($_.Values.Keys -contains 'BatchSize') { $_.Values.BatchSize } else { $null }
+            InputKind = if ($_.Values.Keys -contains 'InputKind') { $_.Values.InputKind } else { $null }
+            ReadShape = if ($_.Values.Keys -contains 'ReadShape') { $_.Values.ReadShape } else { $null }
             Skipped = [bool] $_.IsSkipped
         }
     } | Sort-Object Operation, Scenario, Engine | Format-Table -AutoSize
