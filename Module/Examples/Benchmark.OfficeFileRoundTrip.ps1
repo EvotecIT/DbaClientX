@@ -90,7 +90,7 @@ if ($Engine -contains 'dbatools') {
     }
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $benchmarkRunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)

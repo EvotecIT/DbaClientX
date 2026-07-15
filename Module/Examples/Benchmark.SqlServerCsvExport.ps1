@@ -112,7 +112,7 @@ if ($Engine -contains 'DbaClientXPartitionedReader' -and -not (Get-Command Start
     throw 'The explicitly requested DbaClientXPartitionedReader benchmark engine is unavailable. Missing command: Start-ThreadJob.'
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $settings = {

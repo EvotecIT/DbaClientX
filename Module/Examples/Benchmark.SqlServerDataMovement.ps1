@@ -124,7 +124,7 @@ if ($Engine -contains 'SqlServer' -and (-not $Operation -or $Operation -contains
     }
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $settings = {
