@@ -629,7 +629,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
         }
 
         if ($selectedEngines.Count -gt 1) {
-            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs -TieTolerance 0.05
+            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
             }

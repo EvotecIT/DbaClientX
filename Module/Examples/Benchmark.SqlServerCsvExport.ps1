@@ -672,7 +672,7 @@ ORDER BY Id;
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison Engine -Baseline DbaClientXReader -Metric MedianMs -TieTolerance 0.05
+        comparison Engine -Baseline DbaClientXReader -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
         if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
             readme $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
         }
