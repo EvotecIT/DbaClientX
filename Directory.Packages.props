@@ -9,15 +9,15 @@
     <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.9" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.0.2" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.300" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.301" />
     <PackageVersion Include="MySqlConnector" Version="2.6.1" />
     <PackageVersion Include="Oracle.ManagedDataAccess" Version="23.26.200" />
     <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.200" />
     <PackageVersion Include="PowerShellStandard.Library" Version="5.1.1" />
-    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.9" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.10" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageVersion Include="SQLitePCLRaw.core" Version="3.0.3" />
     <PackageVersion Include="System.Formats.Asn1" Version="10.0.9" />
@@ -28,7 +28,7 @@
 
   <ItemGroup>
     <!-- Keep these conditional pins aligned with the TFMs each provider still ships assets for. -->
-    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.4.14" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.3" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.3" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Npgsql" Version="8.0.9" Condition="'$(TargetFramework)' == 'net472'" />
     <PackageVersion Include="Npgsql" Version="10.0.3" Condition="'$(TargetFramework)' != 'net472'" />
