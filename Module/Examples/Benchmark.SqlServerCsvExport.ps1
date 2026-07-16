@@ -3,7 +3,7 @@ param(
     [string] $Server = $(if ($env:DBACLIENTX_SQLSERVER) { $env:DBACLIENTX_SQLSERVER } else { 'localhost' }),
     [string] $Database = $(if ($env:DBACLIENTX_SQLDATABASE) { $env:DBACLIENTX_SQLDATABASE } else { 'tempdb' }),
     [int[]] $RowCount = @(100000),
-    [string[]] $Engine,
+    [string[]] $Engine = @('DbaClientXReader'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
     [string] $ModulePath = $(
@@ -26,6 +26,9 @@ param(
     [switch] $UpdateReadme,
     [switch] $KeepArtifacts
 )
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -59,11 +62,19 @@ function Assert-DbaClientXBenchmarkValue {
     }
 }
 
-$Engine = Convert-DbaClientXBenchmarkList -Value $Engine
+$Engine = @(
+    Convert-DbaClientXBenchmarkList -Value $Engine | ForEach-Object {
+        switch ($_) {
+            'DbaClientX' { 'DbaClientXDataTable' }
+            'DbaClientXStream' { 'DbaClientXPowerShellStream' }
+            default { $_ }
+        }
+    }
+)
 if ($RowCount.Count -eq 0 -or @($RowCount | Where-Object { $_ -lt 1 }).Count -gt 0) {
     throw 'RowCount values must be greater than zero.'
 }
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader', 'dbatools', 'bcp', 'FastBCP')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientXDataTable', 'DbaClientXPowerShellStream', 'DbaClientXReader', 'DbaClientXPartitionedReader', 'dbatools', 'bcp', 'FastBCP')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -74,7 +85,34 @@ if ($DbaClientXPartitionDegree -lt 0) {
     throw 'DbaClientXPartitionDegree cannot be negative. Use 0 to default to the current processor count.'
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+if ($Engine -contains 'dbatools') {
+    $requiredCommands = @('Connect-DbaInstance', 'Export-DbaCsv')
+    $missingCommands = @($requiredCommands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+    if ($missingCommands.Count -gt 0) {
+        throw "The explicitly requested dbatools benchmark engine is unavailable. Missing command(s): $($missingCommands -join ', ')."
+    }
+}
+if ($Engine -contains 'bcp' -and -not (Get-Command bcp -ErrorAction SilentlyContinue)) {
+    throw 'The explicitly requested bcp benchmark engine is unavailable. Missing command: bcp.'
+}
+if ($Engine -contains 'FastBCP') {
+    $resolvedFastBcpCommand = Get-Command $FastBcpPath -ErrorAction SilentlyContinue
+    $fastBcpCommand = if (Test-Path -LiteralPath $FastBcpPath) {
+        (Resolve-Path -LiteralPath $FastBcpPath).Path
+    } elseif ($resolvedFastBcpCommand) {
+        $resolvedFastBcpCommand.Source
+    } else {
+        $null
+    }
+    if ([string]::IsNullOrWhiteSpace($fastBcpCommand)) {
+        throw "The explicitly requested FastBCP benchmark engine is unavailable. '$FastBcpPath' could not be resolved."
+    }
+}
+if ($Engine -contains 'DbaClientXPartitionedReader' -and -not (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)) {
+    throw 'The explicitly requested DbaClientXPartitionedReader benchmark engine is unavailable. Missing command: Start-ThreadJob.'
+}
+
+Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $settings = {
@@ -290,7 +328,7 @@ ORDER BY Id;
 
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             Import-Module $modulePath -Global -Force -ErrorAction Stop
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
+            if ($case.Engine -in @('DbaClientXDataTable', 'DbaClientXPowerShellStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
@@ -314,7 +352,7 @@ ORDER BY Id;
         skip {
             param($case)
 
-            if ($case.Engine -in @('DbaClientX', 'DbaClientXStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
+            if ($case.Engine -in @('DbaClientXDataTable', 'DbaClientXPowerShellStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
                 if ($case.Engine -eq 'DbaClientXPartitionedReader' -and -not (& $testThreadJobCommand)) {
                     return $true
                 }
@@ -337,7 +375,7 @@ ORDER BY Id;
             return $false
         }
 
-        engine DbaClientX {
+        engine DbaClientXDataTable {
             operation Export {
                 param($case, $run)
 
@@ -354,7 +392,7 @@ ORDER BY Id;
             }
         }
 
-        engine DbaClientXStream {
+        engine DbaClientXPowerShellStream {
             operation Export {
                 param($case, $run)
 
@@ -634,7 +672,7 @@ ORDER BY Id;
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison Engine -Baseline DbaClientXReader -Metric MedianMs
+        comparison Engine -Baseline DbaClientXReader -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
         if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
             readme $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
         }

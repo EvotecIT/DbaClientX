@@ -336,47 +336,29 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 ### Write Benchmark
 
 <!-- sqlserver-data-movement-write-benchmark:start -->
-| Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
-| --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=1000 | Core-7.6.3 | Write | 1.00x (25ms) | 6.39x (161ms) | Skipped | DbaClientX fastest |
-| 1000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=1000 | Core-7.6.3 | Write | 1.00x (21ms) | Skipped | Skipped | DbaClientX only successful |
-| 1000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=1000 | Core-7.6.3 | Write | 1.00x (20ms) | 2.02x (41ms) | Skipped | DbaClientX fastest |
-| 1000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=1000 | Core-7.6.3 | Write | 1.00x (27ms) | 4.15x (111ms) | Skipped | DbaClientX fastest |
-| 100000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=100000 | Core-7.6.3 | Write | 1.00x (3.07s) | 4.34x (13.30s) | Skipped | DbaClientX fastest |
-| 100000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=100000 | Core-7.6.3 | Write | 1.00x (112ms) | Skipped | Skipped | DbaClientX only successful |
-| 100000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=100000 | Core-7.6.3 | Write | 1.00x (134ms) | 1.31x (175ms) | Skipped | DbaClientX fastest |
-| 100000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=100000 | Core-7.6.3 | Write | 1.00x (2.82s) | 4.30x (12.16s) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=20000 | Core-7.6.3 | Write | 1.00x (311ms) | 6.50x (2.02s) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=20000 | Core-7.6.3 | Write | 1.00x (36ms) | Skipped | Skipped | DbaClientX only successful |
-| 20000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=20000 | Core-7.6.3 | Write | 1.00x (37ms) | 1.48x (54ms) | Skipped | DbaClientX fastest |
-| 20000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=20000 | Core-7.6.3 | Write | 1.00x (423ms) | 5.00x (2.11s) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=5000 | Core-7.6.3 | Write | 1.00x (169ms) | 3.93x (665ms) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=5000 | Core-7.6.3 | Write | 1.00x (22ms) | Skipped | Skipped | DbaClientX only successful |
-| 5000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=5000 | Core-7.6.3 | Write | 1.00x (25ms) | 1.78x (44ms) | Skipped | DbaClientX fastest |
-| 5000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=5000 | Core-7.6.3 | Write | 1.00x (114ms) | 4.30x (492ms) | Skipped | DbaClientX fastest |
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 25000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=25000 | Core-7.6.3 | Write | 1.00x (373ms) | 5.70x (2.13s) | DbaClientX fastest |
+| 25000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=25000 | Core-7.6.3 | Write | 1.00x (70ms) | Skipped | DbaClientX only successful |
+| 25000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=25000 | Core-7.6.3 | Write | 1.00x (40ms) | 1.51x (60ms) | DbaClientX fastest |
+| 25000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=25000 | Core-7.6.3 | Write | 1.00x (423ms) | 5.12x (2.17s) | DbaClientX fastest |
 <!-- sqlserver-data-movement-write-benchmark:end -->
 
 ### Read Benchmark
 
 <!-- sqlserver-data-movement-read-benchmark:start -->
-| Scenario | Variables | Host | Operation | DbaClientX | dbatools | SqlServer | Result |
-| --- | --- | --- | --- | ---: | ---: | ---: | --- |
-| 1000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=1000 | Core-7.6.3 | Read | 1.00x (8ms) | 3.45x (26ms) | Skipped | DbaClientX fastest |
-| 1000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=1000 | Core-7.6.3 | Read | 1.00x (11ms) | 2.19x (23ms) | Skipped | DbaClientX fastest |
-| 100000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=100000 | Core-7.6.3 | Read | 1.00x (71ms) | 1.13x (80ms) | Skipped | DbaClientX fastest |
-| 100000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=100000 | Core-7.6.3 | Read | 1.00x (898ms) | 1.68x (1.51s) | Skipped | DbaClientX fastest |
-| 20000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=20000 | Core-7.6.3 | Read | 1.00x (21ms) | 1.70x (36ms) | Skipped | DbaClientX fastest |
-| 20000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=20000 | Core-7.6.3 | Read | 1.00x (105ms) | 1.79x (187ms) | Skipped | DbaClientX fastest |
-| 5000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=5000 | Core-7.6.3 | Read | 1.00x (10ms) | 1.86x (19ms) | Skipped | DbaClientX fastest |
-| 5000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=5000 | Core-7.6.3 | Read | 1.00x (17ms) | 2.90x (51ms) | Skipped | DbaClientX fastest |
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 25000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=25000 | Core-7.6.3 | Read | 1.00x (32ms) | 1.33x (43ms) | DbaClientX fastest |
+| 25000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=25000 | Core-7.6.3 | Read | 1.00x (151ms) | 2.03x (308ms) | DbaClientX fastest |
 <!-- sqlserver-data-movement-read-benchmark:end -->
 
 ## SQL Server CSV Export
 
 <!-- sqlserver-csv-export-benchmark:start -->
-| Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientX | DbaClientXStream | dbatools | FastBCP | Result |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| 100000 rows / CSV export | RowCount=100000 | Core-7.6.3 | Export | 1.00x (65ms) | 4.17x (273ms) | 6.69x (437ms) | 5.25x (343ms) | 1.58x (103ms) | Skipped | DbaClientXReader fastest |
+| Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientXDataTable | DbaClientXPowerShellStream | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 100000 rows / CSV export | RowCount=100000 | Core-7.6.3 | Export | 1.00x (60ms) | 2.36x (142ms) | 6.28x (378ms) | 5.53x (333ms) | 1.44x (87ms) | DbaClientXReader fastest |
 <!-- sqlserver-csv-export-benchmark:end -->
 
 ## Office File Round Trip

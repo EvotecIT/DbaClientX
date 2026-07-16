@@ -24,6 +24,9 @@ param(
     [switch] $KeepArtifacts
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
 
@@ -79,7 +82,15 @@ if ($WarmupCount -lt 0) {
     throw 'WarmupCount cannot be negative.'
 }
 
-Import-Module PSPublishModule -MinimumVersion 3.0.44 -ErrorAction Stop
+if ($Engine -contains 'dbatools') {
+    $requiredCommands = @('Connect-DbaInstance', 'Export-DbaCsv', 'Import-DbaCsv')
+    $missingCommands = @($requiredCommands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
+    if ($missingCommands.Count -gt 0) {
+        throw "The explicitly requested dbatools benchmark engine is unavailable. Missing command(s): $($missingCommands -join ', ')."
+    }
+}
+
+Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
 $benchmarkRunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)
@@ -102,7 +113,9 @@ $settings = {
     $rowCounts = $RowCount
     $fileKinds = $FileKind
     $columnShapes = $ColumnShape
-    $selectedEngines = if ($Engine) { $Engine } else { @('DbaClientX') }
+    $selectedEngines = @(
+        if ($Engine) { $Engine } else { 'DbaClientX' }
+    )
     $benchmarkWarmupCount = $WarmupCount
     $benchmarkIterationCount = $Iterations
 
@@ -247,6 +260,8 @@ FROM numbers;
             $run.Server = $server
             $run.Database = $database
             $run.KeepArtifacts = $keepArtifacts
+            $run.ExportMs = 0.0
+            $run.LoadMs = 0.0
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $laneToken = '{0}_{1}_{2}_{3}_{4}' -f $benchmarkRunToken, $case.Engine, $case.FileKind, $case.ColumnShape, $case.RowCount
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f $laneToken
@@ -326,6 +341,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
 
                 if ($case.FileKind -in @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')) {
+                    $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $csvExportParameters = @{
                         Path = $run.FilePath
                         ErrorAction = 'Stop'
@@ -371,9 +387,13 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                         $client.Dispose()
                     }
+                    $exportTimer.Stop()
+                    $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
 
+                    $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $imported = Import-OfficeCsv @csvImportParameters
                 } elseif ($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')) {
+                    $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
                         $run.Server,
                         $run.Database,
@@ -399,7 +419,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                         $client.Dispose()
                     }
+                    $exportTimer.Stop()
+                    $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
 
+                    $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $excelImportParameters = @{
                         Path = $run.FilePath
                         WorksheetName = 'Data'
@@ -410,6 +433,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                     $imported = Import-OfficeExcel @excelImportParameters
                 } else {
+                    $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $data = Invoke-DbaXQuery `
                         -Server $run.Server `
                         -Database $run.Database `
@@ -420,6 +444,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         -ErrorAction Stop
 
                     $data | Export-OfficeExcel -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
+                    $exportTimer.Stop()
+                    $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
+
+                    $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
                 }
 
@@ -454,6 +482,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         $imported.Dispose()
                     }
                 }
+                $loadTimer.Stop()
+                $run.LoadMs = $loadTimer.Elapsed.TotalMilliseconds
             }
         }
 
@@ -463,6 +493,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
 
+                $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
                 $exportParameters = @{
                     SqlInstance = $run.DbatoolsInstance
                     Database = $run.Database
@@ -478,7 +509,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
 
                 Export-DbaCsv @exportParameters | Out-Null
+                $exportTimer.Stop()
+                $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
 
+                $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
                 $importParameters = @{
                     Path = $run.FilePath
                     SqlInstance = $run.DbatoolsInstance
@@ -504,6 +538,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
 
                 Import-DbaCsv @importParameters | Out-Null
+                $loadTimer.Stop()
+                $run.LoadMs = $loadTimer.Elapsed.TotalMilliseconds
             }
         }
 
@@ -542,10 +578,6 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 & $assertTypedSchema -FileKind $case.FileKind -TableName $run.DestinationTable -Columns @($schema)
             }
 
-            if ($null -ne $run.RowsWritten -and $run.RowsWritten -ne [int] $case.RowCount) {
-                throw "$($case.FileKind) round trip wrote $($run.RowsWritten) of $($case.RowCount) expected row(s)."
-            }
-
             $run.RowsProcessed = $actual.Rows
             $run.IdSum = $actual.IdSum
             $run.ScoreSum = $actual.ScoreSum
@@ -562,6 +594,18 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             param($case, $run)
 
             $run.RowsProcessed
+        }
+
+        metric ExportMs {
+            param($case, $run)
+
+            $run.ExportMs
+        }
+
+        metric LoadMs {
+            param($case, $run)
+
+            $run.LoadMs
         }
 
         metric IdSum {
@@ -587,7 +631,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
         }
 
         if ($selectedEngines.Count -gt 1) {
-            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs
+            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
             }

@@ -25,8 +25,6 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
-        ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
-
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
         BulkInsert(connectionString, reader, destinationTable, options, useTransaction, batchSize, bulkCopyTimeout);
     }
@@ -60,7 +58,7 @@ public partial class SqlServer
         int? bulkCopyTimeout = null)
     {
         ValidateConnectionString(connectionString);
-        ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
+        var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -69,9 +67,9 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
-            EnsureAutoCreatedDestinationTable(connection!, transaction, reader, destinationTable, options);
+            EnsureAutoCreatedDestinationTable(connection!, transaction, columns, destinationTable, options);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
-            ConfigureBulkCopy(bulkCopy, reader, destinationTable, batchSize, bulkCopyTimeout, options);
+            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options);
             WriteToServer(bulkCopy, reader);
         }
         catch (DbaTransactionException)
@@ -120,8 +118,6 @@ public partial class SqlServer
         string? username = null,
         string? password = null)
     {
-        ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
-
         var connectionString = BuildConnectionString(serverOrInstance, database, integratedSecurity, username, password);
         await BulkInsertAsync(connectionString, reader, destinationTable, options, useTransaction, batchSize, bulkCopyTimeout, cancellationToken).ConfigureAwait(false);
     }
@@ -157,7 +153,7 @@ public partial class SqlServer
         CancellationToken cancellationToken = default)
     {
         ValidateConnectionString(connectionString);
-        ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
+        var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -166,9 +162,9 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, reader, destinationTable, options, cancellationToken).ConfigureAwait(false);
+            await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, columns, destinationTable, options, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
-            ConfigureBulkCopy(bulkCopy, reader, destinationTable, batchSize, bulkCopyTimeout, options);
+            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options);
             await AwaitWithCallerCancellationAsync(
                 () => WriteToServerAsync(bulkCopy, reader, cancellationToken),
                 cancellationToken).ConfigureAwait(false);
@@ -200,7 +196,7 @@ public partial class SqlServer
         CancellationToken cancellationToken = default)
         => BulkInsertAsync(connectionString, reader, destinationTable, options: null, useTransaction, batchSize, bulkCopyTimeout, cancellationToken);
 
-    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, IDataReader reader, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
+    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, IReadOnlyList<SqlServerBulkSourceColumn> columns, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
         bulkCopy.DestinationTableName = ResolveBulkCopyDestinationTableName(destinationTable, options);
         bulkCopy.EnableStreaming = true;
@@ -226,13 +222,13 @@ public partial class SqlServer
             bulkCopy.NotifyAfter = notifyAfter.Value;
         }
 
-        foreach (var column in GetReaderColumns(reader, options?.ColumnMappings))
+        foreach (var column in columns)
         {
             bulkCopy.ColumnMappings.Add(column.Ordinal, column.DestinationName);
         }
     }
 
-    private static void ValidateBulkInsertInputs(IDataReader reader, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options = null)
+    private static IReadOnlyList<SqlServerBulkSourceColumn> ValidateBulkInsertInputs(IDataReader reader, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options = null)
     {
         if (reader == null)
         {
@@ -264,10 +260,10 @@ public partial class SqlServer
             throw new ArgumentOutOfRangeException(nameof(SqlServerBulkInsertOptions.NotifyAfter), "NotifyAfter must be greater than zero.");
         }
 
-        ValidateColumnMappings(reader, options?.ColumnMappings);
+        return GetValidatedReaderColumns(reader, options?.ColumnMappings);
     }
 
-    private static void ValidateColumnMappings(IDataReader reader, IDictionary<string, string>? columnMappings)
+    private static IReadOnlyList<SqlServerBulkSourceColumn> GetValidatedReaderColumns(IDataReader reader, IDictionary<string, string>? columnMappings)
     {
         if (columnMappings != null)
         {
@@ -283,7 +279,22 @@ public partial class SqlServer
                     throw new ArgumentException("Column mapping destination cannot be null or whitespace.", nameof(columnMappings));
                 }
 
-                if (!ContainsColumn(reader, mapping.Key, columnMappings))
+            }
+        }
+
+        var columns = GetReaderColumns(reader, columnMappings);
+        if (columnMappings != null)
+        {
+            var comparer = GetComparer(columnMappings);
+            var sourceColumns = new HashSet<string>(comparer);
+            foreach (var column in columns)
+            {
+                sourceColumns.Add(column.SourceName);
+            }
+
+            foreach (var mapping in columnMappings)
+            {
+                if (!sourceColumns.Contains(mapping.Key))
                 {
                     throw new ArgumentException($"Column mapping source '{mapping.Key}' does not exist in the source reader.", nameof(columnMappings));
                 }
@@ -291,27 +302,15 @@ public partial class SqlServer
         }
 
         var destinationColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var column in GetReaderColumns(reader, columnMappings))
+        foreach (var column in columns)
         {
             if (!destinationColumns.Add(column.DestinationName))
             {
                 throw new ArgumentException($"Column mappings produce duplicate destination column '{column.DestinationName}'.", nameof(columnMappings));
             }
         }
-    }
 
-    private static bool ContainsColumn(IDataReader reader, string columnName, IDictionary<string, string> columnMappings)
-    {
-        var comparer = GetComparer(columnMappings);
-        foreach (var sourceName in GetReaderSourceNames(reader, columnMappings))
-        {
-            if (comparer.Equals(sourceName, columnName))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return columns;
     }
 
     private static IReadOnlyList<SqlServerBulkSourceColumn> GetReaderColumns(IDataReader reader, IDictionary<string, string>? columnMappings)
@@ -370,13 +369,13 @@ public partial class SqlServer
 
     private static Dictionary<int, DataRow> GetReaderSchemaRows(IDataReader reader)
     {
-        var rows = new Dictionary<int, DataRow>();
         var schema = reader.GetSchemaTable();
         if (schema == null)
         {
-            return rows;
+            return new Dictionary<int, DataRow>();
         }
 
+        var rows = new Dictionary<int, DataRow>(schema.Rows.Count);
         foreach (DataRow row in schema.Rows)
         {
             if (TryGetSchemaValue<int>(row, "ColumnOrdinal", out var ordinal))

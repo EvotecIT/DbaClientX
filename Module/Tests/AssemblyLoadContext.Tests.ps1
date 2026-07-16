@@ -144,11 +144,13 @@ Import-Module DbaClientX -Force
 
         $result.DefaultConflictAssembly | Should -Be $conflictAssemblyPath
         $result.DefaultConflictALCIsDefault | Should -BeTrue
-        $result.InvokeDbaXQueryAssembly | Should -BeLike '*\Module\Artefacts\Unpacked\DbaClientX\Lib\Core\DBAClientX.PowerShell.dll'
+        $expectedCommandAssembly = [IO.Path]::GetFullPath((Join-Path $packagedModuleRoot 'DbaClientX/Lib/Core/DBAClientX.PowerShell.dll'))
+        $result.InvokeDbaXQueryAssembly | Should -Be $expectedCommandAssembly
         $result.InvokeDbaXQueryALC | Should -Be 'DbaClientX'
         $result.InvokeDbaXQueryALCIsDefault | Should -BeFalse
         if ($IsWindows) {
-            $result.ModuleSqlClientAssembly | Should -BeLike '*\Module\Artefacts\Unpacked\DbaClientX\Lib\Core\runtimes\win\lib\net8.0\Microsoft.Data.SqlClient.dll'
+            $expectedSqlClientAssembly = [IO.Path]::GetFullPath((Join-Path $packagedModuleRoot 'DbaClientX/Lib/Core/runtimes/win/lib/net8.0/Microsoft.Data.SqlClient.dll'))
+            $result.ModuleSqlClientAssembly | Should -Be $expectedSqlClientAssembly
         }
 
         $loadedAssemblies = @($result.LoadedAssemblies)

@@ -43,7 +43,7 @@ public partial class SqlServer
     private void EnsureAutoCreatedDestinationTable(
         SqlConnection connection,
         SqlTransaction? transaction,
-        IDataReader reader,
+        IReadOnlyList<SqlServerBulkSourceColumn> columns,
         string destinationTable,
         SqlServerBulkInsertOptions? options)
     {
@@ -65,7 +65,7 @@ public partial class SqlServer
         ExecuteBulkInsertSetupCommand(
             connection,
             transaction,
-            BuildCreateTableCommand(reader, destination, options.ColumnMappings),
+            BuildCreateTableCommand(columns, destination),
             new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName });
     }
 
@@ -106,7 +106,7 @@ public partial class SqlServer
     private async Task EnsureAutoCreatedDestinationTableAsync(
         SqlConnection connection,
         SqlTransaction? transaction,
-        IDataReader reader,
+        IReadOnlyList<SqlServerBulkSourceColumn> columns,
         string destinationTable,
         SqlServerBulkInsertOptions? options,
         CancellationToken cancellationToken)
@@ -131,7 +131,7 @@ public partial class SqlServer
         await ExecuteBulkInsertSetupCommandAsync(
                 connection,
                 transaction,
-                BuildCreateTableCommand(reader, destination, options.ColumnMappings),
+                BuildCreateTableCommand(columns, destination),
                 new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -229,11 +229,9 @@ public partial class SqlServer
     }
 
     private static string BuildCreateTableCommand(
-        IDataReader reader,
-        SqlServerDestinationTable destination,
-        IDictionary<string, string>? columnMappings)
+        IReadOnlyList<SqlServerBulkSourceColumn> columns,
+        SqlServerDestinationTable destination)
     {
-        var columns = GetReaderColumns(reader, columnMappings);
         var builder = new StringBuilder();
         builder.AppendLine("IF OBJECT_ID(@objectName, N'U') IS NULL");
         builder.AppendLine("BEGIN");
