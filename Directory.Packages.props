@@ -28,7 +28,8 @@
 
   <ItemGroup>
     <!-- Keep these conditional pins aligned with the TFMs each provider still ships assets for. -->
-    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.3" Condition="'$(TargetFramework)' == 'net8.0'" />
+    <!-- PowerShell 7.6 no longer supplies net8.0 compile assets; retain the supported 7.4 line for net8.0. -->
+    <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.4.14" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.3" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Npgsql" Version="8.0.9" Condition="'$(TargetFramework)' == 'net472'" />
     <PackageVersion Include="Npgsql" Version="10.0.3" Condition="'$(TargetFramework)' != 'net472'" />
