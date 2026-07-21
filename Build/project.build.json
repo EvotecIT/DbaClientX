@@ -4,6 +4,7 @@
   "ExpectedVersion": null,
   "ExpectedVersionMap": {
     "DbaClientX.Core": "0.X.0",
+    "DbaClientX.AzureTables": "0.X.0",
     "DbaClientX.SqlServer": "0.X.0",
     "DbaClientX.PostgreSql": "0.X.0",
     "DbaClientX.MySql": "0.X.0",
@@ -15,6 +16,8 @@
   "ExcludeProjects": [
     "DbaClientX.PowerShell",
     "DbaClientX.Tests",
+    "DbaClientX.AzureTables.Tests",
+    "DbaClientX.Benchmarks",
     "DbaClientX.Examples"
   ],
   "NugetSource": [],

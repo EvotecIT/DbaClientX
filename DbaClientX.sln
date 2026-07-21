@@ -20,6 +20,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.SQLite", "DbaCli
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Oracle", "DbaClientX.Oracle\DbaClientX.Oracle.csproj", "{67F2B6FC-362C-495A-8270-02E0932C8EA9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.AzureTables", "DbaClientX.AzureTables\DbaClientX.AzureTables.csproj", "{A641FF8F-83CC-41AC-A809-C00B7DCA3E0E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.AzureTables.Tests", "DbaClientX.AzureTables.Tests\DbaClientX.AzureTables.Tests.csproj", "{08815FC8-468E-4186-9723-3A8B9FF790DC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Benchmarks", "DbaClientX.Benchmarks\DbaClientX.Benchmarks.csproj", "{12FCA2AE-215C-4EE0-8B15-678FED13AF82}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -62,6 +68,18 @@ Global
 		{67F2B6FC-362C-495A-8270-02E0932C8EA9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{67F2B6FC-362C-495A-8270-02E0932C8EA9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{67F2B6FC-362C-495A-8270-02E0932C8EA9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A641FF8F-83CC-41AC-A809-C00B7DCA3E0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A641FF8F-83CC-41AC-A809-C00B7DCA3E0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A641FF8F-83CC-41AC-A809-C00B7DCA3E0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A641FF8F-83CC-41AC-A809-C00B7DCA3E0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{08815FC8-468E-4186-9723-3A8B9FF790DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08815FC8-468E-4186-9723-3A8B9FF790DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08815FC8-468E-4186-9723-3A8B9FF790DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08815FC8-468E-4186-9723-3A8B9FF790DC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

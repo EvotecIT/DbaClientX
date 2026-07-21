@@ -17,6 +17,9 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
             'Invoke-DbaXStoredProcedure'
             'Invoke-DbaXQueryStream'
             'Invoke-DbaXBulkInsert'
+            'Get-DbaXAzureTableEntity'
+            'Write-DbaXAzureTableEntity'
+            'Copy-DbaXAzureTableData'
         )
 
         foreach ($commandName in $expectedCommands) {
@@ -35,6 +38,21 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $sqlite = New-DbaXConnectionString -Provider SQLite -Database '.\app.db' -BusyTimeoutMs 2500
         $sqlite | Should -Match 'Data Source=.*app\.db'
         $sqlite | Should -Match 'Default Timeout=3'
+    }
+
+    It 'refuses to clear the source Azure Table when table-name casing differs' {
+        $key = [Convert]::ToBase64String([byte[]](1..32))
+        $connectionString = "DefaultEndpointsProtocol=https;AccountName=phaseonetest;AccountKey=$key;EndpointSuffix=core.windows.net"
+
+        {
+            Copy-DbaXAzureTableData `
+                -SourceConnectionString $connectionString `
+                -DestinationConnectionString $connectionString `
+                -SourceTable Reports `
+                -DestinationTable reports `
+                -ClearDestination `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*cannot be the same table*'
     }
 
     It 'returns provider capability metadata' {

@@ -10,6 +10,7 @@ DbaClientX is a lightweight database client for .NET and PowerShell. It keeps th
 [![DBAClientX.MySql](https://img.shields.io/nuget/v/DBAClientX.MySql?label=MySQL)](https://www.nuget.org/packages/DBAClientX.MySql)
 [![DBAClientX.SQLite](https://img.shields.io/nuget/v/DBAClientX.SQLite?label=SQLite)](https://www.nuget.org/packages/DBAClientX.SQLite)
 [![DBAClientX.Oracle](https://img.shields.io/nuget/v/DBAClientX.Oracle?label=Oracle)](https://www.nuget.org/packages/DBAClientX.Oracle)
+[![DbaClientX.AzureTables](https://img.shields.io/nuget/v/DbaClientX.AzureTables?label=Azure%20Tables)](https://www.nuget.org/packages/DbaClientX.AzureTables)
 
 ## PowerShell Module
 
@@ -39,7 +40,7 @@ The PowerShell module stays small and operator-friendly; the heavy database logi
 
 Use it when you need:
 
-- one codebase for SQL Server, PostgreSQL, MySQL, SQLite, and Oracle
+- one codebase for SQL Server, PostgreSQL, MySQL, SQLite, Oracle, and Azure Tables
 - sync and async query execution
 - consistent caller cancellation across query, scalar, non-query, reader, streaming, stored procedure, and bulk APIs; provider-specific cancellation failures are normalized to `OperationCanceledException` with the caller's token
 - parameterized commands and provider-specific parameter type preservation
@@ -57,6 +58,7 @@ Use it when you need:
 | MySQL | [DBAClientX.MySql](https://www.nuget.org/packages/DBAClientX.MySql) | `Invoke-DbaXMySql`, `Invoke-DbaXMySqlNonQuery`, `Invoke-DbaXMySqlScalar` | `Write-DbaXTableData -Provider MySql` | `Invoke-DbaXMySqlTransaction` |
 | SQLite | [DBAClientX.SQLite](https://www.nuget.org/packages/DBAClientX.SQLite) | `Invoke-DbaXSQLite` | `Write-DbaXTableData -Provider SQLite` | `Invoke-DbaXSQLiteTransaction` |
 | Oracle | [DBAClientX.Oracle](https://www.nuget.org/packages/DBAClientX.Oracle) | `Invoke-DbaXOracle`, `Invoke-DbaXOracleNonQuery`, `Invoke-DbaXOracleScalar` | `Write-DbaXTableData -Provider Oracle` | `Invoke-DbaXOracleTransaction` |
+| Azure Storage Tables / Cosmos DB Table API | [DbaClientX.AzureTables](https://www.nuget.org/packages/DbaClientX.AzureTables) | `Get-DbaXAzureTableEntity` | `Write-DbaXAzureTableEntity` | Same-partition transactions through the adapter |
 
 ## Data Movement
 
@@ -67,6 +69,8 @@ Start with the job you need to finish:
 | Write PowerShell objects, `DataTable`, `DataView`, `IDataReader`, or Excel-imported rows to a table | `Write-DbaXTableData` | Uses provider-native database writes |
 | Load a SQL Server staging table and let the command create the table, map columns, lock the table, preserve identities/nulls, fire triggers, check constraints, or report progress | `Write-DbaXTableData -Provider SqlServer` | SQL Server-specific knobs map to `SqlServerBulkInsertOptions` |
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | Uses reusable copy definitions plus provider adapters |
+| Stream Azure Table entities between accounts or Table API endpoints | `Copy-DbaXAzureTableData` | Preserves native continuation tokens and keeps each write transaction inside one partition |
+| Query or upsert Azure Table entities from PowerShell | `Get-DbaXAzureTableEntity` / `Write-DbaXAzureTableEntity` | Requires `PartitionKey` and `RowKey`; transaction batches are capped at 100 entities and the service payload limit |
 | Export SQL rows to CSV, compressed CSV, or Excel | `SqlServer.QueryReader(...)` or `Invoke-DbaXQuery -ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
 | Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataReader` / `Import-OfficeExcel -AsDataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
 | Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | Pass the reader as a single input object with `, $reader` |
@@ -94,6 +98,7 @@ dotnet add package DBAClientX.PostgreSql
 dotnet add package DBAClientX.MySql
 dotnet add package DBAClientX.SQLite
 dotnet add package DBAClientX.Oracle
+dotnet add package DbaClientX.AzureTables
 ```
 
 Install only the provider packages you need.
@@ -118,6 +123,27 @@ Invoke-DbaXMySql -Server 'mysql01' -Database 'app' -Query 'select * from users l
 Invoke-DbaXOracle -Server 'ora01' -Database 'service' -Query 'select * from users fetch first 10 rows only' -Credential $Credential
 Invoke-DbaXSQLite -Database '.\app.db' -Query 'select * from users limit 10'
 ```
+
+### Azure Tables
+
+Azure queries expose the provider continuation tokens through `-AsPage`; ordinary use streams all returned entities:
+
+```powershell
+$daily = Get-DbaXAzureTableEntity `
+    -ConnectionString $sourceConnectionString `
+    -TableName Reports `
+    -Filter "PartitionKey eq 'daily'"
+
+$daily | Write-DbaXAzureTableEntity `
+    -ConnectionString $archiveConnectionString `
+    -TableName ReportsArchive `
+    -WriteMode UpsertReplace `
+    -PassThru
+```
+
+Use `Copy-DbaXAzureTableData` for a streaming account-to-account copy. Row-count verification is enabled by default and performs additional full-table scans; use `-NoVerify` when that cost is not appropriate. `-ClearDestination` is explicit and cannot target the same source table.
+
+Adapter authors upgrading to `DbaClientX.Core` 0.14 must return `DbaTableCopyPage` from `IDbaTableCopySource.ReadPageAsync`, carrying the provider's opaque continuation token in the page result. The offset constructor on `DbaTableCopyPageRequest` remains temporarily available for callers, but provider implementations should no longer invent paging state in consumers.
 
 ### Build SQL
 
