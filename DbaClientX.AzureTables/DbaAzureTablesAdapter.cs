@@ -110,7 +110,9 @@ public sealed class DbaAzureTablesAdapter :
         {
             throw new ArgumentNullException(nameof(page));
         }
-        _ = DbaAzureTableDataMapper.ToEntities(page);
+        IReadOnlyList<DbaAzureTableEntity> entities = DbaAzureTableDataMapper.ToEntities(page);
+        DbaAzureTableDataMapper.ValidateEntities(entities);
+        _ = DbaAzureTableBatchPlanner.Plan(entities, _options.BatchSize);
     }
 
     /// <inheritdoc />

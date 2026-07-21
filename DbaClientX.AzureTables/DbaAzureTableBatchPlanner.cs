@@ -1,8 +1,12 @@
+using System.Text;
+
 namespace DBAClientX.AzureTables;
 
 /// <summary>Plans transaction batches that stay inside one Azure Table partition.</summary>
 public static class DbaAzureTableBatchPlanner
 {
+    private const int MaximumKeyPayloadBytes = 1024;
+    private const int ConservativeEntityPayloadLimit = 1_000_000;
     private const int ConservativeTransactionPayloadLimit = 1_750_000;
 
     /// <summary>Groups entities by partition and splits each group into batches of at most 100 entities.</summary>
@@ -20,8 +24,19 @@ public static class DbaAzureTableBatchPlanner
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Azure Table transaction size must be between 1 and 100.");
         }
 
+        var entityList = entities.ToArray();
+        foreach (DbaAzureTableEntity? entity in entityList)
+        {
+            if (entity == null)
+            {
+                throw new ArgumentException("Azure Table entity collections cannot contain null values.", nameof(entities));
+            }
+            ValidateKey(entity.PartitionKey, "PartitionKey", entity);
+            ValidateKey(entity.RowKey, "RowKey", entity);
+        }
+
         var batches = new List<IReadOnlyList<DbaAzureTableEntity>>();
-        foreach (var partition in entities.GroupBy(static entity => entity.PartitionKey, StringComparer.Ordinal))
+        foreach (var partition in entityList.GroupBy(static entity => entity.PartitionKey, StringComparer.Ordinal))
         {
             var batch = new List<DbaAzureTableEntity>(batchSize);
             var batchBytes = 0;
@@ -29,10 +44,10 @@ public static class DbaAzureTableBatchPlanner
             foreach (var entity in partition)
             {
                 var entityBytes = EstimatePayloadBytes(entity);
-                if (entityBytes > ConservativeTransactionPayloadLimit)
+                if (entityBytes > ConservativeEntityPayloadLimit)
                 {
                     throw new ArgumentException(
-                        $"Azure Table entity '{entity.PartitionKey}/{entity.RowKey}' is too large for a transaction payload.",
+                        $"Azure Table entity '{entity.PartitionKey}/{entity.RowKey}' exceeds the conservative 1 MB entity payload limit.",
                         nameof(entities));
                 }
 
@@ -57,6 +72,26 @@ public static class DbaAzureTableBatchPlanner
         }
 
         return batches;
+    }
+
+    private static void ValidateKey(string value, string keyName, DbaAzureTableEntity entity)
+    {
+        if (Encoding.UTF8.GetByteCount(value) > MaximumKeyPayloadBytes)
+        {
+            throw new ArgumentException(
+                $"Azure Table {keyName} for entity '{entity.PartitionKey}/{entity.RowKey}' exceeds the 1 KiB payload limit.",
+                nameof(entity));
+        }
+
+        foreach (char character in value)
+        {
+            if (character is '/' or '\\' or '#' or '?' || character <= '\u001f' || character is >= '\u007f' and <= '\u009f')
+            {
+                throw new ArgumentException(
+                    $"Azure Table {keyName} for entity '{entity.PartitionKey}/{entity.RowKey}' contains a forbidden character.",
+                    nameof(entity));
+            }
+        }
     }
 
     private static int EstimatePayloadBytes(DbaAzureTableEntity entity)

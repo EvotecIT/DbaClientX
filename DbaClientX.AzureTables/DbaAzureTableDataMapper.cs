@@ -1,9 +1,11 @@
 using System.Data;
+using System.Text;
 
 namespace DBAClientX.AzureTables;
 
 internal static class DbaAzureTableDataMapper
 {
+    private const int MaximumPropertyPayloadBytes = 64 * 1024;
     private static readonly string[] SystemColumns = { "PartitionKey", "RowKey", "Timestamp", "ETag" };
 
     public static DataTable ToDataTable(string tableName, IReadOnlyList<DbaAzureTableEntity> entities)
@@ -140,7 +142,13 @@ internal static class DbaAzureTableDataMapper
         {
             null => null,
             DateTime dateTime => new DateTimeOffset(dateTime.ToUniversalTime(), TimeSpan.Zero),
-            string or byte[] or bool or double or Guid or int or long or DateTimeOffset => value,
+            string text when Encoding.Unicode.GetByteCount(text) <= MaximumPropertyPayloadBytes => text,
+            string => throw new ArgumentException(
+                $"Azure Table string property '{propertyName}' exceeds the 64 KiB UTF-16 payload limit."),
+            byte[] bytes when bytes.Length <= MaximumPropertyPayloadBytes => bytes,
+            byte[] => throw new ArgumentException(
+                $"Azure Table binary property '{propertyName}' exceeds the 64 KiB payload limit."),
+            bool or double or Guid or int or long or DateTimeOffset => value,
             _ => throw new ArgumentException(
                 $"Azure Table property '{propertyName}' has unsupported CLR type '{value.GetType().FullName}'. " +
                 "Supported values are string, byte[], bool, double, Guid, int, long, DateTime, DateTimeOffset, or null.")

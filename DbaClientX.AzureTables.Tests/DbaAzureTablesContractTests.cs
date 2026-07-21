@@ -80,12 +80,16 @@ public class DbaAzureTablesContractTests
     [Fact]
     public void BatchPlannerSplitsLargeSamePartitionPayloadsBeforeAzureLimit()
     {
-        var payload = new string('x', 900_000);
+        var properties = Enumerable.Range(0, 30)
+            .ToDictionary(
+                static index => $"Payload{index}",
+                static _ => (object?)new string('x', 30_000),
+                StringComparer.Ordinal);
         var entities = Enumerable.Range(0, 4)
             .Select(index => new DbaAzureTableEntity(
                 "p1",
                 index.ToString(),
-                new Dictionary<string, object?> { ["Payload"] = payload }))
+                properties))
             .ToArray();
 
         var batches = DbaAzureTableBatchPlanner.Plan(entities);
@@ -155,6 +159,80 @@ public class DbaAzureTablesContractTests
         };
         var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
         var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(store, new DbaAzureTablesOptions { AllowClearDestination = true });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("Source", "Destination") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Null(store.ClearedTable);
+    }
+
+    [Fact]
+    public async Task InvalidKeysFailBeforeDestinationClear()
+    {
+        var store = new RecordingStore
+        {
+            QueryResult = new DbaAzureTablePage(new[] { new DbaAzureTableEntity("bad/key", "r1") })
+        };
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(
+            store,
+            new DbaAzureTablesOptions { AllowClearDestination = true });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("Source", "Destination") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Null(store.ClearedTable);
+    }
+
+    [Fact]
+    public async Task OversizedPropertiesFailBeforeDestinationClear()
+    {
+        var store = new RecordingStore
+        {
+            QueryResult = new DbaAzureTablePage(new[]
+            {
+                new DbaAzureTableEntity(
+                    "p1",
+                    "r1",
+                    new Dictionary<string, object?> { ["Payload"] = new string('x', 40_000) })
+            })
+        };
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(
+            store,
+            new DbaAzureTablesOptions { AllowClearDestination = true });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("Source", "Destination") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Null(store.ClearedTable);
+    }
+
+    [Fact]
+    public async Task OversizedEntitiesFailBeforeDestinationClear()
+    {
+        var properties = Enumerable.Range(0, 34)
+            .ToDictionary(
+                static index => $"Payload{index}",
+                static _ => (object?)new string('x', 30_000),
+                StringComparer.Ordinal);
+        var store = new RecordingStore
+        {
+            QueryResult = new DbaAzureTablePage(new[] { new DbaAzureTableEntity("p1", "r1", properties) })
+        };
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(
+            store,
+            new DbaAzureTablesOptions { AllowClearDestination = true });
 
         await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
             source,
