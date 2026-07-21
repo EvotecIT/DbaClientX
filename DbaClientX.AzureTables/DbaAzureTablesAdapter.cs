@@ -81,16 +81,20 @@ public sealed class DbaAzureTablesAdapter :
             throw new ArgumentOutOfRangeException(nameof(options), "Azure Table transaction size must be between 1 and 100.");
         }
 
+        IReadOnlyList<DbaAzureTableEntity> entities = DbaAzureTableDataMapper.ToEntities(page);
+        DbaAzureTableDataMapper.ValidateEntities(entities);
+        _ = DbaAzureTableBatchPlanner.Plan(entities, batchSize);
+
         if (_options.CreateDestinationTable)
         {
             await _store.CreateTableIfNotExistsAsync(definition.DestinationName, cancellationToken).ConfigureAwait(false);
         }
 
-        if (page.Rows.Count > 0)
+        if (entities.Count > 0)
         {
             await _store.WriteAsync(
                     definition.DestinationName,
-                    DbaAzureTableDataMapper.ToEntities(page),
+                    entities,
                     _options.WriteMode,
                     batchSize,
                     cancellationToken)

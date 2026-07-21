@@ -64,6 +64,25 @@ public class DbaAzureTablesContractTests
     }
 
     [Fact]
+    public async Task DestinationAdapterRejectsInvalidRowsBeforeCreatingTable()
+    {
+        var store = new RecordingStore();
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(store);
+        var table = new DataTable();
+        table.Columns.Add("PartitionKey", typeof(string));
+        table.Columns.Add("RowKey", typeof(string));
+        table.Rows.Add("tenant-a", "bad/key");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => destination.WritePageAsync(
+            new DbaTableCopyDefinition("SourceTable", "DestinationTable"),
+            table,
+            new DbaTableCopyOptions()));
+
+        Assert.Null(store.CreatedTable);
+        Assert.Null(store.WrittenTable);
+    }
+
+    [Fact]
     public void BatchPlannerKeepsEachBatchInsideOnePartitionAndUnderLimit()
     {
         var entities = Enumerable.Range(0, 205)
