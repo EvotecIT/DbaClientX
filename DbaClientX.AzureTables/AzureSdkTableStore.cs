@@ -81,9 +81,11 @@ public sealed class AzureSdkTableStore : IDbaAzureTableStore
             throw new ArgumentNullException(nameof(entities));
         }
         ValidateBatchSize(batchSize);
+        DbaAzureTableDataMapper.ValidateEntities(entities);
+        var batches = DbaAzureTableBatchPlanner.Plan(entities, batchSize);
         var client = GetTableClient(tableName);
 
-        foreach (var batch in DbaAzureTableBatchPlanner.Plan(entities, batchSize))
+        foreach (var batch in batches)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var actions = batch
@@ -171,33 +173,17 @@ public sealed class AzureSdkTableStore : IDbaAzureTableStore
         var tableEntity = new TableEntity(entity.PartitionKey, entity.RowKey);
         foreach (var property in entity.Properties)
         {
-            if (IsSystemProperty(property.Key))
-            {
-                continue;
-            }
-
-            tableEntity[property.Key] = NormalizePropertyValue(property.Key, property.Value);
+            tableEntity[property.Key] = DbaAzureTableDataMapper.NormalizePropertyValue(property.Key, property.Value);
         }
 
         return tableEntity;
     }
 
-    private static object? NormalizePropertyValue(string propertyName, object? value)
-        => value switch
-        {
-            null => null,
-            DateTime dateTime => new DateTimeOffset(dateTime.ToUniversalTime(), TimeSpan.Zero),
-            string or byte[] or bool or double or Guid or int or long or DateTimeOffset => value,
-            _ => throw new ArgumentException(
-                $"Azure Table property '{propertyName}' has unsupported CLR type '{value.GetType().FullName}'. " +
-                "Supported values are string, byte[], bool, double, Guid, int, long, DateTime, DateTimeOffset, or null.")
-        };
-
     private static bool IsSystemProperty(string name)
-        => string.Equals(name, "PartitionKey", StringComparison.OrdinalIgnoreCase) ||
-           string.Equals(name, "RowKey", StringComparison.OrdinalIgnoreCase) ||
-           string.Equals(name, "Timestamp", StringComparison.OrdinalIgnoreCase) ||
-           string.Equals(name, "ETag", StringComparison.OrdinalIgnoreCase);
+        => string.Equals(name, "PartitionKey", StringComparison.Ordinal) ||
+           string.Equals(name, "RowKey", StringComparison.Ordinal) ||
+           string.Equals(name, "Timestamp", StringComparison.Ordinal) ||
+           string.Equals(name, "ETag", StringComparison.Ordinal);
 
     private static TableTransactionActionType ToActionType(DbaAzureTableWriteMode mode)
         => mode switch

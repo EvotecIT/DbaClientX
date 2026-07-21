@@ -45,6 +45,10 @@ public sealed class DbaTableCopyEngine
         if (options.ClearDestination)
         {
             ValidateUniqueClearDestinations(copyDefinitions);
+            if (destination is IDbaTableCopyClearSafetyValidator clearSafetyValidator)
+            {
+                clearSafetyValidator.ValidateClearOperation(source, copyDefinitions);
+            }
         }
 
         var sw = Stopwatch.StartNew();
@@ -112,15 +116,18 @@ public sealed class DbaTableCopyEngine
                         : options.PageSize;
                     firstPage = await source.ReadPageAsync(
                             new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: pageSize),
-                            cancellationToken)
+                        cancellationToken)
                         .ConfigureAwait(false);
+                    results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
                     if (firstPage.Data.Columns.Count > 0)
                     {
                         PreflightTransform(firstPage.Data, definition, destinationPagePreflight);
                     }
                 }
-
-                results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
+                else
+                {
+                    results[index] = new DbaTableCopyPreflight(sourceRows, firstPage);
+                }
             }
 
             return results;

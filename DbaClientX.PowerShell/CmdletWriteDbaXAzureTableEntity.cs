@@ -63,7 +63,42 @@ public sealed class CmdletWriteDbaXAzureTableEntity : AsyncPSCmdlet
             return;
         }
 
-        using var table = PowerShellDataTableConverter.ToDataTable(_input, TableName);
+        var nativeEntities = new List<DbaAzureTableEntity>(_input.Count);
+        var hasNonEntityInput = false;
+        foreach (object? item in _input)
+        {
+            object? candidate = item is PSObject psObject ? psObject.BaseObject : item;
+            if (candidate is DbaAzureTableEntity entity)
+            {
+                nativeEntities.Add(entity);
+            }
+            else
+            {
+                hasNonEntityInput = true;
+            }
+        }
+
+        if (nativeEntities.Count > 0 && hasNonEntityInput)
+        {
+            throw new PSArgumentException("DbaAzureTableEntity input cannot be mixed with projected PowerShell objects in one write operation.");
+        }
+
+        int rows;
+        if (nativeEntities.Count > 0)
+        {
+            await new DbaAzureTablesClient(ConnectionString).WriteAsync(
+                    TableName,
+                    nativeEntities,
+                    WriteMode,
+                    BatchSize,
+                    createTable: !NoCreateTable.IsPresent,
+                    cancellationToken: CancelToken)
+                .ConfigureAwait(false);
+            rows = nativeEntities.Count;
+        }
+        else
+        {
+            using var table = PowerShellDataTableConverter.ToDataTable(_input, TableName);
         var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(
             ConnectionString,
             new DbaAzureTablesOptions
@@ -79,13 +114,15 @@ public sealed class CmdletWriteDbaXAzureTableEntity : AsyncPSCmdlet
                 new DbaTableCopyOptions { BatchSize = BatchSize, VerifyRowCounts = false },
                 CancelToken)
             .ConfigureAwait(false);
+            rows = table.Rows.Count;
+        }
 
         if (PassThru.IsPresent)
         {
             WriteObject(new PSObject(new
             {
                 TableName,
-                Rows = table.Rows.Count,
+                Rows = rows,
                 WriteMode,
                 BatchSize
             }));

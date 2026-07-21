@@ -141,7 +141,7 @@ $daily | Write-DbaXAzureTableEntity `
     -PassThru
 ```
 
-Use `Copy-DbaXAzureTableData` for a streaming account-to-account copy. Row-count verification is enabled by default and performs additional full-table scans; use `-NoVerify` when that cost is not appropriate. `-ClearDestination` is explicit and cannot target the same source table.
+Use `Copy-DbaXAzureTableData` for a streaming account-to-account copy. Row-count verification is enabled by default and performs additional full-table scans; use `-NoVerify` when that cost is not appropriate. `-ClearDestination` is explicit and is rejected when any destination would clear a source used elsewhere in the same copy plan. The shared adapter applies Azure Storage or Cosmos DB Table API table-name casing rules; this safety decision is not duplicated in the PowerShell cmdlet.
 
 Adapter authors upgrading to `DbaClientX.Core` 0.14 must return `DbaTableCopyPage` from `IDbaTableCopySource.ReadPageAsync`, carrying the provider's opaque continuation token in the page result. The offset constructor on `DbaTableCopyPageRequest` remains temporarily available for callers, but provider implementations should no longer invent paging state in consumers.
 

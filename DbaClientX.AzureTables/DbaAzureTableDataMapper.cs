@@ -31,9 +31,10 @@ internal static class DbaAzureTableDataMapper
             row["ETag"] = entity.ETag ?? (object)DBNull.Value;
             foreach (var property in entity.Properties)
             {
-                if (table.Columns.Contains(property.Key) && !IsSystemColumn(property.Key))
+                DataColumn? column = FindColumn(table, property.Key);
+                if (column != null && !IsSystemColumn(property.Key))
                 {
-                    row[property.Key] = property.Value ?? DBNull.Value;
+                    row[column] = property.Value ?? DBNull.Value;
                 }
             }
 
@@ -51,6 +52,14 @@ internal static class DbaAzureTableDataMapper
         var etagColumn = FindColumn(table, "ETag");
         var entities = new List<DbaAzureTableEntity>(table.Rows.Count);
 
+        foreach (DataColumn column in table.Columns)
+        {
+            if (!IsSystemColumn(column.ColumnName))
+            {
+                ValidateColumnType(column);
+            }
+        }
+
         foreach (DataRow row in table.Rows)
         {
             if (row.IsNull(partitionKeyColumn) || row.IsNull(rowKeyColumn))
@@ -66,7 +75,9 @@ internal static class DbaAzureTableDataMapper
             {
                 if (!IsSystemColumn(column.ColumnName))
                 {
-                    properties[column.ColumnName] = row.IsNull(column) ? null : row[column];
+                    properties[column.ColumnName] = row.IsNull(column)
+                        ? null
+                        : NormalizePropertyValue(column.ColumnName, row[column]);
                 }
             }
 
@@ -98,7 +109,55 @@ internal static class DbaAzureTableDataMapper
         => FindColumn(table, name) ?? throw new InvalidOperationException($"Azure Table data requires a '{name}' column.");
 
     private static DataColumn? FindColumn(DataTable table, string name)
-        => table.Columns.Cast<DataColumn>().SingleOrDefault(column => string.Equals(column.ColumnName, name, StringComparison.OrdinalIgnoreCase));
+        => table.Columns.Cast<DataColumn>().SingleOrDefault(column => string.Equals(column.ColumnName, name, StringComparison.Ordinal));
+
+    internal static void ValidateEntities(IEnumerable<DbaAzureTableEntity> entities)
+    {
+        if (entities == null)
+        {
+            throw new ArgumentNullException(nameof(entities));
+        }
+
+        foreach (DbaAzureTableEntity entity in entities)
+        {
+            if (entity == null)
+            {
+                throw new ArgumentException("Azure Table entity collections cannot contain null values.", nameof(entities));
+            }
+            foreach (var property in entity.Properties)
+            {
+                if (IsSystemColumn(property.Key))
+                {
+                    throw new ArgumentException($"Azure Table property '{property.Key}' is reserved for entity metadata.", nameof(entities));
+                }
+                _ = NormalizePropertyValue(property.Key, property.Value);
+            }
+        }
+    }
+
+    internal static object? NormalizePropertyValue(string propertyName, object? value)
+        => value switch
+        {
+            null => null,
+            DateTime dateTime => new DateTimeOffset(dateTime.ToUniversalTime(), TimeSpan.Zero),
+            string or byte[] or bool or double or Guid or int or long or DateTimeOffset => value,
+            _ => throw new ArgumentException(
+                $"Azure Table property '{propertyName}' has unsupported CLR type '{value.GetType().FullName}'. " +
+                "Supported values are string, byte[], bool, double, Guid, int, long, DateTime, DateTimeOffset, or null.")
+        };
+
+    private static void ValidateColumnType(DataColumn column)
+    {
+        Type type = column.DataType;
+        if (type != typeof(object) && type != typeof(string) && type != typeof(byte[]) && type != typeof(bool) &&
+            type != typeof(double) && type != typeof(Guid) && type != typeof(int) && type != typeof(long) &&
+            type != typeof(DateTime) && type != typeof(DateTimeOffset))
+        {
+            throw new ArgumentException(
+                $"Azure Table column '{column.ColumnName}' has unsupported CLR type '{type.FullName}'. " +
+                "Supported columns use string, byte[], bool, double, Guid, int, long, DateTime, DateTimeOffset, or object values.");
+        }
+    }
 
     private static DateTimeOffset? ToNullableDateTimeOffset(object? value)
         => value switch
@@ -110,5 +169,5 @@ internal static class DbaAzureTableDataMapper
         };
 
     private static bool IsSystemColumn(string name)
-        => SystemColumns.Contains(name, StringComparer.OrdinalIgnoreCase);
+        => SystemColumns.Contains(name, StringComparer.Ordinal);
 }

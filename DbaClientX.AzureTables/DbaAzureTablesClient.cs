@@ -42,6 +42,12 @@ public sealed class DbaAzureTablesClient
         bool createTable = true,
         CancellationToken cancellationToken = default)
     {
+        if (entities == null)
+        {
+            throw new ArgumentNullException(nameof(entities));
+        }
+        DbaAzureTableDataMapper.ValidateEntities(entities);
+        _ = DbaAzureTableBatchPlanner.Plan(entities, batchSize);
         if (createTable)
         {
             await _store.CreateTableIfNotExistsAsync(tableName, cancellationToken).ConfigureAwait(false);

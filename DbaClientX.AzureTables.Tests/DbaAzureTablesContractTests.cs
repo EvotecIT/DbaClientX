@@ -90,7 +90,145 @@ public class DbaAzureTablesContractTests
 
         var batches = DbaAzureTableBatchPlanner.Plan(entities);
 
-        Assert.Equal(new[] { 3, 1 }, batches.Select(static batch => batch.Count));
+        Assert.Equal(new[] { 1, 1, 1, 1 }, batches.Select(static batch => batch.Count));
+    }
+
+    [Fact]
+    public void BatchPlannerSeparatesDuplicateEntityKeysWithinOnePartition()
+    {
+        var entities = new[]
+        {
+            new DbaAzureTableEntity("p1", "same"),
+            new DbaAzureTableEntity("p1", "same")
+        };
+
+        var batches = DbaAzureTableBatchPlanner.Plan(entities);
+
+        Assert.Equal(new[] { 1, 1 }, batches.Select(static batch => batch.Count));
+    }
+
+    [Fact]
+    public async Task NativeEntitiesCanFlowDirectlyFromReadShapeToWriteShape()
+    {
+        var store = new RecordingStore();
+        var client = new DbaAzureTablesClient(store);
+        var entity = new DbaAzureTableEntity(
+            "p1",
+            "r1",
+            new Dictionary<string, object?> { ["DisplayName"] = "Ready" });
+
+        await client.WriteAsync("Reports", new[] { entity }, createTable: false);
+
+        DbaAzureTableEntity written = Assert.Single(store.WrittenEntities!);
+        Assert.Same(entity, written);
+        Assert.Equal("Ready", written.Properties["DisplayName"]);
+    }
+
+    [Fact]
+    public async Task CaseDistinctCustomPropertiesAreNotDiscardedAsSystemColumns()
+    {
+        var store = new RecordingStore();
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(store);
+        var table = new DataTable { CaseSensitive = true };
+        table.Columns.Add("PartitionKey", typeof(string));
+        table.Columns.Add("RowKey", typeof(string));
+        table.Columns.Add("partitionkey", typeof(string));
+        table.Rows.Add("tenant-a", "item-1", "custom-value");
+
+        await destination.WritePageAsync(
+            new DbaTableCopyDefinition("Source", "Destination"),
+            table,
+            new DbaTableCopyOptions());
+
+        Assert.Equal("custom-value", Assert.Single(store.WrittenEntities!).Properties["partitionkey"]);
+    }
+
+    [Fact]
+    public async Task UnsupportedValuesFailBeforeDestinationClear()
+    {
+        var store = new RecordingStore
+        {
+            QueryResult = new DbaAzureTablePage(new[]
+            {
+                new DbaAzureTableEntity("p1", "r1", new Dictionary<string, object?> { ["Amount"] = 1.25m })
+            })
+        };
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(store, new DbaAzureTablesOptions { AllowClearDestination = true });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("Source", "Destination") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.Null(store.ClearedTable);
+    }
+
+    [Fact]
+    public void TypedUnsupportedSchemaFailsEvenWhenItHasNoRows()
+    {
+        var store = new RecordingStore();
+        var destination = new DbaAzureTablesAdapter(store);
+        var table = new DataTable();
+        table.Columns.Add("PartitionKey", typeof(string));
+        table.Columns.Add("RowKey", typeof(string));
+        table.Columns.Add("Amount", typeof(decimal));
+
+        Assert.Throws<ArgumentException>(() => destination.ValidatePage(
+            new DbaTableCopyDefinition("Source", "Destination"), table));
+        Assert.Null(store.CreatedTable);
+    }
+
+    [Fact]
+    public void ClearSafetyRejectsSameServiceSourceOverlapAcrossDefinitions()
+    {
+        var store = new RecordingStore();
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store);
+        var destination = (IDbaTableCopyClearSafetyValidator)new DbaAzureTablesAdapter(
+            store,
+            new DbaAzureTablesOptions { AllowClearDestination = true });
+        var definitions = new[]
+        {
+            new DbaTableCopyDefinition("Source", "Staging"),
+            new DbaTableCopyDefinition("Staging", "Final")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => destination.ValidateClearOperation(source, definitions));
+
+        Assert.Contains("also used as source table", exception.Message);
+    }
+
+    [Fact]
+    public void ClearSafetyCanPreserveCaseDistinctCosmosTableNames()
+    {
+        var store = new RecordingStore();
+        var options = new DbaAzureTablesOptions {
+            AllowClearDestination = true,
+            TableNameComparison = DbaAzureTableNameComparison.Ordinal
+        };
+        var source = (IDbaTableCopySource)new DbaAzureTablesAdapter(store, options);
+        var destination = (IDbaTableCopyClearSafetyValidator)new DbaAzureTablesAdapter(store, options);
+
+        destination.ValidateClearOperation(
+            source,
+            new[] { new DbaTableCopyDefinition("Reports", "reports") });
+    }
+
+    [Fact]
+    public async Task DirectClientRejectsUnsupportedPropertiesBeforeCreatingTable()
+    {
+        var store = new RecordingStore();
+        var client = new DbaAzureTablesClient(store);
+        var entity = new DbaAzureTableEntity(
+            "p1",
+            "r1",
+            new Dictionary<string, object?> { ["Amount"] = 1.25m });
+
+        await Assert.ThrowsAsync<ArgumentException>(() => client.WriteAsync("Reports", new[] { entity }));
+
+        Assert.Null(store.CreatedTable);
+        Assert.Null(store.WrittenTable);
     }
 
     [Fact]
@@ -104,6 +242,20 @@ public class DbaAzureTablesContractTests
 
         Assert.Contains("AllowClearDestination", exception.Message);
         Assert.Null(store.ClearedTable);
+    }
+
+    [Fact]
+    public async Task ClearCreatesDestinationWhenAutoCreateIsEnabled()
+    {
+        var store = new RecordingStore();
+        var destination = (IDbaTableCopyDestination)new DbaAzureTablesAdapter(
+            store,
+            new DbaAzureTablesOptions { AllowClearDestination = true });
+
+        await destination.ClearAsync(new DbaTableCopyDefinition("SourceTable", "DestinationTable"));
+
+        Assert.Equal("DestinationTable", store.CreatedTable);
+        Assert.Equal("DestinationTable", store.ClearedTable);
     }
 
     [Fact]

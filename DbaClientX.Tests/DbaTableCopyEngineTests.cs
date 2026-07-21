@@ -316,6 +316,25 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_DisposesFirstPageWhenDestinationPagePreflightFails()
+    {
+        var pageData = CreateRows(1);
+        var disposed = false;
+        pageData.Disposed += (_, _) => disposed = true;
+        var source = new ScriptedTableCopySource(1, new DbaTableCopyPage(pageData));
+        var destination = new MemoryTableCopyDestination { ThrowOnValidatePage = true };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.True(disposed);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
     public async Task CopyAsync_DoesNotPartiallyClearDestinationWhenDestinationPreflightFails()
     {
         var source = new MemoryTableCopySource(CreateRows(1));

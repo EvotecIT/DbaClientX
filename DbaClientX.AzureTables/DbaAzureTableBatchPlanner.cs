@@ -3,7 +3,7 @@ namespace DBAClientX.AzureTables;
 /// <summary>Plans transaction batches that stay inside one Azure Table partition.</summary>
 public static class DbaAzureTableBatchPlanner
 {
-    private const int ConservativeTransactionPayloadLimit = 3_500_000;
+    private const int ConservativeTransactionPayloadLimit = 1_750_000;
 
     /// <summary>Groups entities by partition and splits each group into batches of at most 100 entities.</summary>
     public static IReadOnlyList<IReadOnlyList<DbaAzureTableEntity>> Plan(
@@ -25,6 +25,7 @@ public static class DbaAzureTableBatchPlanner
         {
             var batch = new List<DbaAzureTableEntity>(batchSize);
             var batchBytes = 0;
+            var rowKeys = new HashSet<string>(StringComparer.Ordinal);
             foreach (var entity in partition)
             {
                 var entityBytes = EstimatePayloadBytes(entity);
@@ -36,15 +37,17 @@ public static class DbaAzureTableBatchPlanner
                 }
 
                 if (batch.Count > 0 &&
-                    (batch.Count == batchSize || batchBytes + entityBytes > ConservativeTransactionPayloadLimit))
+                    (batch.Count == batchSize || batchBytes + entityBytes > ConservativeTransactionPayloadLimit || rowKeys.Contains(entity.RowKey)))
                 {
                     batches.Add(batch);
                     batch = new List<DbaAzureTableEntity>(batchSize);
                     batchBytes = 0;
+                    rowKeys.Clear();
                 }
 
                 batch.Add(entity);
                 batchBytes += entityBytes;
+                rowKeys.Add(entity.RowKey);
             }
 
             if (batch.Count > 0)

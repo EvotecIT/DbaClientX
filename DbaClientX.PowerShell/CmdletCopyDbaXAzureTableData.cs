@@ -93,13 +93,6 @@ public sealed class CmdletCopyDbaXAzureTableData : AsyncPSCmdlet
                 BatchSize = BatchSize
             });
 
-        if (ClearDestination.IsPresent &&
-            Equals(source.ServiceUri, destination.ServiceUri) &&
-            string.Equals(SourceTable, DestinationTable, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new PSArgumentException("Source and destination cannot be the same table when ClearDestination is used.");
-        }
-
         if (!ShouldProcess($"{SourceTable} -> {DestinationTable}", "Copy Azure Table data"))
         {
             return;

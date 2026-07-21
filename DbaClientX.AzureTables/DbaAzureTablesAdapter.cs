@@ -10,7 +10,8 @@ public sealed class DbaAzureTablesAdapter :
     IDbaTableCopyDestination,
     IDbaTableCopyPagePreflightDestination,
     IDbaTableCopyEmptyPageDestination,
-    IDbaTableCopyMissingTableClassifier
+    IDbaTableCopyMissingTableClassifier,
+    IDbaTableCopyClearSafetyValidator
 {
     private readonly IDbaAzureTableStore _store;
     private readonly DbaAzureTablesOptions _options;
@@ -58,6 +59,11 @@ public sealed class DbaAzureTablesAdapter :
         {
             throw new InvalidOperationException(
                 "Clearing an Azure Table requires DbaAzureTablesOptions.AllowClearDestination = true.");
+        }
+
+        if (_options.CreateDestinationTable)
+        {
+            await _store.CreateTableIfNotExistsAsync(definition.DestinationName, cancellationToken).ConfigureAwait(false);
         }
 
         await _store.ClearAsync(definition.DestinationName, _options.BatchSize, cancellationToken).ConfigureAwait(false);
@@ -114,4 +120,53 @@ public sealed class DbaAzureTablesAdapter :
     /// <inheritdoc />
     public bool IsMissingTableException(Exception exception)
         => exception is RequestFailedException { Status: 404 };
+
+    /// <inheritdoc />
+    public void ValidateClearOperation(IDbaTableCopySource source, IReadOnlyList<DbaTableCopyDefinition> definitions)
+    {
+        if (source is not DbaAzureTablesAdapter sourceAdapter || !TargetsSameService(sourceAdapter))
+        {
+            return;
+        }
+
+        var comparer = ResolveTableNameComparer(sourceAdapter);
+        foreach (var destinationDefinition in definitions)
+        {
+            foreach (var sourceDefinition in definitions)
+            {
+                if (comparer.Equals(destinationDefinition.DestinationName.Trim(), sourceDefinition.SourceName.Trim()))
+                {
+                    throw new InvalidOperationException(
+                        $"Refusing to clear destination Azure Table '{destinationDefinition.DestinationName}' because it is also used as source table '{sourceDefinition.SourceName}' on the same service.");
+                }
+            }
+        }
+    }
+
+    private bool TargetsSameService(DbaAzureTablesAdapter source)
+    {
+        if (ReferenceEquals(_store, source._store))
+        {
+            return true;
+        }
+
+        return ServiceUri != null && source.ServiceUri != null &&
+               Uri.Compare(ServiceUri, source.ServiceUri, UriComponents.SchemeAndServer | UriComponents.Path, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
+    }
+
+    private StringComparer ResolveTableNameComparer(DbaAzureTablesAdapter source)
+    {
+        DbaAzureTableNameComparison mode = _options.TableNameComparison != DbaAzureTableNameComparison.Auto
+            ? _options.TableNameComparison
+            : source._options.TableNameComparison;
+        if (mode == DbaAzureTableNameComparison.Auto)
+        {
+            Uri? endpoint = ServiceUri ?? source.ServiceUri;
+            mode = endpoint != null && endpoint.Host.IndexOf(".table.cosmos.", StringComparison.OrdinalIgnoreCase) >= 0
+                ? DbaAzureTableNameComparison.Ordinal
+                : DbaAzureTableNameComparison.OrdinalIgnoreCase;
+        }
+
+        return mode == DbaAzureTableNameComparison.Ordinal ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+    }
 }
