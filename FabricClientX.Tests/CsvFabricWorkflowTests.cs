@@ -171,11 +171,44 @@ public sealed class CsvFabricWorkflowTests
                 .Done()
                 .Column("Name")
                 .AsString()
+                .ConvertUsing(static (value, _) => value?.ToString()?.Trim())
                 .Done()
                 .Build();
             Assert.NotEqual(
                 baseline,
                 workflow.CreatePlan(explicitSchema).DefinitionFingerprint);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task CreatePlan_RejectsStatefulSchemaConverter()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, "Name\nOne\n");
+            var suffix = "-captured";
+            var request = new CsvFabricWorkflowRequest(
+                path,
+                "Input",
+                "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
+                "dbo.Input");
+            request.CsvReaderOptions.Schema = new CsvSchemaBuilder()
+                .Column("Name")
+                .AsString()
+                .ConvertUsing((value, _) => value?.ToString() + suffix)
+                .Done()
+                .Build();
+
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                new CsvFabricWorkflow().CreatePlan(request));
+
+            Assert.Contains("must not contain captured or instance fields", exception.Message);
+            Assert.Contains("Name", exception.Message);
         }
         finally
         {

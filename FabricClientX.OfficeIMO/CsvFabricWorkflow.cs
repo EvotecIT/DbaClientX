@@ -323,10 +323,34 @@ public sealed class CsvFabricWorkflow
                 AppendFingerprintParts(
                     definition,
                     column.Validators.Select(static validator => validator.Message));
-                AppendFingerprintPart(
-                    definition,
-                    column.Converter?.Method.DeclaringType?.AssemblyQualifiedName);
-                AppendFingerprintPart(definition, column.Converter?.Method.Name);
+                var converter = column.Converter;
+                if (converter != null)
+                {
+                    var targetType = converter.Target?.GetType();
+                    var targetFields = targetType?.GetFields(
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic);
+                    if (converter.Method.DeclaringType == null ||
+                        (targetFields != null && targetFields.Length > 0))
+                    {
+                        throw new InvalidOperationException(
+                            $"CSV schema converter for column '{column.Name}' must not contain captured " +
+                            "or instance fields so the workflow plan can fingerprint it deterministically.");
+                    }
+
+                    AppendFingerprintPart(
+                        definition,
+                        converter.Method.DeclaringType.AssemblyQualifiedName);
+                    AppendFingerprintPart(definition, targetType?.AssemblyQualifiedName);
+                    AppendFingerprintPart(definition, converter.Method.Module.ModuleVersionId);
+                    AppendFingerprintPart(definition, converter.Method.MetadataToken);
+                    AppendFingerprintPart(definition, converter.Method.ToString());
+                }
+                else
+                {
+                    AppendFingerprintPart(definition, null);
+                }
             }
         }
 

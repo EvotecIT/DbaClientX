@@ -50,6 +50,13 @@ public sealed class FabricClientOptions
             throw new ArgumentException("BaseAddress must be an absolute HTTPS URI.", nameof(BaseAddress));
         }
 
+        if (!BaseAddress.AbsolutePath.EndsWith("/", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "BaseAddress must end with '/' so relative Fabric resource paths preserve the configured base path.",
+                nameof(BaseAddress));
+        }
+
         if (MaxRetryAttempts < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(MaxRetryAttempts));

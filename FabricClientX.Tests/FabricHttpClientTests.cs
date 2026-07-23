@@ -7,6 +7,20 @@ namespace FabricClientX.Tests;
 public sealed class FabricHttpClientTests
 {
     [Fact]
+    public void Constructor_RejectsBaseAddressWithoutTrailingSlash()
+    {
+        var handler = new QueueHttpMessageHandler();
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            TestClients.Create(
+                handler,
+                baseAddress: new Uri("https://service.example/v1")));
+
+        Assert.Contains("must end with '/'", exception.Message);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task GetAllPages_HonorsRetryAfterAndPreservesCorrelation()
     {
         var handler = new QueueHttpMessageHandler();
