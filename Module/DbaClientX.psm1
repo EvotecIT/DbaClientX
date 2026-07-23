@@ -184,7 +184,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
 
                     $Mode = 'Assembly'
                     $RequestedTypes = @()
-                    $RequestedAssemblies = @('DbaClientX.Core', 'DbaClientX.AzureTables', 'DbaClientX.SqlServer', 'DbaClientX.MySql', 'DbaClientX.Oracle', 'DbaClientX.PostgreSql', 'DbaClientX.SQLite', 'DBAClientX.PowerShell')
+                    $RequestedAssemblies = @('DbaClientX.Core', 'DbaClientX.AzureTables', 'DbaClientX.SqlServer', 'DbaClientX.MySql', 'DbaClientX.Oracle', 'DbaClientX.PostgreSql', 'DbaClientX.SQLite', 'FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO', 'OfficeIMO.CSV', 'DBAClientX.PowerShell')
 
                     if ($null -eq $ModuleAssembly) {
                         Write-Warning -Message 'Module assembly was not available. ALC dependency type exposure is disabled.'
@@ -471,7 +471,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
 
                     $Mode = 'Assembly'
                     $RequestedTypes = @()
-                    $RequestedAssemblies = @('DbaClientX.Core', 'DbaClientX.AzureTables', 'DbaClientX.SqlServer', 'DbaClientX.MySql', 'DbaClientX.Oracle', 'DbaClientX.PostgreSql', 'DbaClientX.SQLite', 'DBAClientX.PowerShell')
+                    $RequestedAssemblies = @('DbaClientX.Core', 'DbaClientX.AzureTables', 'DbaClientX.SqlServer', 'DbaClientX.MySql', 'DbaClientX.Oracle', 'DbaClientX.PostgreSql', 'DbaClientX.SQLite', 'FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO', 'OfficeIMO.CSV', 'DBAClientX.PowerShell')
                     $IgnoredLibraryFileNames = @('Microsoft.Data.SqlClient.SNI.arm64.dll', 'Microsoft.Data.SqlClient.SNI.dll', 'Microsoft.Data.SqlClient.SNI.x64.dll', 'Microsoft.Data.SqlClient.SNI.x86.dll')
 
                     if ([string]::IsNullOrWhiteSpace($LibraryDirectory) -or -not (Test-Path -LiteralPath $LibraryDirectory)) {
@@ -760,6 +760,6 @@ namespace DbaClientX.DevelopmentModuleLoadContext
 }
 
 $FunctionsToExport = @()
-$CmdletsToExport = @('ConvertTo-DbaXParameterMap', 'Copy-DbaXAzureTableData', 'Copy-DbaXTableData', 'Get-DbaXAzureTableEntity', 'Get-DbaXMetadata', 'Get-DbaXProviderCapability', 'Get-DbaXSQLiteDiagnostics', 'Get-DbaXSqlServerManagement', 'Get-DbaXSqlServerMonitoring', 'Get-DbaXTableCopyPlan', 'Invoke-DbaXBulkInsert', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXQuery', 'Invoke-DbaXQueryStream', 'Invoke-DbaXSQLite', 'Invoke-DbaXSQLiteMaintenance', 'Invoke-DbaXSQLiteTransaction', 'Invoke-DbaXStoredProcedure', 'Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'New-DbaXQuery', 'New-DbaXTableCopyDefinition', 'New-DbaXTableCopyPlan', 'Test-DbaXConnection', 'Write-DbaXAzureTableEntity', 'Write-DbaXTableData')
+$CmdletsToExport = @('ConvertTo-DbaXParameterMap', 'Copy-DbaXAzureTableData', 'Copy-DbaXTableData', 'Get-DbaXAzureTableEntity', 'Get-DbaXFabricItem', 'Get-DbaXFabricWorkspace', 'Get-DbaXMetadata', 'Get-DbaXPowerBISemanticModel', 'Get-DbaXProviderCapability', 'Get-DbaXSQLiteDiagnostics', 'Get-DbaXSqlServerManagement', 'Get-DbaXSqlServerMonitoring', 'Get-DbaXTableCopyPlan', 'Invoke-DbaXBulkInsert', 'Invoke-DbaXFabricCsvWorkflow', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXPowerBIRefresh', 'Invoke-DbaXQuery', 'Invoke-DbaXQueryStream', 'Invoke-DbaXSQLite', 'Invoke-DbaXSQLiteMaintenance', 'Invoke-DbaXSQLiteTransaction', 'Invoke-DbaXStoredProcedure', 'Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'New-DbaXFabricTokenProvider', 'New-DbaXFabricWarehouseConnectionOptions', 'New-DbaXQuery', 'New-DbaXTableCopyDefinition', 'New-DbaXTableCopyPlan', 'Stop-DbaXPowerBIRefresh', 'Test-DbaXConnection', 'Write-DbaXAzureTableEntity', 'Write-DbaXTableData')
 $AliasesToExport = @()
 Export-ModuleMember -Function $FunctionsToExport -Alias $AliasesToExport -Cmdlet $CmdletsToExport

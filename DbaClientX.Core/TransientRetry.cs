@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Diagnostics;
 
 namespace DBAClientX;
 
@@ -67,7 +68,9 @@ public static class TransientRetry {
                 }
 
                 var delay = CalculateBackoffDelay(options, attempt);
-                onRetry?.Invoke(new TransientRetryAttempt(attempt, delay, ex));
+                var retryAttempt = new TransientRetryAttempt(attempt, delay, ex);
+                DbaClientXDiagnostics.RecordRetry(retryAttempt);
+                onRetry?.Invoke(retryAttempt);
                 if (delay > TimeSpan.Zero) {
                     Thread.Sleep(delay);
                 }
@@ -144,7 +147,9 @@ public static class TransientRetry {
                 }
 
                 var delay = CalculateBackoffDelay(options, attempt);
-                onRetry?.Invoke(new TransientRetryAttempt(attempt, delay, ex));
+                var retryAttempt = new TransientRetryAttempt(attempt, delay, ex);
+                DbaClientXDiagnostics.RecordRetry(retryAttempt);
+                onRetry?.Invoke(retryAttempt);
 
                 if (delay > TimeSpan.Zero) {
                     if (options.DelayAsync is null) {

@@ -9,7 +9,10 @@
     "DbaClientX.PostgreSql": "0.X.0",
     "DbaClientX.MySql": "0.X.0",
     "DbaClientX.SQLite": "0.X.0",
-    "DbaClientX.Oracle": "0.X.0"
+    "DbaClientX.Oracle": "0.X.0",
+    "FabricClientX.Core": "0.X.0",
+    "FabricClientX.PowerBI": "0.X.0",
+    "FabricClientX.OfficeIMO": "0.X.0"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,
@@ -18,7 +21,8 @@
     "DbaClientX.Tests",
     "DbaClientX.AzureTables.Tests",
     "DbaClientX.Benchmarks",
-    "DbaClientX.Examples"
+    "DbaClientX.Examples",
+    "FabricClientX.Tests"
   ],
   "NugetSource": [],
   "IncludePrerelease": false,

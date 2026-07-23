@@ -112,6 +112,10 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
             'DbaClientX.Oracle'
             'DbaClientX.PostgreSql'
             'DbaClientX.SQLite'
+            'FabricClientX.Core'
+            'FabricClientX.PowerBI'
+            'FabricClientX.OfficeIMO'
+            'OfficeIMO.CSV'
             'DBAClientX.PowerShell'
         )
         NETHandleRuntimes                    = $true

@@ -33,6 +33,9 @@
     <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="System.Collections" />
     <Using Include="System.Threading.Tasks" />
     <Using Include="System.Collections.Concurrent" />

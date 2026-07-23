@@ -32,8 +32,11 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DeduplicateSourceCaseInsensitive'
         $parameters | Should -Contain 'TreatMissingTablesAsEmpty'
         $parameters | Should -Contain 'AllowSameTableCopy'
+        $parameters | Should -Contain 'SourceFabricWarehouse'
+        $parameters | Should -Contain 'DestinationFabricWarehouse'
         $parameters | Should -Contain 'ClearDestination'
         $parameters | Should -Contain 'NoVerify'
+        $parameters | Should -Contain 'OperationId'
         $parameters | Should -Contain 'TableLock'
         $parameters | Should -Contain 'CheckConstraints'
         $parameters | Should -Contain 'FireTriggers'
@@ -154,6 +157,7 @@ describe 'Copy-DbaXTableData cmdlet' {
     it 'copies rows between SQLite databases' {
         $source = Join-Path $TestDrive 'source.db'
         $destination = Join-Path $TestDrive 'destination.db'
+        $operationId = '0123456789abcdef0123456789abcdef'
 
         Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
         Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
@@ -173,11 +177,15 @@ describe 'Copy-DbaXTableData cmdlet' {
             -PageSize 3 `
             -BatchSize 2 `
             -ClearDestination `
+            -OperationId $operationId `
             -PassThru
 
         $result.CopiedRows | Should -Be 7
         $result.Verified | Should -BeTrue
         $result.DestinationRows | Should -Be 7
+        $result.OperationId | Should -Be $operationId
+        $result.Manifest.OperationId | Should -Be $operationId
+        $result.Manifest.Tables[0].PageCount | Should -Be 3
 
         $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
         [int] $count.RowsLoaded | Should -Be 7

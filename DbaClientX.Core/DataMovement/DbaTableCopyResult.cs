@@ -9,6 +9,12 @@ namespace DBAClientX.DataMovement;
 /// </summary>
 public sealed record DbaTableCopyResult(IReadOnlyList<DbaTableCopyTableResult> Tables, TimeSpan Duration)
 {
+    /// <summary>W3C trace identifier shared by this copy and downstream workflows.</summary>
+    public string OperationId => Manifest?.OperationId ?? string.Empty;
+
+    /// <summary>Serializable, redacted diagnostic manifest for the completed copy.</summary>
+    public DbaTableCopyRunManifest? Manifest { get; init; }
+
     /// <summary>Total source rows counted before copy when known.</summary>
     public long? SourceRows => SumKnown(static table => table.SourceRows, Tables);
 
@@ -46,4 +52,8 @@ public sealed record DbaTableCopyTableResult(
     long? SourceRows,
     long CopiedRows,
     long? DestinationRows,
-    bool Verified);
+    bool Verified)
+{
+    /// <summary>Number of source pages processed for the table.</summary>
+    public int PageCount { get; init; }
+}

@@ -22,6 +22,7 @@
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
                 <PackageReference Include="System.Formats.Asn1" />
                 <PackageReference Include="System.Text.Json" />
+                <Reference Include="System.Net.Http" />
         </ItemGroup>
         <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
                 <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -35,6 +36,9 @@
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
                 <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
                 <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
+                <ProjectReference Include="..\FabricClientX.Core\FabricClientX.Core.csproj" />
+                <ProjectReference Include="..\FabricClientX.PowerBI\FabricClientX.PowerBI.csproj" />
+                <ProjectReference Include="..\FabricClientX.OfficeIMO\FabricClientX.OfficeIMO.csproj" />
         </ItemGroup>
 
         <ItemGroup>

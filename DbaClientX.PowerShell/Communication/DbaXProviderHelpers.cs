@@ -39,44 +39,21 @@ internal static class DbaXProviderHelpers
 
     internal static DbaXProviderCapability GetCapabilities(DbaXProvider provider)
     {
-        var common = DbaXProviderCapability.Query |
-                     DbaXProviderCapability.NonQuery |
-                     DbaXProviderCapability.Scalar |
-                     DbaXProviderCapability.BulkInsert |
-                     DbaXProviderCapability.Metadata |
-                     DbaXProviderCapability.TableCopy |
-                     DbaXProviderCapability.Transaction;
-        if (SupportsStreaming)
-        {
-            common |= DbaXProviderCapability.Streaming;
-        }
+        var common = (DbaXProviderCapability)(int)DbaProviderCapabilities.Get(ToTableCopyProvider(provider));
 
         return provider switch
         {
             DbaXProvider.SqlServer => common |
-                                      DbaXProviderCapability.StoredProcedure |
                                       DbaXProviderCapability.SqlServerManagement |
                                       DbaXProviderCapability.SqlServerMonitoring,
-            DbaXProvider.PostgreSql => common | DbaXProviderCapability.StoredProcedure,
-            DbaXProvider.MySql => common | DbaXProviderCapability.StoredProcedure,
-            DbaXProvider.Oracle => common | DbaXProviderCapability.StoredProcedure,
+            DbaXProvider.PostgreSql => common,
+            DbaXProvider.MySql => common,
+            DbaXProvider.Oracle => common,
             DbaXProvider.SQLite => common |
-                                   DbaXProviderCapability.SQLiteDiagnostics |
-                                   DbaXProviderCapability.SQLiteMaintenance,
+                                    DbaXProviderCapability.SQLiteDiagnostics |
+                                    DbaXProviderCapability.SQLiteMaintenance,
             _ => DbaXProviderCapability.None
         };
-    }
-
-    internal static bool SupportsStreaming
-    {
-        get
-        {
-#if NETCOREAPP
-            return true;
-#else
-            return false;
-#endif
-        }
     }
 
     internal static string BuildConnectionString(
