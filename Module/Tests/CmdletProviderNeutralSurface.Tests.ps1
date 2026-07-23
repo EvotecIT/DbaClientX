@@ -17,6 +17,9 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
             'Invoke-DbaXStoredProcedure'
             'Invoke-DbaXQueryStream'
             'Invoke-DbaXBulkInsert'
+            'Get-DbaXAzureTableEntity'
+            'Write-DbaXAzureTableEntity'
+            'Copy-DbaXAzureTableData'
         )
 
         foreach ($commandName in $expectedCommands) {
@@ -35,6 +38,52 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $sqlite = New-DbaXConnectionString -Provider SQLite -Database '.\app.db' -BusyTimeoutMs 2500
         $sqlite | Should -Match 'Data Source=.*app\.db'
         $sqlite | Should -Match 'Default Timeout=3'
+    }
+
+    It 'refuses to clear the source Azure Table when table-name casing differs' {
+        $key = [Convert]::ToBase64String([byte[]](1..32))
+        $connectionString = "DefaultEndpointsProtocol=https;AccountName=phaseonetest;AccountKey=$key;EndpointSuffix=core.windows.net"
+
+        {
+            Copy-DbaXAzureTableData `
+                -SourceConnectionString $connectionString `
+                -DestinationConnectionString $connectionString `
+                -SourceTable Reports `
+                -DestinationTable reports `
+                -ClearDestination `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*also used as source table*'
+    }
+
+    It 'routes native Azure entities without flattening their Properties dictionary' {
+        $key = [Convert]::ToBase64String([byte[]](1..32))
+        $connectionString = "DefaultEndpointsProtocol=https;AccountName=phaseonetest;AccountKey=$key;EndpointSuffix=core.windows.net"
+        $properties = [System.Collections.Generic.Dictionary[string, object]]::new()
+        $properties.Add('Amount', [decimal] 1.25)
+        $entity = [DBAClientX.AzureTables.DbaAzureTableEntity]::new('p1', 'r1', $properties)
+
+        {
+            $entity | Write-DbaXAzureTableEntity `
+                -ConnectionString $connectionString `
+                -TableName Reports `
+                -NoCreateTable `
+                -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage "*property 'Amount'*unsupported CLR type*"
+    }
+
+    It 'rejects mixed native and projected Azure entity input' {
+        $key = [Convert]::ToBase64String([byte[]](1..32))
+        $connectionString = "DefaultEndpointsProtocol=https;AccountName=phaseonetest;AccountKey=$key;EndpointSuffix=core.windows.net"
+        $entity = [DBAClientX.AzureTables.DbaAzureTableEntity]::new('p1', 'r1')
+
+        {
+            @($entity, [pscustomobject] @{ PartitionKey = 'p1'; RowKey = 'r2' }) |
+                Write-DbaXAzureTableEntity `
+                    -ConnectionString $connectionString `
+                    -TableName Reports `
+                    -NoCreateTable `
+                    -ErrorAction Stop
+        } | Should -Throw -ExpectedMessage '*cannot be mixed*'
     }
 
     It 'returns provider capability metadata' {

@@ -52,13 +52,14 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, treatMissingAsEmpty: true, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
+    public async Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
     {
+        var offset = DbaOffsetContinuationToken.Decode(request.ContinuationToken);
         var query = BuildPageQuery(
             request.Definition.SourceName,
             request.Definition.OrderByColumns,
             request.Definition.SourceOptions,
-            request.Offset,
+            offset,
             request.PageSize);
         DataTable table;
         try
@@ -78,7 +79,10 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         }
 
         table.TableName = request.Definition.DestinationName;
-        return table;
+        var nextOffset = table.Rows.Count == request.PageSize
+            ? offset + table.Rows.Count
+            : (long?)null;
+        return DbaTableCopyPage.FromOffset(table, nextOffset);
     }
 
     /// <inheritdoc />

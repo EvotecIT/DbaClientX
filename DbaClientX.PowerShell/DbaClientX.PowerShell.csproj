@@ -29,6 +29,7 @@
         </PropertyGroup>
         <ItemGroup>
                 <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+                <ProjectReference Include="..\DbaClientX.AzureTables\DbaClientX.AzureTables.csproj" />
                 <ProjectReference Include="..\DbaClientX.SqlServer\DbaClientX.SqlServer.csproj" />
                 <ProjectReference Include="..\DbaClientX.SQLite\DbaClientX.SQLite.csproj" />
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />

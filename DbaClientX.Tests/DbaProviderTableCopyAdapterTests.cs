@@ -814,12 +814,12 @@ public class DbaProviderTableCopyAdapterBaseTests
                 new[] { "ProbeName" },
                 SourceOptions: new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtcMs" }));
 
-            using var page = await adapter.ReadPageAsync(new DbaTableCopyPageRequest(definition, 0, 10));
+            using var page = await adapter.ReadPageAsync(new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: 10));
 
-            Assert.Equal(1, page.Rows.Count);
-            Assert.Contains("__DbaXCRank_62D977CD", page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
-            Assert.Equal("source-b", page.Rows[0]["__DbaXCRank_62D977CD"]);
-            Assert.DoesNotContain(page.Columns.Cast<DataColumn>(), static column => column.ColumnName.StartsWith("__DbaXR_", StringComparison.Ordinal));
+            Assert.Equal(1, page.Data.Rows.Count);
+            Assert.Contains("__DbaXCRank_62D977CD", page.Data.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
+            Assert.Equal("source-b", page.Data.Rows[0]["__DbaXCRank_62D977CD"]);
+            Assert.DoesNotContain(page.Data.Columns.Cast<DataColumn>(), static column => column.ColumnName.StartsWith("__DbaXR_", StringComparison.Ordinal));
         }
         finally
         {

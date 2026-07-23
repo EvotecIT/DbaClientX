@@ -117,7 +117,7 @@ public class DbaTableCopyEngineTests
             new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
             new DbaTableCopyOptions { PageSize = 1 });
 
-        Assert.Equal(new long[] { 0, 1, 2 }, source.RequestedOffsets);
+        Assert.Equal(new long[] { 0, 1 }, source.RequestedOffsets);
         Assert.Equal(2, destination.Rows.Rows.Count);
         Assert.Null(result.SourceRows);
         Assert.Equal(2, result.CopiedRows);
@@ -312,6 +312,25 @@ public class DbaTableCopyEngineTests
             new DbaTableCopyOptions { ClearDestination = true }));
 
         Assert.Equal(1, destination.ValidatePageCalls);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_DisposesFirstPageWhenDestinationPagePreflightFails()
+    {
+        var pageData = CreateRows(1);
+        var disposed = false;
+        pageData.Disposed += (_, _) => disposed = true;
+        var source = new ScriptedTableCopySource(1, new DbaTableCopyPage(pageData));
+        var destination = new MemoryTableCopyDestination { ThrowOnValidatePage = true };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { ClearDestination = true }));
+
+        Assert.True(disposed);
         Assert.False(destination.ClearCalled);
     }
 
@@ -1005,6 +1024,77 @@ public class DbaTableCopyEngineTests
         Assert.False(destination.ClearCalled);
     }
 
+    [Fact]
+    public async Task CopyAsync_FollowsContinuationTokenAfterShortPage()
+    {
+        var source = new ScriptedTableCopySource(
+            count: null,
+            new DbaTableCopyPage(CreateRows(1), "page-2"),
+            new DbaTableCopyPage(CreateRows(1), continuationToken: null));
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { PageSize = 100 });
+
+        Assert.Equal(new string?[] { null, "page-2" }, source.RequestedTokens);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(2, destination.Rows.Rows.Count);
+    }
+
+    [Fact]
+    public async Task CopyAsync_FollowsContinuationTokenAfterEmptyPage()
+    {
+        var source = new ScriptedTableCopySource(
+            count: null,
+            new DbaTableCopyPage(CreateRows(0), "page-2"),
+            new DbaTableCopyPage(CreateRows(1), continuationToken: null));
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") });
+
+        Assert.Equal(new string?[] { null, "page-2" }, source.RequestedTokens);
+        Assert.Equal(1, result.CopiedRows);
+        Assert.Equal(1, destination.Rows.Rows.Count);
+    }
+
+    [Fact]
+    public async Task CopyAsync_RejectsRepeatedContinuationToken()
+    {
+        var source = new ScriptedTableCopySource(
+            count: null,
+            new DbaTableCopyPage(CreateRows(1), "same-token"),
+            new DbaTableCopyPage(CreateRows(0), "same-token"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            new MemoryTableCopyDestination(),
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") }));
+
+        Assert.Contains("repeated continuation token", exception.Message);
+    }
+
+    [Fact]
+    public async Task CopyAsync_ReportsCountedStreamThatEndsEarlyAsUnverified()
+    {
+        var source = new ScriptedTableCopySource(
+            count: 2,
+            new DbaTableCopyPage(CreateRows(1), continuationToken: null));
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            new MemoryTableCopyDestination(),
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") });
+
+        Assert.Equal(1, result.CopiedRows);
+        Assert.False(result.Verified);
+    }
+
     private static void AssertProgress(DbaTableCopyProgress progress, long rowsCopied, long sourceRows, int pageRows)
     {
         Assert.Equal("Rows", progress.TableName);
@@ -1062,7 +1152,7 @@ public class DbaTableCopyEngineTests
             return Task.FromResult<long?>(ReturnUnknownSourceRowCount ? null : SourceRowCountOverride ?? _rows.Rows.Count);
         }
 
-        public Task<DataTable> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
+        public Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
         {
             if (ThrowOnRead)
             {
@@ -1070,17 +1160,51 @@ public class DbaTableCopyEngineTests
             }
 
             ReadCalls++;
-            RequestedOffsets.Add(request.Offset);
+#pragma warning disable CS0618
+            var offset = request.Offset;
+#pragma warning restore CS0618
+            RequestedOffsets.Add(offset);
             RequestedPageSizes.Add(request.PageSize);
 
             var page = _rows.Clone();
             page.TableName = request.Definition.DestinationName;
-            foreach (var row in _rows.AsEnumerable().Skip((int)request.Offset).Take(request.PageSize))
+            foreach (var row in _rows.AsEnumerable().Skip((int)offset).Take(request.PageSize))
             {
                 page.ImportRow(row);
             }
 
-            return Task.FromResult(page);
+            long nextOffset = offset + page.Rows.Count;
+            return Task.FromResult(DbaTableCopyPage.FromOffset(
+                page,
+                page.Rows.Count == request.PageSize && nextOffset < _rows.Rows.Count ? nextOffset : null));
+        }
+    }
+
+    private sealed class ScriptedTableCopySource : IDbaTableCopySource
+    {
+        private readonly long? _count;
+        private readonly Queue<DbaTableCopyPage> _pages;
+
+        public ScriptedTableCopySource(long? count, params DbaTableCopyPage[] pages)
+        {
+            _count = count;
+            _pages = new Queue<DbaTableCopyPage>(pages);
+        }
+
+        public List<string?> RequestedTokens { get; } = new();
+
+        public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+            => Task.FromResult(_count);
+
+        public Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
+        {
+            RequestedTokens.Add(request.ContinuationToken);
+            if (_pages.Count == 0)
+            {
+                throw new InvalidOperationException("The scripted source has no page for this request.");
+            }
+
+            return Task.FromResult(_pages.Dequeue());
         }
     }
 

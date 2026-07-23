@@ -106,6 +106,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
         NETAssemblyTypeAcceleratorMode       = 'Assembly'
         NETAssemblyTypeAcceleratorAssemblies = @(
             'DbaClientX.Core'
+            'DbaClientX.AzureTables'
             'DbaClientX.SqlServer'
             'DbaClientX.MySql'
             'DbaClientX.Oracle'
