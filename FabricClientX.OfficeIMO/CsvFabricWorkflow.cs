@@ -102,7 +102,7 @@ public sealed class CsvFabricWorkflow
             batchSize: request.BatchSize,
             bulkCopyTimeout: request.BulkCopyTimeout,
             operationId: operation.OperationId,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken: loadOptions.CancellationToken).ConfigureAwait(false);
 
         PowerBiRefreshStartResult? refreshStart = null;
         PowerBiRefreshSettlement? refreshSettlement = null;
@@ -204,10 +204,12 @@ public sealed class CsvFabricWorkflow
 
     private static string CreateFingerprint(CsvFabricWorkflowRequest request)
     {
+        var csvParsingFingerprint = CreateCsvParsingFingerprint(request);
         var definition = string.Join(
             "\n",
             request.SourceName.Trim(),
             Path.GetFullPath(request.CsvPath),
+            csvParsingFingerprint,
             new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(
                 request.WarehouseConnectionString).ConnectionString,
             request.DestinationTable.Trim(),
@@ -250,6 +252,119 @@ public sealed class CsvFabricWorkflow
         var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(definition));
         return string.Concat(hash.Select(static value => value.ToString("x2")));
     }
+
+    private static string CreateCsvParsingFingerprint(CsvFabricWorkflowRequest request)
+    {
+        var load = request.CsvLoadOptions;
+        var reader = request.CsvReaderOptions;
+        var definition = new StringBuilder();
+
+        AppendFingerprintPart(definition, load.HasHeaderRow);
+        AppendFingerprintParts(definition, load.Header);
+        AppendFingerprintPart(definition, load.SkipInitialRecords);
+        AppendFingerprintPart(definition, load.SkipCommentRowsBeforeHeader);
+        AppendFingerprintPart(definition, load.SkipCommentRows);
+        AppendFingerprintPart(definition, load.CommentCharacter);
+        AppendFingerprintPart(definition, load.RecognizeW3CFieldsHeader);
+        AppendFingerprintPart(definition, load.GenerateMissingHeaderNames);
+        AppendFingerprintPart(definition, load.DuplicateHeaderBehavior);
+        AppendFingerprintPart(definition, load.NullValue);
+        AppendFingerprintParts(definition, load.DateTimeFormats);
+        AppendFingerprintPart(definition, load.QuoteParsingMode);
+        AppendFingerprintPart(definition, load.ColumnCountMismatchPolicy);
+        AppendFingerprintPart(definition, load.Delimiter);
+        AppendFingerprintPart(definition, load.DelimiterText);
+        AppendFingerprintPart(definition, load.DetectDelimiter);
+        AppendFingerprintParts(
+            definition,
+            load.DelimiterCandidates?.Select(static value => value.ToString()));
+        AppendFingerprintPart(definition, load.TrimWhitespace);
+        AppendFingerprintPart(definition, load.Culture.Name);
+        AppendFingerprintPart(definition, load.AllowEmptyLines);
+        AppendFingerprintPart(definition, load.Mode);
+        AppendFingerprintPart(definition, load.Encoding?.WebName);
+        AppendFingerprintPart(definition, load.Encoding?.CodePage);
+        AppendFingerprintPart(definition, load.CompressionType);
+        AppendFingerprintPart(definition, load.MaxDecompressedBytes);
+        AppendFingerprintPart(definition, load.CollectParseErrors);
+        AppendFingerprintPart(definition, load.ParseErrorAction);
+        AppendFingerprintPart(definition, load.MaxParseErrors);
+        AppendFingerprintPart(definition, load.MaxFieldLength);
+        AppendFingerprintPart(definition, load.MaxQuotedFieldLength);
+        AppendFingerprintPart(definition, load.NormalizeQuotes);
+        AppendFingerprintPart(definition, load.InternStrings);
+
+        foreach (var column in (load.StaticColumns ??
+                     new Dictionary<string, object?>())
+                 .OrderBy(static item => item.Key, StringComparer.Ordinal))
+        {
+            AppendFingerprintPart(definition, column.Key);
+            AppendFingerprintPart(definition, column.Value?.GetType().AssemblyQualifiedName);
+            AppendFingerprintPart(definition, FormatFingerprintValue(column.Value));
+        }
+
+        AppendFingerprintPart(definition, reader.InferSchema);
+        AppendFingerprintPart(definition, reader.SchemaSampleSize);
+        var schema = reader.Schema;
+        AppendFingerprintPart(definition, schema?.Columns.Count);
+        if (schema != null)
+        {
+            foreach (var column in schema.Columns)
+            {
+                AppendFingerprintPart(definition, column.Name);
+                AppendFingerprintPart(definition, column.DataType?.AssemblyQualifiedName);
+                AppendFingerprintPart(definition, column.IsRequired);
+                AppendFingerprintPart(
+                    definition,
+                    column.DefaultValue?.GetType().AssemblyQualifiedName);
+                AppendFingerprintPart(
+                    definition,
+                    FormatFingerprintValue(column.DefaultValue));
+                AppendFingerprintParts(
+                    definition,
+                    column.Validators.Select(static validator => validator.Message));
+                AppendFingerprintPart(
+                    definition,
+                    column.Converter?.Method.DeclaringType?.AssemblyQualifiedName);
+                AppendFingerprintPart(definition, column.Converter?.Method.Name);
+            }
+        }
+
+        using var sha = SHA256.Create();
+        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(definition.ToString()));
+        return string.Concat(hash.Select(static value => value.ToString("x2")));
+    }
+
+    private static void AppendFingerprintParts(
+        StringBuilder builder,
+        IEnumerable<string>? values)
+    {
+        var snapshot = values?.ToArray() ?? Array.Empty<string>();
+        AppendFingerprintPart(builder, snapshot.Length);
+        foreach (var value in snapshot)
+        {
+            AppendFingerprintPart(builder, value);
+        }
+    }
+
+    private static void AppendFingerprintPart(StringBuilder builder, object? value)
+    {
+        var text = FormatFingerprintValue(value);
+        builder.Append(text.Length)
+            .Append(':')
+            .Append(text)
+            .Append('|');
+    }
+
+    private static string FormatFingerprintValue(object? value)
+        => value switch
+        {
+            null => string.Empty,
+            IFormattable formattable => formattable.ToString(
+                null,
+                System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty,
+            _ => value.ToString() ?? string.Empty
+        };
 
     private static CancellationTokenSource? CreateLinkedCancellation(
         CancellationToken loadToken,

@@ -14,8 +14,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$moduleManifest = Join-Path $repositoryRoot 'Module\DbaClientX.psd1'
-$originalDevelopmentBinarySetting = $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES
+$moduleManifest = Join-Path $repositoryRoot 'Module-FabricClientX\FabricClientX.psd1'
+$originalDevelopmentBinarySetting = $env:FABRICCLIENTX_USE_DEVELOPMENT_BINARIES
 
 function ConvertTo-ProbeSecureToken {
     param([Parameter(Mandatory)] $Token)
@@ -28,21 +28,21 @@ function ConvertTo-ProbeSecureToken {
 }
 
 try {
-    $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
+    $env:FABRICCLIENTX_USE_DEVELOPMENT_BINARIES = 'true'
     Import-Module $moduleManifest -Force -ErrorAction Stop
 
     $fabricToken = Get-AzAccessToken -ResourceUrl 'https://api.fabric.microsoft.com' -ErrorAction Stop
-    $fabricProvider = New-DbaXFabricTokenProvider `
+    $fabricProvider = New-FabricXTokenProvider `
         -AccessToken (ConvertTo-ProbeSecureToken $fabricToken.Token) `
         -ExpiresOn $fabricToken.ExpiresOn
-    $workspaces = @(Get-DbaXFabricWorkspace -TokenProvider $fabricProvider)
+    $workspaces = @(Get-FabricXWorkspace -TokenProvider $fabricProvider)
     $workspaces
 
     if ($WorkspaceId -eq [Guid]::Empty) {
         return
     }
 
-    Get-DbaXFabricItem `
+    Get-FabricXItem `
         -TokenProvider $fabricProvider `
         -WorkspaceId $WorkspaceId `
         -Type SemanticModel
@@ -50,10 +50,10 @@ try {
     $powerBiToken = Get-AzAccessToken `
         -ResourceUrl 'https://analysis.windows.net/powerbi/api' `
         -ErrorAction Stop
-    $powerBiProvider = New-DbaXFabricTokenProvider `
+    $powerBiProvider = New-FabricXTokenProvider `
         -AccessToken (ConvertTo-ProbeSecureToken $powerBiToken.Token) `
         -ExpiresOn $powerBiToken.ExpiresOn
-    Get-DbaXPowerBISemanticModel `
+    Get-FabricXPowerBISemanticModel `
         -TokenProvider $powerBiProvider `
         -WorkspaceId $WorkspaceId
 
@@ -68,7 +68,7 @@ try {
     if ($PSCmdlet.ShouldProcess(
             "$WorkspaceId/$SemanticModelId",
             'Request a Power BI semantic-model refresh')) {
-        Invoke-DbaXPowerBIRefresh `
+        Invoke-FabricXPowerBIRefresh `
             -TokenProvider $powerBiProvider `
             -WorkspaceId $WorkspaceId `
             -SemanticModelId $SemanticModelId `
@@ -77,5 +77,5 @@ try {
             -Confirm:$false
     }
 } finally {
-    $env:DBACLIENTX_USE_DEVELOPMENT_BINARIES = $originalDevelopmentBinarySetting
+    $env:FABRICCLIENTX_USE_DEVELOPMENT_BINARIES = $originalDevelopmentBinarySetting
 }

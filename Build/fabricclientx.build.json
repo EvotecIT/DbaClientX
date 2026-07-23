@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/EvotecIT/PSPublishModule/main/Schemas/project.build.schema.json",
+  "RootPath": "..",
+  "ExpectedVersion": null,
+  "ExpectedVersionMap": {
+    "FabricClientX.Core": "0.X.0",
+    "FabricClientX.PowerBI": "0.X.0",
+    "FabricClientX.OfficeIMO": "0.X.0"
+  },
+  "ExpectedVersionMapAsInclude": true,
+  "ExpectedVersionMapUseWildcards": false,
+  "IncludeProjects": [
+    "FabricClientX.Core",
+    "FabricClientX.PowerBI",
+    "FabricClientX.OfficeIMO"
+  ],
+  "ExcludeProjects": [
+    "FabricClientX.PowerShell",
+    "FabricClientX.Tests"
+  ],
+  "NugetSource": [],
+  "IncludePrerelease": false,
+  "Configuration": "Release",
+  "OutputPath": null,
+  "StagingPath": "Artefacts/FabricClientX/ProjectBuild",
+  "CleanStaging": true,
+  "PlanOutputPath": "../Artefacts/FabricClientX/ProjectBuild/project.build.plan.json",
+  "UpdateVersions": true,
+  "Build": true,
+  "IncludeSymbols": true,
+  "PublishNuget": false,
+  "PublishGitHub": false,
+  "CreateReleaseZip": true,
+  "CertificateThumbprint": "92e95fb58effa6a4a75e77a33cdd6bfe6dd30f1a",
+  "CertificateStore": "CurrentUser",
+  "TimeStampServer": "http://timestamp.digicert.com",
+  "PublishSource": "https://api.nuget.org/v3/index.json",
+  "PublishApiKeyFilePath": "C:\\Support\\Important\\NugetOrgEvotec.txt",
+  "SkipDuplicate": true,
+  "PublishFailFast": true,
+  "GitHubAccessTokenFilePath": "C:\\Support\\Important\\GithubAPI.txt",
+  "GitHubUsername": "EvotecIT",
+  "GitHubRepositoryName": "DbaClientX",
+  "GitHubIsPreRelease": false,
+  "GitHubIncludeProjectNameInTag": true,
+  "GitHubGenerateReleaseNotes": true,
+  "GitHubReleaseMode": "Single",
+  "GitHubPrimaryProject": "FabricClientX.Core",
+  "GitHubTagTemplate": "FabricClientX-v{Version}",
+  "GitHubReleaseName": "FabricClientX {Version}"
+}

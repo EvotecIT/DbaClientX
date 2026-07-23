@@ -4,6 +4,7 @@ using System.Text.Json;
 using DBAClientX;
 using FabricClientX.OfficeIMO;
 using FabricClientX.PowerBI;
+using OfficeIMO.CSV;
 
 namespace FabricClientX.Tests;
 
@@ -123,6 +124,101 @@ public sealed class CsvFabricWorkflowTests
     }
 
     [Fact]
+    public async Task CreatePlan_FingerprintsCsvParsingAndSchemaOptions()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, "Id,Name\n1,One\n");
+            var workflow = new CsvFabricWorkflow();
+            CsvFabricWorkflowRequest CreateRequest() => new(
+                path,
+                "Input",
+                "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
+                "dbo.Input");
+
+            var baseline = workflow.CreatePlan(CreateRequest()).DefinitionFingerprint;
+
+            var delimiter = CreateRequest();
+            delimiter.CsvLoadOptions.Delimiter = ';';
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(delimiter).DefinitionFingerprint);
+
+            var culture = CreateRequest();
+            culture.CsvLoadOptions.Culture =
+                System.Globalization.CultureInfo.GetCultureInfo("pl-PL");
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(culture).DefinitionFingerprint);
+
+            var encoding = CreateRequest();
+            encoding.CsvLoadOptions.Encoding = System.Text.Encoding.Unicode;
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(encoding).DefinitionFingerprint);
+
+            var inferred = CreateRequest();
+            inferred.CsvReaderOptions.InferSchema = false;
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(inferred).DefinitionFingerprint);
+
+            var explicitSchema = CreateRequest();
+            explicitSchema.CsvReaderOptions.Schema = new CsvSchemaBuilder()
+                .Column("Id")
+                .AsInt32()
+                .Done()
+                .Column("Name")
+                .AsString()
+                .Done()
+                .Build();
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(explicitSchema).DefinitionFingerprint);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Execute_PassesEffectiveCsvCancellationTokenToBulkInsert()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, "Id\n1\n");
+            using var cancellation = new CancellationTokenSource();
+            var request = new CsvFabricWorkflowRequest(
+                path,
+                "Input",
+                "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
+                "dbo.Input");
+            request.CsvLoadOptions.CancellationToken = cancellation.Token;
+            var workflow = new CsvFabricWorkflow();
+            var warehouse = new CountingSqlServer
+            {
+                ConnectionOptions = new SqlServerConnectionOptions
+                {
+                    CompatibilityProfile = SqlServerCompatibilityProfile.FabricWarehouse
+                }
+            };
+
+            await workflow.ExecuteAsync(
+                workflow.CreatePlan(request),
+                warehouse);
+
+            Assert.Equal(cancellation.Token, warehouse.LastCancellationToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Execute_RequiresFabricWarehouseCompatibilityProfile()
     {
         var path = Path.GetTempFileName();
@@ -195,6 +291,8 @@ public sealed class CsvFabricWorkflowTests
 
         public int? LastFieldCount { get; private set; }
 
+        public CancellationToken LastCancellationToken { get; private set; }
+
         public override Task<SqlServerBulkInsertResult> BulkInsertWithResultAsync(
             string connectionString,
             IDataReader reader,
@@ -209,6 +307,7 @@ public sealed class CsvFabricWorkflowTests
             WasCalled = true;
             LastBatchSize = batchSize;
             LastFieldCount = reader.FieldCount;
+            LastCancellationToken = cancellationToken;
             long rows = 0;
             while (reader.Read())
             {

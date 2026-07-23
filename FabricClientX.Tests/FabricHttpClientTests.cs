@@ -68,7 +68,30 @@ public sealed class FabricHttpClientTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             client.GetAllPagesAsync<FabricWorkspace>("workspaces"));
 
-        Assert.Contains("configured service host", exception.Message);
+        Assert.Contains("configured service authority", exception.Message);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task GetAllPages_RejectsContinuationOnAnotherPortBeforeSendingToken()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.OK,
+            """
+            {
+              "value": [],
+              "continuationUri":"https://service.example:9443/collect"
+            }
+            """);
+        var client = TestClients.Create(
+            handler,
+            baseAddress: new Uri("https://service.example:8443/v1/"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.GetAllPagesAsync<FabricWorkspace>("workspaces"));
+
+        Assert.Contains("configured service authority", exception.Message);
         Assert.Single(handler.Requests);
     }
 

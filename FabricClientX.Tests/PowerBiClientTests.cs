@@ -102,6 +102,40 @@ public sealed class PowerBiClientTests
     }
 
     [Fact]
+    public async Task WaitForRefresh_ReturnsTimedOutAsTerminalSettlement()
+    {
+        var workspaceId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var modelId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var refreshId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var location = new Uri(
+            $"https://api.powerbi.com/v1.0/myorg/groups/{workspaceId:D}/datasets/{modelId:D}/refreshes/{refreshId:D}");
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.Accepted,
+            configure: response =>
+            {
+                response.Headers.Add("x-ms-request-id", refreshId.ToString("D"));
+                response.Headers.Location = location;
+            });
+        handler.Enqueue(
+            HttpStatusCode.OK,
+            """{"status":"TimedOut","extendedStatus":"TimedOut","numberOfAttempts":1}""");
+        var client = new PowerBiClient(
+            TestClients.Create(handler, baseAddress: PowerBiClient.DefaultBaseAddress),
+            static (_, _) => Task.CompletedTask);
+        var start = await client.StartRefreshAsync(workspaceId, modelId);
+
+        var settlement = await client.WaitForRefreshAsync(
+            start,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.Zero);
+
+        Assert.False(settlement.Succeeded);
+        Assert.Equal("TimedOut", settlement.Detail.Status);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
     public async Task WaitForRefresh_BoundsAnInFlightStatusRequestByTimeout()
     {
         var workspaceId = Guid.Parse("11111111-1111-1111-1111-111111111111");

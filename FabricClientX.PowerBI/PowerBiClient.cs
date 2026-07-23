@@ -198,6 +198,7 @@ public sealed class PowerBiClient
         => string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(status, "TimedOut", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Disabled", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsInProgress(string status)

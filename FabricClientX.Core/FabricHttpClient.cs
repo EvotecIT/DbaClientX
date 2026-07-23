@@ -273,10 +273,13 @@ public sealed class FabricHttpClient
             ? absolute
             : new Uri(_options.BaseAddress, requestUri);
         if (resolved.Scheme != Uri.UriSchemeHttps ||
-            !string.Equals(resolved.Host, _options.BaseAddress.Host, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(
+                resolved.Authority,
+                _options.BaseAddress.Authority,
+                StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "Request and continuation URIs must use HTTPS on the configured service host.");
+                "Request and continuation URIs must use HTTPS on the configured service authority.");
         }
 
         return resolved;
