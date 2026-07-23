@@ -61,6 +61,7 @@ public partial class SqlServer
     {
         ValidateConnectionString(connectionString);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
+        ValidateCompatibility(connectionString, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -158,6 +159,7 @@ public partial class SqlServer
     {
         ValidateConnectionString(connectionString);
         ValidateBulkInsertInputs(table, destinationTable, batchSize, bulkCopyTimeout, options);
+        ValidateCompatibility(connectionString, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -319,7 +321,29 @@ public partial class SqlServer
     /// </summary>
     /// <param name="connectionString">Connection string used to construct the connection.</param>
     /// <returns>An unopened <see cref="SqlConnection"/> instance.</returns>
-    protected virtual SqlConnection CreateConnection(string connectionString) => new(connectionString);
+    protected virtual SqlConnection CreateConnection(string connectionString)
+    {
+        var connectionOptions = ConnectionOptions
+            ?? throw new InvalidOperationException("ConnectionOptions cannot be null.");
+        if (connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.FabricWarehouse)
+        {
+            FabricWarehouseProfile.ValidateConnectionString(
+                connectionString,
+                usesAccessTokenCallback: connectionOptions.AccessTokenCallback != null);
+        }
+
+        var connection = connectionOptions.ConnectionFactory == null
+            ? new SqlConnection(connectionString)
+            : connectionOptions.ConnectionFactory(connectionString)
+                ?? throw new InvalidOperationException("The SQL Server connection factory returned null.");
+
+        if (connectionOptions.AccessTokenCallback != null)
+        {
+            connection.AccessTokenCallback = connectionOptions.AccessTokenCallback;
+        }
+
+        return connection;
+    }
 
     /// <summary>
     /// Opens the provided <see cref="SqlConnection"/>.
@@ -449,5 +473,20 @@ public partial class SqlServer
         => source is Dictionary<string, string> dictionary
             ? dictionary.Comparer
             : StringComparer.Ordinal;
+
+    private void ValidateCompatibility(
+        string connectionString,
+        SqlServerBulkInsertOptions? options)
+    {
+        if (ConnectionOptions?.CompatibilityProfile != SqlServerCompatibilityProfile.FabricWarehouse)
+        {
+            return;
+        }
+
+        FabricWarehouseProfile.ValidateConnectionString(
+            connectionString,
+            usesAccessTokenCallback: ConnectionOptions.AccessTokenCallback != null);
+        FabricWarehouseProfile.ValidateBulkCopyOptions(options);
+    }
 
 }

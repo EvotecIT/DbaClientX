@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- HTTP contract tests intentionally control token identity and cancellation timing. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+    <ProjectReference Include="..\FabricClientX.Core\FabricClientX.Core.csproj" />
+    <ProjectReference Include="..\FabricClientX.PowerBI\FabricClientX.PowerBI.csproj" />
+    <ProjectReference Include="..\FabricClientX.OfficeIMO\FabricClientX.OfficeIMO.csproj" />
+  </ItemGroup>
+</Project>

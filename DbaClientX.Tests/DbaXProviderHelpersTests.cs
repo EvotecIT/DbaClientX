@@ -1,5 +1,6 @@
 using System.Data;
 using System.Management.Automation;
+using DBAClientX.DataMovement;
 using DBAClientX.PowerShell;
 using Microsoft.Data.Sqlite;
 
@@ -350,8 +351,11 @@ public class DbaXProviderHelpersTests
     public void GetCapabilities_ReportsStreamingOnlyWhenLoadedTargetSupportsIt()
     {
         var capabilities = DbaXProviderHelpers.GetCapabilities(DbaXProvider.SqlServer);
+        var coreCapabilities = DbaProviderCapabilities.Get(DbaTableCopyProvider.SqlServer);
 
-        Assert.Equal(DbaXProviderHelpers.SupportsStreaming, capabilities.HasFlag(DbaXProviderCapability.Streaming));
+        Assert.Equal(
+            coreCapabilities.HasFlag(DbaProviderCapability.Streaming),
+            capabilities.HasFlag(DbaXProviderCapability.Streaming));
     }
 
     [Theory]

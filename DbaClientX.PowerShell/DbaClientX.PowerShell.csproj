@@ -22,6 +22,7 @@
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
                 <PackageReference Include="System.Formats.Asn1" />
                 <PackageReference Include="System.Text.Json" />
+                <Reference Include="System.Net.Http" />
         </ItemGroup>
         <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
                 <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -35,6 +36,10 @@
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
                 <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
                 <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
+        </ItemGroup>
+
+        <ItemGroup>
+                <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.cs" Link="Communication\AsyncPSCmdlet.cs" />
         </ItemGroup>
 
         <ItemGroup>
@@ -56,6 +61,7 @@
 		<Using Include="System.IO" />
 		<Using Include="System.Net" />
 		<Using Include="System.Data" />
+		<Using Include="Evotec.PowerShell" />
 	</ItemGroup>
 
 	<!-- Make sure the output DLL's from library are included in the output -->
