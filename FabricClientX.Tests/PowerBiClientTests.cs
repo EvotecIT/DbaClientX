@@ -43,7 +43,7 @@ public sealed class PowerBiClientTests
         Assert.Equal(operationId, settlement.OperationId);
         Assert.Equal(refreshId, settlement.Start.RefreshId);
         Assert.Equal(HttpMethod.Post, handler.Requests[0].Method);
-        Assert.Contains("\"notifyOption\":\"NoNotification\"", handler.Requests[0].Body);
+        Assert.DoesNotContain("\"notifyOption\"", handler.Requests[0].Body);
         Assert.Equal(new Uri(refreshLocation), handler.Requests[1].Uri);
         Assert.Equal(new Uri(refreshLocation), handler.Requests[2].Uri);
     }
@@ -99,5 +99,59 @@ public sealed class PowerBiClientTests
 
         Assert.Contains("unsupported refresh status", exception.Message);
         Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task WaitForRefresh_BoundsAnInFlightStatusRequestByTimeout()
+    {
+        var workspaceId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        var modelId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        var refreshId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        var location = new Uri(
+            $"https://api.powerbi.com/v1.0/myorg/groups/{workspaceId:D}/datasets/{modelId:D}/refreshes/{refreshId:D}");
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.Accepted,
+            configure: response =>
+            {
+                response.Headers.Add("x-ms-request-id", refreshId.ToString("D"));
+                response.Headers.Location = location;
+            });
+        handler.Enqueue(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = new PowerBiClient(
+            TestClients.Create(handler, baseAddress: PowerBiClient.DefaultBaseAddress));
+        var start = await client.StartRefreshAsync(workspaceId, modelId);
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            client.WaitForRefreshAsync(
+                start,
+                TimeSpan.FromMilliseconds(50),
+                TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public async Task StartRefresh_RejectsNotificationForEnhancedRequest()
+    {
+        var handler = new QueueHttpMessageHandler();
+        var client = new PowerBiClient(TestClients.Create(
+            handler,
+            baseAddress: PowerBiClient.DefaultBaseAddress));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
+            client.StartRefreshAsync(
+                Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                new PowerBiRefreshRequest
+                {
+                    NotifyOption = "NoNotification",
+                    RetryCount = 1
+                }));
+
+        Assert.Contains("must be omitted", exception.Message);
+        Assert.Empty(handler.Requests);
     }
 }

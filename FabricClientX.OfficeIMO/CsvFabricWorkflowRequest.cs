@@ -76,4 +76,69 @@ public sealed class CsvFabricWorkflowRequest
 
     /// <summary>Gets or sets an optional W3C trace identifier for end-to-end correlation.</summary>
     public string? OperationId { get; set; }
+
+    internal CsvFabricWorkflowRequest Snapshot()
+    {
+        var loadOptions = CsvLoadOptions.Clone();
+        loadOptions.Culture = (System.Globalization.CultureInfo)CsvLoadOptions.Culture.Clone();
+        loadOptions.Encoding = (System.Text.Encoding?)CsvLoadOptions.Encoding?.Clone();
+
+        var columnMappings = BulkInsertOptions.ColumnMappings == null
+            ? null
+            : BulkInsertOptions.ColumnMappings is Dictionary<string, string> dictionary
+                ? new Dictionary<string, string>(dictionary, dictionary.Comparer)
+                : new Dictionary<string, string>(
+                    BulkInsertOptions.ColumnMappings,
+                    StringComparer.Ordinal);
+        var refreshObjects = RefreshRequest.Objects?
+            .Select(static item => new PowerBiRefreshObject
+            {
+                Table = item.Table,
+                Partition = item.Partition
+            })
+            .ToArray();
+
+        return new CsvFabricWorkflowRequest(
+            CsvPath,
+            SourceName,
+            WarehouseConnectionString,
+            DestinationTable)
+        {
+            CsvLoadOptions = loadOptions,
+            CsvReaderOptions = new CsvDataReaderOptions
+            {
+                Schema = CsvReaderOptions.Schema,
+                InferSchema = CsvReaderOptions.InferSchema,
+                SchemaSampleSize = CsvReaderOptions.SchemaSampleSize
+            },
+            BulkInsertOptions = new SqlServerBulkInsertOptions
+            {
+                BulkCopyOptions = BulkInsertOptions.BulkCopyOptions,
+                ColumnMappings = columnMappings,
+                AutoCreateTable = BulkInsertOptions.AutoCreateTable,
+                NotifyAfter = BulkInsertOptions.NotifyAfter,
+                RowsCopied = BulkInsertOptions.RowsCopied
+            },
+            BatchSize = BatchSize,
+            BulkCopyTimeout = BulkCopyTimeout,
+            RefreshAfterLoad = RefreshAfterLoad,
+            WorkspaceId = WorkspaceId,
+            SemanticModelId = SemanticModelId,
+            RefreshRequest = new PowerBiRefreshRequest
+            {
+                NotifyOption = RefreshRequest.NotifyOption,
+                Type = RefreshRequest.Type,
+                CommitMode = RefreshRequest.CommitMode,
+                MaxParallelism = RefreshRequest.MaxParallelism,
+                RetryCount = RefreshRequest.RetryCount,
+                Timeout = RefreshRequest.Timeout,
+                ApplyRefreshPolicy = RefreshRequest.ApplyRefreshPolicy,
+                Objects = refreshObjects
+            },
+            WaitForRefresh = WaitForRefresh,
+            RefreshTimeout = RefreshTimeout,
+            RefreshPollInterval = RefreshPollInterval,
+            OperationId = OperationId
+        };
+    }
 }

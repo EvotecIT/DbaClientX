@@ -9,7 +9,7 @@ public sealed class PowerBiRefreshRequest
     /// Gets or sets the mail notification mode. Omit it for service-principal enhanced refreshes.
     /// </summary>
     [JsonPropertyName("notifyOption")]
-    public string? NotifyOption { get; set; } = "NoNotification";
+    public string? NotifyOption { get; set; }
 
     /// <summary>Gets or sets the refresh processing type.</summary>
     [JsonPropertyName("type")]

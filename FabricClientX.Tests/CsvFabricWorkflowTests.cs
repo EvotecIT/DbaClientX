@@ -83,12 +83,12 @@ public sealed class CsvFabricWorkflowTests
     }
 
     [Fact]
-    public async Task Execute_RejectsRequestMutationAfterPlanning()
+    public async Task Execute_UsesImmutableParsingAndBulkSnapshots()
     {
         var path = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(path, "Id\n1\n");
+            await File.WriteAllTextAsync(path, "Id,Name\n1,One\n");
             var request = new CsvFabricWorkflowRequest(
                 path,
                 "Input",
@@ -97,6 +97,8 @@ public sealed class CsvFabricWorkflowTests
             var workflow = new CsvFabricWorkflow();
             var plan = workflow.CreatePlan(request);
             request.BatchSize = 500;
+            request.CsvLoadOptions.Delimiter = ';';
+            request.CsvReaderOptions.InferSchema = false;
             var warehouse = new CountingSqlServer
             {
                 ConnectionOptions = new SqlServerConnectionOptions
@@ -105,13 +107,14 @@ public sealed class CsvFabricWorkflowTests
                 }
             };
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                workflow.ExecuteAsync(
-                    plan,
-                    warehouse,
-                    cancellationToken: TestContext.Current.CancellationToken));
+            var result = await workflow.ExecuteAsync(
+                plan,
+                warehouse,
+                cancellationToken: TestContext.Current.CancellationToken);
 
-            Assert.Contains("changed after the plan was created", exception.Message);
+            Assert.Equal(1, result.RowsCopied);
+            Assert.Null(warehouse.LastBatchSize);
+            Assert.Equal(2, warehouse.LastFieldCount);
         }
         finally
         {
@@ -147,8 +150,51 @@ public sealed class CsvFabricWorkflowTests
         }
     }
 
+    [Fact]
+    public async Task Execute_HonorsCancellationBeforeCsvReaderCreation()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, "Id\n1\n");
+            var workflow = new CsvFabricWorkflow();
+            var plan = workflow.CreatePlan(new CsvFabricWorkflowRequest(
+                path,
+                "Input",
+                "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
+                "dbo.Input"));
+            var warehouse = new CountingSqlServer
+            {
+                ConnectionOptions = new SqlServerConnectionOptions
+                {
+                    CompatibilityProfile = SqlServerCompatibilityProfile.FabricWarehouse
+                }
+            };
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                workflow.ExecuteAsync(
+                    plan,
+                    warehouse,
+                    cancellationToken: cancellation.Token));
+
+            Assert.False(warehouse.WasCalled);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private sealed class CountingSqlServer : SqlServer
     {
+        public bool WasCalled { get; private set; }
+
+        public int? LastBatchSize { get; private set; }
+
+        public int? LastFieldCount { get; private set; }
+
         public override Task<SqlServerBulkInsertResult> BulkInsertWithResultAsync(
             string connectionString,
             IDataReader reader,
@@ -160,6 +206,9 @@ public sealed class CsvFabricWorkflowTests
             string? operationId = null,
             CancellationToken cancellationToken = default)
         {
+            WasCalled = true;
+            LastBatchSize = batchSize;
+            LastFieldCount = reader.FieldCount;
             long rows = 0;
             while (reader.Read())
             {

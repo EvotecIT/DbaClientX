@@ -41,6 +41,24 @@ public sealed class FabricLongRunningOperationClientTests
         Assert.Equal(3, handler.Requests.Count);
     }
 
+    [Fact]
+    public async Task WaitForCompletion_BoundsAnInFlightStatusRequestByTimeout()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(async (_, cancellationToken) =>
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        var client = new FabricLongRunningOperationClient(TestClients.Create(handler));
+
+        await Assert.ThrowsAsync<TimeoutException>(() =>
+            client.WaitForCompletionAsync<object>(
+                Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                TimeSpan.FromMilliseconds(50),
+                TimeSpan.FromMinutes(1)));
+    }
+
     private sealed class OperationPayload
     {
         public string? Id { get; set; }

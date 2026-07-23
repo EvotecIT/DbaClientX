@@ -22,13 +22,14 @@ public sealed class CsvFabricWorkflow
         }
 
         ValidateRequest(request);
+        var snapshot = request.Snapshot();
         using var operation = DbaClientXDiagnostics.StartOperation(
             "FabricClientX.OfficeIMO.CsvPlan",
-            request.OperationId);
+            snapshot.OperationId);
         return new CsvFabricWorkflowPlan(
-            request,
+            snapshot,
             operation.OperationId,
-            CreateFingerprint(request));
+            CreateFingerprint(snapshot));
     }
 
     /// <summary>
@@ -79,9 +80,18 @@ public sealed class CsvFabricWorkflow
                 "The workflow request changed after the plan was created. Create a new plan.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        using var linkedCancellation = CreateLinkedCancellation(
+            request.CsvLoadOptions.CancellationToken,
+            cancellationToken);
+        var loadOptions = request.CsvLoadOptions.Clone();
+        loadOptions.CancellationToken = linkedCancellation?.Token ??
+            (cancellationToken.CanBeCanceled
+                ? cancellationToken
+                : request.CsvLoadOptions.CancellationToken);
         using var reader = CsvDocument.CreateDataReader(
             request.CsvPath,
-            request.CsvLoadOptions,
+            loadOptions,
             request.CsvReaderOptions);
         var bulkResult = await warehouseClient.BulkInsertWithResultAsync(
             request.WarehouseConnectionString,
@@ -145,6 +155,7 @@ public sealed class CsvFabricWorkflow
         FabricWarehouseProfile.ValidateConnectionString(
             request.WarehouseConnectionString);
         if (request.CsvLoadOptions == null ||
+            request.CsvLoadOptions.Culture == null ||
             request.CsvReaderOptions == null ||
             request.BulkInsertOptions == null ||
             request.RefreshRequest == null)
@@ -170,6 +181,14 @@ public sealed class CsvFabricWorkflow
         {
             throw new ArgumentException(
                 "WorkspaceId and SemanticModelId are required when refresh is enabled.",
+                nameof(request));
+        }
+
+        if (request.RefreshRequest.Objects?.Any(
+                static item => item == null || string.IsNullOrWhiteSpace(item.Table)) == true)
+        {
+            throw new ArgumentException(
+                "Power BI refresh objects must identify a table.",
                 nameof(request));
         }
 
@@ -230,5 +249,21 @@ public sealed class CsvFabricWorkflow
         using var sha = SHA256.Create();
         var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(definition));
         return string.Concat(hash.Select(static value => value.ToString("x2")));
+    }
+
+    private static CancellationTokenSource? CreateLinkedCancellation(
+        CancellationToken loadToken,
+        CancellationToken executionToken)
+    {
+        if (!loadToken.CanBeCanceled ||
+            !executionToken.CanBeCanceled ||
+            loadToken == executionToken)
+        {
+            return null;
+        }
+
+        return CancellationTokenSource.CreateLinkedTokenSource(
+            loadToken,
+            executionToken);
     }
 }

@@ -74,9 +74,10 @@ This roadmap covers the work required to turn DbaClientX data movement, Microsof
 
 ## Validation evidence
 
-- The complete solution passes on .NET 8 and .NET 10. The latest run contains 1,180 DbaClientX tests, 19 Azure Tables tests, and 16 FabricClientX tests per target framework.
+- The complete solution passes on .NET 8 and .NET 10. The latest run contains 1,181 DbaClientX tests, 19 Azure Tables tests, and 20 FabricClientX tests per target framework.
 - The generated binary module passes 225 Pester tests and imports under both PowerShell 7 and Windows PowerShell 5.1 with 45 exported commands, including eight Fabric and Power BI commands.
 - The non-publishing package build produces ten NuGet packages, XML documentation, symbols, checksums, and a release manifest. The local module build produces version `1.0.4.8`; no public feed, release, or deployment is used.
 - Short-run .NET 10 table-copy benchmarks show the instrumented cursor engine at 6.467 ms and 2.26 MB for 100-row pages, versus the merged baseline at 6.240 ms and 2.25 MB. For 1,000-row pages it is 3.006 ms and 2.00 MB, versus 3.027 ms and 2.00 MB. The short-run error bars are wide, so these are regression guards rather than throughput claims.
 - Live Fabric discovery found only a personal workspace without capacity. No Warehouse or semantic-model mutation was attempted. The opt-in scripts remain the evidence path once a capacity-backed test workspace is available.
+- One independent read-only review covered commit `efc6978`. All five findings were accepted: immutable CSV plans, Power BI enhanced-refresh defaults, deadline-bounded settlement, CSV preparation cancellation, and case-insensitive deduplication fingerprints.
 - The architecture decision and extraction triggers are recorded in `architecture-decision.md`.

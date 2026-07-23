@@ -116,6 +116,31 @@ public sealed class DbaClientXDiagnosticsTests
     }
 
     [Fact]
+    public async Task CopyAsync_DefinitionFingerprintIncludesCaseInsensitiveDeduplication()
+    {
+        var caseSensitive = await CopyAsync(
+            definition: new DbaTableCopyDefinition(
+                "SourceRows",
+                "DestinationRows",
+                SourceOptions: new DbaTableCopySourceOptions(
+                    DeduplicateByColumns: new[] { "Name" },
+                    DeduplicateOrderByColumns: new[] { "Id" },
+                    DeduplicateCaseInsensitive: false)));
+        var caseInsensitive = await CopyAsync(
+            definition: new DbaTableCopyDefinition(
+                "SourceRows",
+                "DestinationRows",
+                SourceOptions: new DbaTableCopySourceOptions(
+                    DeduplicateByColumns: new[] { "Name" },
+                    DeduplicateOrderByColumns: new[] { "Id" },
+                    DeduplicateCaseInsensitive: true)));
+
+        Assert.NotEqual(
+            caseSensitive.Manifest!.DefinitionFingerprint,
+            caseInsensitive.Manifest!.DefinitionFingerprint);
+    }
+
+    [Fact]
     public async Task CopyAsync_RecordsUnknownCountsAsStructuredWarnings()
     {
         var source = new MemorySource("unused") { ReturnUnknownCount = true };

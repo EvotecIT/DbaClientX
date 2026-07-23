@@ -50,9 +50,11 @@ public sealed class PowerBiClient
         using var operation = DbaClientXDiagnostics.StartOperation(
             "FabricClientX.PowerBI.Refresh",
             operationId);
+        var refreshRequest = request ?? new PowerBiRefreshRequest();
+        ValidateRefreshRequest(refreshRequest);
         var response = await _transport.PostAsync(
             $"groups/{workspaceId:D}/datasets/{semanticModelId:D}/refreshes",
-            request ?? new PowerBiRefreshRequest(),
+            refreshRequest,
             operation.OperationId,
             cancellationToken).ConfigureAwait(false);
 
@@ -102,35 +104,55 @@ public sealed class PowerBiClient
         using var operation = DbaClientXDiagnostics.StartOperation(
             "FabricClientX.PowerBI.Refresh",
             start.OperationId);
+        using var deadlineCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadlineCancellation.CancelAfter(timeout);
+        var deadlineToken = deadlineCancellation.Token;
         var startedAt = DateTimeOffset.UtcNow;
-        while (DateTimeOffset.UtcNow - startedAt <= timeout)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var response = await _transport.GetAsync<PowerBiRefreshDetail>(
-                start.Location.ToString(),
-                operation.OperationId,
-                cancellationToken).ConfigureAwait(false);
-            var detail = response.Value ??
-                throw new InvalidOperationException("Power BI returned an empty refresh status.");
-
-            if (IsTerminal(detail.Status))
+            while (true)
             {
-                return new PowerBiRefreshSettlement(start, detail);
-            }
+                deadlineToken.ThrowIfCancellationRequested();
+                var response = await _transport.GetAsync<PowerBiRefreshDetail>(
+                    start.Location.ToString(),
+                    operation.OperationId,
+                    deadlineToken).ConfigureAwait(false);
+                var detail = response.Value ??
+                    throw new InvalidOperationException("Power BI returned an empty refresh status.");
 
-            if (!IsInProgress(detail.Status))
-            {
-                throw new InvalidOperationException(
-                    "Power BI returned an unsupported refresh status.");
-            }
+                if (IsTerminal(detail.Status))
+                {
+                    return new PowerBiRefreshSettlement(start, detail);
+                }
 
-            await _delayAsync(
-                response.RetryAfter ?? interval,
-                cancellationToken).ConfigureAwait(false);
+                if (!IsInProgress(detail.Status))
+                {
+                    throw new InvalidOperationException(
+                        "Power BI returned an unsupported refresh status.");
+                }
+
+                var remaining = timeout - (DateTimeOffset.UtcNow - startedAt);
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException(
+                        $"Power BI refresh {start.RefreshId:D} did not settle within {timeout}.");
+                }
+
+                var delay = response.RetryAfter ?? interval;
+                delay = delay < TimeSpan.Zero ? TimeSpan.Zero : delay;
+                await _delayAsync(
+                    delay > remaining ? remaining : delay,
+                    deadlineToken).ConfigureAwait(false);
+            }
         }
-
-        throw new TimeoutException(
-            $"Power BI refresh {start.RefreshId:D} did not settle within {timeout}.");
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            deadlineCancellation.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Power BI refresh {start.RefreshId:D} did not settle within {timeout}.");
+        }
     }
 
     /// <summary>Requests and waits for a semantic-model refresh.</summary>
@@ -200,6 +222,24 @@ public sealed class PowerBiClient
         if (value == Guid.Empty)
         {
             throw new ArgumentException("A non-empty identifier is required.", parameterName);
+        }
+    }
+
+    private static void ValidateRefreshRequest(PowerBiRefreshRequest request)
+    {
+        var isEnhanced =
+            request.Type != null ||
+            request.CommitMode != null ||
+            request.MaxParallelism.HasValue ||
+            request.RetryCount.HasValue ||
+            request.Timeout != null ||
+            request.ApplyRefreshPolicy.HasValue ||
+            request.Objects != null;
+        if (isEnhanced && !string.IsNullOrWhiteSpace(request.NotifyOption))
+        {
+            throw new ArgumentException(
+                "NotifyOption must be omitted from enhanced Power BI refresh requests.",
+                nameof(request));
         }
     }
 }

@@ -45,7 +45,7 @@ public sealed class CmdletInvokeDbaXPowerBIRefresh : AsyncPSCmdlet
     /// <summary>Power BI notification option. Omit it for service-principal enhanced refreshes.</summary>
     [Parameter]
     [ValidateSet("NoNotification", "MailOnFailure", "MailOnCompletion")]
-    public string? NotifyOption { get; set; } = "NoNotification";
+    public string? NotifyOption { get; set; }
 
     /// <summary>Optional Power BI service-side retry count.</summary>
     [Parameter]

@@ -122,6 +122,9 @@ public sealed record DbaTableCopyRunManifest
                 static value => ((int)value).ToString(System.Globalization.CultureInfo.InvariantCulture));
             AppendSequence(canonical, definition.SourceOptions?.DeduplicateByColumns);
             AppendSequence(canonical, definition.SourceOptions?.DeduplicateOrderByColumns);
+            Append(
+                canonical,
+                definition.SourceOptions?.DeduplicateCaseInsensitive == true ? "1" : "0");
         }
 
         using var sha256 = SHA256.Create();

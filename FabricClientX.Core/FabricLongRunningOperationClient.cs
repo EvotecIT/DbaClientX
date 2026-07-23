@@ -45,46 +45,67 @@ public sealed class FabricLongRunningOperationClient
         using var operation = DbaClientXDiagnostics.StartOperation(
             "FabricClientX.LongRunningOperation",
             operationId);
+        using var deadlineCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadlineCancellation.CancelAfter(timeout);
+        var deadlineToken = deadlineCancellation.Token;
         var startedAt = DateTimeOffset.UtcNow;
-        while (DateTimeOffset.UtcNow - startedAt <= timeout)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var stateResponse = await _transport.GetAsync<FabricOperationState>(
-                $"operations/{serviceOperationId:D}",
-                operation.OperationId,
-                cancellationToken).ConfigureAwait(false);
-            var state = stateResponse.Value ??
-                throw new InvalidOperationException("The service returned an empty operation state.");
-
-            if (string.Equals(state.Status, "Succeeded", StringComparison.OrdinalIgnoreCase))
+            while (true)
             {
-                var resultUri = stateResponse.Location ??
-                    new Uri($"operations/{serviceOperationId:D}/result", UriKind.Relative);
-                var result = await _transport.GetAsync<T>(
-                    resultUri.ToString(),
+                deadlineToken.ThrowIfCancellationRequested();
+                var stateResponse = await _transport.GetAsync<FabricOperationState>(
+                    $"operations/{serviceOperationId:D}",
                     operation.OperationId,
-                    cancellationToken).ConfigureAwait(false);
-                return new FabricOperationResult<T>(
-                    state,
-                    result.Value,
-                    operation.OperationId,
-                    serviceOperationId);
-            }
+                    deadlineToken).ConfigureAwait(false);
+                var state = stateResponse.Value ??
+                    throw new InvalidOperationException("The service returned an empty operation state.");
 
-            if (string.Equals(state.Status, "Failed", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new FabricApiException(
-                    System.Net.HttpStatusCode.InternalServerError,
-                    state.Error?.ErrorCode ?? "FabricOperationFailed",
-                    state.Error?.RequestId);
-            }
+                if (string.Equals(state.Status, "Succeeded", StringComparison.OrdinalIgnoreCase))
+                {
+                    var resultUri = stateResponse.Location ??
+                        new Uri($"operations/{serviceOperationId:D}/result", UriKind.Relative);
+                    var result = await _transport.GetAsync<T>(
+                        resultUri.ToString(),
+                        operation.OperationId,
+                        deadlineToken).ConfigureAwait(false);
+                    return new FabricOperationResult<T>(
+                        state,
+                        result.Value,
+                        operation.OperationId,
+                        serviceOperationId);
+                }
 
-            var delay = stateResponse.RetryAfter ?? pollInterval;
-            await _delayAsync(delay < TimeSpan.Zero ? TimeSpan.Zero : delay, cancellationToken)
-                .ConfigureAwait(false);
+                if (string.Equals(state.Status, "Failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new FabricApiException(
+                        System.Net.HttpStatusCode.InternalServerError,
+                        state.Error?.ErrorCode ?? "FabricOperationFailed",
+                        state.Error?.RequestId);
+                }
+
+                var remaining = timeout - (DateTimeOffset.UtcNow - startedAt);
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException(
+                        $"Fabric operation {serviceOperationId:D} did not settle within {timeout}.");
+                }
+
+                var delay = stateResponse.RetryAfter ?? pollInterval;
+                delay = delay < TimeSpan.Zero ? TimeSpan.Zero : delay;
+                await _delayAsync(
+                        delay > remaining ? remaining : delay,
+                        deadlineToken)
+                    .ConfigureAwait(false);
+            }
         }
-
-        throw new TimeoutException(
-            $"Fabric operation {serviceOperationId:D} did not settle within {timeout}.");
+        catch (OperationCanceledException) when (
+            !cancellationToken.IsCancellationRequested &&
+            deadlineCancellation.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Fabric operation {serviceOperationId:D} did not settle within {timeout}.");
+        }
     }
 }
