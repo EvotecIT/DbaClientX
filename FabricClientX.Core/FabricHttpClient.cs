@@ -50,7 +50,8 @@ public sealed class FabricHttpClient
             requestUri,
             request,
             operationId,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            deserializeResponseBody: false).ConfigureAwait(false);
         return new FabricResponse(
             response.StatusCode,
             response.OperationId,
@@ -84,7 +85,8 @@ public sealed class FabricHttpClient
             requestUri,
             null,
             operationId,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            deserializeResponseBody: false).ConfigureAwait(false);
         return new FabricResponse(
             response.StatusCode,
             response.OperationId,
@@ -157,7 +159,8 @@ public sealed class FabricHttpClient
         string requestUri,
         object? requestBody,
         string? operationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool deserializeResponseBody = true)
     {
         _options.Validate();
         var resolvedUri = ResolveRequestUri(requestUri);
@@ -209,7 +212,11 @@ public sealed class FabricHttpClient
                 operation.Activity?.SetTag("http.response.status_code", (int)response.StatusCode);
                 if (response.IsSuccessStatusCode)
                 {
-                    var value = await DeserializeAsync<T>(response, cancellationToken).ConfigureAwait(false);
+                    var value = deserializeResponseBody
+                        ? await DeserializeAsync<T>(
+                            response,
+                            cancellationToken).ConfigureAwait(false)
+                        : default;
                     return new FabricResponse<T>(
                         value,
                         response.StatusCode,
@@ -427,4 +434,5 @@ public sealed class FabricHttpClient
             ? date - DateTimeOffset.UtcNow
             : null;
     }
+
 }

@@ -54,6 +54,21 @@ internal sealed record RequestSnapshot(
     AuthenticationHeaderValue? Authorization,
     string? Body);
 
+internal sealed class UnreadableUnknownLengthContent : HttpContent
+{
+    protected override Task SerializeToStreamAsync(
+        Stream stream,
+        TransportContext? context)
+        => throw new InvalidOperationException(
+            "Bodyless success content should not be read.");
+
+    protected override bool TryComputeLength(out long length)
+    {
+        length = 0;
+        return false;
+    }
+}
+
 internal sealed class StaticTokenProvider : IFabricTokenProvider
 {
     public const string Token = "super-secret-test-token";

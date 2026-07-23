@@ -131,6 +131,40 @@ public sealed class FabricHttpClientTests
     }
 
     [Fact]
+    public async Task Post_AcceptsEmptyNonSeekableSuccessBody()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.Accepted)
+            {
+                Content = new UnreadableUnknownLengthContent()
+            }));
+        var client = TestClients.Create(handler);
+
+        var response = await client.PostAsync("workspaces", new { displayName = "Example" });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task Delete_AcceptsEmptyNonSeekableSuccessBody()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.NoContent)
+            {
+                Content = new UnreadableUnknownLengthContent()
+            }));
+        var client = TestClients.Create(handler);
+
+        var response = await client.DeleteAsync("workspaces/example");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task Get_RetriesTransientTransportFailureWithFreshRequest()
     {
         var handler = new QueueHttpMessageHandler();
