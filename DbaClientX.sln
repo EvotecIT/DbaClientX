@@ -34,6 +34,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.Tests", "Fabr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.OfficeIMO", "FabricClientX.OfficeIMO\FabricClientX.OfficeIMO.csproj", "{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.PowerShell", "FabricClientX.PowerShell\FabricClientX.PowerShell.csproj", "{B847AB37-36F8-4BA6-9D4D-AED44386B793}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -104,6 +106,10 @@ Global
 		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

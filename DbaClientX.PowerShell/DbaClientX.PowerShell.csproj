@@ -36,9 +36,10 @@
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
                 <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
                 <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
-                <ProjectReference Include="..\FabricClientX.Core\FabricClientX.Core.csproj" />
-                <ProjectReference Include="..\FabricClientX.PowerBI\FabricClientX.PowerBI.csproj" />
-                <ProjectReference Include="..\FabricClientX.OfficeIMO\FabricClientX.OfficeIMO.csproj" />
+        </ItemGroup>
+
+        <ItemGroup>
+                <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.cs" Link="Communication\AsyncPSCmdlet.cs" />
         </ItemGroup>
 
         <ItemGroup>
@@ -60,6 +61,7 @@
 		<Using Include="System.IO" />
 		<Using Include="System.Net" />
 		<Using Include="System.Data" />
+		<Using Include="Evotec.PowerShell" />
 	</ItemGroup>
 
 	<!-- Make sure the output DLL's from library are included in the output -->

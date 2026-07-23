@@ -7,7 +7,7 @@ This roadmap covers the work required to turn DbaClientX data movement, Microsof
 ## Guardrails
 
 - [x] Keep the work on a dedicated feature branch and worktree.
-- [x] Keep FabricClientX projects in the DbaClientX repository while their contracts are being proven.
+- [x] Keep FabricClientX projects in the DbaClientX repository while their contracts and consumers are being proven.
 - [x] Do not publish NuGet or PowerShell Gallery packages.
 - [x] Do not create GitHub releases or deploy websites.
 - [x] Do not merge the implementation PR without explicit authorization.
@@ -62,7 +62,7 @@ This roadmap covers the work required to turn DbaClientX data movement, Microsof
 - [x] Keep PSWriteOffice out of the dependency graph and DbaClientX cmdlets as thin parameter and output surfaces.
 - [x] Build all participating projects from local source or staged packages without temporary public feeds.
 - [x] Validate generated artifacts, local packages, module imports, cancellation, errors, and correlation.
-- [x] Decide whether one PowerShell module remains coherent or a Fabric-focused module has earned its own boundary.
+- [x] Split the database and Fabric command surfaces into independently versioned DbaClientX and FabricClientX modules in the same repository.
 
 ## Final architecture gate
 
@@ -75,7 +75,7 @@ This roadmap covers the work required to turn DbaClientX data movement, Microsof
 ## Validation evidence
 
 - The complete solution passes on .NET 8 and .NET 10. The latest run contains 1,181 DbaClientX tests, 19 Azure Tables tests, and 20 FabricClientX tests per target framework.
-- The generated binary module passes 225 Pester tests and imports under both PowerShell 7 and Windows PowerShell 5.1 with 45 exported commands, including eight Fabric and Power BI commands.
+- The DbaClientX and FabricClientX binary modules have separate manifests, cmdlet assemblies, command prefixes, version sources, and artifact roots. Final cross-version and packaged-artifact counts are refreshed after the two-module build.
 - The non-publishing package build produces ten NuGet packages, XML documentation, symbols, checksums, and a release manifest. The local module build produces version `1.0.4.8`; no public feed, release, or deployment is used.
 - Short-run .NET 10 table-copy benchmarks show the instrumented cursor engine at 6.467 ms and 2.26 MB for 100-row pages, versus the merged baseline at 6.240 ms and 2.25 MB. For 1,000-row pages it is 3.006 ms and 2.00 MB, versus 3.027 ms and 2.00 MB. The short-run error bars are wide, so these are regression guards rather than throughput claims.
 - Live Fabric discovery found only a personal workspace without capacity. No Warehouse or semantic-model mutation was attempted. The opt-in scripts remain the evidence path once a capacity-backed test workspace is available.

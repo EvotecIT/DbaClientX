@@ -4,7 +4,7 @@ using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DBAClientX.PowerShell;
+namespace Evotec.PowerShell;
 
 /// <summary>
 /// An abstract base class for asynchronous PowerShell cmdlets.

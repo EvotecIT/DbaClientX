@@ -1,0 +1,11 @@
+Ignore/*
+.vs/*
+.vscode/*
+Examples/Output/*
+Examples/Input/*
+Releases/*
+Artefacts/*
+ReleasedUnpacked/*
+Lib/Default/*
+Lib/Standard/*
+Lib/Core/*

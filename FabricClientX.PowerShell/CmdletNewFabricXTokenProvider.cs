@@ -2,19 +2,19 @@ using System.Runtime.InteropServices;
 using System.Security;
 using FabricClientX;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Creates a short-lived FabricClientX token provider from a caller-acquired secure token.</summary>
 /// <example>
 /// <summary>Create a provider from an Az.Accounts token result.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>$azToken = Get-AzAccessToken -ResourceUrl 'https://api.fabric.microsoft.com' -AsSecureString; $provider = New-DbaXFabricTokenProvider -AccessToken $azToken.Token -ExpiresOn $azToken.ExpiresOn</code>
+/// <code>$azToken = Get-AzAccessToken -ResourceUrl 'https://api.fabric.microsoft.com' -AsSecureString; $provider = New-FabricXTokenProvider -AccessToken $azToken.Token -ExpiresOn $azToken.ExpiresOn</code>
 /// <para>The returned provider can be reused by Fabric discovery cmdlets until the token nears expiry.</para>
 /// </example>
-[Cmdlet(VerbsCommon.New, "DbaXFabricTokenProvider")]
+[Cmdlet(VerbsCommon.New, "FabricXTokenProvider")]
 [OutputType(typeof(IFabricTokenProvider))]
 [CmdletBinding()]
-public sealed class CmdletNewDbaXFabricTokenProvider : PSCmdlet
+public sealed class CmdletNewFabricXTokenProvider : PSCmdlet
 {
     /// <summary>Caller-acquired Microsoft Entra access token.</summary>
     [Parameter(Mandatory = true, Position = 0)]

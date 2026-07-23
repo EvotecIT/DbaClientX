@@ -19,6 +19,14 @@ DbaClientX is a lightweight database client for .NET and PowerShell. It keeps th
 [![PowerShell Gallery platforms](https://img.shields.io/powershellgallery/p/DbaClientX.svg)](https://www.powershellgallery.com/packages/DbaClientX)
 [![PowerShell Gallery downloads](https://img.shields.io/powershellgallery/dt/DbaClientX.svg)](https://www.powershellgallery.com/packages/DbaClientX)
 
+## Two Brands In One Repository
+
+DbaClientX remains the database and data-movement product. Its .NET packages and `DbaClientX` PowerShell module keep their existing version family and `DbaX` commands.
+
+FabricClientX is an unreleased sibling product for Microsoft Fabric and Power BI automation. It has separate .NET packages, a `FabricClientX` PowerShell module, `FabricX` commands, version source, package-build configuration, and artifact folder. The two brands share this repository while their APIs and consumers settle, but they can be installed and released independently.
+
+See [`Module-FabricClientX`](Module-FabricClientX) for the intended command surface and [`docs/architecture-decision.md`](docs/architecture-decision.md) for the ownership boundary.
+
 ## Project Information
 
 [![Test .NET](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-dotnet.yml/badge.svg)](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-dotnet.yml)
@@ -497,7 +505,7 @@ Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 | Component | Windows | Linux/macOS |
 | --- | --- | --- |
 | Provider libraries | .NET Framework 4.7.2, .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
-| PowerShell binary module | .NET Framework 4.7.2, .NET 8.0 | .NET 8.0 |
+| PowerShell binary modules | .NET Framework 4.7.2, .NET 8.0 | .NET 8.0 |
 | Examples | .NET 8.0, .NET 10.0 | .NET 8.0, .NET 10.0 |
 | Benchmarks | Current PowerShell host through PSPublishModule | Current PowerShell host through PSPublishModule |
 
@@ -511,8 +519,13 @@ Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 | [`DbaClientX.MySql`](DbaClientX.MySql) | MySQL provider |
 | [`DbaClientX.SQLite`](DbaClientX.SQLite) | SQLite provider |
 | [`DbaClientX.Oracle`](DbaClientX.Oracle) | Oracle provider |
-| [`DbaClientX.PowerShell`](DbaClientX.PowerShell) | Binary cmdlets and PowerShell-facing helpers |
-| [`Module`](Module) | PowerShell module manifest, script functions, examples, Pester tests, and build script |
+| [`DbaClientX.PowerShell`](DbaClientX.PowerShell) | DbaClientX binary cmdlets and PowerShell-facing helpers |
+| [`FabricClientX.Core`](FabricClientX.Core) | Fabric REST transport and workspace/item contracts |
+| [`FabricClientX.PowerBI`](FabricClientX.PowerBI) | Power BI semantic-model and refresh workflows |
+| [`FabricClientX.OfficeIMO`](FabricClientX.OfficeIMO) | Optional OfficeIMO CSV to Warehouse/Power BI adapter |
+| [`FabricClientX.PowerShell`](FabricClientX.PowerShell) | FabricClientX binary cmdlets |
+| [`Module`](Module) | DbaClientX module manifest, tests, examples, and build script |
+| [`Module-FabricClientX`](Module-FabricClientX) | FabricClientX module manifest, tests, documentation, and build script |
 | [`DbaClientX.Examples`](DbaClientX.Examples) | C# usage examples |
 | [`DbaClientX.Tests`](DbaClientX.Tests) | xUnit tests |
 | [`Build`](Build) | Project release configuration |
@@ -554,14 +567,14 @@ PowerShell module tests:
 
 ```powershell
 .\Module\DbaClientX.Tests.ps1
+.\Module-FabricClientX\FabricClientX.Tests.ps1
 ```
 
-Package build:
+Module package builds:
 
 ```powershell
-$env:RefreshPSD1Only = 'false'
-.\Module\Build\Build-Module.ps1
-Remove-Item Env:\RefreshPSD1Only
+.\Module\Build\Build-Module.ps1 -RunMode Build
+.\Module-FabricClientX\Build\Build-Module.ps1 -RunMode Build
 ```
 
 ## Release Packaging
@@ -572,6 +585,7 @@ Generate a build plan:
 
 ```powershell
 pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Plan $true
+pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -ConfigPath .\Build\fabricclientx.build.json -Plan $true
 ```
 
 Build signed packages locally:

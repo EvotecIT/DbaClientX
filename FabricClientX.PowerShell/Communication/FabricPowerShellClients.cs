@@ -2,7 +2,7 @@ using System.Net.Http;
 using FabricClientX;
 using FabricClientX.PowerBI;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 internal static class FabricPowerShellClients
 {

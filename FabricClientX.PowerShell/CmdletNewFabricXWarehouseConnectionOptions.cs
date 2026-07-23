@@ -1,20 +1,21 @@
 using System.Runtime.InteropServices;
 using System.Security;
+using DBAClientX;
 using Microsoft.Data.SqlClient;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Creates Fabric Warehouse connection options from a caller-acquired secure SQL token.</summary>
 /// <example>
 /// <summary>Create options from an Az.Accounts database token.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>$token = Get-AzAccessToken -ResourceUrl 'https://database.windows.net' -AsSecureString; $options = New-DbaXFabricWarehouseConnectionOptions -AccessToken $token.Token -ExpiresOn $token.ExpiresOn</code>
+/// <code>$token = Get-AzAccessToken -ResourceUrl 'https://database.windows.net' -AsSecureString; $options = New-FabricXWarehouseConnectionOptions -AccessToken $token.Token -ExpiresOn $token.ExpiresOn</code>
 /// <para>The reusable callback preserves SqlClient pooling while the fixed token remains valid.</para>
 /// </example>
-[Cmdlet(VerbsCommon.New, "DbaXFabricWarehouseConnectionOptions")]
+[Cmdlet(VerbsCommon.New, "FabricXWarehouseConnectionOptions")]
 [OutputType(typeof(SqlServerConnectionOptions))]
 [CmdletBinding()]
-public sealed class CmdletNewDbaXFabricWarehouseConnectionOptions : PSCmdlet
+public sealed class CmdletNewFabricXWarehouseConnectionOptions : PSCmdlet
 {
     /// <summary>Caller-acquired Microsoft Entra token for the Azure SQL resource.</summary>
     [Parameter(Mandatory = true, Position = 0)]

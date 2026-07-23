@@ -1,18 +1,18 @@
 using FabricClientX;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Gets items from a Microsoft Fabric workspace.</summary>
 /// <example>
 /// <summary>List semantic models in one workspace.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Get-DbaXFabricItem -TokenProvider $provider -WorkspaceId $workspaceId -Type SemanticModel</code>
+/// <code>Get-FabricXItem -TokenProvider $provider -WorkspaceId $workspaceId -Type SemanticModel</code>
 /// <para>Uses the Fabric Core Items API and follows all continuation pages.</para>
 /// </example>
-[Cmdlet(VerbsCommon.Get, "DbaXFabricItem")]
+[Cmdlet(VerbsCommon.Get, "FabricXItem")]
 [OutputType(typeof(FabricItem))]
 [CmdletBinding()]
-public sealed class CmdletGetDbaXFabricItem : AsyncPSCmdlet
+public sealed class CmdletGetFabricXItem : AsyncPSCmdlet
 {
     /// <summary>Caller-owned token provider configured for the Fabric API scope.</summary>
     [Parameter(Mandatory = true)]

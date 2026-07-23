@@ -1,21 +1,22 @@
 using FabricClientX;
 using FabricClientX.OfficeIMO;
 using FabricClientX.PowerBI;
+using DBAClientX;
 using OfficeIMO.CSV;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Plans and executes an OfficeIMO CSV to Fabric Warehouse and optional Power BI workflow.</summary>
 /// <example>
 /// <summary>Stream a CSV into Warehouse and settle a semantic-model refresh.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXFabricCsvWorkflow -CsvPath .\sales.csv -SourceName Sales -WarehouseConnectionString $warehouse -WarehouseConnectionOptions $warehouseOptions -DestinationTable dbo.Sales -Refresh -PowerBiTokenProvider $powerBiProvider -WorkspaceId $workspaceId -SemanticModelId $modelId -Wait</code>
+/// <code>Invoke-FabricXCsvWorkflow -CsvPath .\sales.csv -SourceName Sales -WarehouseConnectionString $warehouse -WarehouseConnectionOptions $warehouseOptions -DestinationTable dbo.Sales -Refresh -PowerBiTokenProvider $powerBiProvider -WorkspaceId $workspaceId -SemanticModelId $modelId -Wait</code>
 /// <para>Creates a redacted plan before performing the confirmed Warehouse write and refresh.</para>
 /// </example>
-[Cmdlet(VerbsLifecycle.Invoke, "DbaXFabricCsvWorkflow", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.High)]
+[Cmdlet(VerbsLifecycle.Invoke, "FabricXCsvWorkflow", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.High)]
 [OutputType(typeof(CsvFabricWorkflowResult))]
 [CmdletBinding()]
-public sealed class CmdletInvokeDbaXFabricCsvWorkflow : AsyncPSCmdlet
+public sealed class CmdletInvokeFabricXCsvWorkflow : AsyncPSCmdlet
 {
     /// <summary>Path to an OfficeIMO-compatible CSV file.</summary>
     [Parameter(Mandatory = true, Position = 0)]

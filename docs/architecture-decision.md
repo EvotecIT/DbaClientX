@@ -1,49 +1,69 @@
-# FabricClientX incubation boundary
+# FabricClientX repository and module boundary
 
 Status: accepted for the unreleased incubation branch.
 
 ## Decision
 
-Keep `FabricClientX.Core`, `FabricClientX.PowerBI`, and `FabricClientX.OfficeIMO` in the DbaClientX repository for this implementation cycle. Keep the eight Fabric and Power BI commands in the DbaClientX PowerShell module while the surface remains unreleased.
+Maintain two product brands in one repository:
 
-This is an incubation and maintenance decision, not a declaration that Fabric control-plane behavior belongs to the DbaClientX data plane. The projects remain independently packable, their namespaces and contracts do not depend on repository placement, and their ownership boundaries are enforced by project references.
+- DbaClientX owns database access, provider-neutral data movement, and its existing PowerShell module.
+- FabricClientX owns Microsoft Fabric and Power BI control-plane clients, integration workflows, and a separate PowerShell module.
 
-## Evidence
+Each brand has its own PowerShell manifest, binary cmdlet assembly, package-build configuration, version source, staged artifacts, and future release tag. Nothing is published by this decision.
 
-- DbaClientX is currently the only validated application host. It owns the Warehouse SQL data plane, the shared operation identity, local package orchestration, and the binary PowerShell module.
-- `FabricClientX.Core` depends only on `DbaClientX.Core` for the shared diagnostics contract. It does not depend on a database provider.
-- `FabricClientX.PowerBI` depends on `FabricClientX.Core`.
-- `FabricClientX.OfficeIMO` is the optional bridge. It depends on OfficeIMO CSV, DbaClientX SQL Server, and FabricClientX Power BI; none of those owners depend on the bridge.
-- OfficeIMO already exposes a forward-only `IDataReader` from CSV. No OfficeIMO change or duplicate parser is required.
-- PSWriteOffice is not an owner of Fabric behavior and does not need a source change. It can become a thin consumer after the contracts and package delivery are stable.
-- The core and Power BI NuGet packages are small, but the self-contained OfficeIMO integration payload is about 5.8 MB because it carries its runtime dependencies. That payload is meaningful, but there is not yet an independent Fabric command audience or release cadence.
-- One repository currently makes coordinated correlation, multi-target build, packaging, and PowerShell compatibility changes easier to validate without compatibility shims.
+The repository remains shared while the APIs and consumers settle. Project and module boundaries make a later repository extraction possible without moving public contracts between assemblies.
 
-## PowerShell decision
+## Library ownership
 
-Keep the experimental commands in DbaClientX for now because they prove one complete operator path without adding another module bootstrap and packaging system.
+- `DbaClientX.Core` owns correlation, operation manifests, provider capabilities, and provider-neutral table movement.
+- `DbaClientX.SqlServer` owns SQL Server and Fabric Warehouse SQL compatibility.
+- `FabricClientX.Core` owns Fabric REST transport, authentication callbacks, retries, pagination, errors, and long-running operations.
+- `FabricClientX.PowerBI` owns semantic-model discovery and refresh workflows.
+- `FabricClientX.OfficeIMO` is a one-way integration adapter. It converts an OfficeIMO CSV data reader into a DbaClientX Warehouse load and can continue with a FabricClientX Power BI refresh.
+- `DbaClientX.PowerShell` and `FabricClientX.PowerShell` are thin command surfaces over those libraries.
 
-Reconsider a separate Fabric-focused module before the first public release if any of these become true:
+The OfficeIMO packages do not reference FabricClientX. The adapter belongs to FabricClientX because it knows the destination workflow. This lets .NET consumers use FabricClientX without OfficeIMO unless they install the adapter package.
 
-1. Fabric discovery and refresh commands are useful without database or Warehouse commands.
-2. OfficeIMO or Fabric dependencies materially increase install size or assembly conflicts for database-only users.
-3. Fabric commands need independent versioning, permissions guidance, documentation, or release cadence.
-4. PSWriteOffice, OfficeIMO, or another product becomes a real consumer of the Fabric commands rather than only the underlying libraries.
+The FabricClientX PowerShell module includes the CSV workflow as a batteries-included operator command. That packaging choice does not reverse the library dependency or add Fabric behavior to OfficeIMO.
 
-If a split is earned, move only the thin cmdlets and module packaging. Keep the typed `FabricClientX` libraries and their public contracts unchanged.
+## PowerShell brands
+
+The DbaClientX module exports only `DbaX` database and data-movement commands.
+
+The FabricClientX module exports the `FabricX` command family:
+
+- `New-FabricXTokenProvider`
+- `New-FabricXWarehouseConnectionOptions`
+- `Get-FabricXWorkspace`
+- `Get-FabricXItem`
+- `Get-FabricXPowerBISemanticModel`
+- `Invoke-FabricXCsvWorkflow`
+- `Invoke-FabricXPowerBIRefresh`
+- `Stop-FabricXPowerBIRefresh`
+
+The modules may be installed and versioned independently. Neither PowerShell manifest requires the other module. Shared behavior remains in the .NET libraries rather than being duplicated between cmdlets.
+
+## Version and release ownership
+
+- DbaClientX package builds use `Build/project.build.json`, `DbaClientX.Core` as the package release source, and the existing DbaClientX module version line.
+- FabricClientX package builds use `Build/fabricclientx.build.json`, `FabricClientX.Core` as the package release source, and the FabricClientX `0.1.x` module version line.
+- DbaClientX artifacts remain under `Module/Artefacts`.
+- FabricClientX artifacts remain under `Module-FabricClientX/Artefacts`.
+- Future tags and Gallery identities are brand-specific even though both products are maintained in this repository.
+
+No NuGet package, PowerShell module, GitHub release, or deployment may be published until explicitly authorized.
 
 ## Repository extraction triggers
 
-Move FabricClientX to its own repository only when it has at least one meaningful non-DbaClientX consumer and an independent maintenance or release cadence, or when its CI/dependency graph demonstrably burdens DbaClientX. Do not extract it merely to make the solution look smaller.
+Move FabricClientX to its own repository only when one or more of these are demonstrated:
 
-Before extraction:
+1. It has meaningful consumers that do not otherwise develop against DbaClientX.
+2. Its release cadence or maintenance ownership is materially independent.
+3. Its CI or dependency graph burdens DbaClientX development.
+4. Its public API is stable enough to move without compatibility shims.
 
-- prove the live Warehouse and Power BI workflows in a capacity-backed test workspace;
-- publish nothing until package names and public contracts are explicitly accepted;
-- preserve the W3C operation identifier across the repository boundary;
-- move history without adding compatibility facades or temporary feeds;
-- repoint DbaClientX and any PowerShell module to normal three-part public package versions only after publication is authorized.
+Separate branding and versioning are not by themselves reasons to split the repository.
 
 ## Remaining evidence gate
 
-The implementation and local artifact path are complete. Live Warehouse write/read and batch-size measurements remain pending because the available tenant context has no capacity-backed workspace. This does not justify synthetic success claims or a production release.
+Local builds, tests, package creation, and PowerShell 5.1/7 imports can prove the delivery model. Live Warehouse write/read and semantic-model refresh still require a capacity-backed Fabric test workspace. The currently available personal workspace has no Fabric capacity, so the branch must not claim live mutation proof or release readiness.

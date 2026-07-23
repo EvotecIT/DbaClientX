@@ -1,18 +1,18 @@
 using FabricClientX;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Gets Microsoft Fabric workspaces visible to the authenticated principal.</summary>
 /// <example>
 /// <summary>List accessible workspaces.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Get-DbaXFabricWorkspace -TokenProvider $provider</code>
+/// <code>Get-FabricXWorkspace -TokenProvider $provider</code>
 /// <para>Returns workspace objects with a stable OperationId property.</para>
 /// </example>
-[Cmdlet(VerbsCommon.Get, "DbaXFabricWorkspace")]
+[Cmdlet(VerbsCommon.Get, "FabricXWorkspace")]
 [OutputType(typeof(FabricWorkspace))]
 [CmdletBinding()]
-public sealed class CmdletGetDbaXFabricWorkspace : AsyncPSCmdlet
+public sealed class CmdletGetFabricXWorkspace : AsyncPSCmdlet
 {
     /// <summary>Caller-owned token provider configured for the Fabric API scope.</summary>
     [Parameter(Mandatory = true)]

@@ -1,19 +1,19 @@
 using FabricClientX;
 using FabricClientX.PowerBI;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Requests a Power BI semantic-model refresh and optionally waits for settlement.</summary>
 /// <example>
 /// <summary>Refresh a semantic model and wait for its terminal state.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Invoke-DbaXPowerBIRefresh -TokenProvider $powerBiProvider -WorkspaceId $workspaceId -SemanticModelId $modelId -Wait -TimeoutMinutes 30</code>
+/// <code>Invoke-FabricXPowerBIRefresh -TokenProvider $powerBiProvider -WorkspaceId $workspaceId -SemanticModelId $modelId -Wait -TimeoutMinutes 30</code>
 /// <para>Returns refresh identity, terminal status, and the stable OperationId.</para>
 /// </example>
-[Cmdlet(VerbsLifecycle.Invoke, "DbaXPowerBIRefresh", SupportsShouldProcess = true)]
+[Cmdlet(VerbsLifecycle.Invoke, "FabricXPowerBIRefresh", SupportsShouldProcess = true)]
 [OutputType(typeof(PowerBiRefreshStartResult), typeof(PowerBiRefreshSettlement))]
 [CmdletBinding()]
-public sealed class CmdletInvokeDbaXPowerBIRefresh : AsyncPSCmdlet
+public sealed class CmdletInvokeFabricXPowerBIRefresh : AsyncPSCmdlet
 {
     /// <summary>Caller-owned token provider configured for the Power BI API scope.</summary>
     [Parameter(Mandatory = true)]

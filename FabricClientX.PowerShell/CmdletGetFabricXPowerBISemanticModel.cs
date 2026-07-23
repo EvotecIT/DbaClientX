@@ -1,19 +1,19 @@
 using FabricClientX;
 using FabricClientX.PowerBI;
 
-namespace DBAClientX.PowerShell;
+namespace FabricClientX.PowerShell;
 
 /// <summary>Gets Power BI semantic models in a workspace.</summary>
 /// <example>
 /// <summary>List refreshable semantic models.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Get-DbaXPowerBISemanticModel -TokenProvider $powerBiProvider -WorkspaceId $workspaceId | Where-Object IsRefreshable</code>
+/// <code>Get-FabricXPowerBISemanticModel -TokenProvider $powerBiProvider -WorkspaceId $workspaceId | Where-Object IsRefreshable</code>
 /// <para>Returns typed semantic models with a stable OperationId property.</para>
 /// </example>
-[Cmdlet(VerbsCommon.Get, "DbaXPowerBISemanticModel")]
+[Cmdlet(VerbsCommon.Get, "FabricXPowerBISemanticModel")]
 [OutputType(typeof(PowerBiSemanticModel))]
 [CmdletBinding()]
-public sealed class CmdletGetDbaXPowerBISemanticModel : AsyncPSCmdlet
+public sealed class CmdletGetFabricXPowerBISemanticModel : AsyncPSCmdlet
 {
     /// <summary>Caller-owned token provider configured for the Power BI API scope.</summary>
     [Parameter(Mandatory = true)]

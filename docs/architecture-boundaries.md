@@ -11,8 +11,10 @@ The implementation begins as several independently packable projects in the DbaC
 | Fabric Warehouse SQL and bulk-copy compatibility | DbaClientX.SqlServer plus a narrow Fabric profile |
 | Fabric REST transport and workspace/item operations | FabricClientX.Core |
 | Power BI semantic models, reports, and refresh workflows | FabricClientX.PowerBI |
+| OfficeIMO CSV to Warehouse and refresh integration | FabricClientX.OfficeIMO |
 | Office document and report-artifact modeling | OfficeIMO |
-| PowerShell parameter binding and output projection | Binary cmdlet projects and modules |
+| DbaClientX PowerShell parameter binding and output projection | DbaClientX.PowerShell and the DbaClientX module |
+| FabricClientX PowerShell parameter binding and output projection | FabricClientX.PowerShell and the FabricClientX module |
 | Product-specific collection, schema, and orchestration | Consuming products |
 
 ## Dependency direction
@@ -45,14 +47,14 @@ Keep it in this repository when shared correlation, packaging, PowerShell delive
 
 ## PowerShell module boundary
 
-Begin with the existing DbaClientX binary module so the first workflow can be proven without duplicating module bootstrap, packaging, and AssemblyLoadContext behavior.
+The trigger conditions for a separate FabricClientX module are satisfied:
 
-Create a separate Fabric PowerShell module only when:
+- Fabric discovery and Power BI refresh form a coherent operator workflow;
+- database-only users should not receive the Fabric and OfficeIMO dependency payload;
+- the brands require independent installation and versioning; and
+- the cmdlets remain thin over the same FabricClientX and DbaClientX libraries.
 
-- Fabric commands form a coherent operator workflow independent of database commands;
-- the Fabric dependency payload is significant;
-- users need to install or version Fabric functionality independently; and
-- the split can retain thin cmdlets over the same FabricClientX libraries.
+Keep both modules in this repository during incubation. They use separate manifests, binary cmdlet projects, version sources, artifact folders, and command prefixes. Do not add forwarding aliases or duplicate implementations between the modules.
 
 ## Compatibility policy
 

@@ -34,10 +34,15 @@ jobs:
               run: |
                   Install-Module PSPublishModule -MinimumVersion 3.0.55 -Force -Scope CurrentUser -AllowClobber
 
-            - name: Refresh module manifest
+            - name: Refresh DbaClientX module manifest
               shell: pwsh
               run: |
                   ./Module/Build/Build-Module.ps1 -RunMode Manifest
+
+            - name: Refresh FabricClientX module manifest
+              shell: pwsh
+              run: |
+                  ./Module-FabricClientX/Build/Build-Module.ps1 -RunMode Manifest
 
             - name: Upload refreshed module entry files
               uses: actions/upload-artifact@v7
@@ -47,6 +52,9 @@ jobs:
                       Module/DbaClientX.psd1
                       Module/DbaClientX.psm1
                       Module/DbaClientX.Libraries.ps1
+                      Module-FabricClientX/FabricClientX.psd1
+                      Module-FabricClientX/FabricClientX.psm1
+                      Module-FabricClientX/FabricClientX.Libraries.ps1
 
     test-windows-ps5:
         needs: refresh-psd1
@@ -61,7 +69,7 @@ jobs:
               uses: actions/download-artifact@v8
               with:
                   name: module-entry
-                  path: Module
+                  path: .
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v5
@@ -84,9 +92,13 @@ jobs:
                   dotnet restore DbaClientX.sln
                   dotnet build DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
-            - name: Run PowerShell tests
+            - name: Run DbaClientX PowerShell tests
               shell: powershell
               run: ./Module/DbaClientX.Tests.ps1
+
+            - name: Run FabricClientX PowerShell tests
+              shell: powershell
+              run: ./Module-FabricClientX/FabricClientX.Tests.ps1
 
     test-windows-ps7:
         needs: refresh-psd1
@@ -101,7 +113,7 @@ jobs:
               uses: actions/download-artifact@v8
               with:
                   name: module-entry
-                  path: Module
+                  path: .
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v5
@@ -124,9 +136,13 @@ jobs:
                   dotnet restore DbaClientX.sln
                   dotnet build DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
-            - name: Run PowerShell tests
+            - name: Run DbaClientX PowerShell tests
               shell: pwsh
               run: ./Module/DbaClientX.Tests.ps1
+
+            - name: Run FabricClientX PowerShell tests
+              shell: pwsh
+              run: ./Module-FabricClientX/FabricClientX.Tests.ps1
 
     test-packaged-alc-ps7:
         name: 'Windows PowerShell 7 Packaged ALC'
@@ -153,17 +169,65 @@ jobs:
                   Install-Module -Name Pester -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
                   Install-Module -Name PSWriteColor -Repository PSGallery -Force -SkipPublisherCheck -AllowClobber
 
-            - name: Build packaged module
+            - name: Build packaged DbaClientX module
               shell: pwsh
               run: ./Module/Build/Build-Module.ps1 -RunMode Build -SignModule:$false
 
-            - name: Run packaged ALC smoke test
+            - name: Build packaged FabricClientX module
+              shell: pwsh
+              run: ./Module-FabricClientX/Build/Build-Module.ps1 -RunMode Build -SignModule:$false
+
+            - name: Run packaged DbaClientX ALC smoke test
               shell: pwsh
               env:
                   DBACLIENTX_REQUIRE_ALC_SMOKE: 'true'
               run: |
                   Import-Module Pester -Force
                   Invoke-Pester -Path ./Module/Tests/AssemblyLoadContext.Tests.ps1 -Tag PackagedALC -Output Detailed
+
+            - name: Run packaged FabricClientX ALC smoke test
+              shell: pwsh
+              env:
+                  FABRICCLIENTX_REQUIRE_ALC_SMOKE: 'true'
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module-FabricClientX/Tests/AssemblyLoadContext.Tests.ps1 -Tag PackagedALC -Output Detailed
+
+            - name: Test packaged coexistence on PowerShell 7 (DbaClientX first)
+              shell: pwsh
+              env:
+                  FABRICCLIENTX_REQUIRE_COEXISTENCE_SMOKE: 'true'
+                  FABRICCLIENTX_IMPORT_ORDER: DbaFirst
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module-FabricClientX/Tests/ModuleCoexistence.Tests.ps1 -Tag PackagedCoexistence -Output Detailed
+
+            - name: Test packaged coexistence on PowerShell 7 (FabricClientX first)
+              shell: pwsh
+              env:
+                  FABRICCLIENTX_REQUIRE_COEXISTENCE_SMOKE: 'true'
+                  FABRICCLIENTX_IMPORT_ORDER: FabricFirst
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module-FabricClientX/Tests/ModuleCoexistence.Tests.ps1 -Tag PackagedCoexistence -Output Detailed
+
+            - name: Test packaged coexistence on Windows PowerShell 5.1 (DbaClientX first)
+              shell: powershell
+              env:
+                  FABRICCLIENTX_REQUIRE_COEXISTENCE_SMOKE: 'true'
+                  FABRICCLIENTX_IMPORT_ORDER: DbaFirst
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module-FabricClientX/Tests/ModuleCoexistence.Tests.ps1 -Tag PackagedCoexistence -Output Detailed
+
+            - name: Test packaged coexistence on Windows PowerShell 5.1 (FabricClientX first)
+              shell: powershell
+              env:
+                  FABRICCLIENTX_REQUIRE_COEXISTENCE_SMOKE: 'true'
+                  FABRICCLIENTX_IMPORT_ORDER: FabricFirst
+              run: |
+                  Import-Module Pester -Force
+                  Invoke-Pester -Path ./Module-FabricClientX/Tests/ModuleCoexistence.Tests.ps1 -Tag PackagedCoexistence -Output Detailed
 
     test-ubuntu:
         needs: refresh-psd1
@@ -178,7 +242,7 @@ jobs:
               uses: actions/download-artifact@v8
               with:
                   name: module-entry
-                  path: Module
+                  path: .
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v5
@@ -208,9 +272,13 @@ jobs:
                   dotnet restore DbaClientX.sln
                   dotnet build DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
-            - name: Run PowerShell tests
+            - name: Run DbaClientX PowerShell tests
               shell: pwsh
               run: ./Module/DbaClientX.Tests.ps1
+
+            - name: Run FabricClientX PowerShell tests
+              shell: pwsh
+              run: ./Module-FabricClientX/FabricClientX.Tests.ps1
 
     test-macos:
         needs: refresh-psd1
@@ -225,7 +293,7 @@ jobs:
               uses: actions/download-artifact@v8
               with:
                   name: module-entry
-                  path: Module
+                  path: .
 
             - name: Setup .NET
               uses: actions/setup-dotnet@v5
@@ -256,6 +324,10 @@ jobs:
                   dotnet restore DbaClientX.sln
                   dotnet build DbaClientX.sln --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
 
-            - name: Run PowerShell tests
+            - name: Run DbaClientX PowerShell tests
               shell: pwsh
               run: ./Module/DbaClientX.Tests.ps1
+
+            - name: Run FabricClientX PowerShell tests
+              shell: pwsh
+              run: ./Module-FabricClientX/FabricClientX.Tests.ps1
