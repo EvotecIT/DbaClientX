@@ -2,6 +2,10 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Runs a script block inside an Oracle transaction.</summary>
 /// <para>Creates an Oracle client, begins a transaction, invokes the script block, and commits on success.</para>
+/// <example>
+/// <para>Use the same credential inside the transaction script block.</para>
+/// <code>Invoke-DbaXOracleTransaction -Server 'oracle01' -Database 'FREEPDB1' -Credential $credential -ArgumentList $credential -ScriptBlock { param($client, $login) $client.ExecuteNonQuery('oracle01', 'FREEPDB1', $login.UserName, $login.GetNetworkCredential().Password, 'UPDATE Jobs SET Enabled = 1 WHERE Id = 42', $null, $true) }</code>
+/// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXOracleTransaction", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXOracleTransaction : PSCmdlet

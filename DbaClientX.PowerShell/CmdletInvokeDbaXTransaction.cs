@@ -2,6 +2,10 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Runs a script block inside a SQL Server transaction.</summary>
 /// <para>Creates a SQL Server client, begins a transaction, invokes the script block, and commits on success.</para>
+/// <example>
+/// <para>Update a row through the transaction client. The cmdlet commits after the script block succeeds.</para>
+/// <code>Invoke-DbaXTransaction -Server 'sql01' -Database 'App' -ScriptBlock { param($client) $client.ExecuteNonQuery('sql01', 'App', $true, 'UPDATE Jobs SET Enabled = 1 WHERE Id = 42', $null, $true) }</code>
+/// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXTransaction", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXTransaction : PSCmdlet

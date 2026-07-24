@@ -2,6 +2,10 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Runs a script block inside a SQLite transaction.</summary>
 /// <para>Creates a SQLite client, begins a transaction, invokes the script block, and commits on success.</para>
+/// <example>
+/// <para>Update a row in a SQLite transaction.</para>
+/// <code>Invoke-DbaXSQLiteTransaction -Database '.\app.db' -ScriptBlock { param($client) $client.ExecuteNonQuery('.\app.db', 'UPDATE Jobs SET Enabled = 1 WHERE Id = 42', $null, $true) }</code>
+/// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXSQLiteTransaction", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXSQLiteTransaction : PSCmdlet

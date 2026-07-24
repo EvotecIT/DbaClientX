@@ -2,6 +2,10 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Runs a script block inside a MySQL transaction.</summary>
 /// <para>Creates a MySQL client, begins a transaction, invokes the script block, and commits on success.</para>
+/// <example>
+/// <para>Use the same credential inside the transaction script block.</para>
+/// <code>Invoke-DbaXMySqlTransaction -Server 'mysql01' -Database 'App' -Credential $credential -ArgumentList $credential -ScriptBlock { param($client, $login) $client.ExecuteNonQuery('mysql01', 'App', $login.UserName, $login.GetNetworkCredential().Password, 'UPDATE Jobs SET Enabled = 1 WHERE Id = 42', $null, $true) }</code>
+/// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXMySqlTransaction", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXMySqlTransaction : PSCmdlet

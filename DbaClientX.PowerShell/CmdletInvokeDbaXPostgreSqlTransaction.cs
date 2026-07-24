@@ -2,6 +2,10 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Runs a script block inside a PostgreSQL transaction.</summary>
 /// <para>Creates a PostgreSQL client, begins a transaction, invokes the script block, and commits on success.</para>
+/// <example>
+/// <para>Use the same credential inside the transaction script block.</para>
+/// <code>Invoke-DbaXPostgreSqlTransaction -Server 'pgsql01' -Database 'App' -Credential $credential -ArgumentList $credential -ScriptBlock { param($client, $login) $client.ExecuteNonQuery('pgsql01', 'App', $login.UserName, $login.GetNetworkCredential().Password, 'UPDATE Jobs SET Enabled = TRUE WHERE Id = 42', $null, $true) }</code>
+/// </example>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXPostgreSqlTransaction", SupportsShouldProcess = true, ConfirmImpact = ConfirmImpact.Medium)]
 [CmdletBinding()]
 public sealed class CmdletInvokeDbaXPostgreSqlTransaction : PSCmdlet
