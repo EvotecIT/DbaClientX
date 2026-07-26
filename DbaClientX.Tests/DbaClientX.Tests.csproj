@@ -36,6 +36,7 @@
     <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
     <ProjectReference Include="..\DbaClientX.SQLite\DbaClientX.SQLite.csproj" />
     <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
+    <ProjectReference Include="..\FabricClientX.PowerShell\FabricClientX.PowerShell.csproj" />
   </ItemGroup>
 
 </Project>

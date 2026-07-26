@@ -7,7 +7,7 @@ using System.Management.Automation.Runspaces;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Security;
-using Evotec.PowerShell;
+using DBAClientX.PowerShell;
 using Xunit;
 
 public class AsyncPSCmdletTests

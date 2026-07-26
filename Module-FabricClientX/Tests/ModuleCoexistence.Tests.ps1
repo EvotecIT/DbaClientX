@@ -34,6 +34,11 @@ Describe 'Packaged DbaClientX and FabricClientX coexistence' -Tag 'PackagedCoexi
         @($dbaCommands.Name | Where-Object { $_ -match 'Fabric|PowerBI' }) | Should -BeNullOrEmpty
         @($fabricCommands.Name | Where-Object { $_ -match 'DbaX' }) | Should -BeNullOrEmpty
 
+        (Get-Command Get-DbaXMetadata).ImplementingType.BaseType.FullName |
+            Should -Be 'DBAClientX.PowerShell.AsyncPSCmdlet'
+        (Get-Command Get-FabricXWorkspace).ImplementingType.BaseType.FullName |
+            Should -Be 'FabricClientX.PowerShell.AsyncPSCmdlet'
+
         $connectionString = New-DbaXConnectionString -Provider SQLite -Database ':memory:'
         $connectionString | Should -Match ':memory:'
 

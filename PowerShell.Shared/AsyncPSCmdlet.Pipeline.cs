@@ -6,7 +6,13 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Evotec.PowerShell;
+#if FABRICCLIENTX_POWERSHELL
+namespace FabricClientX.PowerShell;
+#elif DBACLIENTX_POWERSHELL
+namespace DBAClientX.PowerShell;
+#else
+#error The PowerShell brand must be selected by the consuming project.
+#endif
 
 public abstract partial class AsyncPSCmdlet
 {

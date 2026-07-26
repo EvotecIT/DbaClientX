@@ -4,7 +4,13 @@ using System.Management.Automation;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Evotec.PowerShell;
+#if FABRICCLIENTX_POWERSHELL
+namespace FabricClientX.PowerShell;
+#elif DBACLIENTX_POWERSHELL
+namespace DBAClientX.PowerShell;
+#else
+#error The PowerShell brand must be selected by the consuming project.
+#endif
 
 /// <summary>
 /// Base class for cmdlets that await asynchronous engine work while routing PowerShell pipeline writes
