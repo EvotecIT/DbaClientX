@@ -26,6 +26,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.AzureTables.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Benchmarks", "DbaClientX.Benchmarks\DbaClientX.Benchmarks.csproj", "{12FCA2AE-215C-4EE0-8B15-678FED13AF82}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.Core", "FabricClientX.Core\FabricClientX.Core.csproj", "{CB015041-5872-4FD0-B9F3-BFF35F5E5C5A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.PowerBI", "FabricClientX.PowerBI\FabricClientX.PowerBI.csproj", "{4E6444DE-7CD6-43A0-BA45-1DEAF1E4D6DF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.Tests", "FabricClientX.Tests\FabricClientX.Tests.csproj", "{2477FDD1-802A-413A-B9B0-BAC42DE252D9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.OfficeIMO", "FabricClientX.OfficeIMO\FabricClientX.OfficeIMO.csproj", "{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.PowerShell", "FabricClientX.PowerShell\FabricClientX.PowerShell.csproj", "{B847AB37-36F8-4BA6-9D4D-AED44386B793}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -80,6 +90,26 @@ Global
 		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{12FCA2AE-215C-4EE0-8B15-678FED13AF82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CB015041-5872-4FD0-B9F3-BFF35F5E5C5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CB015041-5872-4FD0-B9F3-BFF35F5E5C5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CB015041-5872-4FD0-B9F3-BFF35F5E5C5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CB015041-5872-4FD0-B9F3-BFF35F5E5C5A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4E6444DE-7CD6-43A0-BA45-1DEAF1E4D6DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4E6444DE-7CD6-43A0-BA45-1DEAF1E4D6DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4E6444DE-7CD6-43A0-BA45-1DEAF1E4D6DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4E6444DE-7CD6-43A0-BA45-1DEAF1E4D6DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2477FDD1-802A-413A-B9B0-BAC42DE252D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2477FDD1-802A-413A-B9B0-BAC42DE252D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2477FDD1-802A-413A-B9B0-BAC42DE252D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2477FDD1-802A-413A-B9B0-BAC42DE252D9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC9DC4B3-D9E1-4344-97E4-C15114C9DEA8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

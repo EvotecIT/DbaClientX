@@ -146,6 +146,14 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [Parameter]
     public SwitchParameter AllowSameTableCopy { get; set; }
 
+    /// <summary>Applies Microsoft Fabric Warehouse TDS compatibility validation to a SQL Server source.</summary>
+    [Parameter]
+    public SwitchParameter SourceFabricWarehouse { get; set; }
+
+    /// <summary>Applies Microsoft Fabric Warehouse TDS and direct bulk-copy compatibility validation to a SQL Server destination.</summary>
+    [Parameter]
+    public SwitchParameter DestinationFabricWarehouse { get; set; }
+
     /// <summary>Deletes destination table rows before copying source rows.</summary>
     [Parameter]
     public SwitchParameter ClearDestination { get; set; }
@@ -153,6 +161,11 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     /// <summary>Skips source and destination row-count verification after the copy.</summary>
     [Parameter]
     public SwitchParameter NoVerify { get; set; }
+
+    /// <summary>Optional non-zero 32-character W3C trace identifier used to correlate this copy with downstream workflows.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string? OperationId { get; set; }
 
     /// <summary>SQL Server destination option to acquire a bulk update lock for the duration of each bulk copy.</summary>
     [Parameter]
@@ -261,9 +274,11 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                     DestinationTable = definitions.Count == 1 ? definitions[0].DestinationName : null,
                     SourceRows = result.SourceRows,
                     CopiedRows = result.CopiedRows,
-                    DestinationRows = result.DestinationRows,
-                    Verified = result.Verified,
-                    Tables = result.Tables,
+                     DestinationRows = result.DestinationRows,
+                     Verified = result.Verified,
+                     OperationId = result.OperationId,
+                     Manifest = result.Manifest,
+                     Tables = result.Tables,
                     StartedAt = startedAt,
                     CompletedAt = DateTimeOffset.UtcNow,
                     ElapsedMilliseconds = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2)
@@ -304,10 +319,11 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             {
                 PageSize = PageSize,
                 BatchSize = BatchSize,
-                BulkCopyTimeout = BulkCopyTimeout,
-                ClearDestination = ClearDestination.IsPresent,
-                VerifyRowCounts = !NoVerify.IsPresent,
-                Progress = bufferedProgress.Add
+                 BulkCopyTimeout = BulkCopyTimeout,
+                 ClearDestination = ClearDestination.IsPresent,
+                 VerifyRowCounts = !NoVerify.IsPresent,
+                 OperationId = OperationId,
+                 Progress = bufferedProgress.Add
             }
         };
 
@@ -319,19 +335,24 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     }
 
     private IDbaTableCopySource CreateSourceAdapter(DbaProviderTableCopyAdapterOptions options)
-        => CreateProviderAdapter(options, sqlServerOptions: null);
+        => CreateProviderAdapter(
+            options,
+            sqlServerOptions: null,
+            BuildSqlServerConnectionOptions(SourceFabricWarehouse.IsPresent));
 
     private IDbaTableCopyDestination CreateDestinationAdapter(DbaProviderTableCopyAdapterOptions options)
         => CreateProviderAdapter(
             options,
-            options.Provider == DbaTableCopyProvider.SqlServer ? BuildSqlServerOptions() : null);
+            options.Provider == DbaTableCopyProvider.SqlServer ? BuildSqlServerOptions() : null,
+            BuildSqlServerConnectionOptions(DestinationFabricWarehouse.IsPresent));
 
     private static DbaProviderTableCopyAdapterBase CreateProviderAdapter(
         DbaProviderTableCopyAdapterOptions options,
-        SqlServerBulkInsertOptions? sqlServerOptions)
+        SqlServerBulkInsertOptions? sqlServerOptions,
+        SqlServerConnectionOptions? sqlServerConnectionOptions)
         => options.Provider switch
         {
-            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(options, sqlServerOptions),
+            DbaTableCopyProvider.SqlServer => new SqlServerTableCopyAdapter(options, sqlServerOptions, sqlServerConnectionOptions),
             DbaTableCopyProvider.PostgreSql => new PostgreSqlTableCopyAdapter(options),
             DbaTableCopyProvider.MySql => new MySqlTableCopyAdapter(options),
             DbaTableCopyProvider.Oracle => new OracleTableCopyAdapter(options),
@@ -406,6 +427,16 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         if (DestinationProvider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
         {
             throw new PSArgumentException("TableLock, CheckConstraints, FireTriggers, KeepIdentity, and KeepNulls are only supported for SqlServer destinations.");
+        }
+
+        if (SourceFabricWarehouse.IsPresent && SourceProvider != DbaXBulkProvider.SqlServer)
+        {
+            throw new PSArgumentException("SourceFabricWarehouse requires SourceProvider SqlServer.", nameof(SourceFabricWarehouse));
+        }
+
+        if (DestinationFabricWarehouse.IsPresent && DestinationProvider != DbaXBulkProvider.SqlServer)
+        {
+            throw new PSArgumentException("DestinationFabricWarehouse requires DestinationProvider SqlServer.", nameof(DestinationFabricWarehouse));
         }
 
         if (!hasDefinitions && (OrderBy == null || OrderBy.Length == 0) && !AllowUnordered.IsPresent)
@@ -576,6 +607,14 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             KeepNulls.IsPresent,
             autoCreateTable: false);
     }
+
+    private static SqlServerConnectionOptions? BuildSqlServerConnectionOptions(bool fabricWarehouse)
+        => fabricWarehouse
+            ? new SqlServerConnectionOptions
+            {
+                CompatibilityProfile = SqlServerCompatibilityProfile.FabricWarehouse
+            }
+            : null;
 
     private void WriteTableCopyProgress(DbaTableCopyProgress progress)
     {

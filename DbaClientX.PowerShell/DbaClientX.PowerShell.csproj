@@ -14,6 +14,7 @@
 		<Company>Evotec</Company>
 		<Authors>Przemyslaw Klys</Authors>
 		<LangVersion>latest</LangVersion>
+		<DefineConstants>$(DefineConstants);DBACLIENTX_POWERSHELL</DefineConstants>
         </PropertyGroup>
         <ItemGroup>
                 <PackageReference Include="PowerShellStandard.Library" PrivateAssets="all" />
@@ -22,6 +23,7 @@
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
                 <PackageReference Include="System.Formats.Asn1" />
                 <PackageReference Include="System.Text.Json" />
+                <Reference Include="System.Net.Http" />
         </ItemGroup>
         <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
                 <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -35,6 +37,12 @@
                 <ProjectReference Include="..\DbaClientX.MySql\DbaClientX.MySql.csproj" />
                 <ProjectReference Include="..\DbaClientX.PostgreSql\DbaClientX.PostgreSql.csproj" />
                 <ProjectReference Include="..\DbaClientX.Oracle\DbaClientX.Oracle.csproj" />
+        </ItemGroup>
+
+        <ItemGroup>
+                <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.cs" Link="Communication\AsyncPSCmdlet.cs" />
+                <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.Execution.cs" Link="Communication\AsyncPSCmdlet.Execution.cs" />
+                <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.Pipeline.cs" Link="Communication\AsyncPSCmdlet.Pipeline.cs" />
         </ItemGroup>
 
         <ItemGroup>

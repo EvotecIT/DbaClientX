@@ -25,6 +25,12 @@ public sealed class DbaTableCopyOptions
     /// <summary>When true, compares source and destination row counts after the copy when both adapters can provide counts.</summary>
     public bool VerifyRowCounts { get; init; } = true;
 
+    /// <summary>
+    /// Optional non-zero W3C trace identifier used to correlate this copy with caller-owned workflows.
+    /// When omitted, the active activity trace identifier or a new identifier is used.
+    /// </summary>
+    public string? OperationId { get; init; }
+
     /// <summary>Optional callback that receives copy progress snapshots.</summary>
     public Action<DbaTableCopyProgress>? Progress { get; init; }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Diagnostics;
 using Microsoft.Data.SqlClient;
 
 namespace DBAClientX;
@@ -59,6 +60,7 @@ public partial class SqlServer
     {
         ValidateConnectionString(connectionString);
         var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
+        ValidateCompatibility(connectionString, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;
@@ -140,6 +142,78 @@ public partial class SqlServer
         => BulkInsertAsync(serverOrInstance, database, integratedSecurity, reader, destinationTable, options: null, useTransaction, batchSize, bulkCopyTimeout, cancellationToken, username, password);
 
     /// <summary>
+    /// Streams rows through SQL bulk copy and returns the provider-reported row count and operation identifier.
+    /// </summary>
+    public virtual async Task<SqlServerBulkInsertResult> BulkInsertWithResultAsync(
+        string connectionString,
+        IDataReader reader,
+        string destinationTable,
+        SqlServerBulkInsertOptions? options = null,
+        bool useTransaction = false,
+        int? batchSize = null,
+        int? bulkCopyTimeout = null,
+        string? operationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var operation = DbaClientXDiagnostics.StartOperation(
+            "DbaClientX.SqlServer.BulkInsert",
+            operationId);
+        ValidateConnectionString(connectionString);
+        var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
+        ValidateCompatibility(connectionString, options);
+
+        SqlConnection? connection = null;
+        SqlTransaction? transaction = null;
+        var dispose = false;
+        try
+        {
+            (connection, transaction, dispose) = await ResolveConnectionAsync(
+                connectionString,
+                useTransaction,
+                cancellationToken).ConfigureAwait(false);
+            await EnsureAutoCreatedDestinationTableAsync(
+                connection!,
+                transaction,
+                columns,
+                destinationTable,
+                options,
+                cancellationToken).ConfigureAwait(false);
+            using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
+            ConfigureBulkCopy(
+                bulkCopy,
+                columns,
+                destinationTable,
+                batchSize,
+                bulkCopyTimeout,
+                options);
+            await AwaitWithCallerCancellationAsync(
+                () => WriteToServerAsync(bulkCopy, reader, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+            return new SqlServerBulkInsertResult(bulkCopy.RowsCopied64, operation.OperationId);
+        }
+        catch (DbaTransactionException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
+        {
+            DbaClientXDiagnostics.RecordException(operation.Activity, ex);
+            throw CreateQueryExecutionOrCancellationException(
+                "Failed to execute bulk insert.",
+                destinationTable,
+                ex,
+                cancellationToken);
+        }
+        finally
+        {
+            if (dispose)
+            {
+                await DisposeConnectionAsync(connection!).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
     /// Asynchronously uses <see cref="SqlBulkCopy"/> to stream rows from <paramref name="reader"/> using a full SQL Server connection string.
     /// </summary>
     public virtual async Task BulkInsertAsync(
@@ -154,6 +228,7 @@ public partial class SqlServer
     {
         ValidateConnectionString(connectionString);
         var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
+        ValidateCompatibility(connectionString, options);
 
         SqlConnection? connection = null;
         SqlTransaction? transaction = null;

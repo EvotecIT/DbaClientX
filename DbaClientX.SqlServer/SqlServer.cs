@@ -31,6 +31,9 @@ public partial class SqlServer : DatabaseClientBase
     private string? _transactionConnectionString;
     private bool _transactionInitializing;
 
+    /// <summary>Gets or sets caller-owned connection and authentication behavior.</summary>
+    public SqlServerConnectionOptions ConnectionOptions { get; set; } = new();
+
     /// <summary>
     /// Gets a value indicating whether a transaction scope is currently active for the client.
     /// </summary>

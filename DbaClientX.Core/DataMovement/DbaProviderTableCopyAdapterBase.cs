@@ -6,7 +6,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>
 /// Provides the reusable provider-backed paging, quoting, and count behavior for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination, IDbaTableCopyMissingTableClassifier
+public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination, IDbaTableCopyMissingTableClassifier, IDbaTableCopyProviderIdentity
 {
     private const string SourceAlias = "dbax_source";
     private const string DeduplicationRankColumnPrefix = "__DbaXR_";
@@ -42,7 +42,7 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     }
 
     /// <summary>Provider implemented by this adapter.</summary>
-    protected DbaTableCopyProvider Provider { get; }
+    public DbaTableCopyProvider Provider { get; }
 
     /// <summary>Connection string used by this adapter.</summary>
     protected string ConnectionString { get; }
