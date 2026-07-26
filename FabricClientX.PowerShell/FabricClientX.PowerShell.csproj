@@ -38,6 +38,8 @@
 
   <ItemGroup>
     <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.cs" Link="Communication\AsyncPSCmdlet.cs" />
+    <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.Execution.cs" Link="Communication\AsyncPSCmdlet.Execution.cs" />
+    <Compile Include="..\PowerShell.Shared\AsyncPSCmdlet.Pipeline.cs" Link="Communication\AsyncPSCmdlet.Pipeline.cs" />
   </ItemGroup>
 
   <ItemGroup>
