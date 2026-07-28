@@ -99,8 +99,10 @@ public static class DbaWritePlanBuilder
             throw new ArgumentException("At least one destination column is required.", nameof(columns));
         }
 
-        var keys = NormalizeDistinct(upsertKeys ?? Array.Empty<string>(), nameof(upsertKeys));
-        EnsureColumnsExist(keys, orderedColumns, nameof(upsertKeys));
+        var keys = ResolveCanonicalColumns(
+            NormalizeDistinct(upsertKeys ?? Array.Empty<string>(), nameof(upsertKeys)),
+            orderedColumns,
+            nameof(upsertKeys));
         if (keys.Count == 0 && upsertUpdateColumns is not null)
         {
             throw new ArgumentException(
@@ -115,10 +117,12 @@ public static class DbaWritePlanBuilder
 
         var updateColumns = keys.Count == 0
             ? new List<string>()
-            : NormalizeDistinct(
-                upsertUpdateColumns ?? orderedColumns.Where(column => !Contains(keys, column)),
+            : ResolveCanonicalColumns(
+                NormalizeDistinct(
+                    upsertUpdateColumns ?? orderedColumns.Where(column => !Contains(keys, column)),
+                    nameof(upsertUpdateColumns)),
+                orderedColumns,
                 nameof(upsertUpdateColumns));
-        EnsureColumnsExist(updateColumns, orderedColumns, nameof(upsertUpdateColumns));
 
         var parameterReferences = orderedColumns
             .Select(static (_, index) => (object)new QueryParameterReference(index))
@@ -146,7 +150,7 @@ public static class DbaWritePlanBuilder
         var compiled = DBAClientX.QueryBuilder.QueryBuilder.CompileWithParameters(
             query,
             ToDialect(provider.CanonicalName));
-        var reverseMap = BuildReverseMap(logicalToColumnMap);
+        var reverseMap = BuildReverseMap(logicalToColumnMap, orderedColumns);
         var parameterMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var index = 0; index < orderedColumns.Count; index++)
         {
@@ -189,7 +193,8 @@ public static class DbaWritePlanBuilder
     }
 
     private static Dictionary<string, string> BuildReverseMap(
-        IReadOnlyDictionary<string, string>? logicalToColumnMap)
+        IReadOnlyDictionary<string, string>? logicalToColumnMap,
+        IReadOnlyCollection<string> availableColumns)
     {
         var reverse = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var logicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -207,38 +212,51 @@ public static class DbaWritePlanBuilder
 
             var logicalName = pair.Key.Trim();
             var destinationColumn = TrimParameterPrefix(pair.Value.Trim());
+            var canonicalDestination = availableColumns.FirstOrDefault(
+                column => string.Equals(column, destinationColumn, StringComparison.OrdinalIgnoreCase));
+            if (canonicalDestination is null)
+            {
+                throw new ArgumentException(
+                    $"Mapped destination column '{destinationColumn}' is not present in the destination column set.",
+                    nameof(logicalToColumnMap));
+            }
             if (!logicalNames.Add(logicalName))
             {
                 throw new ArgumentException(
                     $"Logical mapping '{logicalName}' is duplicated when compared case-insensitively.",
                     nameof(logicalToColumnMap));
             }
-            if (reverse.ContainsKey(destinationColumn))
+            if (reverse.ContainsKey(canonicalDestination))
             {
                 throw new ArgumentException(
                     $"Destination column mapping '{destinationColumn}' is duplicated when compared case-insensitively.",
                     nameof(logicalToColumnMap));
             }
-            reverse.Add(destinationColumn, logicalName);
+            reverse.Add(canonicalDestination, logicalName);
         }
 
         return reverse;
     }
 
-    private static void EnsureColumnsExist(
+    private static List<string> ResolveCanonicalColumns(
         IEnumerable<string> requested,
         IReadOnlyCollection<string> available,
         string parameterName)
     {
+        var resolved = new List<string>();
         foreach (var column in requested)
         {
-            if (!Contains(available, column))
+            var canonical = available.FirstOrDefault(
+                candidate => string.Equals(candidate, column, StringComparison.OrdinalIgnoreCase));
+            if (canonical is null)
             {
                 throw new ArgumentException(
                     $"Column '{column}' is not present in the destination column set.",
                     parameterName);
             }
+            resolved.Add(canonical);
         }
+        return resolved;
     }
 
     private static bool Contains(IEnumerable<string> values, string candidate)

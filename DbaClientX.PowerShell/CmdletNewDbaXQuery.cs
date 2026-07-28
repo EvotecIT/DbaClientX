@@ -122,7 +122,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
 
     /// <summary>Columns updated during an UPSERT conflict. When omitted, the core builder updates all non-conflict insert columns.</summary>
     [Parameter(Mandatory = false)]
-    [ValidateNotNullOrEmpty]
+    [ValidateNotNull]
     public string[]? UpsertUpdateOnly { get; set; }
 
     /// <summary>Columns to add to ORDER BY in ascending order.</summary>

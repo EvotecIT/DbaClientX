@@ -629,6 +629,11 @@ public partial class QueryCompiler
                     .ToList();
                 if (updateColsMy.Count == 0)
                 {
+                    if (query.HasExplicitUpsertUpdateOnly)
+                    {
+                        throw new NotSupportedException(
+                            "MySQL cannot preserve insert-if-missing semantics for an explicit empty upsert update set without entering the UPDATE path.");
+                    }
                     var key = query.ConflictColumns.First();
                     sb.Append(QuoteIdentifier(key)).Append(" = ").Append(QuoteIdentifier(key));
                     return sb.ToString();

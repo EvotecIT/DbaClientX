@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.IO;
+using System.Reflection;
 using System.Threading.Tasks;
 using DBAClientX;
 
@@ -72,6 +73,20 @@ public class SQLiteSessionTests
         {
             Cleanup(path);
         }
+    }
+
+    [Fact]
+    public void ResolveConnectionBusyTimeout_PreservesExplicitCommandTimeoutAlias()
+    {
+        MethodInfo method = typeof(SQLite).GetMethod(
+            "ResolveConnectionBusyTimeout",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        object? result = method.Invoke(
+            null,
+            new object?[] { "Data Source=app.db;Command Timeout=9", null });
+
+        Assert.Equal(0, Assert.IsType<int>(result));
     }
 
     [Fact]

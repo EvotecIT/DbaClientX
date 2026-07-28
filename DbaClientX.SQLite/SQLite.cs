@@ -294,7 +294,10 @@ public partial class SQLite : DatabaseClientBase
         {
             ConnectionString = connectionString
         };
-        return builder.ContainsKey("Default Timeout") ? 0 : null;
+        return builder.ContainsKey("Default Timeout") ||
+               builder.ContainsKey("Command Timeout")
+            ? 0
+            : null;
     }
 
     private void ApplyBusyTimeout(SqliteConnection connection, int? busyTimeoutMs = null)

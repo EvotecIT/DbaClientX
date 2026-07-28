@@ -59,6 +59,22 @@ public sealed class DbInvokerContractTests
     }
 
     [Fact]
+    public void WritePlanBuilder_CanonicalizesUpsertColumnCasing()
+    {
+        var plan = DbaWritePlanBuilder.Build(
+            "postgresql",
+            "public.inventory",
+            new[] { "id", "display_name" },
+            upsertKeys: new[] { "ID" },
+            upsertUpdateColumns: new[] { "DISPLAY_NAME" });
+
+        Assert.Contains("ON CONFLICT (\"id\")", plan.Sql);
+        Assert.Contains("\"display_name\" = EXCLUDED.\"display_name\"", plan.Sql);
+        Assert.DoesNotContain("\"ID\"", plan.Sql);
+        Assert.DoesNotContain("\"DISPLAY_NAME\"", plan.Sql);
+    }
+
+    [Fact]
     public void WritePlanBuilder_SqlServerUpsert_BindsEveryGeneratedPlaceholder()
     {
         var plan = DbaWritePlanBuilder.Build(
@@ -137,6 +153,23 @@ public sealed class DbInvokerContractTests
                 }));
 
         Assert.Equal("logicalToColumnMap", exception.ParamName);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_RejectsMappingToUnknownDestinationColumn()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            DbaWritePlanBuilder.Build(
+                "sqlite",
+                "Inventory",
+                new[] { "Id", "DisplayName" },
+                new Dictionary<string, string>
+                {
+                    ["Entity.Name"] = "DispalyName"
+                }));
+
+        Assert.Equal("logicalToColumnMap", exception.ParamName);
+        Assert.Contains("DispalyName", exception.Message);
     }
 
     [Fact]
