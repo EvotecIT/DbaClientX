@@ -12,10 +12,17 @@ namespace DBAClientX.Invoker;
 public static class DbaConnectionFactory
 {
     /// <summary>Describes a supported provider and the shared aliases used to resolve it.</summary>
+    /// <param name="CanonicalName">Canonical provider name.</param>
+    /// <param name="Aliases">Aliases accepted by the shared provider surfaces.</param>
+    /// <param name="GenericExecutorTypeName">Fully qualified provider executor type name.</param>
     public sealed record ProviderDescriptor(
         string CanonicalName,
         IReadOnlyList<string> Aliases,
-        string GenericExecutorTypeName);
+        string GenericExecutorTypeName)
+    {
+        /// <summary>Gets the provider assembly name used for discovery and deployment.</summary>
+        public string AssemblyName { get; init; } = string.Empty;
+    }
 
     /// <summary>
     /// Represents the type of validation failure encountered while preparing a connection.
@@ -80,11 +87,11 @@ public static class DbaConnectionFactory
 
     private static readonly IReadOnlyList<ProviderDescriptor> ProviderDescriptorList = Array.AsReadOnly(new[]
     {
-        new ProviderDescriptor("sqlserver", Array.AsReadOnly(new[] { "sqlserver", "mssql" }), "DBAClientX.SqlServerGeneric.GenericExecutors"),
-        new ProviderDescriptor("postgresql", Array.AsReadOnly(new[] { "postgresql", "postgres", "pgsql" }), "DBAClientX.PostgreSqlGeneric.GenericExecutors"),
-        new ProviderDescriptor("mysql", Array.AsReadOnly(new[] { "mysql" }), "DBAClientX.MySqlGeneric.GenericExecutors"),
-        new ProviderDescriptor("sqlite", Array.AsReadOnly(new[] { "sqlite" }), "DBAClientX.SQLiteGeneric.GenericExecutors"),
-        new ProviderDescriptor("oracle", Array.AsReadOnly(new[] { "oracle" }), "DBAClientX.OracleGeneric.GenericExecutors")
+        new ProviderDescriptor("sqlserver", Array.AsReadOnly(new[] { "sqlserver", "mssql" }), "DBAClientX.SqlServerGeneric.GenericExecutors") { AssemblyName = "DbaClientX.SqlServer" },
+        new ProviderDescriptor("postgresql", Array.AsReadOnly(new[] { "postgresql", "postgres", "pgsql" }), "DBAClientX.PostgreSqlGeneric.GenericExecutors") { AssemblyName = "DbaClientX.PostgreSql" },
+        new ProviderDescriptor("mysql", Array.AsReadOnly(new[] { "mysql" }), "DBAClientX.MySqlGeneric.GenericExecutors") { AssemblyName = "DbaClientX.MySql" },
+        new ProviderDescriptor("sqlite", Array.AsReadOnly(new[] { "sqlite" }), "DBAClientX.SQLiteGeneric.GenericExecutors") { AssemblyName = "DbaClientX.SQLite" },
+        new ProviderDescriptor("oracle", Array.AsReadOnly(new[] { "oracle" }), "DBAClientX.OracleGeneric.GenericExecutors") { AssemblyName = "DbaClientX.Oracle" }
     });
 
     private static readonly Dictionary<string, ProviderDescriptor> ProvidersByAlias = CreateProviderAliasMap();
