@@ -925,7 +925,7 @@ public class QueryBuilderTests
     {
         var query = new Query().From("users").Select("id").Where("name", "Alice");
         var (sql, parameters) = QueryBuilder.CompileWithParameters(query, SqlDialect.Oracle);
-        Assert.Equal("SELECT \"id\" FROM \"users\" WHERE \"name\" = @p0", sql);
+        Assert.Equal("SELECT \"id\" FROM \"users\" WHERE \"name\" = :p0", sql);
         Assert.Single(parameters);
         Assert.Equal("Alice", parameters[0]);
     }

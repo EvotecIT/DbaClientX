@@ -12,6 +12,7 @@ using DBAClientX.Invoker;
 
 namespace DbaClientX.Tests
 {
+    [Collection("DbInvoker serial")]
     public class DbInvokerTests
     {
         [Fact]
@@ -320,6 +321,55 @@ namespace DbaClientX.Tests
                     providerAssembly: dynamicType!.Assembly));
 
             Assert.Equal("executor failed", exception.Message);
+        }
+
+        [Fact]
+        public async Task ExecuteSqlWithResultAsync_AllItemsComplete_ReturnsTruthfulCounts()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            var items = new object[]
+            {
+                new { Id = 1 },
+                new { Id = 2 }
+            };
+
+            var result = await DbInvoker.ExecuteSqlWithResultAsync(
+                "mssql",
+                "Server=.;Database=app;",
+                "UPDATE dbo.Items SET Value = 1 WHERE Id = @Id",
+                items,
+                new Dictionary<string, string> { ["Id"] = "@Id" },
+                providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly);
+
+            Assert.Equal("sqlserver", result.Provider);
+            Assert.Equal(DbaInvocationKind.Sql, result.Kind);
+            Assert.Equal(2, result.CompletedExecutions);
+            Assert.Equal(2, result.AffectedRows);
+        }
+
+        [Fact]
+        public async Task ExecuteParametersAsync_ProviderCompletes_ReturnsOneCompletedExecution()
+        {
+            DBAClientX.SqlServerGeneric.GenericExecutors.Reset();
+            var parameters = new Dictionary<string, object?>
+            {
+                ["@Payload"] = "[]"
+            };
+
+            var result = await DbInvoker.ExecuteParametersAsync(
+                "sqlserver",
+                "Server=.;Database=app;",
+                DbaInvocationKind.Sql,
+                "INSERT INTO dbo.Payloads (Payload) VALUES (@Payload)",
+                parameters,
+                providerAssembly: typeof(DBAClientX.SqlServerGeneric.GenericExecutors).Assembly);
+
+            Assert.Equal(1, result.CompletedExecutions);
+            Assert.Equal(1, result.AffectedRows);
+            Assert.Contains(
+                DBAClientX.SqlServerGeneric.GenericExecutors.Calls,
+                call => call.Sql.Contains("dbo.Payloads", StringComparison.Ordinal)
+                        && Equals("[]", call.Parameters["@Payload"]));
         }
     }
 }

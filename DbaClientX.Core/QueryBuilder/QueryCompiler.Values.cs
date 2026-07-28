@@ -5,6 +5,8 @@ using System.Text;
 
 namespace DBAClientX.QueryBuilder;
 
+internal sealed record QueryParameterReference(int Index);
+
 public partial class QueryCompiler
 {
     private void AppendValues(StringBuilder builder, IReadOnlyList<object> values, List<object>? parameters)
@@ -22,6 +24,12 @@ public partial class QueryCompiler
 
     private void AppendValue(StringBuilder builder, object value, List<object>? parameters)
     {
+        if (value is QueryParameterReference parameterReference)
+        {
+            builder.Append(GetParameterName(parameterReference.Index));
+            return;
+        }
+
         if (value is Query query)
         {
             builder.Append('(').Append(CompileInternal(query, parameters)).Append(')');
@@ -31,12 +39,15 @@ public partial class QueryCompiler
         builder.Append(parameters != null ? AddParameter(value, parameters) : FormatValue(value));
     }
 
-    private static string AddParameter(object value, List<object> parameters)
+    private string AddParameter(object value, List<object> parameters)
     {
-        var name = "@p" + parameters.Count;
+        var name = GetParameterName(parameters.Count);
         parameters.Add(value);
         return name;
     }
+
+    private string GetParameterName(int index)
+        => (_dialect == SqlDialect.Oracle ? ":p" : "@p") + index;
 
     private string FormatValue(object value)
     {

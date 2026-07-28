@@ -16,6 +16,8 @@ namespace DBAClientX.Invoker;
 /// </summary>
 public static class DbInvoker
 {
+    private sealed record ExecutionSummary(int CompletedExecutions, int AffectedRows);
+
     /// <summary>
     /// Execution tuning options for batched and parallel invocations.
     /// </summary>
@@ -61,6 +63,48 @@ public static class DbInvoker
         Assembly? providerAssembly = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
     {
+        var result = await ExecuteSqlWithResultAsync(
+            providerAlias,
+            connectionString,
+            sql,
+            items,
+            map,
+            options,
+            execOptions,
+            ct,
+            providerAssembly,
+            ambient).ConfigureAwait(false);
+        return result.AffectedRows;
+    }
+
+    /// <summary>
+    /// Executes a parameterized SQL statement once per item and returns a structured completion result.
+    /// </summary>
+    /// <param name="providerAlias">Provider alias.</param>
+    /// <param name="connectionString">Provider connection string.</param>
+    /// <param name="sql">SQL text to execute.</param>
+    /// <param name="items">Items to map and execute against.</param>
+    /// <param name="map">Logical-to-provider parameter map.</param>
+    /// <param name="options">Mapping options.</param>
+    /// <param name="execOptions">Execution options.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="providerAssembly">Optional provider assembly hint.</param>
+    /// <param name="ambient">Ambient values available to mappings.</param>
+    /// <returns>A result returned only after every item execution completes.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when provider execution cannot be completed.</exception>
+    [RequiresUnreferencedCode("DbInvoker discovers provider executors and maps object properties by reflection. Preserve provider GenericExecutors types and item properties when trimming.")]
+    public static async Task<DbaInvocationResult> ExecuteSqlWithResultAsync(
+        string providerAlias,
+        string connectionString,
+        string sql,
+        IEnumerable<object> items,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options = null,
+        DbExecutionOptions? execOptions = null,
+        CancellationToken ct = default,
+        Assembly? providerAssembly = null,
+        IReadOnlyDictionary<string, object?>? ambient = null)
+    {
         if (string.IsNullOrWhiteSpace(providerAlias)) throw new ArgumentException("providerAlias is required", nameof(providerAlias));
         if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("connectionString is required", nameof(connectionString));
         if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("sql is required", nameof(sql));
@@ -72,7 +116,7 @@ public static class DbInvoker
         {
             throw new InvalidOperationException($"GenericExecutors for provider '{providerAlias}' not found.");
         }
-        return await ExecuteItemsAsync(
+        var summary = await ExecuteItemsAsync(
             exec,
             connectionString,
             sql,
@@ -82,6 +126,11 @@ public static class DbInvoker
             execOptions ?? new DbExecutionOptions(),
             ct,
             ambient).ConfigureAwait(false);
+        return new DbaInvocationResult(
+            ResolveCanonicalProvider(providerAlias),
+            DbaInvocationKind.Sql,
+            summary.CompletedExecutions,
+            summary.AffectedRows);
     }
 
     /// <summary>
@@ -112,6 +161,48 @@ public static class DbInvoker
         Assembly? providerAssembly = null,
         IReadOnlyDictionary<string, object?>? ambient = null)
     {
+        var result = await ExecuteProcedureWithResultAsync(
+            providerAlias,
+            connectionString,
+            procedure,
+            items,
+            map,
+            options,
+            execOptions,
+            ct,
+            providerAssembly,
+            ambient).ConfigureAwait(false);
+        return result.AffectedRows;
+    }
+
+    /// <summary>
+    /// Executes a stored procedure once per item and returns a structured completion result.
+    /// </summary>
+    /// <param name="providerAlias">Provider alias.</param>
+    /// <param name="connectionString">Provider connection string.</param>
+    /// <param name="procedure">Stored procedure name.</param>
+    /// <param name="items">Items to map and execute against.</param>
+    /// <param name="map">Logical-to-provider parameter map.</param>
+    /// <param name="options">Mapping options.</param>
+    /// <param name="execOptions">Execution options.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="providerAssembly">Optional provider assembly hint.</param>
+    /// <param name="ambient">Ambient values available to mappings.</param>
+    /// <returns>A result returned only after every item execution completes.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when provider execution cannot be completed.</exception>
+    [RequiresUnreferencedCode("DbInvoker discovers provider executors and maps object properties by reflection. Preserve provider GenericExecutors types and item properties when trimming.")]
+    public static async Task<DbaInvocationResult> ExecuteProcedureWithResultAsync(
+        string providerAlias,
+        string connectionString,
+        string procedure,
+        IEnumerable<object> items,
+        IReadOnlyDictionary<string, string> map,
+        DbParameterMapperOptions? options = null,
+        DbExecutionOptions? execOptions = null,
+        CancellationToken ct = default,
+        Assembly? providerAssembly = null,
+        IReadOnlyDictionary<string, object?>? ambient = null)
+    {
         if (string.IsNullOrWhiteSpace(providerAlias)) throw new ArgumentException("providerAlias is required", nameof(providerAlias));
         if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("connectionString is required", nameof(connectionString));
         if (string.IsNullOrWhiteSpace(procedure)) throw new ArgumentException("procedure is required", nameof(procedure));
@@ -123,7 +214,7 @@ public static class DbInvoker
         {
             throw new InvalidOperationException($"GenericExecutors.ExecuteProcedureAsync for provider '{providerAlias}' not found.");
         }
-        return await ExecuteItemsAsync(
+        var summary = await ExecuteItemsAsync(
             exec,
             connectionString,
             procedure,
@@ -133,10 +224,71 @@ public static class DbInvoker
             execOptions ?? new DbExecutionOptions(),
             ct,
             ambient).ConfigureAwait(false);
+        return new DbaInvocationResult(
+            ResolveCanonicalProvider(providerAlias),
+            DbaInvocationKind.Procedure,
+            summary.CompletedExecutions,
+            summary.AffectedRows);
+    }
+
+    /// <summary>
+    /// Executes one SQL statement or stored procedure with an already materialized parameter set.
+    /// </summary>
+    /// <param name="providerAlias">Provider alias.</param>
+    /// <param name="connectionString">Provider connection string.</param>
+    /// <param name="kind">Operation kind.</param>
+    /// <param name="commandText">SQL text or stored procedure name.</param>
+    /// <param name="parameters">Provider parameters.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <param name="providerAssembly">Optional provider assembly hint.</param>
+    /// <returns>A result returned only after provider execution completes.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the provider cannot be resolved or execution fails.</exception>
+    [RequiresUnreferencedCode("DbInvoker discovers provider executors by reflection. Preserve provider GenericExecutors types when trimming.")]
+    public static async Task<DbaInvocationResult> ExecuteParametersAsync(
+        string providerAlias,
+        string connectionString,
+        DbaInvocationKind kind,
+        string commandText,
+        IDictionary<string, object?> parameters,
+        CancellationToken ct = default,
+        Assembly? providerAssembly = null)
+    {
+        if (string.IsNullOrWhiteSpace(providerAlias)) throw new ArgumentException("providerAlias is required", nameof(providerAlias));
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("connectionString is required", nameof(connectionString));
+        if (string.IsNullOrWhiteSpace(commandText)) throw new ArgumentException("commandText is required", nameof(commandText));
+        if (parameters is null) throw new ArgumentNullException(nameof(parameters));
+        if (!Enum.IsDefined(typeof(DbaInvocationKind), kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported invocation kind.");
+        }
+
+        ValidateConnection(providerAlias, connectionString);
+        var methodName = kind == DbaInvocationKind.Procedure
+            ? "ExecuteProcedureAsync"
+            : "ExecuteSqlAsync";
+        var executor = ResolveExecutor(providerAlias, providerAssembly, methodName);
+        if (executor is null)
+        {
+            throw new InvalidOperationException(
+                $"GenericExecutors.{methodName} for provider '{providerAlias}' not found.");
+        }
+
+        ct.ThrowIfCancellationRequested();
+        var affectedRows = await InvokeExecutor(
+            executor,
+            connectionString,
+            commandText,
+            parameters,
+            ct).ConfigureAwait(false);
+        return new DbaInvocationResult(
+            ResolveCanonicalProvider(providerAlias),
+            kind,
+            1,
+            affectedRows);
     }
 
     [RequiresUnreferencedCode("DbInvoker maps object properties by reflection. Use a typed mapping surface when trimming.")]
-    private static async Task<int> ExecuteItemsAsync(
+    private static async Task<ExecutionSummary> ExecuteItemsAsync(
         MethodInfo executor,
         string connectionString,
         string commandText,
@@ -164,28 +316,33 @@ public static class DbInvoker
             return await ExecuteBatchAsync(items, degree, cancellationToken).ConfigureAwait(false);
         }
 
-        var total = 0;
+        var total = new ExecutionSummary(0, 0);
         foreach (var batch in EnumerateBatches(items, executionOptions.BatchSize.Value))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            total = checked(total + await ExecuteBatchAsync(batch, degree, cancellationToken).ConfigureAwait(false));
+            var result = await ExecuteBatchAsync(batch, degree, cancellationToken).ConfigureAwait(false);
+            total = new ExecutionSummary(
+                checked(total.CompletedExecutions + result.CompletedExecutions),
+                checked(total.AffectedRows + result.AffectedRows));
         }
 
         return total;
 
-        async Task<int> ExecuteBatchAsync(IEnumerable<object> batch, int parallelDegree, CancellationToken token)
+        async Task<ExecutionSummary> ExecuteBatchAsync(IEnumerable<object> batch, int parallelDegree, CancellationToken token)
         {
             if (parallelDegree == 1)
             {
                 var sequentialAffected = 0;
+                var sequentialCompleted = 0;
                 foreach (var item in batch)
                 {
                     token.ThrowIfCancellationRequested();
                     var parameters = DbParameterMapper.MapItem(item, map, mappingOptions, ambient);
                     sequentialAffected = checked(sequentialAffected + await InvokeExecutor(executor, connectionString, commandText, parameters, token).ConfigureAwait(false));
+                    sequentialCompleted = checked(sequentialCompleted + 1);
                 }
 
-                return sequentialAffected;
+                return new ExecutionSummary(sequentialCompleted, sequentialAffected);
             }
 
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -199,10 +356,10 @@ public static class DbInvoker
             };
             if (workerCount == 0)
             {
-                return 0;
+                return new ExecutionSummary(0, 0);
             }
 
-            var workers = new Task<int>[workerCount];
+            var workers = new Task<ExecutionSummary>[workerCount];
             for (var index = 0; index < workers.Length; index++)
             {
                 workers[index] = RunWorkerAsync();
@@ -210,16 +367,19 @@ public static class DbInvoker
 
             var results = await Task.WhenAll(workers).ConfigureAwait(false);
             var parallelAffected = 0;
+            var parallelCompleted = 0;
             foreach (var result in results)
             {
-                parallelAffected = checked(parallelAffected + result);
+                parallelAffected = checked(parallelAffected + result.AffectedRows);
+                parallelCompleted = checked(parallelCompleted + result.CompletedExecutions);
             }
 
-            return parallelAffected;
+            return new ExecutionSummary(parallelCompleted, parallelAffected);
 
-            async Task<int> RunWorkerAsync()
+            async Task<ExecutionSummary> RunWorkerAsync()
             {
                 var localAffected = 0;
+                var localCompleted = 0;
                 try
                 {
                     while (true)
@@ -243,9 +403,10 @@ public static class DbInvoker
                             commandText,
                             parameters,
                             linkedCancellation.Token).ConfigureAwait(false));
+                        localCompleted = checked(localCompleted + 1);
                     }
 
-                    return localAffected;
+                    return new ExecutionSummary(localCompleted, localAffected);
                 }
                 catch
                 {
@@ -255,6 +416,11 @@ public static class DbInvoker
             }
         }
     }
+
+    private static string ResolveCanonicalProvider(string providerAlias)
+        => DbaConnectionFactory.TryGetProvider(providerAlias, out var provider)
+            ? provider.CanonicalName
+            : providerAlias.Trim();
 
     private static MethodInfo? ResolveExecutor(string providerAlias, Assembly? providerAssembly, string methodName)
     {

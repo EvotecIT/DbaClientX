@@ -216,7 +216,7 @@ public partial class QueryCompiler
             if (query.IsUpsert)
             {
                 sb.Append("U:").Append(string.Join(",", query.ConflictColumns)).Append('|');
-                if (query.UpsertUpdateOnlyColumns.Count > 0)
+                if (query.HasExplicitUpsertUpdateOnly)
                 {
                     sb.Append("UUO:").Append(string.Join(",", query.UpsertUpdateOnlyColumns)).Append('|');
                 }
@@ -295,6 +295,12 @@ public partial class QueryCompiler
         if (value is Query subQuery)
         {
             builder.Append("Q(").Append(BuildCacheKey(subQuery)).Append(')');
+            return;
+        }
+
+        if (value is QueryParameterReference parameterReference)
+        {
+            builder.Append('R').Append(parameterReference.Index);
             return;
         }
 
@@ -587,7 +593,7 @@ public partial class QueryCompiler
                 sb.Append(") ON CONFLICT (")
                   .Append(string.Join(", ", query.ConflictColumns.Select(QuoteIdentifier)))
                   .Append(") ");
-                var updateColsPg = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
+                var updateColsPg = (query.HasExplicitUpsertUpdateOnly ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
                 if (updateColsPg.Count == 0)
@@ -618,11 +624,16 @@ public partial class QueryCompiler
                     AppendValue(sb, row[i], parameters);
                 }
                 sb.Append(") ON DUPLICATE KEY UPDATE ");
-                var updateColsMy = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
+                var updateColsMy = (query.HasExplicitUpsertUpdateOnly ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
                 if (updateColsMy.Count == 0)
                 {
+                    if (query.HasExplicitUpsertUpdateOnly)
+                    {
+                        throw new NotSupportedException(
+                            "MySQL cannot preserve insert-if-missing semantics for an explicit empty upsert update set without entering the UPDATE path.");
+                    }
                     var key = query.ConflictColumns.First();
                     sb.Append(QuoteIdentifier(key)).Append(" = ").Append(QuoteIdentifier(key));
                     return sb.ToString();
@@ -652,7 +663,7 @@ public partial class QueryCompiler
                 }
                 insertValues.Append(')');
 
-                var updateColsMs = (query.UpsertUpdateOnlyColumns.Count > 0 ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
+                var updateColsMs = (query.HasExplicitUpsertUpdateOnly ? query.UpsertUpdateOnlyColumns : query.InsertColumns)
                     .Where(col => !query.ConflictColumns.Any(k => string.Equals(k, col, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
                 var conflictPredicate = BuildSqlServerUpsertPredicate(query, row, parameters);

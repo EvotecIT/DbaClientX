@@ -195,6 +195,60 @@ public static class DbPropertyAccessor
         return TryGetFromStringDictionaryEnumeration(obj, dictionaryType, key, out value);
     }
 
+    [RequiresUnreferencedCode("Generic-only dictionary key discovery reflects KeyValuePair entries. Supply explicit columns when trimming.")]
+    internal static bool TryGetStringDictionaryKeys(object item, out IReadOnlyList<string> keys)
+    {
+        if (item is IReadOnlyDictionary<string, object?> readOnlyDictionary)
+        {
+            keys = new List<string>(readOnlyDictionary.Keys);
+            return true;
+        }
+
+        if (item is IDictionary<string, object?> genericDictionary)
+        {
+            keys = new List<string>(genericDictionary.Keys);
+            return true;
+        }
+
+        if (item is IDictionary dictionary)
+        {
+            var result = new List<string>();
+            foreach (var key in dictionary.Keys)
+            {
+                if (key is string text)
+                {
+                    result.Add(text);
+                }
+            }
+            keys = result;
+            return true;
+        }
+
+        var dictionaryType = FindStringDictionaryInterface(item.GetType());
+        if (dictionaryType is null || item is not IEnumerable enumerable)
+        {
+            keys = Array.Empty<string>();
+            return false;
+        }
+
+        var genericResult = new List<string>();
+        foreach (var entry in enumerable)
+        {
+            if (entry is null)
+            {
+                continue;
+            }
+
+            var keyProperty = entry.GetType().GetProperty(nameof(KeyValuePair<string, object>.Key));
+            if (keyProperty?.GetValue(entry) is string text)
+            {
+                genericResult.Add(text);
+            }
+        }
+        keys = genericResult;
+        return true;
+    }
+
     private static bool HasStringDictionaryInterface([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)] Type? type)
         => FindStringDictionaryInterface(type) is not null;
 

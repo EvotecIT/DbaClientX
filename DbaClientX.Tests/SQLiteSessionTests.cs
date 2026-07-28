@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Data.Common;
 using System.IO;
+using System.Reflection;
+using System.Threading.Tasks;
 using DBAClientX;
 
 namespace DbaClientX.Tests;
@@ -30,6 +33,60 @@ public class SQLiteSessionTests
         {
             Cleanup(path);
         }
+    }
+
+    [Fact]
+    public void OpenSession_AppliesConfiguredBusyTimeout()
+    {
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var sqlite = new SQLite { BusyTimeoutMs = 7500 };
+            using SQLiteSession session = sqlite.OpenSession(path);
+
+            Assert.Equal(7500L, Convert.ToInt64(session.ExecuteScalar("PRAGMA busy_timeout;")));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task QueryAsync_AppliesConfiguredBusyTimeout()
+    {
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var sqlite = new SQLite
+            {
+                BusyTimeoutMs = 7500,
+                ReturnType = ReturnType.DataTable
+            };
+
+            object? result = await sqlite.QueryAsync(path, "PRAGMA busy_timeout;");
+            DataTable table = Assert.IsType<DataTable>(result);
+
+            Assert.Equal(7500L, Convert.ToInt64(table.Rows[0][0]));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void ResolveConnectionBusyTimeout_PreservesExplicitCommandTimeoutAlias()
+    {
+        MethodInfo method = typeof(SQLite).GetMethod(
+            "ResolveConnectionBusyTimeout",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        object? result = method.Invoke(
+            null,
+            new object?[] { "Data Source=app.db;Command Timeout=9", null });
+
+        Assert.Equal(0, Assert.IsType<int>(result));
     }
 
     [Fact]

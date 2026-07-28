@@ -56,4 +56,36 @@ public class QueryBuilderUpsertEdgeTests
         Assert.EndsWith("DO UPDATE SET \"name\" = EXCLUDED.\"name\"", sql1);
         Assert.DoesNotContain("DO UPDATE SET", sql2);
     }
+
+    [Fact]
+    public void UpsertUpdateOnly_EmptyList_RequestsInsertIfMissing()
+    {
+        var query = new Query()
+            .InsertOrUpdate(
+                "users",
+                new[] { ("id", (object)1), ("name", (object)"Bob") },
+                "id")
+            .UpsertUpdateOnly();
+
+        var sql = QueryBuilder.Compile(query, SqlDialect.PostgreSql);
+
+        Assert.EndsWith("DO NOTHING", sql);
+    }
+
+    [Fact]
+    public void UpsertUpdateOnly_EmptyList_MySqlRejectsUnsupportedInsertIfMissingContract()
+    {
+        var query = new Query()
+            .InsertOrUpdate(
+                "users",
+                new[] { ("id", (object)1), ("name", (object)"Bob") },
+                "id")
+            .UpsertUpdateOnly();
+
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            QueryBuilder.Compile(query, SqlDialect.MySql));
+
+        Assert.Contains("MySQL", exception.Message);
+        Assert.Contains("insert-if-missing", exception.Message);
+    }
 }
