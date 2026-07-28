@@ -290,7 +290,10 @@ public partial class SQLite : DatabaseClientBase
             return busyTimeoutMs;
         }
 
-        var builder = new SqliteConnectionStringBuilder(connectionString);
+        var builder = new DbConnectionStringBuilder
+        {
+            ConnectionString = connectionString
+        };
         return builder.ContainsKey("Default Timeout") ? 0 : null;
     }
 
