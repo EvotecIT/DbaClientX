@@ -35,7 +35,9 @@ public static class DbaWritePlanBuilder
                 ? NormalizeDistinct(dictionaryKeys, nameof(item))
                 : item.GetType()
                     .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-                    .Where(static property => property.GetIndexParameters().Length == 0)
+                    .Where(static property =>
+                        property.CanRead &&
+                        property.GetIndexParameters().Length == 0)
                     .Select(static property => property.Name)
                     .ToList();
         }
@@ -114,6 +116,11 @@ public static class DbaWritePlanBuilder
             throw new NotSupportedException(
                 "Oracle upsert plans are not supported. Use an insert plan or provider-specific SQL.");
         }
+        if (keys.Count > 0 && provider.CanonicalName == "mysql")
+        {
+            throw new NotSupportedException(
+                "MySQL write-plan upserts cannot guarantee that the requested keys are the only conflict target. Use an insert plan or provider-specific SQL.");
+        }
 
         var updateColumns = keys.Count == 0
             ? new List<string>()
@@ -182,7 +189,7 @@ public static class DbaWritePlanBuilder
                 throw new ArgumentException("Column names cannot be null or whitespace.", parameterName);
             }
 
-            var normalized = TrimParameterPrefix(value.Trim());
+            var normalized = value.Trim();
             if (!Contains(result, normalized))
             {
                 result.Add(normalized);
@@ -207,7 +214,9 @@ public static class DbaWritePlanBuilder
         {
             if (string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value))
             {
-                continue;
+                throw new ArgumentException(
+                    "Logical mapping names and destination columns cannot be null or whitespace.",
+                    nameof(logicalToColumnMap));
             }
 
             var logicalName = pair.Key.Trim();

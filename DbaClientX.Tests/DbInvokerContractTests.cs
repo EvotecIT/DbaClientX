@@ -172,6 +172,59 @@ public sealed class DbInvokerContractTests
         Assert.Contains("DispalyName", exception.Message);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WritePlanBuilder_RejectsBlankLogicalMappings(bool blankLogicalName)
+    {
+        var mapping = blankLogicalName
+            ? new Dictionary<string, string> { [" "] = "DisplayName" }
+            : new Dictionary<string, string> { ["Entity.Name"] = " " };
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            DbaWritePlanBuilder.Build(
+                "sqlite",
+                "Inventory",
+                new[] { "Id", "DisplayName" },
+                mapping));
+
+        Assert.Equal("logicalToColumnMap", exception.ParamName);
+    }
+
+    [Fact]
+    public void DiscoverColumns_ExcludesWriteOnlyProperties()
+    {
+        Assert.Equal(
+            new[] { "Id" },
+            DbaWritePlanBuilder.DiscoverColumns(new WriteOnlyPayload { Id = 1 }));
+    }
+
+    [Fact]
+    public void WritePlanBuilder_PreservesParameterLikeDestinationColumnPrefixes()
+    {
+        var plan = DbaWritePlanBuilder.Build(
+            "sqlserver",
+            "dbo.Inventory",
+            new[] { "@AuditValue" });
+
+        Assert.Contains("[@AuditValue]", plan.Sql);
+        Assert.Equal("@p0", plan.ParameterMap["@AuditValue"]);
+        Assert.Equal(new[] { "@AuditValue" }, plan.Columns);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_MySqlUpsert_RejectsAmbiguousConflictTargets()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            DbaWritePlanBuilder.Build(
+                "mysql",
+                "Inventory",
+                new[] { "Id", "Email", "DisplayName" },
+                upsertKeys: new[] { "Id" }));
+
+        Assert.Contains("only conflict target", exception.Message);
+    }
+
     [Fact]
     public void WritePlanBuilder_CachePollution_DoesNotReuseOrdinaryParameterSql()
     {
@@ -276,6 +329,16 @@ public sealed class DbInvokerContractTests
         public bool TryGetValue(string key, out T value) => _values.TryGetValue(key, out value!);
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class WriteOnlyPayload
+    {
+        public int Id { get; set; }
+
+        public string? WriteOnly
+        {
+            set { }
+        }
     }
 }
 
