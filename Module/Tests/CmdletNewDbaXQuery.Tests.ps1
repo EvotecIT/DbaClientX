@@ -58,6 +58,14 @@ Describe 'New-DbaXQuery builder' {
         $compiled.ParameterValues | Should -Be @('Ada', 1)
     }
 
+    It 'Returns Oracle bind names in the parameter map' {
+        $compiled = New-DbaXQuery -Action Insert -Dialect Oracle -TableName users -Values ([ordered]@{ id = 1; name = 'Ada' }) -CompileWithParameters
+        $compiled.Sql | Should -Be 'INSERT INTO "users" ("id", "name") VALUES (:p0, :p1)'
+        $compiled.Parameters[':p0'] | Should -Be 1
+        $compiled.Parameters[':p1'] | Should -Be 'Ada'
+        $compiled.Parameters.Contains('@p0') | Should -BeFalse
+    }
+
     It 'Requires Values for INSERT' {
         { New-DbaXQuery -Action Insert -TableName users -Compile } | Should -Throw
     }

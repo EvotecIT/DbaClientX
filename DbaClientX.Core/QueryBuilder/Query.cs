@@ -22,6 +22,7 @@ public partial class Query
     private bool _isUpsert;
     private readonly List<string> _conflictColumns = new();
     private readonly List<string> _upsertUpdateOnly = new();
+    private bool _hasExplicitUpsertUpdateOnly;
     private string? _updateTable;
     private readonly List<(string Column, object Value)> _set = new();
     private string? _deleteTable;
@@ -556,20 +557,32 @@ public partial class Query
         _values.Add(row);
         _conflictColumns.Clear();
         _conflictColumns.AddRange(conflictColumns);
+        _upsertUpdateOnly.Clear();
+        _hasExplicitUpsertUpdateOnly = false;
         _isUpsert = true;
         return this;
     }
 
     /// <summary>
-    /// Limits the set of columns updated during an upsert to the provided list. If not set, all insert columns are updated.
+    /// Limits the set of columns updated during an upsert to the provided list.
+    /// An empty list requests insert-if-missing behavior without updating an
+    /// existing row. If not set, all non-key insert columns are updated.
     /// </summary>
     /// <param name="columns">The columns to update when a conflict occurs.</param>
     /// <returns>The current <see cref="Query"/> instance.</returns>
     public Query UpsertUpdateOnly(params string[] columns)
     {
-        ValidateStrings(columns, nameof(columns));
+        if (columns == null)
+        {
+            throw new ArgumentNullException(nameof(columns));
+        }
+        foreach (var column in columns)
+        {
+            ValidateString(column, nameof(columns));
+        }
         _upsertUpdateOnly.Clear();
         _upsertUpdateOnly.AddRange(columns);
+        _hasExplicitUpsertUpdateOnly = true;
         return this;
     }
 

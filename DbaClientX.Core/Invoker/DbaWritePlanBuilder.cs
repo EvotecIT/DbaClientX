@@ -107,6 +107,11 @@ public static class DbaWritePlanBuilder
                 "Upsert update columns require at least one upsert key.",
                 nameof(upsertUpdateColumns));
         }
+        if (keys.Count > 0 && provider.CanonicalName == "oracle")
+        {
+            throw new NotSupportedException(
+                "Oracle upsert plans are not supported. Use an insert plan or provider-specific SQL.");
+        }
 
         var updateColumns = keys.Count == 0
             ? new List<string>()
@@ -126,7 +131,7 @@ public static class DbaWritePlanBuilder
                 .ToList();
             query = DBAClientX.QueryBuilder.QueryBuilder.Query()
                 .InsertOrUpdate(table, values, keys.ToArray());
-            if (updateColumns.Count > 0)
+            if (upsertUpdateColumns is not null)
             {
                 query = query.UpsertUpdateOnly(updateColumns.ToArray());
             }
@@ -149,8 +154,15 @@ public static class DbaWritePlanBuilder
             var logical = reverseMap.TryGetValue(column, out var configuredLogical)
                 ? configuredLogical
                 : column;
-            parameterMap[logical] =
-                (provider.CanonicalName == "oracle" ? ":p" : "@p") + index;
+            if (parameterMap.ContainsKey(logical))
+            {
+                throw new ArgumentException(
+                    $"Logical mapping '{logical}' is duplicated when compared case-insensitively.",
+                    nameof(logicalToColumnMap));
+            }
+            parameterMap.Add(
+                logical,
+                (provider.CanonicalName == "oracle" ? ":p" : "@p") + index);
         }
 
         return new DbaWritePlan(compiled.Sql, parameterMap, orderedColumns);
@@ -180,6 +192,7 @@ public static class DbaWritePlanBuilder
         IReadOnlyDictionary<string, string>? logicalToColumnMap)
     {
         var reverse = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var logicalNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (logicalToColumnMap is null)
         {
             return reverse;
@@ -192,7 +205,21 @@ public static class DbaWritePlanBuilder
                 continue;
             }
 
-            reverse[TrimParameterPrefix(pair.Value.Trim())] = pair.Key;
+            var logicalName = pair.Key.Trim();
+            var destinationColumn = TrimParameterPrefix(pair.Value.Trim());
+            if (!logicalNames.Add(logicalName))
+            {
+                throw new ArgumentException(
+                    $"Logical mapping '{logicalName}' is duplicated when compared case-insensitively.",
+                    nameof(logicalToColumnMap));
+            }
+            if (reverse.ContainsKey(destinationColumn))
+            {
+                throw new ArgumentException(
+                    $"Destination column mapping '{destinationColumn}' is duplicated when compared case-insensitively.",
+                    nameof(logicalToColumnMap));
+            }
+            reverse.Add(destinationColumn, logicalName);
         }
 
         return reverse;

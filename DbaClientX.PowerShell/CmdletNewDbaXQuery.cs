@@ -178,7 +178,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
             var compiled = DbaQueryBuilder.CompileWithParameters(query, Dialect);
             WriteObject(new PSObject(new {
                 compiled.Sql,
-                Parameters = BuildParameterMap(compiled.Parameters),
+                Parameters = BuildParameterMap(compiled.Parameters, Dialect),
                 ParameterValues = compiled.Parameters.ToArray()
             }));
         } else if (Compile) {
@@ -242,7 +242,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
 
         query.InsertOrUpdate(TableName, pairs.Select(pair => (pair.Column, Value: pair.Value!)), ConflictColumns);
-        if (UpsertUpdateOnly is { Length: > 0 }) {
+        if (UpsertUpdateOnly is not null) {
             query.UpsertUpdateOnly(UpsertUpdateOnly);
         }
     }
@@ -303,7 +303,7 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         var hasSet = Set != null;
         var hasWhere = Where != null;
         var hasConflictColumns = ConflictColumns is { Length: > 0 };
-        var hasUpsertUpdateOnly = UpsertUpdateOnly is { Length: > 0 };
+        var hasUpsertUpdateOnly = UpsertUpdateOnly is not null;
         var hasPagingOrOrdering = Limit.HasValue || Offset.HasValue || OrderBy is { Length: > 0 } || OrderByDescending is { Length: > 0 };
 
         if (Action != DbaXQueryAction.Select && hasPagingOrOrdering) {
@@ -339,10 +339,13 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
     }
 
-    private static OrderedDictionary BuildParameterMap(IReadOnlyList<object> parameters) {
+    private static OrderedDictionary BuildParameterMap(
+        IReadOnlyList<object> parameters,
+        SqlDialect dialect) {
         var map = new OrderedDictionary();
+        var prefix = dialect == SqlDialect.Oracle ? ":p" : "@p";
         for (var i = 0; i < parameters.Count; i++) {
-            map.Add("@p" + i, parameters[i]);
+            map.Add(prefix + i, parameters[i]);
         }
 
         return map;

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Dynamic;
 using System.Text.RegularExpressions;
 using DBAClientX.Invoker;
+using DBAClientX.QueryBuilder;
 
 namespace DbaClientX.Tests;
 
@@ -93,6 +94,79 @@ public sealed class DbInvokerContractTests
         Assert.DoesNotContain("@p", plan.Sql);
         Assert.Equal(":p0", plan.ParameterMap["Id"]);
         Assert.Equal(":p1", plan.ParameterMap["DisplayName"]);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_OracleUpsert_RejectsUnsupportedCapability()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            DbaWritePlanBuilder.Build(
+                "oracle",
+                "Inventory",
+                new[] { "Id", "DisplayName" },
+                upsertKeys: new[] { "Id" }));
+
+        Assert.Contains("Oracle upsert", exception.Message);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_ExplicitEmptyUpdateColumns_DoesNotUpdateExistingRows()
+    {
+        var plan = DbaWritePlanBuilder.Build(
+            "postgresql",
+            "public.inventory",
+            new[] { "Id", "DisplayName" },
+            upsertKeys: new[] { "Id" },
+            upsertUpdateColumns: Array.Empty<string>());
+
+        Assert.EndsWith("DO NOTHING", plan.Sql);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_RejectsCaseCollidingLogicalMappings()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            DbaWritePlanBuilder.Build(
+                "sqlite",
+                "Inventory",
+                new[] { "Id", "DisplayName" },
+                new Dictionary<string, string>
+                {
+                    ["Entity.Name"] = "Id",
+                    ["entity.name"] = "DisplayName"
+                }));
+
+        Assert.Equal("logicalToColumnMap", exception.ParamName);
+    }
+
+    [Fact]
+    public void WritePlanBuilder_CachePollution_DoesNotReuseOrdinaryParameterSql()
+    {
+        QueryCompiler.ClearCache();
+        var ordinary = new Query()
+            .InsertOrUpdate(
+                "dbo.Inventory",
+                new[]
+                {
+                    ("Id", (object)1),
+                    ("DisplayName", (object)"Server")
+                },
+                "Id");
+        _ = QueryBuilder.CompileWithParameters(ordinary, SqlDialect.SqlServer);
+
+        var plan = DbaWritePlanBuilder.Build(
+            "sqlserver",
+            "dbo.Inventory",
+            new[] { "Id", "DisplayName" },
+            upsertKeys: new[] { "Id" });
+
+        string[] placeholders = Regex.Matches(plan.Sql, @"@p\d+")
+            .Select(static match => match.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Assert.Equal(new[] { "@p0", "@p1" }, placeholders);
+        Assert.Equal(placeholders, plan.ParameterMap.Values.OrderBy(static value => value).ToArray());
     }
 
     [Fact]

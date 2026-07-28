@@ -41,6 +41,8 @@ public partial class Query
     /// <summary>Gets the subset of columns that should be updated during an upsert.</summary>
     public IReadOnlyList<string> UpsertUpdateOnlyColumns => _upsertUpdateOnly;
 
+    internal bool HasExplicitUpsertUpdateOnly => _hasExplicitUpsertUpdateOnly;
+
     /// <summary>Gets the table targeted by an <c>UPDATE</c> statement.</summary>
     public string? UpdateTable => _updateTable;
 
