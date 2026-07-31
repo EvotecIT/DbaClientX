@@ -13,3 +13,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    # net8.0 requires the 7.4 asset line; PowerShell 7.5+ no longer ships net8.0 compile assets.
+    ignore:
+      - dependency-name: "Microsoft.PowerShell.SDK"
+        versions: ["[7.5.0,)"]
