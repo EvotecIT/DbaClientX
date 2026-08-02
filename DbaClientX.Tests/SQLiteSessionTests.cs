@@ -36,6 +36,45 @@ public class SQLiteSessionTests
     }
 
     [Fact]
+    public void BeginDbTransaction_DeferredSnapshotAllowsConcurrentWriter()
+    {
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var sqlite = new SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL);");
+            sqlite.ExecuteNonQuery(path, "INSERT INTO items (name) VALUES ('before');");
+            var options = new SQLiteConnectionOptions
+            {
+                BusyTimeoutMs = 250,
+                EnableWriteAheadLogging = true
+            };
+            using DbConnection reader = sqlite.OpenDbConnection(path, options);
+            using DbConnection writer = sqlite.OpenDbConnection(path, options);
+            using DbTransaction snapshot = sqlite.BeginDbTransaction(reader, SQLiteTransactionMode.Deferred);
+
+            Assert.Equal(1L, ReadCount(reader, snapshot));
+
+            using (DbTransaction write = sqlite.BeginDbTransaction(writer))
+            {
+                using DbCommand insert = writer.CreateCommand();
+                insert.Transaction = write;
+                insert.CommandText = "INSERT INTO items (name) VALUES ('during-snapshot');";
+                Assert.Equal(1, insert.ExecuteNonQuery());
+                write.Commit();
+            }
+
+            Assert.Equal(1L, ReadCount(reader, snapshot));
+            snapshot.Commit();
+            Assert.Equal(2L, ReadCount(reader, transaction: null));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void OpenSession_AppliesConfiguredBusyTimeout()
     {
         string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
@@ -157,6 +196,14 @@ public class SQLiteSessionTests
         using DbCommand command = connection.CreateCommand();
         command.CommandText = $"PRAGMA {name};";
         return command.ExecuteScalar()!;
+    }
+
+    private static long ReadCount(DbConnection connection, DbTransaction? transaction)
+    {
+        using DbCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT(*) FROM items;";
+        return Convert.ToInt64(command.ExecuteScalar());
     }
 
     private static void TryDelete(string path)
