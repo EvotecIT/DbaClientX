@@ -131,7 +131,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -PublishGitHub
+    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget
     New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'DbaClientX.Core' -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Artefacts\Unpacked' #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
