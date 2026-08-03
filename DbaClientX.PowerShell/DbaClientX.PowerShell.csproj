@@ -78,17 +78,6 @@
 	</Target>
 
         <PropertyGroup>
-                <!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
                 <GenerateDocumentationFile>true</GenerateDocumentationFile>
-                <!-- Fail the build if documentation is missing. -->
-                <XmlDoc2CmdletDocArguments>-strict</XmlDoc2CmdletDocArguments>
         </PropertyGroup>
-
-	<ItemGroup>
-		<!-- This is needed for XmlDoc2CmdletDoc to generate a PowerShell documentation file. -->
-                <PackageReference Include="MatejKafka.XmlDoc2CmdletDoc">
-			<PrivateAssets>all</PrivateAssets>
-			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-		</PackageReference>
-	</ItemGroup>
 </Project>
