@@ -10,7 +10,7 @@
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -MinimumVersion 3.0.55 -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.88 -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     # Usual defaults as per standard module
@@ -84,7 +84,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     New-ConfigurationFormat -ApplyTo 'DefaultPSD1', 'OnMergePSD1' -PSD1Style 'Minimal'
 
     # configuration for documentation, at the same time it enables documentation processing
-    New-ConfigurationDocumentation -Enable:$false -PathReadme 'Docs\Readme.md' -Path 'Docs'
+    New-ConfigurationDocumentation -Enable -PathReadme 'Docs\Readme.md' -Path 'Docs' -SyncExternalHelpToProjectRoot
 
     $newConfigurationBuildSplat = @{
         Enable                               = $true
