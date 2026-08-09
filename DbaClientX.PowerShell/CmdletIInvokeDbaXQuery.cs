@@ -217,6 +217,61 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 return;
             }
 
+            if (ReturnType == ReturnType.PSObject && string.IsNullOrEmpty(StoredProcedure))
+            {
+                using var psObjectSqlServer = CreateSqlServer();
+                string[] columnNames = Array.Empty<string>();
+                object[] values = Array.Empty<object>();
+                void Initialize(IDataRecord record)
+                {
+                    columnNames = PSObjectConverter.GetUniqueColumnNames(record);
+                    values = new object[columnNames.Length];
+                }
+
+                PSObject Map(IDataRecord record) =>
+                    PSObjectConverter.DataRecordToPSObject(record, columnNames, values);
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+                if (Stream.IsPresent)
+                {
+                    await WritePSObjectsAsync(psObjectSqlServer.QueryStreamAsync(
+                        connectionString,
+                        Query,
+                        Map,
+                        parameters,
+                        cancellationToken: CancelToken,
+                        initialize: Initialize)).ConfigureAwait(false);
+                }
+                else
+                {
+                    var rows = await psObjectSqlServer.QueryAsListAsync(
+                        connectionString,
+                        Query,
+                        Map,
+                        parameters,
+                        cancellationToken: CancelToken,
+                        initialize: Initialize).ConfigureAwait(false);
+                    foreach (var row in rows)
+                    {
+                        WriteObject(row);
+                    }
+                }
+#else
+                var rows = await psObjectSqlServer.QueryAsListAsync(
+                    connectionString,
+                    Query,
+                    Map,
+                    parameters,
+                    cancellationToken: CancelToken,
+                    initialize: Initialize).ConfigureAwait(false);
+                foreach (var row in rows)
+                {
+                    WriteObject(row);
+                }
+#endif
+                return;
+            }
+
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent)
             {
@@ -269,6 +324,16 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         sqlServer.CommandTimeout = QueryTimeout;
         return sqlServer;
     }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+    private async Task WritePSObjectsAsync(IAsyncEnumerable<PSObject> rows)
+    {
+        await foreach (var row in rows.ConfigureAwait(false))
+        {
+            WriteObject(row);
+        }
+    }
+#endif
 
     private void WriteRows(IEnumerable<DataRow> rows)
     {
