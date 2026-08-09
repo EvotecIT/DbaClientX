@@ -20,6 +20,9 @@ param(
     ),
     [string[]] $Engine,
     [string[]] $Operation,
+    [string] $ProcessorAffinity,
+    [ValidateSet('Current', 'Normal', 'AboveNormal', 'High')]
+    [string] $ProcessPriority = 'Current',
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $KeepTables,
@@ -28,6 +31,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DbaClientX.Benchmark.Process.ps1')
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -127,6 +131,8 @@ if ($Engine -contains 'SqlServer' -and (-not $Operation -or $Operation -contains
 Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $ProcessorAffinity -ProcessPriority $ProcessPriority
+try {
 $settings = {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..\..')).Path
     $moduleRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..')).Path
@@ -144,6 +150,10 @@ $settings = {
     $modulePath = $ModulePath
     $keepTables = $KeepTables.IsPresent
     $updateReadme = $UpdateReadme.IsPresent
+    $benchmarkWarmupCount = $WarmupCount
+    $benchmarkIterationCount = $Iterations
+    $appliedProcessorAffinity = $benchmarkProcess.ProcessorAffinity
+    $appliedProcessPriority = $benchmarkProcess.ProcessPriority
     $rowCounts = $RowCount
     $batchSizes = $BatchSize
     $inputKinds = $InputKind
@@ -364,8 +374,10 @@ CREATE TABLE dbo.$TableName
 
     if ($selectedOperations -contains 'Write') {
         benchmark 'sqlserver-data-movement-write' -out (Join-Path $outputRootBase 'Write') {
-            policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
+            policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
             profile Current -Cleanup KeepOnFailure
+            metadata ProcessorAffinity $appliedProcessorAffinity
+            metadata ProcessPriority $appliedProcessPriority
 
             caseSource {
                 foreach ($rowCount in $rowCounts) {
@@ -594,8 +606,10 @@ CREATE TABLE dbo.$TableName
 
     if ($selectedOperations -contains 'Read') {
         benchmark 'sqlserver-data-movement-read' -out (Join-Path $outputRootBase 'Read') {
-            policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
+            policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
             profile Current -Cleanup KeepOnFailure
+            metadata ProcessorAffinity $appliedProcessorAffinity
+            metadata ProcessPriority $appliedProcessPriority
 
             caseSource {
                 foreach ($rowCount in $rowCounts) {
@@ -832,3 +846,6 @@ if (-not $Plan -and $result.Summary) {
 }
 
 $result
+} finally {
+    Restore-DbaClientXBenchmarkProcess -State $benchmarkProcess
+}

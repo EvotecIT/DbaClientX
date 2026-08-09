@@ -21,6 +21,9 @@ param(
     [string] $FastBcpParallelMethod = 'Ntile',
     [int] $FastBcpParallelDegree = -2,
     [int] $DbaClientXPartitionDegree = 0,
+    [string] $ProcessorAffinity,
+    [ValidateSet('Current', 'Normal', 'AboveNormal', 'High')]
+    [string] $ProcessPriority = 'Current',
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $UpdateReadme,
@@ -29,6 +32,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DbaClientX.Benchmark.Process.ps1')
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -115,6 +119,8 @@ if ($Engine -contains 'DbaClientXPartitionedReader' -and -not (Get-Command Start
 Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $ProcessorAffinity -ProcessPriority $ProcessPriority
+try {
 $settings = {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..\..')).Path
     $readmePath = Join-Path $sourceRoot 'README.md'
@@ -132,6 +138,10 @@ $settings = {
     $fastBcpParallelMethod = $FastBcpParallelMethod
     $fastBcpParallelDegree = $FastBcpParallelDegree
     $dbaClientXPartitionDegree = $DbaClientXPartitionDegree
+    $benchmarkWarmupCount = $WarmupCount
+    $benchmarkIterationCount = $Iterations
+    $appliedProcessorAffinity = $benchmarkProcess.ProcessorAffinity
+    $appliedProcessPriority = $benchmarkProcess.ProcessPriority
     $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
@@ -271,8 +281,10 @@ FROM numbers;
     $getFileMetrics = ${function:Get-DbaClientXCsvExportFileMetrics}
 
     benchmark 'sqlserver-csv-export' -out $outputRootBase {
-        policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
+        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
         profile Current -Cleanup KeepOnFailure
+        metadata ProcessorAffinity $appliedProcessorAffinity
+        metadata ProcessPriority $appliedProcessPriority
 
         caseSource {
             foreach ($rowCount in $rowCounts) {
@@ -721,3 +733,6 @@ if (-not $Plan -and $result.Summary) {
 }
 
 $result
+} finally {
+    Restore-DbaClientXBenchmarkProcess -State $benchmarkProcess
+}

@@ -490,3 +490,10 @@ Use the office file benchmark when the question is not only "how fast is bulk co
 ```
 
 That matrix compares DbaClientX + PSWriteOffice against dbatools `Export-DbaCsv` and `Import-DbaCsv` for plain and compressed CSV. Excel lanes use DbaClientX + PSWriteOffice. Raw parser microbenchmarks against Dataplat/dbatools, Sep, Sylvan, CsvHelper, and LumenWorks are tracked in OfficeIMO.CSV; the DbaClientX benchmark stays focused on database/file round-trip behavior.
+
+For equivalent end-to-end comparisons, add `NativePowerShell` to the plain CSV
+lane or `ImportExcel` to the `ExcelReader` lane. Use `-ProcessorAffinity` and
+`-ProcessPriority` to keep heterogeneous CPU domains from changing the result
+between runs; the applied values are written to benchmark metadata. Parallel
+CSV export remains a separate opt-in lane because partitioning overhead can
+make it slower than one streaming reader at moderate row counts.

@@ -45,12 +45,12 @@ and FastBCP.
 `Benchmark.OfficeFileRoundTrip.ps1` measures the combined database/file
 workflow: read source rows with DbaClientX, write CSV, compressed CSV, or Excel
 with PSWriteOffice, import the file back as a tabular reader, then bulk-write to
-SQL Server through `Write-DbaXTableData`.
-The dbatools comparison is CSV-only; Excel uses DbaClientX + PSWriteOffice.
-Both CSV engines use invariant culture, comma delimiters, `AsNeeded` quoting,
-batch size 5000, table locks, and `Fastest` compression for GZip lanes. Typed
-lanes validate the destination SQL column types in addition to row counts and
-value integrity.
+SQL Server through `Write-DbaXTableData`. Equivalent comparison lanes cover
+dbatools and native PowerShell for plain CSV, and ImportExcel for XLSX.
+Comparison lanes use the same source rows, destination contract, batch size,
+table-lock setting, and integrity checks. Typed, compressed, mapped, and
+streaming-only shapes remain DbaClientX lanes when another engine cannot perform
+the same contract without an artificial adapter.
 
 Run the export comparison:
 
@@ -86,10 +86,34 @@ Run the Excel round-trip lanes:
     -Server localhost `
     -Database tempdb `
     -RowCount 1000,5000,25000 `
-    -FileKind Excel,ExcelReader,ExcelReaderMapped `
-    -Engine DbaClientX `
+    -FileKind ExcelReader `
+    -Engine DbaClientX,ImportExcel `
     -Iterations 5
 ```
+
+The runner can prepare ImportExcel in its benchmark-only module cache. Use
+`-SkipImportExcelInstall` when benchmark execution must not download optional
+comparison dependencies, or pass `-ImportExcelModulePath` to select an existing
+module explicitly.
+
+On machines with heterogeneous CPU domains, pin comparable runs to the same
+native-width processor mask and record the applied process settings in the
+benchmark metadata:
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -RowCount 100000 `
+    -FileKind Csv,ExcelReader `
+    -Engine DbaClientX,NativePowerShell,ImportExcel `
+    -ProcessorAffinity 0x000000000000FFFF `
+    -ProcessPriority AboveNormal
+```
+
+`Benchmark.SqlServerDataMovement.ps1` and
+`Benchmark.SqlServerCsvExport.ps1` accept the same process controls. A
+partitioned CSV export is reported as its own engine; do not assume it is faster
+than one streaming reader unless the measured row count and SQL partitioning
+strategy prove it.
 
 For unreleased work, build PSWriteOffice with `OfficeIMORoot` pointing at the
 current OfficeIMO checkout and pass `-ModulePath` / `-PSWriteOfficeModulePath`
