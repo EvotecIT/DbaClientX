@@ -392,7 +392,7 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 <!-- sqlserver-csv-export-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientXDataTable | DbaClientXPowerShellStream | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 100000 rows / CSV export | RowCount=100000 | Core-7.6.3 | Export | 1.00x (60ms) | 2.36x (142ms) | 6.28x (378ms) | 5.53x (333ms) | 1.44x (87ms) | DbaClientXReader fastest |
+| 100000 rows / CSV export | RowCount=100000 | Core-7.6.4 | Export | 1.00x (58ms) | 1.92x (112ms) | 17.82x (1.04s) | 19.32x (1.13s) | 1.08x (63ms) | DbaClientXReader fastest |
 <!-- sqlserver-csv-export-benchmark:end -->
 
 ## Office File Round Trip
