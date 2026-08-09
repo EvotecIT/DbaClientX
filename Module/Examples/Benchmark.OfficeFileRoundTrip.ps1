@@ -19,6 +19,7 @@ param(
     ),
     [string] $PSWriteOfficeModulePath = $(if ($env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH) { $env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH } else { 'PSWriteOffice' }),
     [string] $ImportExcelModulePath = $(if ($env:IMPORTEXCEL_BENCHMARK_MODULE_PATH) { $env:IMPORTEXCEL_BENCHMARK_MODULE_PATH } else { 'ImportExcel' }),
+    [version] $ImportExcelVersion = $(if ($env:IMPORTEXCEL_BENCHMARK_VERSION) { [version] $env:IMPORTEXCEL_BENCHMARK_VERSION } else { $null }),
     [string] $ImportExcelModuleCachePath,
     [switch] $SkipImportExcelInstall,
     [string] $ProcessorAffinity,
@@ -33,6 +34,19 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'DbaClientX.Benchmark.Process.ps1')
+$officeRoundTripSupportPath = Join-Path $PSScriptRoot 'DbaClientX.Benchmark.OfficeRoundTrip.ps1'
+. $officeRoundTripSupportPath
+$officeRoundTripHelpers = @{
+    ImportExcel = ${function:Import-DbaClientXBenchmarkImportExcel}
+    TestImportExcel = ${function:Test-ImportExcelCommandAvailability}
+    GetModuleIdentity = ${function:Get-DbaClientXBenchmarkModuleIdentity}
+    GetAssemblyIdentity = ${function:Get-DbaClientXBenchmarkAssemblyIdentity}
+    GetCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
+    GetSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
+    GetExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
+    AssertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
+    AssertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
+}
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -105,6 +119,8 @@ if ($Engine -contains 'NativePowerShell' -and -not $nativePowerShellCsvAvailable
 Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkScriptIdentity = "Path=$PSCommandPath; SHA256=$((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash)"
+$benchmarkSupportIdentity = "Path=$officeRoundTripSupportPath; SHA256=$((Get-FileHash -LiteralPath $officeRoundTripSupportPath -Algorithm SHA256).Hash)"
 $benchmarkRunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $ProcessorAffinity -ProcessPriority $ProcessPriority
 try {
@@ -123,6 +139,7 @@ $settings = {
     $modulePath = $ModulePath
     $psWriteOfficeModulePath = $PSWriteOfficeModulePath
     $importExcelModulePath = $ImportExcelModulePath
+    $importExcelVersion = $ImportExcelVersion
     $importExcelModuleCachePath = if ([string]::IsNullOrWhiteSpace($ImportExcelModuleCachePath)) {
         Join-Path $defaultOutputRoot 'Modules'
     } else {
@@ -132,6 +149,8 @@ $settings = {
     $supportsNativePowerShellCsv = $nativePowerShellCsvAvailable
     $appliedProcessorAffinity = $benchmarkProcess.ProcessorAffinity
     $appliedProcessPriority = $benchmarkProcess.ProcessPriority
+    $benchmarkScript = $benchmarkScriptIdentity
+    $benchmarkSupport = $benchmarkSupportIdentity
     $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
@@ -145,174 +164,67 @@ $settings = {
 
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
-    function Import-DbaClientXBenchmarkImportExcel {
-        param(
-            [string] $ModulePath,
-            [string] $ModuleCachePath,
-            [switch] $SkipInstall
-        )
-
-        if ($ModulePath -eq 'ImportExcel' -and -not (Get-Module -ListAvailable -Name ImportExcel)) {
-            if ($SkipInstall.IsPresent) {
-                throw 'ImportExcel is not installed and automatic benchmark dependency preparation is disabled.'
-            }
-
-            New-Item -ItemType Directory -Force -Path $ModuleCachePath | Out-Null
-            $modulePaths = @($env:PSModulePath -split [System.IO.Path]::PathSeparator | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-            if ($ModuleCachePath -notin $modulePaths) {
-                $env:PSModulePath = (@($ModuleCachePath) + $modulePaths) -join [System.IO.Path]::PathSeparator
-            }
-
-            if (-not (Get-Module -ListAvailable -Name ImportExcel | Where-Object { $_.Path -like "$ModuleCachePath*" })) {
-                Save-Module -Name ImportExcel -Repository PSGallery -Path $ModuleCachePath -Force -ErrorAction Stop
-            }
-        }
-
-        Import-Module $ModulePath -Global -Force -PassThru -ErrorAction Stop
+    $getCreateTableQuery = $officeRoundTripHelpers.GetCreateTableQuery
+    $getSeedQuery = $officeRoundTripHelpers.GetSeedQuery
+    $getExpectedIntegrity = $officeRoundTripHelpers.GetExpectedIntegrity
+    $assertIntegrity = $officeRoundTripHelpers.AssertIntegrity
+    $assertTypedSchema = $officeRoundTripHelpers.AssertTypedSchema
+    $importImportExcelModule = $officeRoundTripHelpers.ImportExcel
+    $testImportExcelCommands = $officeRoundTripHelpers.TestImportExcel
+    $getModuleIdentity = $officeRoundTripHelpers.GetModuleIdentity
+    $getAssemblyIdentity = $officeRoundTripHelpers.GetAssemblyIdentity
+    $resolvedDbaClientXModule = Import-Module $modulePath -Global -Force -PassThru -ErrorAction Stop
+    $resolvedPSWriteOfficeModule = if ($selectedEngines -contains 'DbaClientX') {
+        Import-Module $psWriteOfficeModulePath -Global -Force -PassThru -ErrorAction Stop
+    } else {
+        $null
     }
-
-    function Test-ImportExcelCommandAvailability {
-        param(
-            [string] $ModulePath,
-            [string] $ModuleCachePath,
-            [switch] $SkipInstall,
-            [scriptblock] $ImportModuleCommand
-        )
-
+    $resolvedImportExcelModule = if ($selectedEngines -contains 'ImportExcel') {
         try {
-            $importedModule = & $ImportModuleCommand -ModulePath $ModulePath -ModuleCachePath $ModuleCachePath -SkipInstall:$SkipInstall.IsPresent
+            & $importImportExcelModule -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall
         } catch {
-            Write-Warning "Skipping ImportExcel benchmark lane because ImportExcel could not be imported from '$ModulePath': $($_.Exception.Message)"
-            return $false
+            $null
         }
-
-        $moduleNames = @($importedModule | ForEach-Object { $_.Name })
-        $exportCommand = Get-Command Export-Excel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        $importCommand = Get-Command Import-Excel -All -ErrorAction SilentlyContinue | Where-Object { $_.ModuleName -in $moduleNames }
-        if (-not $exportCommand -or -not $importCommand) {
-            Write-Warning 'Skipping ImportExcel benchmark lane because the imported module does not expose Export-Excel and Import-Excel.'
-            return $false
-        }
-
-        return $true
+    } else {
+        $null
     }
-
-    function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
-        param([string] $TableName)
-
-        @"
-IF OBJECT_ID(N'dbo.$TableName', N'U') IS NOT NULL DROP TABLE dbo.$TableName;
-CREATE TABLE dbo.$TableName
-(
-    Id int NOT NULL CONSTRAINT PK_${TableName}_Id PRIMARY KEY CLUSTERED,
-    DisplayName nvarchar(100) NOT NULL,
-    Score decimal(18,2) NOT NULL,
-    CreatedUtc datetime2 NOT NULL
-);
-"@
+    $sqlServerIdentity = if ($Plan.IsPresent) {
+        'Plan mode; not queried'
+    } else {
+        $serverProperties = Invoke-DbaXQuery `
+            -Server $server `
+            -Database $database `
+            -TrustServerCertificate `
+            -Query "SELECT CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion')) AS ProductVersion, CONVERT(nvarchar(128), SERVERPROPERTY('Edition')) AS Edition, CONVERT(nvarchar(128), SERVERPROPERTY('ProductLevel')) AS ProductLevel, CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation')) AS Collation;" `
+            -QueryTimeout 30 `
+            -ReturnType PSObject `
+            -ErrorAction Stop
+        "Server=$server; Database=$database; ProductVersion=$($serverProperties.ProductVersion); ProductLevel=$($serverProperties.ProductLevel); Edition=$($serverProperties.Edition); Collation=$($serverProperties.Collation)"
     }
-
-    function Get-DbaClientXOfficeBenchmarkSeedQuery {
-        param(
-            [string] $TableName,
-            [int] $RowCount
-        )
-
-        @"
-WITH numbers AS
-(
-    SELECT TOP ($RowCount)
-        ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Id
-    FROM sys.all_objects AS a
-    CROSS JOIN sys.all_objects AS b
-)
-INSERT INTO dbo.$TableName (Id, DisplayName, Score, CreatedUtc)
-SELECT
-    Id,
-    CONCAT(N'Row ', Id),
-    CONVERT(decimal(18,2), Id * 1.25),
-    DATEADD(second, Id, CONVERT(datetime2, '2026-01-01T00:00:00'))
-FROM numbers;
-"@
-    }
-
-    function Get-DbaClientXOfficeBenchmarkExpectedIntegrity {
-        param([int] $RowCount)
-
-        $expectedIdSum = [long] ([int64] $RowCount * ([int64] $RowCount + 1) / 2)
-        [pscustomobject]@{
-            Rows = $RowCount
-            MinId = 1
-            MaxId = $RowCount
-            IdSum = $expectedIdSum
-            ScoreSum = [decimal] $expectedIdSum * 1.25
-        }
-    }
-
-    function Assert-DbaClientXOfficeBenchmarkIntegrity {
-        param(
-            [string] $FileKind,
-            [string] $TableName,
-            [object] $Actual,
-            [object] $Expected
-        )
-
-        if ($Actual.Rows -ne $Expected.Rows) {
-            throw "$FileKind round trip processed $($Actual.Rows) of $($Expected.Rows) expected row(s) for dbo.$TableName."
-        }
-
-        if ($Actual.MinId -ne $Expected.MinId -or
-            $Actual.MaxId -ne $Expected.MaxId -or
-            $Actual.IdSum -ne $Expected.IdSum -or
-            $Actual.ScoreSum -ne $Expected.ScoreSum -or
-            $Actual.ExactMismatchCount -ne 0) {
-            throw "$FileKind round trip produced unexpected data for dbo.${TableName}: MinId=$($Actual.MinId), MaxId=$($Actual.MaxId), IdSum=$($Actual.IdSum), ScoreSum=$($Actual.ScoreSum), ExactMismatchCount=$($Actual.ExactMismatchCount)."
-        }
-    }
-
-    function Assert-DbaClientXOfficeBenchmarkTypedSchema {
-        param(
-            [string] $FileKind,
-            [string] $TableName,
-            [object[]] $Columns
-        )
-
-        $actualTypes = @{}
-        foreach ($column in @($Columns)) {
-            $actualTypes[[string] $column.ColumnName] = [string] $column.TypeName
-        }
-
-        $excelNumericTypes = $FileKind -in @('Excel', 'ExcelReader', 'ExcelReaderMapped')
-        $expectedTypes = [ordered] @{
-            Id = if ($excelNumericTypes) { @('float') } else { @('int') }
-            DisplayName = @('nvarchar', 'varchar')
-            Score = if ($excelNumericTypes) { @('float') } else { @('decimal', 'numeric') }
-            CreatedUtc = @('datetime2', 'datetime', 'datetimeoffset')
-        }
-
-        foreach ($entry in $expectedTypes.GetEnumerator()) {
-            if (-not $actualTypes.ContainsKey($entry.Key)) {
-                throw "$FileKind typed round trip did not create expected column '$($entry.Key)' in dbo.$TableName."
-            }
-
-            if ($actualTypes[$entry.Key] -notin $entry.Value) {
-                throw "$FileKind typed round trip created dbo.$TableName.$($entry.Key) as $($actualTypes[$entry.Key]); expected one of: $($entry.Value -join ', ')."
-            }
-        }
-    }
-
-    $getCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
-    $getSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
-    $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
-    $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
-    $assertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
-    $importImportExcelModule = ${function:Import-DbaClientXBenchmarkImportExcel}
-    $testImportExcelCommands = ${function:Test-ImportExcelCommandAvailability}
+    $dbaClientXModuleIdentity = & $getModuleIdentity -Module $resolvedDbaClientXModule -Label 'DbaClientX'
+    $psWriteOfficeModuleIdentity = & $getModuleIdentity -Module $resolvedPSWriteOfficeModule -Label 'PSWriteOffice'
+    $importExcelModuleIdentity = & $getModuleIdentity -Module $resolvedImportExcelModule -Label 'ImportExcel'
+    $dbaClientXAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'DbaClientX.PowerShell'
+    $psWriteOfficeAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'PSWriteOffice'
+    $officeIMOExcelAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.Excel'
+    $officeIMOCsvAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.CSV'
+    $epplusAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'EPPlus'
     benchmark 'office-file-roundtrip' -out $outputRootBase {
         policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
         profile Current -Cleanup KeepOnFailure
         metadata ProcessorAffinity $appliedProcessorAffinity
         metadata ProcessPriority $appliedProcessPriority
+        metadata BenchmarkScript $benchmarkScript
+        metadata BenchmarkSupport $benchmarkSupport
+        metadata SqlServer $sqlServerIdentity
+        metadata DbaClientXModule $dbaClientXModuleIdentity
+        metadata DbaClientXAssembly $dbaClientXAssemblyIdentity
+        metadata PSWriteOfficeModule $psWriteOfficeModuleIdentity
+        metadata PSWriteOfficeAssembly $psWriteOfficeAssemblyIdentity
+        metadata OfficeIMOExcelAssembly $officeIMOExcelAssemblyIdentity
+        metadata OfficeIMOCsvAssembly $officeIMOCsvAssemblyIdentity
+        metadata ImportExcelModule $importExcelModuleIdentity
+        metadata EPPlusAssembly $epplusAssemblyIdentity
 
         caseSource {
             foreach ($rowCount in $rowCounts) {
@@ -344,6 +256,7 @@ FROM numbers;
             $run.KeepArtifacts = $keepArtifacts
             $run.ExportMs = 0.0
             $run.LoadMs = 0.0
+            $run.ExactMismatchCount = 0L
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $laneToken = '{0}_{1}_{2}_{3}_{4}' -f $benchmarkRunToken, $case.Engine, $case.FileKind, $case.ColumnShape, $case.RowCount
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f $laneToken
@@ -381,7 +294,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
 
             if ($case.Engine -eq 'ImportExcel') {
-                & $importImportExcelModule -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -SkipInstall:$skipImportExcelInstall | Out-Null
+                & $importImportExcelModule -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall | Out-Null
             }
 
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
@@ -419,7 +332,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     return $true
                 }
 
-                return -not (& $testImportExcelCommands -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -SkipInstall:$skipImportExcelInstall -ImportModuleCommand $importImportExcelModule)
+                return -not (& $testImportExcelCommands -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall -ImportModuleCommand $importImportExcelModule)
             }
 
             return $false
@@ -691,16 +604,17 @@ SELECT
     SUM(CASE
         WHEN source.Id IS NULL OR destination.Id IS NULL
           OR destination.DisplayName IS NULL
-          OR CONVERT(nvarchar(100), destination.DisplayName) <> source.DisplayName
-          OR TRY_CONVERT(decimal(18,2), destination.Score) IS NULL
-          OR TRY_CONVERT(decimal(18,2), destination.Score) <> source.Score
-          OR TRY_CONVERT(datetime2, destination.CreatedUtc) IS NULL
-          OR TRY_CONVERT(datetime2, destination.CreatedUtc) <> source.CreatedUtc
+          OR DATALENGTH(CONVERT(nvarchar(100), destination.DisplayName)) <> DATALENGTH(source.DisplayName)
+          OR CONVERT(nvarchar(100), destination.DisplayName) COLLATE Latin1_General_100_BIN2 <> source.DisplayName COLLATE Latin1_General_100_BIN2
+          OR TRY_CONVERT(decimal(38,10), destination.Score) IS NULL
+          OR TRY_CONVERT(decimal(38,10), destination.Score) <> CONVERT(decimal(38,10), source.Score)
+          OR TRY_CONVERT(datetime2(7), destination.CreatedUtc) IS NULL
+          OR TRY_CONVERT(datetime2(7), destination.CreatedUtc) <> CONVERT(datetime2(7), source.CreatedUtc)
         THEN CONVERT(bigint, 1) ELSE CONVERT(bigint, 0)
     END) AS [ExactMismatchCount]
 FROM dbo.$($run.DestinationTable) AS destination
 FULL OUTER JOIN dbo.$($run.SourceTable) AS source
-    ON TRY_CONVERT(int, destination.Id) = source.Id;
+    ON TRY_CONVERT(decimal(38,10), destination.Id) = CONVERT(decimal(38,10), source.Id);
 "@ `
                 -QueryTimeout 120 `
                 -ReturnType PSObject `
@@ -732,6 +646,7 @@ FULL OUTER JOIN dbo.$($run.SourceTable) AS source
             $run.RowsProcessed = $actual.Rows
             $run.IdSum = $actual.IdSum
             $run.ScoreSum = $actual.ScoreSum
+            $run.ExactMismatchCount = $actual.ExactMismatchCount
 
             if (-not $run.KeepArtifacts) {
                 Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
@@ -769,6 +684,12 @@ FULL OUTER JOIN dbo.$($run.SourceTable) AS source
             param($case, $run)
 
             $run.ScoreSum
+        }
+
+        metric ExactMismatchCount {
+            param($case, $run)
+
+            $run.ExactMismatchCount
         }
 
         metric RowsPerSecond {

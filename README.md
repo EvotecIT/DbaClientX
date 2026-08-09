@@ -400,6 +400,12 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 | 100000 rows / CsvTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (282ms) | 1.92x (541ms) | DbaClientX fastest |
 <!-- office-file-roundtrip-benchmark:end -->
 
+The affinity-pinned streaming XLSX round-trip comparison is documented in the
+[SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md#dated-streaming-xlsx-round-trip-snapshot-2026-08-09).
+On this source-linked run, the DbaClientX/PSWriteOffice/OfficeIMO path used
+6.2-6.6% of ImportExcel's median time while passing the same SQL-side value and
+schema validation.
+
 ## .NET Usage
 
 ### Query Data
