@@ -13,6 +13,17 @@ describe 'Invoke-DbaXQuery cmdlet' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Stream'
     }
 
+    it 'supports the owned DataReader parameter set' {
+        $command = Get-Command Invoke-DbaXQuery
+        $command.Parameters.Keys | Should -Contain 'AsDataReader'
+        @($command.ParameterSets.Name) | Should -Contain 'QueryReader'
+    }
+
+    it 'keeps DataReader output exclusive from row streaming and buffered return types' {
+        { Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -AsDataReader -Stream -ErrorAction Stop } | Should -Throw
+        { Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -AsDataReader -ReturnType DataTable -ErrorAction Stop } | Should -Throw
+    }
+
     it 'supports Username and Password parameters' {
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Username'
         (Get-Command Invoke-DbaXQuery).Parameters.Keys | Should -Contain 'Password'
@@ -153,6 +164,30 @@ describe 'Invoke-DbaXQuery cmdlet' {
             $rows = @(Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1')
             $rows.Count | Should -Be 1
             $rows[0].Value | Should -Be 1
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
+    it 'emits PSObject columns instead of exposing the internal column count' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('Id', [int])
+            $null = $table.Columns.Add('DisplayName', [string])
+            $null = $table.Rows.Add(1, 'Row 1')
+            return [System.Threading.Tasks.Task[System.Data.DataTable]]::FromResult($table)
+        })
+        try {
+            $rows = @(Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1' -ReturnType PSObject)
+            $rows.Count | Should -Be 1
+            $rows[0].PSObject.Properties.Name | Should -Contain 'Id'
+            $rows[0].PSObject.Properties.Name | Should -Contain 'DisplayName'
+            $rows[0].Id | Should -Be 1
+            $rows[0].DisplayName | Should -Be 'Row 1'
         } finally {
             $prop.SetValue($null, $orig)
         }

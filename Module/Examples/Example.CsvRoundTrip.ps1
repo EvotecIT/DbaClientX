@@ -79,17 +79,20 @@ try {
         $csvImportParameters.CompressionType = $CompressionType
     }
 
-    $client = [DBAClientX.SqlServer]::new()
     $sqlReader = $null
     try {
-        $sqlReader = $client.QueryReader($connectionString, "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;")
+        $sqlReader = Invoke-DbaXQuery `
+            -Server $Server `
+            -Database $Database `
+            -TrustServerCertificate `
+            -Query "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;" `
+            -AsDataReader `
+            -ErrorAction Stop
         Export-OfficeCsv -InputObject $sqlReader @csvExportParameters | Out-Null
     } finally {
         if ($null -ne $sqlReader) {
             $sqlReader.Dispose()
         }
-
-        $client.Dispose()
     }
 
     $csvReader = $null

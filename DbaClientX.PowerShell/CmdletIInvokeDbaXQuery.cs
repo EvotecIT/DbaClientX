@@ -5,7 +5,7 @@ namespace DBAClientX.PowerShell;
 
 /// <summary>Invokes a SQL Server query or stored procedure.</summary>
 /// <para>Connects to a SQL Server instance using integrated security or supplied credentials and executes the specified command.</para>
-/// <para>Supports streaming results and multiple return formats via the <see cref="ReturnType"/> parameter.</para>
+/// <para>Supports streaming results, multiple buffered return formats, and transferring an owned data reader to a consuming API.</para>
 /// <list type="alertSet">
 /// <item>
 /// <term>Note</term>
@@ -35,6 +35,17 @@ namespace DBAClientX.PowerShell;
 /// Invoke-DbaXQuery -Server 'sql01' -Database 'app' -StoredProcedure 'dbo.usp_GetActiveUsers' -Credential $credential -ReturnType DataTable</code>
 /// <para>Runs the stored procedure and outputs a <see cref="DataTable"/>.</para>
 /// </example>
+/// <example>
+/// <summary>Stream query rows into a file writer.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>$reader = Invoke-DbaXQuery -Server 'sql01' -Database 'app' -Query 'SELECT * FROM dbo.Users' -AsDataReader
+/// try {
+///     Export-OfficeCsv -InputObject $reader -Path .\Users.csv
+/// } finally {
+///     $reader.Dispose()
+/// }</code>
+/// <para>Returns one live <see cref="DbDataReader"/>. The caller must dispose it after the consuming API finishes reading.</para>
+/// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/framework/data/adonet/using-sqlclient">Using SqlClient</seealso>
 /// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXQuery", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
@@ -48,6 +59,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
     /// <summary>Specifies the SQL Server instance.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [Parameter(Mandatory = true, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [Alias("DBServer", "SqlInstance", "Instance")]
     [ValidateNotNullOrEmpty]
@@ -55,12 +67,14 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
     /// <summary>Defines the database name.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [Parameter(Mandatory = true, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = true, ParameterSetName = "StoredProcedure")]
     [ValidateNotNullOrEmpty]
     public string Database { get; set; } = string.Empty;
 
     /// <summary>The SQL statement to execute.</summary>
     [Parameter(Mandatory = true, ParameterSetName = "Query")]
+    [Parameter(Mandatory = true, ParameterSetName = "QueryReader")]
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
@@ -71,6 +85,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 
     /// <summary>Sets the command timeout in seconds.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public int QueryTimeout { get; set; }
 
@@ -85,29 +100,38 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
+    /// <summary>Returns one live reader that owns its command and connection until the caller disposes it.</summary>
+    [Parameter(Mandatory = true, ParameterSetName = "QueryReader")]
+    public SwitchParameter AsDataReader { get; set; }
+
     /// <summary>Provides additional parameters for the query or procedure.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public Hashtable? Parameters { get; set; }
 
     /// <summary>Optional user name for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Username { get; set; } = string.Empty;
 
     /// <summary>Optional password for SQL authentication.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public string Password { get; set; } = string.Empty;
 
     /// <summary>Optional SQL authentication credential.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     [Credential]
     public PSCredential? Credential { get; set; }
 
     /// <summary>Trusts the SQL Server TLS certificate without validating the certificate chain.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
+    [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public SwitchParameter TrustServerCertificate { get; set; }
 
@@ -129,7 +153,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override async Task ProcessRecordAsync() {
-        await Task.Yield();
+        var returnDataReader = string.Equals(ParameterSetName, "QueryReader", StringComparison.Ordinal);
         var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;
@@ -212,6 +236,12 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 resolvedUsername,
                 resolvedPassword,
                 trustServerCertificate: TrustServerCertificate.IsPresent);
+            if (returnDataReader)
+            {
+                await WriteDataReaderAsync(connectionString, parameters).ConfigureAwait(false);
+                return;
+            }
+
             if (!PowerShellHelpers.TryValidateConnection(this, "sqlserver", connectionString, ErrorAction))
             {
                 return;
@@ -323,6 +353,29 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
         sqlServer.ReturnType = ReturnType;
         sqlServer.CommandTimeout = QueryTimeout;
         return sqlServer;
+    }
+
+    private async Task WriteDataReaderAsync(string connectionString, IDictionary<string, object?>? parameters)
+    {
+        using var sqlServer = CreateSqlServer();
+        DbaDataReader? reader = null;
+        try
+        {
+            reader = await sqlServer.QueryReaderAsync(
+                connectionString,
+                Query,
+                parameters,
+                cancellationToken: CancelToken).ConfigureAwait(false);
+            WriteObjectAndWait(reader, enumerateCollection: false);
+            reader = null;
+        }
+        finally
+        {
+            if (reader != null)
+            {
+                await reader.DisposeAsync().ConfigureAwait(false);
+            }
+        }
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER

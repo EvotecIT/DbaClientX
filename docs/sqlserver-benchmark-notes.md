@@ -35,8 +35,9 @@ The read suite seeds an isolated SQL Server table outside the measured operation
 ## CSV export and office round trips
 
 `Benchmark.SqlServerCsvExport.ps1` measures export-only throughput from SQL
-Server to CSV. The DbaClientX reader lane opens a SQL Server `IDataReader` and
-passes it directly to PSWriteOffice `Export-OfficeCsv`; the buffered lane uses a
+Server to CSV. The DbaClientX reader lane uses the public
+`Invoke-DbaXQuery -AsDataReader` API and passes its owned SQL Server reader
+directly to PSWriteOffice `Export-OfficeCsv`; the buffered lane uses a
 `DataTable`; the stream lane uses the public `Invoke-DbaXQuery -Stream` shape;
 and the partitioned lane opens one reader per partition and writes split CSV
 files. Comparison lanes cover dbatools `Export-DbaCsv`, native `bcp queryout`,

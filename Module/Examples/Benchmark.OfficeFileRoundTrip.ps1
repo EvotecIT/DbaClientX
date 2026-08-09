@@ -472,18 +472,21 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         }
                     }
 
-                    $client = [DBAClientX.SqlServer]::new()
                     $reader = $null
                     try {
-                        $client.CommandTimeout = 120
-                        $reader = $client.QueryReader($run.ConnectionString, $query)
+                        $reader = Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $query `
+                            -QueryTimeout 120 `
+                            -AsDataReader `
+                            -ErrorAction Stop
                         Export-OfficeCsv -InputObject $reader @csvExportParameters
                     } finally {
                         if ($null -ne $reader) {
                             $reader.Dispose()
                         }
-
-                        $client.Dispose()
                     }
                     $exportTimer.Stop()
                     $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
@@ -492,30 +495,21 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     $imported = Import-OfficeCsv @csvImportParameters
                 } elseif ($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')) {
                     $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
-                    $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-                        $run.Server,
-                        $run.Database,
-                        $true,
-                        $null,
-                        $null,
-                        $null,
-                        $null,
-                        $true,
-                        $null,
-                        $null)
-
-                    $client = [DBAClientX.SqlServer]::new()
                     $reader = $null
                     try {
-                        $client.CommandTimeout = 120
-                        $reader = $client.QueryReader($connectionString, $query)
+                        $reader = Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $query `
+                            -QueryTimeout 120 `
+                            -AsDataReader `
+                            -ErrorAction Stop
                         Export-OfficeExcel -InputObject $reader -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
                     } finally {
                         if ($null -ne $reader) {
                             $reader.Dispose()
                         }
-
-                        $client.Dispose()
                     }
                     $exportTimer.Stop()
                     $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds

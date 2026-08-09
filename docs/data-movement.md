@@ -136,6 +136,25 @@ $rows | Export-OfficeCsv -Path .\Customers.csv.gz -CompressionType GZip
 $rows | Export-OfficeExcel -Path .\Customers.xlsx -WorksheetName Customers
 ```
 
+For the lowest-allocation path, pass one owned reader directly to the file writer and dispose it after the export:
+
+```powershell
+$reader = Invoke-DbaXQuery `
+    -Server 'sql01' `
+    -Database 'warehouse' `
+    -Query 'SELECT CustomerId, DisplayName, ModifiedUtc FROM dbo.Customers' `
+    -TrustServerCertificate `
+    -AsDataReader `
+    -ErrorAction Stop
+try {
+    Export-OfficeCsv -InputObject $reader -Path .\Customers.csv
+} finally {
+    $reader.Dispose()
+}
+```
+
+Use `Export-OfficeExcel` instead of `Export-OfficeCsv` when the destination is XLSX; each export consumes its own fresh reader. `-AsDataReader` is query-only and mutually exclusive with `-Stream`, `-ReturnType`, and `-StoredProcedure`. It returns one live reader positioned before the first row; the caller owns disposal.
+
 ## Load A SQL Server Staging Table
 
 Start with the default `Write-DbaXTableData` path, then add SQL Server options only when the destination table needs them:

@@ -61,11 +61,16 @@ try {
         Remove-Item -LiteralPath $ExcelPath -Force
     }
 
-    $client = [DBAClientX.SqlServer]::new()
     $sqlReader = $null
     try {
-        $client.CommandTimeout = $QueryTimeout
-        $sqlReader = $client.QueryReader($connectionString, "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;")
+        $sqlReader = Invoke-DbaXQuery `
+            -Server $Server `
+            -Database $Database `
+            -TrustServerCertificate `
+            -Query "SELECT Id, DisplayName, Score, CreatedUtc FROM $SourceTable ORDER BY Id;" `
+            -QueryTimeout $QueryTimeout `
+            -AsDataReader `
+            -ErrorAction Stop
         Export-OfficeExcel `
             -InputObject $sqlReader `
             -Path $ExcelPath `
@@ -77,8 +82,6 @@ try {
         if ($null -ne $sqlReader) {
             $sqlReader.Dispose()
         }
-
-        $client.Dispose()
     }
 
     $importedExcel = Import-OfficeExcel `

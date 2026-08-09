@@ -14,6 +14,11 @@ Invokes a SQL Server query or stored procedure.
 Invoke-DbaXQuery -Server <string> -Database <string> -Query <string> [-QueryTimeout <int>] [-Stream] [-ReturnType <ReturnType>] [-Parameters <hashtable>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
+### QueryReader
+```powershell
+Invoke-DbaXQuery -Server <string> -Database <string> -Query <string> -AsDataReader [-QueryTimeout <int>] [-Parameters <hashtable>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-WhatIf] [-Confirm] [<CommonParameters>]
+```
+
 ### StoredProcedure
 ```powershell
 Invoke-DbaXQuery -Server <string> -Database <string> -StoredProcedure <string> [-QueryTimeout <int>] [-Stream] [-ReturnType <ReturnType>] [-Parameters <hashtable>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-WhatIf] [-Confirm] [<CommonParameters>]
@@ -22,7 +27,7 @@ Invoke-DbaXQuery -Server <string> -Database <string> -StoredProcedure <string> [
 ## DESCRIPTION
 Connects to a SQL Server instance using integrated security or supplied credentials and executes the specified command.
 
-Supports streaming results and multiple return formats via the ReturnType parameter.
+Supports streaming results, multiple buffered return formats, and transferring an owned data reader to a consuming API.
 
 ## EXAMPLES
 
@@ -51,14 +56,42 @@ Invoke-DbaXQuery -Server 'sql01' -Database 'app' -StoredProcedure 'dbo.usp_GetAc
 
 Runs the stored procedure and outputs a DataTable.
 
+### EXAMPLE 3
+```powershell
+PS> $reader = Invoke-DbaXQuery -Server 'sql01' -Database 'app' -Query 'SELECT * FROM dbo.Users' -AsDataReader
+try {
+    Export-OfficeCsv -InputObject $reader -Path .\Users.csv
+} finally {
+    $reader.Dispose()
+}
+```
+
+Returns one live DbDataReader. The caller must dispose it after the consuming API finishes reading.
+
 ## PARAMETERS
+
+### -AsDataReader
+Returns one live reader that owns its command and connection until the caller disposes it.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: QueryReader
+Aliases: None
+Possible values:
+
+Required: True
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
 
 ### -Credential
 Optional SQL authentication credential.
 
 ```yaml
 Type: PSCredential
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -74,7 +107,7 @@ Defines the database name.
 
 ```yaml
 Type: String
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -90,7 +123,7 @@ Provides additional parameters for the query or procedure.
 
 ```yaml
 Type: Hashtable
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -106,7 +139,7 @@ Optional password for SQL authentication.
 
 ```yaml
 Type: String
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -122,7 +155,7 @@ The SQL statement to execute.
 
 ```yaml
 Type: String
-Parameter Sets: Query
+Parameter Sets: Query, QueryReader
 Aliases: None
 Possible values:
 
@@ -138,7 +171,7 @@ Sets the command timeout in seconds.
 
 ```yaml
 Type: Int32
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -170,7 +203,7 @@ Specifies the SQL Server instance.
 
 ```yaml
 Type: String
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: DBServer, SqlInstance, Instance
 Possible values:
 
@@ -218,7 +251,7 @@ Trusts the SQL Server TLS certificate without validating the certificate chain.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 
@@ -234,7 +267,7 @@ Optional user name for SQL authentication.
 
 ```yaml
 Type: String
-Parameter Sets: Query, StoredProcedure
+Parameter Sets: Query, QueryReader, StoredProcedure
 Aliases: None
 Possible values:
 

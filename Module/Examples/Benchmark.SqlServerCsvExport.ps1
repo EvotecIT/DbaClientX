@@ -452,29 +452,21 @@ ORDER BY Id;
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-                    $run.Server,
-                    $run.Database,
-                    $true,
-                    $null,
-                    $null,
-                    $null,
-                    $null,
-                    $true,
-                    $null,
-                    $null)
-
-                $client = [DBAClientX.SqlServer]::new()
                 $reader = $null
                 try {
-                    $reader = $client.QueryReader($connectionString, $run.Query)
+                    $reader = Invoke-DbaXQuery `
+                        -Server $run.Server `
+                        -Database $run.Database `
+                        -TrustServerCertificate `
+                        -Query $run.Query `
+                        -QueryTimeout 120 `
+                        -AsDataReader `
+                        -ErrorAction Stop
                     Export-OfficeCsv -InputObject $reader -Path $run.FilePath -NoHeader -DateTimeFormat 'yyyy-MM-dd HH:mm:ss.fffffff' -ErrorAction Stop
                 } finally {
                     if ($null -ne $reader) {
                         $reader.Dispose()
                     }
-
-                    $client.Dispose()
                 }
             }
         }

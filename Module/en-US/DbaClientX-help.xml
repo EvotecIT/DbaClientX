@@ -7238,7 +7238,7 @@
     </command:details>
     <maml:description>
       <maml:para>Connects to a SQL Server instance using integrated security or supplied credentials and executes the specified command.</maml:para>
-      <maml:para>Supports streaming results and multiple return formats via the ReturnType parameter.</maml:para>
+      <maml:para>Supports streaming results, multiple buffered return formats, and transferring an owned data reader to a consuming API.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem parameterSetName="Query">
@@ -7353,6 +7353,129 @@
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
             <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>TrustServerCertificate</maml:name>
+          <maml:description>
+            <maml:para>Trusts the SQL Server TLS certificate without validating the certificate chain.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Username</maml:name>
+          <maml:description>
+            <maml:para>Optional user name for SQL authentication.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+      </command:syntaxItem>
+      <command:syntaxItem parameterSetName="QueryReader">
+        <maml:name>Invoke-DbaXQuery</maml:name>
+        <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>AsDataReader</maml:name>
+          <maml:description>
+            <maml:para>Returns one live reader that owns its command and connection until the caller disposes it.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Credential</maml:name>
+          <maml:description>
+            <maml:para>Optional SQL authentication credential.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">PSCredential</command:parameterValue>
+          <dev:type>
+            <maml:name>PSCredential</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Database</maml:name>
+          <maml:description>
+            <maml:para>Defines the database name.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Parameters</maml:name>
+          <maml:description>
+            <maml:para>Provides additional parameters for the query or procedure.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Hashtable</command:parameterValue>
+          <dev:type>
+            <maml:name>Hashtable</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Password</maml:name>
+          <maml:description>
+            <maml:para>Optional password for SQL authentication.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Query</maml:name>
+          <maml:description>
+            <maml:para>The SQL statement to execute.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>QueryTimeout</maml:name>
+          <maml:description>
+            <maml:para>Sets the command timeout in seconds.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
+          <dev:type>
+            <maml:name>Int32</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="DBServer,SqlInstance,Instance">
+          <maml:name>Server</maml:name>
+          <maml:description>
+            <maml:para>Specifies the SQL Server instance.</maml:para>
+          </maml:description>
+          <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
             <maml:uri />
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
@@ -7525,6 +7648,18 @@
       </command:syntaxItem>
     </command:syntax>
     <command:parameters>
+      <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>AsDataReader</maml:name>
+        <maml:description>
+          <maml:para>Returns one live reader that owns its command and connection until the caller disposes it.</maml:para>
+        </maml:description>
+        <command:parameterValue required="true" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>Credential</maml:name>
         <maml:description>
@@ -7720,6 +7855,21 @@
              Invoke-DbaXQuery -Server 'sql01' -Database 'app' -StoredProcedure 'dbo.usp_GetActiveUsers' -Credential $credential -ReturnType DataTable</dev:code>
         <dev:remarks>
           <maml:para>Runs the stored procedure and outputs a DataTable.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>Stream query rows into a file writer.</maml:title>
+        <maml:introduction>
+          <maml:para>PS&gt; </maml:para>
+        </maml:introduction>
+        <dev:code>$reader = Invoke-DbaXQuery -Server 'sql01' -Database 'app' -Query 'SELECT * FROM dbo.Users' -AsDataReader&#xD;
+             try {&#xD;
+                 Export-OfficeCsv -InputObject $reader -Path .\Users.csv&#xD;
+             } finally {&#xD;
+                 $reader.Dispose()&#xD;
+             }</dev:code>
+        <dev:remarks>
+          <maml:para>Returns one live DbDataReader. The caller must dispose it after the consuming API finishes reading.</maml:para>
         </dev:remarks>
       </command:example>
     </command:examples>

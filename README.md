@@ -79,7 +79,7 @@ Start with the job you need to finish:
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | Uses reusable copy definitions plus provider adapters |
 | Stream Azure Table entities between accounts or Table API endpoints | `Copy-DbaXAzureTableData` | Preserves native continuation tokens and keeps each write transaction inside one partition |
 | Query or upsert Azure Table entities from PowerShell | `Get-DbaXAzureTableEntity` / `Write-DbaXAzureTableEntity` | Requires `PartitionKey` and `RowKey`; transaction batches are capped at 100 entities and the service payload limit |
-| Export SQL rows to CSV, compressed CSV, or Excel | `SqlServer.QueryReader(...)` or `Invoke-DbaXQuery -ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
+| Export SQL rows to CSV, compressed CSV, or Excel | `Invoke-DbaXQuery -AsDataReader` or `-ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
 | Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataReader` / `Import-OfficeExcel -AsDataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
 | Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | Pass the reader as a single input object with `, $reader` |
 
@@ -243,27 +243,20 @@ $rows | Export-OfficeCsv -Path .\Users.csv.gz -CompressionType GZip
 For the fastest SQL Server to CSV export path, stream an owned `DbDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
 
 ```powershell
-$connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-    'sql01',
-    'App',
-    $true,
-    $null,
-    $null,
-    $null,
-    $null,
-    $true)
-
-$client = [DBAClientX.SqlServer]::new()
 $reader = $null
 try {
-    $reader = $client.QueryReader($connectionString, 'SELECT Id, DisplayName, CreatedUtc FROM dbo.Users')
+    $reader = Invoke-DbaXQuery `
+        -Server 'sql01' `
+        -Database 'App' `
+        -TrustServerCertificate `
+        -Query 'SELECT Id, DisplayName, CreatedUtc FROM dbo.Users' `
+        -AsDataReader `
+        -ErrorAction Stop
     Export-OfficeCsv -InputObject $reader -Path .\Users.csv
 } finally {
     if ($null -ne $reader) {
         $reader.Dispose()
     }
-
-    $client.Dispose()
 }
 ```
 

@@ -16,7 +16,7 @@ public static class PSObjectConverter
     /// <returns>A <see cref="PSObject"/> representing the provided data row.</returns>
     public static PSObject DataRowToPSObject(DataRow row)
     {
-        PSObject psObject = new PSObject(row?.Table.Columns.Count ?? 0);
+        PSObject psObject = new PSObject();
 
         if (row != null)
         {
@@ -73,7 +73,7 @@ public static class PSObjectConverter
         }
 
         record.GetValues(values);
-        var psObject = new PSObject(columnNames.Length);
+        var psObject = new PSObject();
         for (int ordinal = 0; ordinal < columnNames.Length; ordinal++)
         {
             object? value = values[ordinal] is DBNull ? null : values[ordinal];
