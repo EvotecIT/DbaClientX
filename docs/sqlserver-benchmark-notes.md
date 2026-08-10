@@ -49,9 +49,12 @@ with PSWriteOffice, import the file back as a tabular reader, then bulk-write to
 SQL Server through `Write-DbaXTableData`. Equivalent comparison lanes cover
 dbatools and native PowerShell for plain CSV, and ImportExcel for XLSX.
 Comparison lanes use the same source rows, destination contract, batch size,
-table-lock setting, and integrity checks. Typed, compressed, mapped, and
-streaming-only shapes remain DbaClientX lanes when another engine cannot perform
-the same contract without an artificial adapter.
+table-lock setting, and integrity checks. A shape remains a DbaClientX-only lane
+when another engine cannot perform the same contract without an artificial
+adapter. In typed CSV comparisons,
+PSWriteOffice receives the declared column types while dbatools uses its public
+`DetectColumnTypes` workflow; the runner records that API difference and still
+requires the same typed destination values.
 
 Run the export comparison:
 
@@ -79,6 +82,27 @@ Run the CSV round-trip comparison:
     -Iterations 15 `
     -UpdateReadme
 ```
+
+Add bounded ordered projection to both typed CSV import lanes with the same
+worker and batch limits:
+
+```powershell
+.\Module\Examples\Benchmark.OfficeFileRoundTrip.ps1 `
+    -Server localhost `
+    -Database tempdb `
+    -RowCount 100000 `
+    -FileKind CsvTyped `
+    -Engine DbaClientX,dbatools `
+    -ParallelCsvRead `
+    -CsvReaderMaxDegreeOfParallelism 4 `
+    -CsvReaderParallelBatchSize 4096 `
+    -WarmupCount 3 `
+    -Iterations 15
+```
+
+The parallel controls are recorded in benchmark metadata. They affect only the
+typed CSV and typed compressed-CSV cases; other file kinds retain their normal
+reader path.
 
 Run the Excel round-trip lanes:
 

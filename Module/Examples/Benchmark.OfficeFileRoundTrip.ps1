@@ -7,6 +7,11 @@ param(
     [string[]] $ColumnShape = @('Default'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
+    [switch] $ParallelCsvRead,
+    [ValidateRange(1, [int]::MaxValue)]
+    [int] $CsvReaderMaxDegreeOfParallelism = 4,
+    [ValidateRange(1, [int]::MaxValue)]
+    [int] $CsvReaderParallelBatchSize = 4096,
     [string[]] $Engine,
     [string] $ModulePath = $(
         if ($env:DBACLIENTX_BENCHMARK_MODULE_PATH) {
@@ -161,6 +166,9 @@ $settings = {
     )
     $benchmarkWarmupCount = $WarmupCount
     $benchmarkIterationCount = $Iterations
+    $parallelCsvRead = $ParallelCsvRead.IsPresent
+    $csvReaderMaxDegreeOfParallelism = $CsvReaderMaxDegreeOfParallelism
+    $csvReaderParallelBatchSize = $CsvReaderParallelBatchSize
 
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
@@ -223,6 +231,9 @@ $settings = {
         metadata PSWriteOfficeAssembly $psWriteOfficeAssemblyIdentity
         metadata OfficeIMOExcelAssembly $officeIMOExcelAssemblyIdentity
         metadata OfficeIMOCsvAssembly $officeIMOCsvAssemblyIdentity
+        metadata ParallelCsvRead $parallelCsvRead
+        metadata CsvReaderMaxDegreeOfParallelism $csvReaderMaxDegreeOfParallelism
+        metadata CsvReaderParallelBatchSize $csvReaderParallelBatchSize
         metadata ImportExcelModule $importExcelModuleIdentity
         metadata EPPlusAssembly $epplusAssemblyIdentity
 
@@ -382,6 +393,11 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                                 Score = [decimal]
                                 CreatedUtc = [datetime]
                             }
+                        }
+                        if ($parallelCsvRead) {
+                            $csvImportParameters.Parallel = $true
+                            $csvImportParameters.MaxDegreeOfParallelism = $csvReaderMaxDegreeOfParallelism
+                            $csvImportParameters.ParallelBatchSize = $csvReaderParallelBatchSize
                         }
                     }
 
@@ -575,6 +591,11 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
                 if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
                     $importParameters.DetectColumnTypes = $true
+                    if ($parallelCsvRead) {
+                        $importParameters.Parallel = $true
+                        $importParameters.ThrottleLimit = $csvReaderMaxDegreeOfParallelism
+                        $importParameters.ParallelBatchSize = $csvReaderParallelBatchSize
+                    }
                 }
                 if ($null -ne $run.ColumnMap) {
                     $importParameters.ColumnMap = $run.ColumnMap
@@ -773,5 +794,34 @@ if (-not $Plan -and $result.Summary) {
 
 $result
 } finally {
+    if (-not $KeepArtifacts -and -not $Plan) {
+        try {
+            $cleanupCommand = Get-Command Invoke-DbaXNonQuery -ErrorAction SilentlyContinue
+            if ($null -ne $cleanupCommand) {
+                $cleanupQuery = @"
+DECLARE @sql nvarchar(max) = N'';
+SELECT @sql = @sql + N'DROP TABLE ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';'
+FROM sys.tables
+WHERE name LIKE N'DbaClientXBench_FileSource_$benchmarkRunToken[_]%'
+   OR name LIKE N'DbaClientXBench_FileDest_$benchmarkRunToken[_]%';
+IF LEN(@sql) > 0 EXEC sys.sp_executesql @sql;
+"@
+                Invoke-DbaXNonQuery -Server $Server -Database $Database -TrustServerCertificate -Query $cleanupQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            }
+
+            $cleanupOutputRoot = if ($OutputRoot) {
+                $OutputRoot
+            } else {
+                $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+                Join-Path $sourceRoot 'Ignore\Benchmarks\OfficeFileRoundTrip'
+            }
+            if (Test-Path -LiteralPath $cleanupOutputRoot) {
+                Get-ChildItem -LiteralPath $cleanupOutputRoot -File -Filter "DbaClientXBench_$benchmarkRunToken*" |
+                    Remove-Item -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning "Benchmark cleanup for run token '$benchmarkRunToken' failed: $($_.Exception.Message)"
+        }
+    }
     Restore-DbaClientXBenchmarkProcess -State $benchmarkProcess
 }
