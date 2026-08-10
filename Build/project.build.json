@@ -3,7 +3,7 @@
   "RootPath": "..",
   "ExpectedVersion": null,
   "ExpectedVersionMap": {
-    "DbaClientX.Core": "0.X.0",
+    "DbaClientX.Core": "1.0.X",
     "DbaClientX.AzureTables": "0.X.0",
     "DbaClientX.SqlServer": "0.X.0",
     "DbaClientX.PostgreSql": "0.X.0",
