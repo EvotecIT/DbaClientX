@@ -130,6 +130,9 @@ public class InvokeDbaXQueryCmdletTests
                 "The reader query did not start in time.");
 
             var stopTask = Task.Run(powerShell.Stop);
+            Assert.True(
+                sqlServer.CancellationRequested.Wait(TimeSpan.FromSeconds(5)),
+                "The reader query did not observe pipeline cancellation in time.");
             sqlServer.ReleaseReader();
 
             await stopTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -140,6 +143,7 @@ public class InvokeDbaXQueryCmdletTests
         {
             CmdletIInvokeDbaXQuery.SqlServerFactory = () => new SqlServer();
             sqlServer.QueryStarted.Dispose();
+            sqlServer.CancellationRequested.Dispose();
             ownedReader.Dispose();
         }
     }
@@ -210,6 +214,8 @@ public class InvokeDbaXQueryCmdletTests
 
         public ManualResetEventSlim QueryStarted { get; } = new();
 
+        public ManualResetEventSlim CancellationRequested { get; } = new();
+
         public void ReleaseReader()
             => _releaseReader.TrySetResult();
 
@@ -223,6 +229,7 @@ public class InvokeDbaXQueryCmdletTests
             IDictionary<string, ParameterDirection>? parameterDirections = null)
         {
             QueryStarted.Set();
+            using var cancellationRegistration = cancellationToken.Register(CancellationRequested.Set);
             await _releaseReader.Task.ConfigureAwait(false);
             return _reader;
         }
