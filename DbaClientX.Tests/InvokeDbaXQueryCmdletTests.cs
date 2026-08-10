@@ -112,6 +112,40 @@ public class InvokeDbaXQueryCmdletTests
     }
 
     [Fact]
+    public void ExplicitFalseAsDataReader_UsesTheBufferedQueryContract()
+    {
+        using var table = CreateTable();
+        CmdletIInvokeDbaXQuery.SqlServerFactory = () => new DataTableSqlServer(table);
+
+        try
+        {
+            var state = InitialSessionState.CreateDefault();
+            state.Commands.Add(new SessionStateCmdletEntry(
+                "Invoke-DbaXQuery",
+                typeof(CmdletIInvokeDbaXQuery),
+                helpFileName: null));
+
+            using var powerShell = PowerShell.Create(state);
+            powerShell
+                .AddCommand("Invoke-DbaXQuery")
+                .AddParameter("Server", "localhost")
+                .AddParameter("Database", "tempdb")
+                .AddParameter("Query", "SELECT 1")
+                .AddParameter("AsDataReader", false);
+
+            Collection<PSObject> results = powerShell.Invoke();
+
+            Assert.Equal(2, results.Count);
+            Assert.All(results, result => Assert.IsType<DataRow>(result.BaseObject));
+            Assert.Empty(powerShell.Streams.Warning);
+        }
+        finally
+        {
+            CmdletIInvokeDbaXQuery.SqlServerFactory = () => new SqlServer();
+        }
+    }
+
+    [Fact]
     public async Task AsDataReader_DisposesReaderWhenPipelineStopsBeforeDelivery()
     {
         using var table = CreateTable();
@@ -167,6 +201,16 @@ public class InvokeDbaXQueryCmdletTests
             IDictionary<string, SqlDbType>? parameterTypes = null,
             IDictionary<string, ParameterDirection>? parameterDirections = null)
             => ReturnType == ReturnType.DataRow ? _table.Rows : _table;
+
+        public override Task<DbaDataReader> QueryReaderAsync(
+            string connectionString,
+            string query,
+            IDictionary<string, object?>? parameters = null,
+            bool useTransaction = false,
+            CancellationToken cancellationToken = default,
+            IDictionary<string, SqlDbType>? parameterTypes = null,
+            IDictionary<string, ParameterDirection>? parameterDirections = null)
+            => throw new InvalidOperationException("The buffered query contract must not request a data reader.");
     }
 
     private sealed class DataReaderSqlServer : SqlServer

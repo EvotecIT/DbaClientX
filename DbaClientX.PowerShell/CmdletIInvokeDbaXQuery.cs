@@ -153,7 +153,8 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     /// Processes input and performs the cmdlet's primary work.
     /// </summary>
     protected override async Task ProcessRecordAsync() {
-        var returnDataReader = string.Equals(ParameterSetName, "QueryReader", StringComparison.Ordinal);
+        await Task.Yield();
+        var returnDataReader = AsDataReader.IsPresent;
         var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;
