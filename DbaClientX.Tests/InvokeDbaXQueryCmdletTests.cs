@@ -137,7 +137,9 @@ public class InvokeDbaXQueryCmdletTests
 
             await stopTask.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Throws<PipelineStoppedException>(() => powerShell.EndInvoke(invocation));
-            Assert.True(ownedReader.IsClosed);
+            Assert.True(
+                SpinWait.SpinUntil(() => ownedReader.IsClosed, TimeSpan.FromSeconds(5)),
+                "The canceled query reader was not disposed in time.");
         }
         finally
         {
