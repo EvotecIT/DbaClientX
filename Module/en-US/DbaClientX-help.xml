@@ -7244,6 +7244,19 @@
       <command:syntaxItem parameterSetName="Query">
         <maml:name>Invoke-DbaXQuery</maml:name>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>AsDataReader</maml:name>
+          <maml:description>
+            <maml:para>When enabled, returns one live reader that owns its command and connection until the caller disposes it.&#xD;
+A disabled switch remains compatible with ordinary buffered query options.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>Credential</maml:name>
           <maml:description>
             <maml:para>Optional SQL authentication credential.</maml:para>
@@ -7387,7 +7400,8 @@
         <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>AsDataReader</maml:name>
           <maml:description>
-            <maml:para>Returns one live reader that owns its command and connection until the caller disposes it.</maml:para>
+            <maml:para>When enabled, returns one live reader that owns its command and connection until the caller disposes it.&#xD;
+A disabled switch remains compatible with ordinary buffered query options.</maml:para>
           </maml:description>
           <command:parameterValue required="true" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -7651,7 +7665,8 @@
       <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>AsDataReader</maml:name>
         <maml:description>
-          <maml:para>Returns one live reader that owns its command and connection until the caller disposes it.</maml:para>
+          <maml:para>When enabled, returns one live reader that owns its command and connection until the caller disposes it.&#xD;
+A disabled switch remains compatible with ordinary buffered query options.</maml:para>
         </maml:description>
         <command:parameterValue required="true" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>

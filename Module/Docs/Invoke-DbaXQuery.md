@@ -11,7 +11,7 @@ Invokes a SQL Server query or stored procedure.
 ## SYNTAX
 ### Query (Default)
 ```powershell
-Invoke-DbaXQuery -Server <string> -Database <string> -Query <string> [-QueryTimeout <int>] [-Stream] [-ReturnType <ReturnType>] [-Parameters <hashtable>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-WhatIf] [-Confirm] [<CommonParameters>]
+Invoke-DbaXQuery -Server <string> -Database <string> -Query <string> [-QueryTimeout <int>] [-Stream] [-ReturnType <ReturnType>] [-AsDataReader] [-Parameters <hashtable>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ### QueryReader
@@ -71,11 +71,12 @@ Returns one live DbDataReader. The caller must dispose it after the consuming AP
 ## PARAMETERS
 
 ### -AsDataReader
-Returns one live reader that owns its command and connection until the caller disposes it.
+When enabled, returns one live reader that owns its command and connection until the caller disposes it.
+A disabled switch remains compatible with ordinary buffered query options.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: QueryReader
+Parameter Sets: Query, QueryReader
 Aliases: None
 Possible values:
 

@@ -85,7 +85,7 @@ public class InvokeDbaXQueryCmdletTests
     }
 
     [Fact]
-    public void AsDataReader_UsesAnExclusiveQueryReaderParameterSet()
+    public void AsDataReader_IsBindableInBufferedQueriesWhileRetainingTheReaderSet()
     {
         var readerParameterSets = typeof(CmdletIInvokeDbaXQuery)
             .GetProperty(nameof(CmdletIInvokeDbaXQuery.AsDataReader))!
@@ -106,7 +106,8 @@ public class InvokeDbaXQueryCmdletTests
             .Select(attribute => attribute.ParameterSetName)
             .ToArray();
 
-        Assert.Equal(new[] { "QueryReader" }, readerParameterSets);
+        Assert.Contains("Query", readerParameterSets);
+        Assert.Contains("QueryReader", readerParameterSets);
         Assert.DoesNotContain("QueryReader", streamParameterSets);
         Assert.DoesNotContain("QueryReader", returnTypeParameterSets);
     }
@@ -131,13 +132,48 @@ public class InvokeDbaXQueryCmdletTests
                 .AddParameter("Server", "localhost")
                 .AddParameter("Database", "tempdb")
                 .AddParameter("Query", "SELECT 1")
+                .AddParameter("ReturnType", ReturnType.DataTable)
+                .AddParameter("Stream", false)
                 .AddParameter("AsDataReader", false);
 
             Collection<PSObject> results = powerShell.Invoke();
 
-            Assert.Equal(2, results.Count);
-            Assert.All(results, result => Assert.IsType<DataRow>(result.BaseObject));
+            var result = Assert.Single(results);
+            Assert.IsType<DataTable>(result.BaseObject);
             Assert.Empty(powerShell.Streams.Warning);
+        }
+        finally
+        {
+            CmdletIInvokeDbaXQuery.SqlServerFactory = () => new SqlServer();
+        }
+    }
+
+    [Fact]
+    public void EnabledAsDataReader_RejectsBufferedReturnOptionsBeforeQuerying()
+    {
+        using var table = CreateTable();
+        CmdletIInvokeDbaXQuery.SqlServerFactory = () => new DataTableSqlServer(table);
+
+        try
+        {
+            var state = InitialSessionState.CreateDefault();
+            state.Commands.Add(new SessionStateCmdletEntry(
+                "Invoke-DbaXQuery",
+                typeof(CmdletIInvokeDbaXQuery),
+                helpFileName: null));
+
+            using var powerShell = PowerShell.Create(state);
+            powerShell
+                .AddCommand("Invoke-DbaXQuery")
+                .AddParameter("Server", "localhost")
+                .AddParameter("Database", "tempdb")
+                .AddParameter("Query", "SELECT 1")
+                .AddParameter("ReturnType", ReturnType.DataTable)
+                .AddParameter("AsDataReader", true);
+
+            RuntimeException exception = Assert.ThrowsAny<RuntimeException>(() => powerShell.Invoke());
+
+            Assert.Contains("AsDataReader cannot be combined", exception.Message, StringComparison.Ordinal);
         }
         finally
         {

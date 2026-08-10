@@ -100,7 +100,11 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
 
-    /// <summary>Returns one live reader that owns its command and connection until the caller disposes it.</summary>
+    /// <summary>
+    /// When enabled, returns one live reader that owns its command and connection until the caller disposes it.
+    /// A disabled switch remains compatible with ordinary buffered query options.
+    /// </summary>
+    [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = true, ParameterSetName = "QueryReader")]
     public SwitchParameter AsDataReader { get; set; }
 
@@ -155,6 +159,12 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     protected override async Task ProcessRecordAsync() {
         await Task.Yield();
         var returnDataReader = AsDataReader.IsPresent;
+        if (returnDataReader &&
+            (Stream.IsPresent || MyInvocation.BoundParameters.ContainsKey(nameof(ReturnType)))) {
+            throw new ArgumentException(
+                "AsDataReader cannot be combined with Stream or ReturnType when enabled.",
+                nameof(AsDataReader));
+        }
         var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute SQL Server stored procedure" : "Execute SQL Server query";
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;
