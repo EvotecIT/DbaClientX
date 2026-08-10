@@ -1,19 +1,32 @@
 version: 2
 updates:
-  - package-ecosystem: "nuget"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    groups:
-      nuget-minor-patch:
-        applies-to: version-updates
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-    # net8.0 requires the 7.4 asset line; PowerShell 7.5+ no longer ships net8.0 compile assets.
-    ignore:
-      - dependency-name: "Microsoft.PowerShell.SDK"
-        versions: ["[7.5.0,)"]
+- package-ecosystem: nuget
+  directory: /
+  ignore:
+  - dependency-name: Microsoft.PowerShell.SDK
+    versions:
+    - '[7.5.0,)'
+  schedule:
+    interval: daily
+  cooldown:
+    default-days: 7
+    include:
+    - '*'
+  open-pull-requests-limit: 1
+  groups:
+    all-dependencies:
+      patterns:
+      - '*'
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: daily
+  cooldown:
+    default-days: 7
+    include:
+    - '*'
+  open-pull-requests-limit: 1
+  groups:
+    all-dependencies:
+      patterns:
+      - '*'
