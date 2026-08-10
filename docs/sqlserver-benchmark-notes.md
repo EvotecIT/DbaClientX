@@ -123,7 +123,7 @@ module explicitly. Add `-ImportExcelVersion` to require a specific version;
 the run fails or skips that lane instead of silently substituting another
 version.
 
-### Dated streaming XLSX round-trip snapshot (2026-08-09)
+### Dated streaming XLSX round-trip snapshot (2026-08-10)
 
 This source-linked run measured the complete 25,000-row SQL Server to XLSX to
 SQL Server job. The DbaClientX lane streamed an owned database reader into
@@ -143,18 +143,18 @@ uses binary, length-aware text equality.
 
 | Engine | L3 domain 0 median | L3 domain 1 median | Rows/s at median, domain 0 | Rows/s at median, domain 1 |
 | --- | ---: | ---: | ---: | ---: |
-| DbaClientX + PSWriteOffice + OfficeIMO | 186.88 ms | 182.17 ms | 133,776 | 137,231 |
-| ImportExcel 7.8.10 | 3,003.41 ms | 2,770.94 ms | 8,324 | 9,022 |
-| ImportExcel / DbaClientX duration | 16.07x | 15.21x | n/a | n/a |
+| DbaClientX + PSWriteOffice + OfficeIMO | 218.62 ms | 174.12 ms | 114,355 | 143,580 |
+| ImportExcel 7.8.10 | 3,519.73 ms | 2,926.71 ms | 7,103 | 8,542 |
+| ImportExcel / DbaClientX duration | 16.10x | 16.81x | n/a | n/a |
 
 ImportExcel 7.8.10 bundled EPPlus 4.5.3.2 in this run. The DbaClientX path
-therefore used 6.2-6.6% of that public PowerShell workflow's median duration on
+therefore used 5.9-6.2% of that public PowerShell workflow's median duration on
 the two measured domains. This is not a comparison with current commercial
 EPPlus, whose direct .NET API remains covered by the OfficeIMO.Excel library
 benchmarks.
 
-The product source candidates were DbaClientX `0523a706`, PSWriteOffice
-`fa82e87a`, and OfficeIMO `dd5d2fea`. The benchmark metadata records the
+The product source candidates were DbaClientX `8241ccaa`, PSWriteOffice
+`36b00b6e`, and OfficeIMO `21ac64cb`. The benchmark metadata records the
 resolved module paths and versions, SQL Server identity, benchmark-script hash,
 benchmark-support hash, and SHA-256 identity of the DbaClientX, PSWriteOffice,
 OfficeIMO, and EPPlus assemblies. To reproduce the source-linked run, use
@@ -162,9 +162,9 @@ separate worktrees at those commits and the current benchmark harness:
 
 ```powershell
 $harnessRoot = (Resolve-Path '.').Path
-$dbaClientXRoot = '<path-to-DbaClientX-0523a706-worktree>'
-$psWriteOfficeRoot = '<path-to-PSWriteOffice-fa82e87a-worktree>'
-$officeIMORoot = '<path-to-OfficeIMO-dd5d2fea-worktree>'
+$dbaClientXRoot = '<path-to-DbaClientX-8241ccaa-worktree>'
+$psWriteOfficeRoot = '<path-to-PSWriteOffice-36b00b6e-worktree>'
+$officeIMORoot = '<path-to-OfficeIMO-21ac64cb-worktree>'
 $importExcelCache = Join-Path $harnessRoot 'Ignore\Benchmarks\Modules'
 
 dotnet build (Join-Path $dbaClientXRoot 'DbaClientX.PowerShell\DbaClientX.PowerShell.csproj') -c Release -f net8.0
