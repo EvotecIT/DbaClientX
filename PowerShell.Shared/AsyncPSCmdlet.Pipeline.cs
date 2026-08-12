@@ -222,7 +222,10 @@ public abstract partial class AsyncPSCmdlet
         }
     }
 
-    private object? RequestPipelineReply(object? value, PipelineType type)
+    private object? RequestPipelineReply(
+        object? value,
+        PipelineType type,
+        bool throwIfStoppedAfterReply = true)
     {
         ThrowIfStopped();
         ValidateInteractionGeneration();
@@ -247,7 +250,8 @@ public abstract partial class AsyncPSCmdlet
                 throw new PipelineStoppedException();
             }
 
-            ThrowIfStopped();
+            if (throwIfStoppedAfterReply)
+                ThrowIfStopped();
             if (reply.Rejection is not null)
                 ExceptionDispatchInfo.Capture(reply.Rejection).Throw();
 

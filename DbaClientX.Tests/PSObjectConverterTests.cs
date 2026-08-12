@@ -28,4 +28,42 @@ public class PSObjectConverterTests
         Assert.Equal(2, ps2.Properties["Id"].Value);
         Assert.Equal("Bob", ps2.Properties["Name"].Value);
     }
+
+    [Fact]
+    public void DataRecordToPSObjectPreservesValuesAndConvertsDbNullToNull()
+    {
+        var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Columns.Add("Name", typeof(string));
+        table.Rows.Add(7, DBNull.Value);
+
+        using var reader = table.CreateDataReader();
+        Assert.True(reader.Read());
+        string[] columnNames = PSObjectConverter.GetUniqueColumnNames(reader);
+        var converted = PSObjectConverter.DataRecordToPSObject(reader, columnNames, new object[reader.FieldCount]);
+
+        Assert.Equal(7, converted.Properties["Id"].Value);
+        Assert.Null(converted.Properties["Name"].Value);
+    }
+
+    [Fact]
+    public void GetUniqueColumnNamesPreservesWhitespaceAliases()
+    {
+        var table = new DataTable();
+        table.Columns.Add(" ", typeof(int));
+        table.Rows.Add(1);
+
+        using var reader = table.CreateDataReader();
+        Assert.Equal(new[] { " " }, PSObjectConverter.GetUniqueColumnNames(reader));
+    }
+
+    [Fact]
+    public void DataRowToPSObjectRejectsReservedPowerShellMemberNames()
+    {
+        var table = new DataTable();
+        table.Columns.Add("PSObject", typeof(int));
+        table.Rows.Add(1);
+
+        Assert.Throws<ExtendedTypeSystemException>(() => PSObjectConverter.DataRowToPSObject(table.Rows[0]));
+    }
 }

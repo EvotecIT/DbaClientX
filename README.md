@@ -79,7 +79,7 @@ Start with the job you need to finish:
 | Copy one or more tables between database providers | `Copy-DbaXTableData` | Uses reusable copy definitions plus provider adapters |
 | Stream Azure Table entities between accounts or Table API endpoints | `Copy-DbaXAzureTableData` | Preserves native continuation tokens and keeps each write transaction inside one partition |
 | Query or upsert Azure Table entities from PowerShell | `Get-DbaXAzureTableEntity` / `Write-DbaXAzureTableEntity` | Requires `PartitionKey` and `RowKey`; transaction batches are capped at 100 entities and the service payload limit |
-| Export SQL rows to CSV, compressed CSV, or Excel | `SqlServer.QueryReader(...)` or `Invoke-DbaXQuery -ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
+| Export SQL rows to CSV, compressed CSV, or Excel | `Invoke-DbaXQuery -AsDataReader` or `-ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
 | Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataReader` / `Import-OfficeExcel -AsDataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
 | Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | Pass the reader as a single input object with `, $reader` |
 
@@ -243,27 +243,20 @@ $rows | Export-OfficeCsv -Path .\Users.csv.gz -CompressionType GZip
 For the fastest SQL Server to CSV export path, stream an owned `DbDataReader` from DbaClientX directly into PSWriteOffice and dispose the reader when the file writer is done:
 
 ```powershell
-$connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-    'sql01',
-    'App',
-    $true,
-    $null,
-    $null,
-    $null,
-    $null,
-    $true)
-
-$client = [DBAClientX.SqlServer]::new()
 $reader = $null
 try {
-    $reader = $client.QueryReader($connectionString, 'SELECT Id, DisplayName, CreatedUtc FROM dbo.Users')
+    $reader = Invoke-DbaXQuery `
+        -Server 'sql01' `
+        -Database 'App' `
+        -TrustServerCertificate `
+        -Query 'SELECT Id, DisplayName, CreatedUtc FROM dbo.Users' `
+        -AsDataReader `
+        -ErrorAction Stop
     Export-OfficeCsv -InputObject $reader -Path .\Users.csv
 } finally {
     if ($null -ne $reader) {
         $reader.Dispose()
     }
-
-    $client.Dispose()
 }
 ```
 
@@ -392,7 +385,7 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 <!-- sqlserver-csv-export-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientXDataTable | DbaClientXPowerShellStream | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 100000 rows / CSV export | RowCount=100000 | Core-7.6.3 | Export | 1.00x (60ms) | 2.36x (142ms) | 6.28x (378ms) | 5.53x (333ms) | 1.44x (87ms) | DbaClientXReader fastest |
+| 100000 rows / CSV export | RowCount=100000 | Core-7.6.4 | Export | 1.00x (58ms) | 1.92x (112ms) | 17.82x (1.04s) | 19.32x (1.13s) | 1.08x (63ms) | DbaClientXReader fastest |
 <!-- sqlserver-csv-export-benchmark:end -->
 
 ## Office File Round Trip
@@ -406,6 +399,12 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 | 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (567ms) | 1.18x (671ms) | DbaClientX fastest |
 | 100000 rows / CsvTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (282ms) | 1.92x (541ms) | DbaClientX fastest |
 <!-- office-file-roundtrip-benchmark:end -->
+
+The affinity-pinned streaming XLSX round-trip comparison is documented in the
+[SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md#dated-streaming-xlsx-round-trip-snapshot-2026-08-09).
+On this source-linked run, the DbaClientX/PSWriteOffice/OfficeIMO path used
+6.2-6.6% of ImportExcel's median time while passing the same SQL-side value and
+schema validation.
 
 ## .NET Usage
 

@@ -7,6 +7,11 @@ param(
     [string[]] $ColumnShape = @('Default'),
     [int] $Iterations = 3,
     [int] $WarmupCount = 1,
+    [switch] $ParallelCsvRead,
+    [ValidateRange(1, [int]::MaxValue)]
+    [int] $CsvReaderMaxDegreeOfParallelism = 4,
+    [ValidateRange(1, [int]::MaxValue)]
+    [int] $CsvReaderParallelBatchSize = 4096,
     [string[]] $Engine,
     [string] $ModulePath = $(
         if ($env:DBACLIENTX_BENCHMARK_MODULE_PATH) {
@@ -18,6 +23,13 @@ param(
         }
     ),
     [string] $PSWriteOfficeModulePath = $(if ($env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH) { $env:PSWRITEOFFICE_BENCHMARK_MODULE_PATH } else { 'PSWriteOffice' }),
+    [string] $ImportExcelModulePath = $(if ($env:IMPORTEXCEL_BENCHMARK_MODULE_PATH) { $env:IMPORTEXCEL_BENCHMARK_MODULE_PATH } else { 'ImportExcel' }),
+    [version] $ImportExcelVersion = $(if ($env:IMPORTEXCEL_BENCHMARK_VERSION) { [version] $env:IMPORTEXCEL_BENCHMARK_VERSION } else { $null }),
+    [string] $ImportExcelModuleCachePath,
+    [switch] $SkipImportExcelInstall,
+    [string] $ProcessorAffinity,
+    [ValidateSet('Current', 'Normal', 'AboveNormal', 'High')]
+    [string] $ProcessPriority = 'Current',
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $UpdateReadme,
@@ -26,6 +38,20 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DbaClientX.Benchmark.Process.ps1')
+$officeRoundTripSupportPath = Join-Path $PSScriptRoot 'DbaClientX.Benchmark.OfficeRoundTrip.ps1'
+. $officeRoundTripSupportPath
+$officeRoundTripHelpers = @{
+    ImportExcel = ${function:Import-DbaClientXBenchmarkImportExcel}
+    TestImportExcel = ${function:Test-ImportExcelCommandAvailability}
+    GetModuleIdentity = ${function:Get-DbaClientXBenchmarkModuleIdentity}
+    GetAssemblyIdentity = ${function:Get-DbaClientXBenchmarkAssemblyIdentity}
+    GetCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
+    GetSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
+    GetExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
+    AssertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
+    AssertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
+}
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -74,7 +100,7 @@ if ($ColumnShape.Count -eq 0) {
 }
 Assert-DbaClientXBenchmarkValue -Name FileKind -Value $FileKind -ValidValue @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped', 'Excel', 'ExcelReader', 'ExcelReaderMapped')
 Assert-DbaClientXBenchmarkValue -Name ColumnShape -Value $ColumnShape -ValidValue @('Default', 'Mapped')
-Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools')
+Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'NativePowerShell', 'ImportExcel')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -90,10 +116,19 @@ if ($Engine -contains 'dbatools') {
     }
 }
 
+$nativePowerShellCsvAvailable = (Get-Command Export-Csv).Parameters.ContainsKey('UseQuotes')
+if ($Engine -contains 'NativePowerShell' -and -not $nativePowerShellCsvAvailable) {
+    Write-Warning 'Skipping NativePowerShell because this host does not support Export-Csv -UseQuotes. Use PowerShell 7 for the equivalent AsNeeded-quoting lane.'
+}
+
 Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkScriptIdentity = "Path=$PSCommandPath; SHA256=$((Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash)"
+$benchmarkSupportIdentity = "Path=$officeRoundTripSupportPath; SHA256=$((Get-FileHash -LiteralPath $officeRoundTripSupportPath -Algorithm SHA256).Hash)"
 $benchmarkRunToken = [guid]::NewGuid().ToString('N').Substring(0, 8)
+$benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $ProcessorAffinity -ProcessPriority $ProcessPriority
+try {
 $settings = {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..\..')).Path
     $readmePath = Join-Path $sourceRoot 'README.md'
@@ -108,6 +143,19 @@ $settings = {
     $database = $Database
     $modulePath = $ModulePath
     $psWriteOfficeModulePath = $PSWriteOfficeModulePath
+    $importExcelModulePath = $ImportExcelModulePath
+    $importExcelVersion = $ImportExcelVersion
+    $importExcelModuleCachePath = if ([string]::IsNullOrWhiteSpace($ImportExcelModuleCachePath)) {
+        Join-Path $defaultOutputRoot 'Modules'
+    } else {
+        $ImportExcelModuleCachePath
+    }
+    $skipImportExcelInstall = $SkipImportExcelInstall.IsPresent
+    $supportsNativePowerShellCsv = $nativePowerShellCsvAvailable
+    $appliedProcessorAffinity = $benchmarkProcess.ProcessorAffinity
+    $appliedProcessPriority = $benchmarkProcess.ProcessPriority
+    $benchmarkScript = $benchmarkScriptIdentity
+    $benchmarkSupport = $benchmarkSupportIdentity
     $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
@@ -118,119 +166,76 @@ $settings = {
     )
     $benchmarkWarmupCount = $WarmupCount
     $benchmarkIterationCount = $Iterations
+    $parallelCsvRead = $ParallelCsvRead.IsPresent
+    $csvReaderMaxDegreeOfParallelism = $CsvReaderMaxDegreeOfParallelism
+    $csvReaderParallelBatchSize = $CsvReaderParallelBatchSize
 
     $engineComparisonBaseline = if ($selectedEngines -contains 'DbaClientX') { 'DbaClientX' } else { $selectedEngines[0] }
 
-    function Get-DbaClientXOfficeBenchmarkCreateTableQuery {
-        param([string] $TableName)
-
-        @"
-IF OBJECT_ID(N'dbo.$TableName', N'U') IS NOT NULL DROP TABLE dbo.$TableName;
-CREATE TABLE dbo.$TableName
-(
-    Id int NOT NULL CONSTRAINT PK_${TableName}_Id PRIMARY KEY CLUSTERED,
-    DisplayName nvarchar(100) NOT NULL,
-    Score decimal(18,2) NOT NULL,
-    CreatedUtc datetime2 NOT NULL
-);
-"@
+    $getCreateTableQuery = $officeRoundTripHelpers.GetCreateTableQuery
+    $getSeedQuery = $officeRoundTripHelpers.GetSeedQuery
+    $getExpectedIntegrity = $officeRoundTripHelpers.GetExpectedIntegrity
+    $assertIntegrity = $officeRoundTripHelpers.AssertIntegrity
+    $assertTypedSchema = $officeRoundTripHelpers.AssertTypedSchema
+    $importImportExcelModule = $officeRoundTripHelpers.ImportExcel
+    $testImportExcelCommands = $officeRoundTripHelpers.TestImportExcel
+    $getModuleIdentity = $officeRoundTripHelpers.GetModuleIdentity
+    $getAssemblyIdentity = $officeRoundTripHelpers.GetAssemblyIdentity
+    $resolvedDbaClientXModule = Import-Module $modulePath -Global -Force -PassThru -ErrorAction Stop
+    $resolvedPSWriteOfficeModule = if ($selectedEngines -contains 'DbaClientX') {
+        Import-Module $psWriteOfficeModulePath -Global -Force -PassThru -ErrorAction Stop
+    } else {
+        $null
     }
-
-    function Get-DbaClientXOfficeBenchmarkSeedQuery {
-        param(
-            [string] $TableName,
-            [int] $RowCount
-        )
-
-        @"
-WITH numbers AS
-(
-    SELECT TOP ($RowCount)
-        ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Id
-    FROM sys.all_objects AS a
-    CROSS JOIN sys.all_objects AS b
-)
-INSERT INTO dbo.$TableName (Id, DisplayName, Score, CreatedUtc)
-SELECT
-    Id,
-    CONCAT(N'Row ', Id),
-    CONVERT(decimal(18,2), Id * 1.25),
-    SYSUTCDATETIME()
-FROM numbers;
-"@
+    $resolvedImportExcelModule = if ($selectedEngines -contains 'ImportExcel') {
+        try {
+            & $importImportExcelModule -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall
+        } catch {
+            $null
+        }
+    } else {
+        $null
     }
-
-    function Get-DbaClientXOfficeBenchmarkExpectedIntegrity {
-        param([int] $RowCount)
-
-        $expectedIdSum = [long] ([int64] $RowCount * ([int64] $RowCount + 1) / 2)
-        [pscustomobject]@{
-            Rows = $RowCount
-            MinId = 1
-            MaxId = $RowCount
-            IdSum = $expectedIdSum
-            ScoreSum = [decimal] $expectedIdSum * 1.25
-        }
+    $sqlServerIdentity = if ($Plan.IsPresent) {
+        'Plan mode; not queried'
+    } else {
+        $serverProperties = Invoke-DbaXQuery `
+            -Server $server `
+            -Database $database `
+            -TrustServerCertificate `
+            -Query "SELECT CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion')) AS ProductVersion, CONVERT(nvarchar(128), SERVERPROPERTY('Edition')) AS Edition, CONVERT(nvarchar(128), SERVERPROPERTY('ProductLevel')) AS ProductLevel, CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), 'Collation')) AS Collation;" `
+            -QueryTimeout 30 `
+            -ReturnType PSObject `
+            -ErrorAction Stop
+        "Server=$server; Database=$database; ProductVersion=$($serverProperties.ProductVersion); ProductLevel=$($serverProperties.ProductLevel); Edition=$($serverProperties.Edition); Collation=$($serverProperties.Collation)"
     }
-
-    function Assert-DbaClientXOfficeBenchmarkIntegrity {
-        param(
-            [string] $FileKind,
-            [string] $TableName,
-            [object] $Actual,
-            [object] $Expected
-        )
-
-        if ($Actual.Rows -ne $Expected.Rows) {
-            throw "$FileKind round trip processed $($Actual.Rows) of $($Expected.Rows) expected row(s) for dbo.$TableName."
-        }
-
-        if ($Actual.MinId -ne $Expected.MinId -or
-            $Actual.MaxId -ne $Expected.MaxId -or
-            $Actual.IdSum -ne $Expected.IdSum -or
-            $Actual.ScoreSum -ne $Expected.ScoreSum) {
-            throw "$FileKind round trip produced unexpected data for dbo.${TableName}: MinId=$($Actual.MinId), MaxId=$($Actual.MaxId), IdSum=$($Actual.IdSum), ScoreSum=$($Actual.ScoreSum)."
-        }
-    }
-
-    function Assert-DbaClientXOfficeBenchmarkTypedSchema {
-        param(
-            [string] $FileKind,
-            [string] $TableName,
-            [object[]] $Columns
-        )
-
-        $actualTypes = @{}
-        foreach ($column in @($Columns)) {
-            $actualTypes[[string] $column.ColumnName] = [string] $column.TypeName
-        }
-
-        $expectedTypes = [ordered] @{
-            Id = @('int')
-            DisplayName = @('nvarchar', 'varchar')
-            Score = @('decimal', 'numeric')
-            CreatedUtc = @('datetime2', 'datetime', 'datetimeoffset')
-        }
-
-        foreach ($entry in $expectedTypes.GetEnumerator()) {
-            if (-not $actualTypes.ContainsKey($entry.Key)) {
-                throw "$FileKind typed round trip did not create expected column '$($entry.Key)' in dbo.$TableName."
-            }
-
-            if ($actualTypes[$entry.Key] -notin $entry.Value) {
-                throw "$FileKind typed round trip created dbo.$TableName.$($entry.Key) as $($actualTypes[$entry.Key]); expected one of: $($entry.Value -join ', ')."
-            }
-        }
-    }
-
-    $getCreateTableQuery = ${function:Get-DbaClientXOfficeBenchmarkCreateTableQuery}
-    $getSeedQuery = ${function:Get-DbaClientXOfficeBenchmarkSeedQuery}
-    $getExpectedIntegrity = ${function:Get-DbaClientXOfficeBenchmarkExpectedIntegrity}
-    $assertIntegrity = ${function:Assert-DbaClientXOfficeBenchmarkIntegrity}
-    $assertTypedSchema = ${function:Assert-DbaClientXOfficeBenchmarkTypedSchema}
+    $dbaClientXModuleIdentity = & $getModuleIdentity -Module $resolvedDbaClientXModule -Label 'DbaClientX'
+    $psWriteOfficeModuleIdentity = & $getModuleIdentity -Module $resolvedPSWriteOfficeModule -Label 'PSWriteOffice'
+    $importExcelModuleIdentity = & $getModuleIdentity -Module $resolvedImportExcelModule -Label 'ImportExcel'
+    $dbaClientXAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'DbaClientX.PowerShell'
+    $psWriteOfficeAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'PSWriteOffice'
+    $officeIMOExcelAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.Excel'
+    $officeIMOCsvAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.CSV'
+    $epplusAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'EPPlus'
     benchmark 'office-file-roundtrip' -out $outputRootBase {
-        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -OutlierMode None
+        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
         profile Current -Cleanup KeepOnFailure
+        metadata ProcessorAffinity $appliedProcessorAffinity
+        metadata ProcessPriority $appliedProcessPriority
+        metadata BenchmarkScript $benchmarkScript
+        metadata BenchmarkSupport $benchmarkSupport
+        metadata SqlServer $sqlServerIdentity
+        metadata DbaClientXModule $dbaClientXModuleIdentity
+        metadata DbaClientXAssembly $dbaClientXAssemblyIdentity
+        metadata PSWriteOfficeModule $psWriteOfficeModuleIdentity
+        metadata PSWriteOfficeAssembly $psWriteOfficeAssemblyIdentity
+        metadata OfficeIMOExcelAssembly $officeIMOExcelAssemblyIdentity
+        metadata OfficeIMOCsvAssembly $officeIMOCsvAssemblyIdentity
+        metadata ParallelCsvRead $parallelCsvRead
+        metadata CsvReaderMaxDegreeOfParallelism $csvReaderMaxDegreeOfParallelism
+        metadata CsvReaderParallelBatchSize $csvReaderParallelBatchSize
+        metadata ImportExcelModule $importExcelModuleIdentity
+        metadata EPPlusAssembly $epplusAssemblyIdentity
 
         caseSource {
             foreach ($rowCount in $rowCounts) {
@@ -262,6 +267,7 @@ FROM numbers;
             $run.KeepArtifacts = $keepArtifacts
             $run.ExportMs = 0.0
             $run.LoadMs = 0.0
+            $run.ExactMismatchCount = 0L
             $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
             $laneToken = '{0}_{1}_{2}_{3}_{4}' -f $benchmarkRunToken, $case.Engine, $case.FileKind, $case.ColumnShape, $case.RowCount
             $run.SourceTable = 'DbaClientXBench_FileSource_{0}' -f $laneToken
@@ -298,6 +304,10 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 Import-Module $psWriteOfficeModulePath -Global -Force -ErrorAction Stop
             }
 
+            if ($case.Engine -eq 'ImportExcel') {
+                & $importImportExcelModule -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall | Out-Null
+            }
+
             Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
             if (Test-Path -LiteralPath $run.FilePath) {
                 Remove-Item -LiteralPath $run.FilePath -Force
@@ -322,6 +332,18 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
 
             if ($case.Engine -eq 'dbatools') {
                 return $case.FileKind -notin @('Csv', 'CsvGZip', 'CsvTyped', 'CsvGZipTyped')
+            }
+
+            if ($case.Engine -eq 'NativePowerShell') {
+                return -not $supportsNativePowerShellCsv -or $case.FileKind -ne 'Csv' -or $case.ColumnShape -ne 'Default'
+            }
+
+            if ($case.Engine -eq 'ImportExcel') {
+                if ($case.FileKind -ne 'ExcelReader' -or $case.ColumnShape -ne 'Default') {
+                    return $true
+                }
+
+                return -not (& $testImportExcelCommands -ModulePath $importExcelModulePath -ModuleCachePath $importExcelModuleCachePath -RequiredVersion $importExcelVersion -SkipInstall:$skipImportExcelInstall -ImportModuleCommand $importImportExcelModule)
             }
 
             return $false
@@ -372,20 +394,28 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                                 CreatedUtc = [datetime]
                             }
                         }
+                        if ($parallelCsvRead) {
+                            $csvImportParameters.Parallel = $true
+                            $csvImportParameters.MaxDegreeOfParallelism = $csvReaderMaxDegreeOfParallelism
+                            $csvImportParameters.ParallelBatchSize = $csvReaderParallelBatchSize
+                        }
                     }
 
-                    $client = [DBAClientX.SqlServer]::new()
                     $reader = $null
                     try {
-                        $client.CommandTimeout = 120
-                        $reader = $client.QueryReader($run.ConnectionString, $query)
+                        $reader = Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $query `
+                            -QueryTimeout 120 `
+                            -AsDataReader `
+                            -ErrorAction Stop
                         Export-OfficeCsv -InputObject $reader @csvExportParameters
                     } finally {
                         if ($null -ne $reader) {
                             $reader.Dispose()
                         }
-
-                        $client.Dispose()
                     }
                     $exportTimer.Stop()
                     $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
@@ -394,30 +424,21 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     $imported = Import-OfficeCsv @csvImportParameters
                 } elseif ($case.FileKind -in @('ExcelReader', 'ExcelReaderMapped')) {
                     $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
-                    $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-                        $run.Server,
-                        $run.Database,
-                        $true,
-                        $null,
-                        $null,
-                        $null,
-                        $null,
-                        $true,
-                        $null,
-                        $null)
-
-                    $client = [DBAClientX.SqlServer]::new()
                     $reader = $null
                     try {
-                        $client.CommandTimeout = 120
-                        $reader = $client.QueryReader($connectionString, $query)
+                        $reader = Invoke-DbaXQuery `
+                            -Server $run.Server `
+                            -Database $run.Database `
+                            -TrustServerCertificate `
+                            -Query $query `
+                            -QueryTimeout 120 `
+                            -AsDataReader `
+                            -ErrorAction Stop
                         Export-OfficeExcel -InputObject $reader -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
                     } finally {
                         if ($null -ne $reader) {
                             $reader.Dispose()
                         }
-
-                        $client.Dispose()
                     }
                     $exportTimer.Stop()
                     $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
@@ -427,7 +448,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         Path = $run.FilePath
                         WorksheetName = 'Data'
                         AsDataReader = $true
-                        SchemaSampleSize = [int] $case.RowCount
+                        SchemaSampleSize = [Math]::Min([int] $case.RowCount, 4096)
                         ErrorAction = 'Stop'
                     }
 
@@ -487,6 +508,44 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
+        engine NativePowerShell {
+            operation RoundTrip {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
+                Invoke-DbaXQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.SelectQuery -QueryTimeout 120 -ReturnType PSObject -Stream -ErrorAction Stop |
+                    Export-Csv -Path $run.FilePath -NoTypeInformation -Encoding utf8 -UseQuotes AsNeeded
+                $exportTimer.Stop()
+                $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
+
+                $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
+                Import-Csv -Path $run.FilePath |
+                    Write-DbaXTableData -Provider SqlServer -ConnectionString $run.ConnectionString -DestinationTable "dbo.$($run.DestinationTable)" -AutoCreateTable -BatchSize 5000 -BulkCopyTimeout 120 -TableLock -ErrorAction Stop
+                $loadTimer.Stop()
+                $run.LoadMs = $loadTimer.Elapsed.TotalMilliseconds
+            }
+        }
+
+        engine ImportExcel {
+            operation RoundTrip {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $exportTimer = [System.Diagnostics.Stopwatch]::StartNew()
+                Invoke-DbaXQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.SelectQuery -QueryTimeout 120 -ReturnType PSObject -Stream -ErrorAction Stop |
+                    Export-Excel -Path $run.FilePath -WorksheetName Data -TableName Data -AutoFilter
+                $exportTimer.Stop()
+                $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
+
+                $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
+                Import-Excel -Path $run.FilePath -WorksheetName Data |
+                    Write-DbaXTableData -Provider SqlServer -ConnectionString $run.ConnectionString -DestinationTable "dbo.$($run.DestinationTable)" -AutoCreateTable -BatchSize 5000 -BulkCopyTimeout 120 -TableLock -ErrorAction Stop
+                $loadTimer.Stop()
+                $run.LoadMs = $loadTimer.Elapsed.TotalMilliseconds
+            }
+        }
+
         engine dbatools {
             operation RoundTrip {
                 param($case, $run)
@@ -532,6 +591,11 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 }
                 if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
                     $importParameters.DetectColumnTypes = $true
+                    if ($parallelCsvRead) {
+                        $importParameters.Parallel = $true
+                        $importParameters.ThrottleLimit = $csvReaderMaxDegreeOfParallelism
+                        $importParameters.ParallelBatchSize = $csvReaderParallelBatchSize
+                    }
                 }
                 if ($null -ne $run.ColumnMap) {
                     $importParameters.ColumnMap = $run.ColumnMap
@@ -551,7 +615,28 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 -Server $run.Server `
                 -Database $run.Database `
                 -TrustServerCertificate `
-                -Query "SELECT COUNT(*) AS [Rows], MIN(CAST(Id AS int)) AS [MinId], MAX(CAST(Id AS int)) AS [MaxId], SUM(CAST(Id AS bigint)) AS [IdSum], SUM(CAST(Score AS decimal(38,2))) AS [ScoreSum] FROM dbo.$($run.DestinationTable);" `
+                -Query @"
+SELECT
+    COUNT(*) AS [Rows],
+    MIN(CAST(destination.Id AS int)) AS [MinId],
+    MAX(CAST(destination.Id AS int)) AS [MaxId],
+    SUM(CAST(destination.Id AS bigint)) AS [IdSum],
+    SUM(CAST(destination.Score AS decimal(38,2))) AS [ScoreSum],
+    SUM(CASE
+        WHEN source.Id IS NULL OR destination.Id IS NULL
+          OR destination.DisplayName IS NULL
+          OR DATALENGTH(CONVERT(nvarchar(100), destination.DisplayName)) <> DATALENGTH(source.DisplayName)
+          OR CONVERT(nvarchar(100), destination.DisplayName) COLLATE Latin1_General_100_BIN2 <> source.DisplayName COLLATE Latin1_General_100_BIN2
+          OR TRY_CONVERT(decimal(38,10), destination.Score) IS NULL
+          OR TRY_CONVERT(decimal(38,10), destination.Score) <> CONVERT(decimal(38,10), source.Score)
+          OR TRY_CONVERT(datetime2(7), destination.CreatedUtc) IS NULL
+          OR TRY_CONVERT(datetime2(7), destination.CreatedUtc) <> CONVERT(datetime2(7), source.CreatedUtc)
+        THEN CONVERT(bigint, 1) ELSE CONVERT(bigint, 0)
+    END) AS [ExactMismatchCount]
+FROM dbo.$($run.DestinationTable) AS destination
+FULL OUTER JOIN dbo.$($run.SourceTable) AS source
+    ON TRY_CONVERT(decimal(38,10), destination.Id) = CONVERT(decimal(38,10), source.Id);
+"@ `
                 -QueryTimeout 120 `
                 -ReturnType PSObject `
                 -ErrorAction Stop
@@ -561,11 +646,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                 MaxId = [int] $integrity.MaxId
                 IdSum = [long] $integrity.IdSum
                 ScoreSum = [decimal] $integrity.ScoreSum
+                ExactMismatchCount = [long] $integrity.ExactMismatchCount
             }
             $expected = & $getExpectedIntegrity -RowCount ([int] $case.RowCount)
             & $assertIntegrity -FileKind $case.FileKind -TableName $run.DestinationTable -Actual $actual -Expected $expected
 
-            if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped')) {
+            if ($case.FileKind -in @('CsvTyped', 'CsvGZipTyped', 'Excel', 'ExcelReader', 'ExcelReaderMapped')) {
                 $schema = Invoke-DbaXQuery `
                     -Server $run.Server `
                     -Database $run.Database `
@@ -581,6 +667,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             $run.RowsProcessed = $actual.Rows
             $run.IdSum = $actual.IdSum
             $run.ScoreSum = $actual.ScoreSum
+            $run.ExactMismatchCount = $actual.ExactMismatchCount
 
             if (-not $run.KeepArtifacts) {
                 Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
@@ -618,6 +705,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             param($case, $run)
 
             $run.ScoreSum
+        }
+
+        metric ExactMismatchCount {
+            param($case, $run)
+
+            $run.ExactMismatchCount
         }
 
         metric RowsPerSecond {
@@ -700,3 +793,35 @@ if (-not $Plan -and $result.Summary) {
 }
 
 $result
+} finally {
+    if (-not $KeepArtifacts -and -not $Plan) {
+        try {
+            $cleanupCommand = Get-Command Invoke-DbaXNonQuery -ErrorAction SilentlyContinue
+            if ($null -ne $cleanupCommand) {
+                $cleanupQuery = @"
+DECLARE @sql nvarchar(max) = N'';
+SELECT @sql = @sql + N'DROP TABLE ' + QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N';'
+FROM sys.tables
+WHERE name LIKE N'DbaClientXBench_FileSource_$benchmarkRunToken[_]%'
+   OR name LIKE N'DbaClientXBench_FileDest_$benchmarkRunToken[_]%';
+IF LEN(@sql) > 0 EXEC sys.sp_executesql @sql;
+"@
+                Invoke-DbaXNonQuery -Server $Server -Database $Database -TrustServerCertificate -Query $cleanupQuery -QueryTimeout 120 -ErrorAction Stop | Out-Null
+            }
+
+            $cleanupOutputRoot = if ($OutputRoot) {
+                $OutputRoot
+            } else {
+                $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+                Join-Path $sourceRoot 'Ignore\Benchmarks\OfficeFileRoundTrip'
+            }
+            if (Test-Path -LiteralPath $cleanupOutputRoot) {
+                Get-ChildItem -LiteralPath $cleanupOutputRoot -File -Filter "DbaClientXBench_$benchmarkRunToken*" |
+                    Remove-Item -Force -ErrorAction Stop
+            }
+        } catch {
+            Write-Warning "Benchmark cleanup for run token '$benchmarkRunToken' failed: $($_.Exception.Message)"
+        }
+    }
+    Restore-DbaClientXBenchmarkProcess -State $benchmarkProcess
+}

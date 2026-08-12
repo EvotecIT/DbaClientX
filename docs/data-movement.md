@@ -136,6 +136,25 @@ $rows | Export-OfficeCsv -Path .\Customers.csv.gz -CompressionType GZip
 $rows | Export-OfficeExcel -Path .\Customers.xlsx -WorksheetName Customers
 ```
 
+For the lowest-allocation path, pass one owned reader directly to the file writer and dispose it after the export:
+
+```powershell
+$reader = Invoke-DbaXQuery `
+    -Server 'sql01' `
+    -Database 'warehouse' `
+    -Query 'SELECT CustomerId, DisplayName, ModifiedUtc FROM dbo.Customers' `
+    -TrustServerCertificate `
+    -AsDataReader `
+    -ErrorAction Stop
+try {
+    Export-OfficeCsv -InputObject $reader -Path .\Customers.csv
+} finally {
+    $reader.Dispose()
+}
+```
+
+Use `Export-OfficeExcel` instead of `Export-OfficeCsv` when the destination is XLSX; each export consumes its own fresh reader. `-AsDataReader` is query-only and mutually exclusive with `-Stream`, `-ReturnType`, and `-StoredProcedure`. It returns one live reader positioned before the first row; the caller owns disposal.
+
 ## Load A SQL Server Staging Table
 
 Start with the default `Write-DbaXTableData` path, then add SQL Server options only when the destination table needs them:
@@ -490,3 +509,10 @@ Use the office file benchmark when the question is not only "how fast is bulk co
 ```
 
 That matrix compares DbaClientX + PSWriteOffice against dbatools `Export-DbaCsv` and `Import-DbaCsv` for plain and compressed CSV. Excel lanes use DbaClientX + PSWriteOffice. Raw parser microbenchmarks against Dataplat/dbatools, Sep, Sylvan, CsvHelper, and LumenWorks are tracked in OfficeIMO.CSV; the DbaClientX benchmark stays focused on database/file round-trip behavior.
+
+For equivalent end-to-end comparisons, add `NativePowerShell` to the plain CSV
+lane or `ImportExcel` to the `ExcelReader` lane. Use `-ProcessorAffinity` and
+`-ProcessPriority` to keep heterogeneous CPU domains from changing the result
+between runs; the applied values are written to benchmark metadata. Parallel
+CSV export remains a separate opt-in lane because partitioning overhead can
+make it slower than one streaming reader at moderate row counts.

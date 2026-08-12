@@ -21,6 +21,9 @@ param(
     [string] $FastBcpParallelMethod = 'Ntile',
     [int] $FastBcpParallelDegree = -2,
     [int] $DbaClientXPartitionDegree = 0,
+    [string] $ProcessorAffinity,
+    [ValidateSet('Current', 'Normal', 'AboveNormal', 'High')]
+    [string] $ProcessPriority = 'Current',
     [string] $OutputRoot,
     [switch] $Plan,
     [switch] $UpdateReadme,
@@ -29,6 +32,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DbaClientX.Benchmark.Process.ps1')
 
 function Convert-DbaClientXBenchmarkList {
     param([object[]] $Value)
@@ -115,6 +119,12 @@ if ($Engine -contains 'DbaClientXPartitionedReader' -and -not (Get-Command Start
 Import-Module PSPublishModule -MinimumVersion 3.0.64 -ErrorAction Stop
 
 $benchmarkScriptRoot = $PSScriptRoot
+$benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $ProcessorAffinity -ProcessPriority $ProcessPriority
+$originalCulture = [System.Globalization.CultureInfo]::CurrentCulture
+$originalUICulture = [System.Globalization.CultureInfo]::CurrentUICulture
+try {
+[System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
+[System.Globalization.CultureInfo]::CurrentUICulture = [System.Globalization.CultureInfo]::InvariantCulture
 $settings = {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $benchmarkScriptRoot '..\..')).Path
     $readmePath = Join-Path $sourceRoot 'README.md'
@@ -132,6 +142,10 @@ $settings = {
     $fastBcpParallelMethod = $FastBcpParallelMethod
     $fastBcpParallelDegree = $FastBcpParallelDegree
     $dbaClientXPartitionDegree = $DbaClientXPartitionDegree
+    $benchmarkWarmupCount = $WarmupCount
+    $benchmarkIterationCount = $Iterations
+    $appliedProcessorAffinity = $benchmarkProcess.ProcessorAffinity
+    $appliedProcessPriority = $benchmarkProcess.ProcessPriority
     $updateReadme = $UpdateReadme.IsPresent
     $keepArtifacts = $KeepArtifacts.IsPresent
     $rowCounts = $RowCount
@@ -235,11 +249,32 @@ FROM numbers;
                         continue
                     }
 
-                    $firstDelimiter = $line.IndexOf($Delimiter)
-                    $firstField = if ($firstDelimiter -ge 0) { $line.Substring(0, $firstDelimiter) } else { $line }
+                    $fields = $line.Split($Delimiter)
+                    if ($fields.Length -ne 4) {
+                        throw "CSV row has $($fields.Length) fields instead of 4: '$line'."
+                    }
+
                     $id = 0
-                    if (-not [int]::TryParse($firstField.Trim('"'), [ref] $id)) {
-                        continue
+                    if (-not [int]::TryParse(
+                        $fields[0],
+                        [System.Globalization.NumberStyles]::Integer,
+                        [System.Globalization.CultureInfo]::InvariantCulture,
+                        [ref] $id)) {
+                        throw "CSV row has an invalid Id value '$($fields[0])'."
+                    }
+
+                    $expectedName = "Row $id"
+                    if ($fields[1] -cne $expectedName) {
+                        throw "CSV row $id has DisplayName '$($fields[1])', expected '$expectedName'."
+                    }
+
+                    $expectedScore = ([decimal] $id * [decimal] 1.25).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture)
+                    if ($fields[2] -cne $expectedScore) {
+                        throw "CSV row $id has Score '$($fields[2])', expected '$expectedScore'."
+                    }
+
+                    if ($fields[3] -cne '2026-07-08 00:00:00.0000000') {
+                        throw "CSV row $id has CreatedUtc '$($fields[3])', expected '2026-07-08 00:00:00.0000000'."
                     }
 
                     $dataRows++
@@ -271,8 +306,11 @@ FROM numbers;
     $getFileMetrics = ${function:Get-DbaClientXCsvExportFileMetrics}
 
     benchmark 'sqlserver-csv-export' -out $outputRootBase {
-        policy -Warmup 1 -Iterations 3 -Order Rotated -OutlierMode None
+        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
         profile Current -Cleanup KeepOnFailure
+        metadata ProcessorAffinity $appliedProcessorAffinity
+        metadata ProcessPriority $appliedProcessPriority
+        metadata Culture InvariantCulture
 
         caseSource {
             foreach ($rowCount in $rowCounts) {
@@ -388,7 +426,7 @@ ORDER BY Id;
                     -ReturnType DataTable `
                     -ErrorAction Stop
 
-                $data | Export-OfficeCsv -Path $run.FilePath -NoHeader -ErrorAction Stop
+                $data | Export-OfficeCsv -Path $run.FilePath -NoHeader -DateTimeFormat 'yyyy-MM-dd HH:mm:ss.fffffff' -ErrorAction Stop
             }
         }
 
@@ -405,7 +443,7 @@ ORDER BY Id;
                     -Stream `
                     -ReturnType DataRow `
                     -ErrorAction Stop |
-                    Export-OfficeCsv -Path $run.FilePath -NoHeader -ErrorAction Stop
+                    Export-OfficeCsv -Path $run.FilePath -NoHeader -DateTimeFormat 'yyyy-MM-dd HH:mm:ss.fffffff' -ErrorAction Stop
             }
         }
 
@@ -414,29 +452,21 @@ ORDER BY Id;
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                $connectionString = [DBAClientX.SqlServer]::BuildConnectionString(
-                    $run.Server,
-                    $run.Database,
-                    $true,
-                    $null,
-                    $null,
-                    $null,
-                    $null,
-                    $true,
-                    $null,
-                    $null)
-
-                $client = [DBAClientX.SqlServer]::new()
                 $reader = $null
                 try {
-                    $reader = $client.QueryReader($connectionString, $run.Query)
-                    Export-OfficeCsv -InputObject $reader -Path $run.FilePath -NoHeader -ErrorAction Stop
+                    $reader = Invoke-DbaXQuery `
+                        -Server $run.Server `
+                        -Database $run.Database `
+                        -TrustServerCertificate `
+                        -Query $run.Query `
+                        -QueryTimeout 120 `
+                        -AsDataReader `
+                        -ErrorAction Stop
+                    Export-OfficeCsv -InputObject $reader -Path $run.FilePath -NoHeader -DateTimeFormat 'yyyy-MM-dd HH:mm:ss.fffffff' -ErrorAction Stop
                 } finally {
                     if ($null -ne $reader) {
                         $reader.Dispose()
                     }
-
-                    $client.Dispose()
                 }
             }
         }
@@ -471,7 +501,7 @@ ORDER BY Id;
                             $reader = $null
                             try {
                                 $reader = $client.QueryReader($ConnectionString, $Query)
-                                Export-OfficeCsv -InputObject $reader -Path $Path -NoHeader -ErrorAction Stop
+                                Export-OfficeCsv -InputObject $reader -Path $Path -NoHeader -DateTimeFormat 'yyyy-MM-dd HH:mm:ss.fffffff' -ErrorAction Stop
                             } finally {
                                 if ($null -ne $reader) {
                                     $reader.Dispose()
@@ -505,6 +535,7 @@ ORDER BY Id;
                     Query = $run.Query
                     Path = $run.FilePath
                     Delimiter = ','
+                    DateTimeFormat = 'yyyy-MM-dd HH:mm:ss.fffffff'
                 }
                 $command = Get-Command Export-DbaCsv -ErrorAction Stop
                 if ($command.Parameters.ContainsKey('NoHeader')) {
@@ -532,7 +563,7 @@ ORDER BY Id;
                     '-T',
                     '-c',
                     '-t', ',',
-                    '-r', '0x0A',
+                    '-r', '0x0D0A',
                     '-C', '65001'
                 )
 
@@ -565,7 +596,7 @@ ORDER BY Id;
                     '--fileoutput', $run.FastBcpFileName,
                     '--decimalseparator', '.',
                     '--delimiter', ',',
-                    '--dateformat', 'yyyy-MM-dd HH:mm:ss',
+                    '--dateformat', 'yyyy-MM-dd HH:mm:ss.fffffff',
                     '--encoding', 'UTF-8',
                     '--parallelmethod', $fastBcpParallelMethod
                 )
@@ -721,3 +752,8 @@ if (-not $Plan -and $result.Summary) {
 }
 
 $result
+} finally {
+    [System.Globalization.CultureInfo]::CurrentCulture = $originalCulture
+    [System.Globalization.CultureInfo]::CurrentUICulture = $originalUICulture
+    Restore-DbaClientXBenchmarkProcess -State $benchmarkProcess
+}
