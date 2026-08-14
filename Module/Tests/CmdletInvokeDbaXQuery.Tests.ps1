@@ -193,6 +193,28 @@ describe 'Invoke-DbaXQuery cmdlet' {
         }
     }
 
+    it 'canonicalizes reserved PowerShell column names without dropping the row' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Static
+        $prop = [DBAClientX.PowerShell.CmdletIInvokeDbaXQuery].GetProperty('QueryOverride', $binding)
+        $orig = $prop.GetValue($null)
+        $prop.SetValue($null, [scriptblock]{
+            param($cmdlet, $parameters, $dbParameters)
+            $table = [System.Data.DataTable]::new()
+            $null = $table.Columns.Add('Column_PSObject', [int])
+            $null = $table.Columns.Add('PSObject', [int])
+            $null = $table.Rows.Add(1, 2)
+            return [System.Threading.Tasks.Task[System.Data.DataTable]]::FromResult($table)
+        })
+        try {
+            $rows = @(Invoke-DbaXQuery -Server s -Database db -Query 'SELECT 1')
+            $rows.Count | Should -Be 1
+            $rows[0].Column_PSObject | Should -Be 1
+            $rows[0].Column_PSObject1 | Should -Be 2
+        } finally {
+            $prop.SetValue($null, $orig)
+        }
+    }
+
     it 'streams rows asynchronously' {
         if ($PSVersionTable.PSEdition -ne 'Core') {
             Set-ItResult -Skipped -Because 'Streaming cmdlet execution is only available on Core targets.'

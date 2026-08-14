@@ -37,7 +37,7 @@ describe 'Invoke-DbaXPostgreSql cmdlet' {
             $row = $table.NewRow()
             $row['Value'] = 1
             $table.Rows.Add($row)
-            return $table
+            return ,$table
         })
         try {
             Invoke-DbaXPostgreSql -Server s -Database db -Query 'SELECT 1' -Credential $credential | Out-Null
