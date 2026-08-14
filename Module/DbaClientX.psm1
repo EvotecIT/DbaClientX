@@ -48,15 +48,24 @@ if ($PowerForgeDevelopmentEnabled) {
             # Ensure native runtime libraries are discoverable for the selected development binary.
             $PowerForgeDevelopmentIsWindowsPlatform = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
             if ($PowerForgeDevelopmentIsWindowsPlatform) {
-                $PowerForgeDevelopmentArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+                $PowerForgeDevelopmentArch = [string][System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+                if ([string]::IsNullOrWhiteSpace($PowerForgeDevelopmentArch)) {
+                    $PowerForgeDevelopmentArch = [string]$env:PROCESSOR_ARCHITECTURE
+                }
                 $PowerForgeDevelopmentArchFolder = switch ($PowerForgeDevelopmentArch) {
                     'X64' { 'win-x64' }
+                    'AMD64' { 'win-x64' }
                     'X86' { 'win-x86' }
+                    'I386' { 'win-x86' }
                     'Arm64' { 'win-arm64' }
                     'Arm' { 'win-arm' }
                     default {
-                        Write-Warning -Message ("Unknown Windows architecture '{0}'. Falling back to win-x64 native runtime probing." -f $PowerForgeDevelopmentArch)
-                        'win-x64'
+                        if ([string]::IsNullOrWhiteSpace($PowerForgeDevelopmentArch)) {
+                            if ([IntPtr]::Size -eq 4) { 'win-x86' } else { 'win-x64' }
+                        } else {
+                            Write-Warning -Message ("Unknown Windows architecture '{0}'. Falling back to process-bitness native runtime probing." -f $PowerForgeDevelopmentArch)
+                            if ([IntPtr]::Size -eq 4) { 'win-x86' } else { 'win-x64' }
+                        }
                     }
                 }
                 $PowerForgeDevelopmentLibFolder = [IO.Path]::GetDirectoryName($PowerForgeDevelopmentBinaryPath)
