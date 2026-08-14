@@ -46,7 +46,7 @@ PS> $rows = Invoke-DbaXQuery -Server 'localhost' -Database 'master' -TrustServer
              $rows | Format-Table name, database_id, create_date
 ```
 
-Executes a multi-line query against a local SQL Server instance and returns each row as a DataRow.
+Executes a multi-line query against a local SQL Server instance and returns every row as a PowerShell object.
 
 ### EXAMPLE 2
 ```powershell
@@ -184,7 +184,7 @@ Accept wildcard characters: False
 ```
 
 ### -ReturnType
-Selects the type of returned objects.
+Selects the type of returned objects. Defaults to PSObject so an ordinary PowerShell query emits every row.
 
 ```yaml
 Type: ReturnType

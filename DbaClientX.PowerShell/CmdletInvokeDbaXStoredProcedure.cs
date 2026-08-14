@@ -37,10 +37,10 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
     [Parameter(Mandatory = false)]
     public SwitchParameter Stream { get; set; }
 
-    /// <summary>Controls the returned object format.</summary>
+    /// <summary>Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter(Mandatory = false)]
     [Alias("As")]
-    public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
+    public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
     /// <summary>Optional command timeout in seconds.</summary>
     [Parameter(Mandatory = false)]

@@ -13,7 +13,11 @@ public static class PSObjectConverter
     /// Converts a <see cref="DataRow"/> into a PowerShell <see cref="PSObject"/> with note properties matching the row's columns.
     /// </summary>
     /// <param name="row">The data row to convert.</param>
-    /// <returns>A <see cref="PSObject"/> representing the provided data row.</returns>
+    /// <returns>
+    /// A <see cref="PSObject"/> representing the provided data row. Column names in PowerShell's reserved
+    /// <c>PS*</c> member namespace are prefixed with <c>Column_</c>; numeric suffixes keep all projected
+    /// names unique without hiding another source column.
+    /// </returns>
     public static PSObject DataRowToPSObject(DataRow row)
     {
         PSObject psObject = new PSObject();
@@ -23,11 +27,9 @@ public static class PSObjectConverter
             var table = row.Table;
             if (!_columnNameCache.TryGetValue(table, out var columnNames))
             {
-                columnNames = new string[table.Columns.Count];
-                for (int i = 0; i < table.Columns.Count; i++)
-                {
-                    columnNames[i] = table.Columns[i].ColumnName;
-                }
+                columnNames = GetUniqueColumnNames(
+                    table.Columns.Count,
+                    ordinal => table.Columns[ordinal].ColumnName);
                 _columnNameCache.Add(table, columnNames);
             }
 
@@ -42,23 +44,46 @@ public static class PSObjectConverter
     }
 
     internal static string[] GetUniqueColumnNames(IDataRecord record)
+        => GetUniqueColumnNames(record.FieldCount, record.GetName);
+
+    private static string[] GetUniqueColumnNames(int fieldCount, Func<int, string> getName)
     {
-        var names = new string[record.FieldCount];
+        var sourceNames = new string[fieldCount];
+        var ordinarySourceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int ordinal = 0; ordinal < sourceNames.Length; ordinal++)
+        {
+            string sourceName = getName(ordinal);
+            if (string.IsNullOrEmpty(sourceName))
+            {
+                sourceName = $"Column{ordinal + 1}";
+            }
+
+            sourceNames[ordinal] = sourceName;
+            if (!IsReservedPowerShellMemberName(sourceName))
+            {
+                ordinarySourceNames.Add(sourceName);
+            }
+        }
+
+        var names = new string[fieldCount];
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int ordinal = 0; ordinal < names.Length; ordinal++)
         {
-            string baseName = record.GetName(ordinal);
-            if (string.IsNullOrEmpty(baseName))
-            {
-                baseName = $"Column{ordinal + 1}";
-            }
+            string sourceName = sourceNames[ordinal];
+            string baseName = IsReservedPowerShellMemberName(sourceName)
+                ? "Column_" + sourceName
+                : sourceName;
 
             string name = baseName;
-            for (int suffix = 1; !usedNames.Add(name); suffix++)
+            for (int suffix = 1;
+                 usedNames.Contains(name) ||
+                 (!name.Equals(sourceName, StringComparison.OrdinalIgnoreCase) && ordinarySourceNames.Contains(name));
+                 suffix++)
             {
                 name = baseName + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
 
+            usedNames.Add(name);
             names[ordinal] = name;
         }
 
@@ -86,15 +111,10 @@ public static class PSObjectConverter
     private static void AddNoteProperty(PSObject psObject, string name, object? value)
     {
         var property = new PSNoteProperty(name, value);
-        if (name.StartsWith("PS", StringComparison.OrdinalIgnoreCase))
-        {
-            // PowerShell reserves the PS* namespace for adapted and extended members.
-            // Preserve its validation and exception behavior for those names.
-            psObject.Properties.Add(property);
-            return;
-        }
-
         psObject.Properties.Add(property, preValidated: true);
     }
+
+    private static bool IsReservedPowerShellMemberName(string name)
+        => name.StartsWith("PS", StringComparison.OrdinalIgnoreCase);
 }
 

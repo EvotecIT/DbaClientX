@@ -14,7 +14,7 @@ namespace DBAClientX.PowerShell;
 /// <summary>Run a query and return rows.</summary>
 /// <prefix>PS&gt; </prefix>
 /// <code>Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Users'</code>
-/// <para>Executes the query and outputs each row as a <see cref="DataRow"/>.</para>
+/// <para>Executes the query and outputs every row as a PowerShell object.</para>
 /// </example>
 /// <example>
 /// <summary>Stream results from a large query.</summary>
@@ -47,10 +47,10 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
     [Parameter]
     public SwitchParameter Stream { get; set; }
 
-    /// <summary>Selects the format of returned data.</summary>
+    /// <summary>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter]
     [Alias("As")]
-    public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
+    public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
     /// <summary>Provides additional query parameters.</summary>
     [Parameter]

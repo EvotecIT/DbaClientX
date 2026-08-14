@@ -26,7 +26,7 @@ Supports streaming results for large data sets when the platform allows asynchro
 PS> Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Users'
 ```
 
-Executes the query and outputs each row as a DataRow.
+Executes the query and outputs every row as a PowerShell object.
 
 ### EXAMPLE 2
 ```powershell
@@ -102,7 +102,7 @@ Accept wildcard characters: False
 ```
 
 ### -ReturnType
-Selects the format of returned data.
+Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.
 
 ```yaml
 Type: ReturnType

@@ -22,7 +22,7 @@ namespace DBAClientX.PowerShell;
 ///     current_user AS connected_as,
 ///     version() AS server_version;
 /// '@</code>
-/// <para>Executes the query and returns each row as a <see cref="DataRow"/>.</para>
+/// <para>Executes the query and returns every row as a PowerShell object.</para>
 /// </example>
 /// <example>
 /// <summary>Execute a stored procedure and get a DataTable.</summary>
@@ -72,11 +72,11 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     [Parameter(ParameterSetName = "Query")]
     public SwitchParameter Stream { get; set; }
 
-    /// <summary>Selects the format of returned data.</summary>
+    /// <summary>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter(ParameterSetName = "Query")]
     [Parameter(ParameterSetName = "StoredProcedure")]
     [Alias("As")]
-    public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
+    public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
     /// <summary>Supplies parameters for the query or stored procedure.</summary>
     [Parameter(ParameterSetName = "Query")]

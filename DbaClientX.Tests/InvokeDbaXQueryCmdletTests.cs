@@ -32,7 +32,7 @@ public class InvokeDbaXQueryCmdletTests
     }
 
     [Fact]
-    public void DataRowReturnType_EmitsEachDataRow()
+    public void DataRowReturnType_EmitsSingleDataRow()
     {
         using var table = CreateTable();
         CmdletIInvokeDbaXQuery.SqlServerFactory = () => new DataTableSqlServer(table);
@@ -41,13 +41,29 @@ public class InvokeDbaXQueryCmdletTests
         {
             var results = InvokeQuery(ReturnType.DataRow);
 
-            Assert.Equal(2, results.Count);
-            Assert.All(results, result => Assert.IsType<DataRow>(result.BaseObject));
+            var result = Assert.Single(results);
+            Assert.IsType<DataRow>(result.BaseObject);
         }
         finally
         {
             CmdletIInvokeDbaXQuery.SqlServerFactory = () => new SqlServer();
         }
+    }
+
+    [Theory]
+    [InlineData(typeof(CmdletIInvokeDbaXQuery))]
+    [InlineData(typeof(CmdletInvokeDbaXMySql))]
+    [InlineData(typeof(CmdletInvokeDbaXOracle))]
+    [InlineData(typeof(CmdletInvokeDbaXPostgreSql))]
+    [InlineData(typeof(CmdletInvokeDbaXSQLite))]
+    [InlineData(typeof(CmdletInvokeDbaXQueryStream))]
+    [InlineData(typeof(CmdletInvokeDbaXStoredProcedure))]
+    public void QueryCmdlets_DefaultToAllRowPowerShellObjects(Type cmdletType)
+    {
+        var cmdlet = Activator.CreateInstance(cmdletType);
+        var returnType = cmdletType.GetProperty("ReturnType")!.GetValue(cmdlet);
+
+        Assert.Equal(ReturnType.PSObject, returnType);
     }
 
     [Fact]
@@ -236,7 +252,7 @@ public class InvokeDbaXQueryCmdletTests
             bool useTransaction = false,
             IDictionary<string, SqlDbType>? parameterTypes = null,
             IDictionary<string, ParameterDirection>? parameterDirections = null)
-            => ReturnType == ReturnType.DataRow ? _table.Rows : _table;
+            => ReturnType == ReturnType.DataRow ? _table.Rows[0] : _table;
 
         public override Task<DbaDataReader> QueryReaderAsync(
             string connectionString,

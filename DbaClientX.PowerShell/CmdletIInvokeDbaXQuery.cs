@@ -26,7 +26,7 @@ namespace DBAClientX.PowerShell;
 /// '@
 ///
 /// $rows | Format-Table name, database_id, create_date</code>
-/// <para>Executes a multi-line query against a local SQL Server instance and returns each row as a <see cref="DataRow"/>.</para>
+/// <para>Executes a multi-line query against a local SQL Server instance and returns every row as a PowerShell object.</para>
 /// </example>
 /// <example>
 /// <summary>Execute a stored procedure using credentials.</summary>
@@ -94,11 +94,11 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     public SwitchParameter Stream { get; set; }
 
-    /// <summary>Selects the type of returned objects.</summary>
+    /// <summary>Selects the type of returned objects. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
     [Alias("As")]
-    public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
+    public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
     /// <summary>
     /// When enabled, returns one live reader that owns its command and connection until the caller disposes it.

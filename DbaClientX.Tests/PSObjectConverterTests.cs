@@ -58,12 +58,36 @@ public class PSObjectConverterTests
     }
 
     [Fact]
-    public void DataRowToPSObjectRejectsReservedPowerShellMemberNames()
+    public void DataRowToPSObjectCanonicalizesReservedPowerShellMemberNamesWithoutHidingOrdinaryColumns()
+    {
+        var table = new DataTable();
+        table.Columns.Add("Column_PSObject", typeof(int));
+        table.Columns.Add("PSObject", typeof(int));
+        table.Columns.Add("PSBase", typeof(int));
+        table.Rows.Add(1, 2, 3);
+
+        var converted = PSObjectConverter.DataRowToPSObject(table.Rows[0]);
+
+        Assert.Equal(1, converted.Properties["Column_PSObject"].Value);
+        Assert.Equal(2, converted.Properties["Column_PSObject1"].Value);
+        Assert.Equal(3, converted.Properties["Column_PSBase"].Value);
+    }
+
+    [Fact]
+    public void DataRecordToPSObjectCanonicalizesReservedPowerShellMemberNames()
     {
         var table = new DataTable();
         table.Columns.Add("PSObject", typeof(int));
-        table.Rows.Add(1);
+        table.Columns.Add("PSFoo", typeof(int));
+        table.Rows.Add(4, 5);
 
-        Assert.Throws<ExtendedTypeSystemException>(() => PSObjectConverter.DataRowToPSObject(table.Rows[0]));
+        using var reader = table.CreateDataReader();
+        Assert.True(reader.Read());
+        string[] columnNames = PSObjectConverter.GetUniqueColumnNames(reader);
+        var converted = PSObjectConverter.DataRecordToPSObject(reader, columnNames, new object[reader.FieldCount]);
+
+        Assert.Equal(new[] { "Column_PSObject", "Column_PSFoo" }, columnNames);
+        Assert.Equal(4, converted.Properties["Column_PSObject"].Value);
+        Assert.Equal(5, converted.Properties["Column_PSFoo"].Value);
     }
 }

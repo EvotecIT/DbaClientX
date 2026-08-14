@@ -38,7 +38,7 @@ describe 'Invoke-DbaXOracle cmdlet' {
             $row = $table.NewRow()
             $row['Value'] = 1
             $table.Rows.Add($row)
-            return $table
+            return ,$table
         })
         try {
             Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Username u -Password p | Out-Null
@@ -67,7 +67,7 @@ describe 'Invoke-DbaXOracle cmdlet' {
             $row = $table.NewRow()
             $row['Value'] = 1
             $table.Rows.Add($row)
-            return $table
+            return ,$table
         })
         try {
             Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Credential $credential | Out-Null
@@ -94,7 +94,7 @@ describe 'Invoke-DbaXOracle cmdlet' {
             $row = $table.NewRow()
             $row['Value'] = 1
             $table.Rows.Add($row)
-            return $table
+            return ,$table
         })
         try {
             Invoke-DbaXOracle -Server s -Database db -Query 'SELECT 1 FROM dual' -Username u -Password p -QueryTimeout 9 -Parameters @{ A = 1 } | Out-Null
