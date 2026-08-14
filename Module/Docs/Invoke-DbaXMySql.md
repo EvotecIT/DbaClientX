@@ -36,7 +36,7 @@ LIMIT 25;
 '@
 ```
 
-Returns recent active users as DataRow objects.
+Returns every recent active user as a PowerShell object.
 
 ### EXAMPLE 2
 ```powershell
@@ -150,7 +150,7 @@ Accept wildcard characters: False
 ```
 
 ### -ReturnType
-Selects the format of the returned data.
+Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.
 
 ```yaml
 Type: ReturnType

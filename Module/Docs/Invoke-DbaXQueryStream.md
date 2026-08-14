@@ -109,7 +109,7 @@ Accept wildcard characters: False
 ```
 
 ### -ReturnType
-Controls the returned object format.
+Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.
 
 ```yaml
 Type: ReturnType

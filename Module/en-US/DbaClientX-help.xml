@@ -3776,7 +3776,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the format of the returned data.</maml:para>
+            <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -3905,7 +3905,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Selects the format of the returned data.</maml:para>
+          <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -3989,7 +3989,7 @@
             LIMIT 25;&#xD;
             '@</dev:code>
         <dev:remarks>
-          <maml:para>Returns recent active users as DataRow objects.</maml:para>
+          <maml:para>Returns every recent active user as a PowerShell object.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -5211,7 +5211,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the format of the returned data.</maml:para>
+            <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -5340,7 +5340,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Selects the format of the returned data.</maml:para>
+          <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -5420,7 +5420,7 @@
             FROM dual&#xD;
             '@</dev:code>
         <dev:remarks>
-          <maml:para>Returns Oracle session context as DataRow objects.</maml:para>
+          <maml:para>Returns every Oracle session context row as a PowerShell object.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -6337,7 +6337,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the format of returned data.</maml:para>
+            <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -6454,7 +6454,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the format of returned data.</maml:para>
+            <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -6583,7 +6583,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Selects the format of returned data.</maml:para>
+          <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -6675,7 +6675,7 @@
                 version() AS server_version;&#xD;
             '@</dev:code>
         <dev:remarks>
-          <maml:para>Executes the query and returns each row as a DataRow.</maml:para>
+          <maml:para>Executes the query and returns every row as a PowerShell object.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -7331,7 +7331,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the type of returned objects.</maml:para>
+            <maml:para>Selects the type of returned objects. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -7584,7 +7584,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the type of returned objects.</maml:para>
+            <maml:para>Selects the type of returned objects. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -7750,7 +7750,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Selects the type of returned objects.</maml:para>
+          <maml:para>Selects the type of returned objects. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -7858,7 +7858,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
             &#xD;
              $rows | Format-Table name, database_id, create_date</dev:code>
         <dev:remarks>
-          <maml:para>Executes a multi-line query against a local SQL Server instance and returns each row as a DataRow.</maml:para>
+          <maml:para>Executes a multi-line query against a local SQL Server instance and returns every row as a PowerShell object.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -7984,7 +7984,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Controls the returned object format.</maml:para>
+            <maml:para>Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -8084,7 +8084,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Controls the returned object format.</maml:para>
+          <maml:para>Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -8206,7 +8206,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Selects the format of returned data.</maml:para>
+            <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -8287,7 +8287,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Selects the format of returned data.</maml:para>
+          <maml:para>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>
@@ -8337,7 +8337,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         </maml:introduction>
         <dev:code>Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Users'</dev:code>
         <dev:remarks>
-          <maml:para>Executes the query and outputs each row as a DataRow.</maml:para>
+          <maml:para>Executes the query and outputs every row as a PowerShell object.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -8866,7 +8866,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
-            <maml:para>Controls the returned object format.</maml:para>
+            <maml:para>Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
           <command:parameterValueGroup>
@@ -8978,7 +8978,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
-          <maml:para>Controls the returned object format.</maml:para>
+          <maml:para>Controls the returned object format. Defaults to PSObject so an ordinary PowerShell query emits every row.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">ReturnType</command:parameterValue>
         <command:parameterValueGroup>

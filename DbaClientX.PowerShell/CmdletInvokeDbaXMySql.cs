@@ -24,7 +24,7 @@ namespace DBAClientX.PowerShell;
 /// ORDER BY created_at DESC
 /// LIMIT 25;
 /// '@</code>
-/// <para>Returns recent active users as <see cref="DataRow"/> objects.</para>
+/// <para>Returns every recent active user as a PowerShell object.</para>
 /// </example>
 /// <example>
 /// <summary>Stream results as they arrive.</summary>
@@ -70,10 +70,10 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     [Parameter]
     public SwitchParameter Stream { get; set; }
 
-    /// <summary>Selects the format of the returned data.</summary>
+    /// <summary>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter]
     [Alias("As")]
-    public ReturnType ReturnType { get; set; } = ReturnType.DataRow;
+    public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
     /// <summary>Provides additional parameters for the query.</summary>
     [Parameter]

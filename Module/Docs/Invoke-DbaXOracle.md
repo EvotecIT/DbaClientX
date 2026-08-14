@@ -32,7 +32,7 @@ FROM dual
 '@
 ```
 
-Returns Oracle session context as DataRow objects.
+Returns every Oracle session context row as a PowerShell object.
 
 ### EXAMPLE 2
 ```powershell
@@ -146,7 +146,7 @@ Accept wildcard characters: False
 ```
 
 ### -ReturnType
-Selects the format of the returned data.
+Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.
 
 ```yaml
 Type: ReturnType
