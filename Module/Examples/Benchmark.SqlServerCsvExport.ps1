@@ -305,14 +305,14 @@ FROM numbers;
     $getSeedQuery = ${function:Get-DbaClientXCsvExportSeedQuery}
     $getFileMetrics = ${function:Get-DbaClientXCsvExportFileMetrics}
 
-    benchmark 'sqlserver-csv-export' -out $outputRootBase {
-        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
-        profile Current -Cleanup KeepOnFailure
-        metadata ProcessorAffinity $appliedProcessorAffinity
-        metadata ProcessPriority $appliedProcessPriority
-        metadata Culture InvariantCulture
+    New-BenchmarkSuite 'sqlserver-csv-export' -OutputRoot $outputRootBase {
+        Set-BenchmarkPolicy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
+        Set-BenchmarkProfile Current -Cleanup KeepOnFailure
+        Add-BenchmarkMetadata ProcessorAffinity $appliedProcessorAffinity
+        Add-BenchmarkMetadata ProcessPriority $appliedProcessPriority
+        Add-BenchmarkMetadata Culture InvariantCulture
 
-        caseSource {
+        Add-BenchmarkCaseSource {
             foreach ($rowCount in $rowCounts) {
                 [pscustomobject]@{
                     Scenario = "$rowCount rows / CSV export"
@@ -321,7 +321,7 @@ FROM numbers;
             }
         }
 
-        setup {
+        Set-BenchmarkSetup {
             param($case, $run)
 
             $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -387,7 +387,7 @@ ORDER BY Id;
             }
         }
 
-        skip {
+        Add-BenchmarkSkipRule {
             param($case)
 
             if ($case.Engine -in @('DbaClientXDataTable', 'DbaClientXPowerShellStream', 'DbaClientXReader', 'DbaClientXPartitionedReader')) {
@@ -413,8 +413,8 @@ ORDER BY Id;
             return $false
         }
 
-        engine DbaClientXDataTable {
-            operation Export {
+        Add-BenchmarkEngine DbaClientXDataTable {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -430,8 +430,8 @@ ORDER BY Id;
             }
         }
 
-        engine DbaClientXPowerShellStream {
-            operation Export {
+        Add-BenchmarkEngine DbaClientXPowerShellStream {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -447,8 +447,8 @@ ORDER BY Id;
             }
         }
 
-        engine DbaClientXReader {
-            operation Export {
+        Add-BenchmarkEngine DbaClientXReader {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -471,8 +471,8 @@ ORDER BY Id;
             }
         }
 
-        engine DbaClientXPartitionedReader {
-            operation Export {
+        Add-BenchmarkEngine DbaClientXPartitionedReader {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -524,8 +524,8 @@ ORDER BY Id;
             }
         }
 
-        engine dbatools {
-            operation Export {
+        Add-BenchmarkEngine dbatools {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -549,8 +549,8 @@ ORDER BY Id;
             }
         }
 
-        engine bcp {
-            operation Export {
+        Add-BenchmarkEngine bcp {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -574,8 +574,8 @@ ORDER BY Id;
             }
         }
 
-        engine FastBCP {
-            operation Export {
+        Add-BenchmarkEngine FastBCP {
+            Add-BenchmarkOperation Export {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -617,7 +617,7 @@ ORDER BY Id;
             }
         }
 
-        validate {
+        Add-BenchmarkValidation {
             param($case, $run)
 
             $outputFiles = if ($case.Engine -eq 'FastBCP') {
@@ -675,25 +675,25 @@ ORDER BY Id;
             }
         }
 
-        metric RowsExported {
+        Add-BenchmarkMetric RowsExported {
             param($case, $run)
 
             $run.RowsExported
         }
 
-        metric FileBytes {
+        Add-BenchmarkMetric FileBytes {
             param($case, $run)
 
             $run.FileBytes
         }
 
-        metric OutputFileCount {
+        Add-BenchmarkMetric OutputFileCount {
             param($case, $run)
 
             if ($null -ne $run.OutputFileCount) { $run.OutputFileCount } else { 1 }
         }
 
-        metric RowsPerSecond {
+        Add-BenchmarkMetric RowsPerSecond {
             param($case, $run)
 
             if ($run.DurationMs -le 0) {
@@ -703,11 +703,11 @@ ORDER BY Id;
             [double] $case.RowCount / ($run.DurationMs / 1000)
         }
 
-        comparison Engine -Baseline DbaClientXReader -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
+        Add-BenchmarkComparison Engine -Baseline DbaClientXReader -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
         if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
-            readme $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
+            Add-BenchmarkReadmeBlock $readmePath -Block 'sqlserver-csv-export-benchmark' -Renderer ComparisonTable
         }
-        artifacts Json, Csv, Markdown
+        Set-BenchmarkArtifacts Json, Csv, Markdown
     }
 }.GetNewClosure()
 

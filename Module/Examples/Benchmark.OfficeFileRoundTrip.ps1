@@ -217,27 +217,27 @@ $settings = {
     $officeIMOExcelAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.Excel'
     $officeIMOCsvAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'OfficeIMO.CSV'
     $epplusAssemblyIdentity = & $getAssemblyIdentity -SimpleName 'EPPlus'
-    benchmark 'office-file-roundtrip' -out $outputRootBase {
-        policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
-        profile Current -Cleanup KeepOnFailure
-        metadata ProcessorAffinity $appliedProcessorAffinity
-        metadata ProcessPriority $appliedProcessPriority
-        metadata BenchmarkScript $benchmarkScript
-        metadata BenchmarkSupport $benchmarkSupport
-        metadata SqlServer $sqlServerIdentity
-        metadata DbaClientXModule $dbaClientXModuleIdentity
-        metadata DbaClientXAssembly $dbaClientXAssemblyIdentity
-        metadata PSWriteOfficeModule $psWriteOfficeModuleIdentity
-        metadata PSWriteOfficeAssembly $psWriteOfficeAssemblyIdentity
-        metadata OfficeIMOExcelAssembly $officeIMOExcelAssemblyIdentity
-        metadata OfficeIMOCsvAssembly $officeIMOCsvAssemblyIdentity
-        metadata ParallelCsvRead $parallelCsvRead
-        metadata CsvReaderMaxDegreeOfParallelism $csvReaderMaxDegreeOfParallelism
-        metadata CsvReaderParallelBatchSize $csvReaderParallelBatchSize
-        metadata ImportExcelModule $importExcelModuleIdentity
-        metadata EPPlusAssembly $epplusAssemblyIdentity
+    New-BenchmarkSuite 'office-file-roundtrip' -OutputRoot $outputRootBase {
+        Set-BenchmarkPolicy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
+        Set-BenchmarkProfile Current -Cleanup KeepOnFailure
+        Add-BenchmarkMetadata ProcessorAffinity $appliedProcessorAffinity
+        Add-BenchmarkMetadata ProcessPriority $appliedProcessPriority
+        Add-BenchmarkMetadata BenchmarkScript $benchmarkScript
+        Add-BenchmarkMetadata BenchmarkSupport $benchmarkSupport
+        Add-BenchmarkMetadata SqlServer $sqlServerIdentity
+        Add-BenchmarkMetadata DbaClientXModule $dbaClientXModuleIdentity
+        Add-BenchmarkMetadata DbaClientXAssembly $dbaClientXAssemblyIdentity
+        Add-BenchmarkMetadata PSWriteOfficeModule $psWriteOfficeModuleIdentity
+        Add-BenchmarkMetadata PSWriteOfficeAssembly $psWriteOfficeAssemblyIdentity
+        Add-BenchmarkMetadata OfficeIMOExcelAssembly $officeIMOExcelAssemblyIdentity
+        Add-BenchmarkMetadata OfficeIMOCsvAssembly $officeIMOCsvAssemblyIdentity
+        Add-BenchmarkMetadata ParallelCsvRead $parallelCsvRead
+        Add-BenchmarkMetadata CsvReaderMaxDegreeOfParallelism $csvReaderMaxDegreeOfParallelism
+        Add-BenchmarkMetadata CsvReaderParallelBatchSize $csvReaderParallelBatchSize
+        Add-BenchmarkMetadata ImportExcelModule $importExcelModuleIdentity
+        Add-BenchmarkMetadata EPPlusAssembly $epplusAssemblyIdentity
 
-        caseSource {
+        Add-BenchmarkCaseSource {
             foreach ($rowCount in $rowCounts) {
                 foreach ($fileKind in $fileKinds) {
                     foreach ($columnShape in $columnShapes) {
@@ -258,7 +258,7 @@ $settings = {
             }
         }
 
-        setup {
+        Set-BenchmarkSetup {
             param($case, $run)
 
             $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -327,7 +327,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
-        skip {
+        Add-BenchmarkSkipRule {
             param($case)
 
             if ($case.Engine -eq 'dbatools') {
@@ -349,8 +349,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             return $false
         }
 
-        engine DbaClientX {
-            operation RoundTrip {
+        Add-BenchmarkEngine DbaClientX {
+            Add-BenchmarkOperation RoundTrip {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -508,8 +508,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
-        engine NativePowerShell {
-            operation RoundTrip {
+        Add-BenchmarkEngine NativePowerShell {
+            Add-BenchmarkOperation RoundTrip {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -527,8 +527,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
-        engine ImportExcel {
-            operation RoundTrip {
+        Add-BenchmarkEngine ImportExcel {
+            Add-BenchmarkOperation RoundTrip {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -546,8 +546,8 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
-        engine dbatools {
-            operation RoundTrip {
+        Add-BenchmarkEngine dbatools {
+            Add-BenchmarkOperation RoundTrip {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -607,7 +607,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
             }
         }
 
-        validate {
+        Add-BenchmarkValidation {
             param($case, $run)
 
             $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -677,43 +677,43 @@ FULL OUTER JOIN dbo.$($run.SourceTable) AS source
             }
         }
 
-        metric RowsProcessed {
+        Add-BenchmarkMetric RowsProcessed {
             param($case, $run)
 
             $run.RowsProcessed
         }
 
-        metric ExportMs {
+        Add-BenchmarkMetric ExportMs {
             param($case, $run)
 
             $run.ExportMs
         }
 
-        metric LoadMs {
+        Add-BenchmarkMetric LoadMs {
             param($case, $run)
 
             $run.LoadMs
         }
 
-        metric IdSum {
+        Add-BenchmarkMetric IdSum {
             param($case, $run)
 
             $run.IdSum
         }
 
-        metric ScoreSum {
+        Add-BenchmarkMetric ScoreSum {
             param($case, $run)
 
             $run.ScoreSum
         }
 
-        metric ExactMismatchCount {
+        Add-BenchmarkMetric ExactMismatchCount {
             param($case, $run)
 
             $run.ExactMismatchCount
         }
 
-        metric RowsPerSecond {
+        Add-BenchmarkMetric RowsPerSecond {
             param($case, $run)
 
             if ($run.DurationMs -le 0) {
@@ -724,12 +724,12 @@ FULL OUTER JOIN dbo.$($run.SourceTable) AS source
         }
 
         if ($selectedEngines.Count -gt 1) {
-            comparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
+            Add-BenchmarkComparison Engine -Baseline $engineComparisonBaseline -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
-                readme $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
+                Add-BenchmarkReadmeBlock $readmePath -Block 'office-file-roundtrip-benchmark' -Renderer ComparisonTable
             }
         }
-        artifacts Json, Csv, Markdown
+        Set-BenchmarkArtifacts Json, Csv, Markdown
     }
 }.GetNewClosure()
 

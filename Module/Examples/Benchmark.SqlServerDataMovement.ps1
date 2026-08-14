@@ -373,13 +373,13 @@ CREATE TABLE dbo.$TableName
     $assertIntegrity = ${function:Assert-DbaClientXBenchmarkIntegrity}
 
     if ($selectedOperations -contains 'Write') {
-        benchmark 'sqlserver-data-movement-write' -out (Join-Path $outputRootBase 'Write') {
-            policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
-            profile Current -Cleanup KeepOnFailure
-            metadata ProcessorAffinity $appliedProcessorAffinity
-            metadata ProcessPriority $appliedProcessPriority
+        New-BenchmarkSuite 'sqlserver-data-movement-write' -OutputRoot (Join-Path $outputRootBase 'Write') {
+            Set-BenchmarkPolicy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
+            Set-BenchmarkProfile Current -Cleanup KeepOnFailure
+            Add-BenchmarkMetadata ProcessorAffinity $appliedProcessorAffinity
+            Add-BenchmarkMetadata ProcessPriority $appliedProcessPriority
 
-            caseSource {
+            Add-BenchmarkCaseSource {
                 foreach ($rowCount in $rowCounts) {
                     foreach ($batchSize in $batchSizes) {
                         foreach ($inputKind in $inputKinds) {
@@ -394,7 +394,7 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            setup {
+            Set-BenchmarkSetup {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -429,7 +429,7 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            skip {
+            Add-BenchmarkSkipRule {
                 param($case)
 
                 if ($case.Engine -eq 'dbatools' -and -not (Get-Command Write-DbaDbTableData -ErrorAction SilentlyContinue)) {
@@ -447,8 +447,8 @@ CREATE TABLE dbo.$TableName
                 return $false
             }
 
-            engine DbaClientX {
-                operation Write {
+            Add-BenchmarkEngine DbaClientX {
+                Add-BenchmarkOperation Write {
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -482,8 +482,8 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            engine dbatools {
-                operation Write {
+            Add-BenchmarkEngine dbatools {
+                Add-BenchmarkOperation Write {
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -510,8 +510,8 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            engine SqlServer {
-                operation Write {
+            Add-BenchmarkEngine SqlServer {
+                Add-BenchmarkOperation Write {
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -538,7 +538,7 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            validate {
+            Add-BenchmarkValidation {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -568,25 +568,25 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            metric RowsProcessed {
+            Add-BenchmarkMetric RowsProcessed {
                 param($case, $run)
 
                 $run.RowsProcessed
             }
 
-            metric IdSum {
+            Add-BenchmarkMetric IdSum {
                 param($case, $run)
 
                 $run.IdSum
             }
 
-            metric ScoreSum {
+            Add-BenchmarkMetric ScoreSum {
                 param($case, $run)
 
                 $run.ScoreSum
             }
 
-            metric RowsPerSecond {
+            Add-BenchmarkMetric RowsPerSecond {
                 param($case, $run)
 
                 if ($run.DurationMs -le 0) {
@@ -596,22 +596,22 @@ CREATE TABLE dbo.$TableName
                 [double] $case.RowCount / ($run.DurationMs / 1000)
             }
 
-            comparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
+            Add-BenchmarkComparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
-                readme $readmePath -Block 'sqlserver-data-movement-write-benchmark' -Renderer ComparisonTable
+                Add-BenchmarkReadmeBlock $readmePath -Block 'sqlserver-data-movement-write-benchmark' -Renderer ComparisonTable
             }
-            artifacts Json, Csv, Markdown
+            Set-BenchmarkArtifacts Json, Csv, Markdown
         }
     }
 
     if ($selectedOperations -contains 'Read') {
-        benchmark 'sqlserver-data-movement-read' -out (Join-Path $outputRootBase 'Read') {
-            policy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
-            profile Current -Cleanup KeepOnFailure
-            metadata ProcessorAffinity $appliedProcessorAffinity
-            metadata ProcessPriority $appliedProcessPriority
+        New-BenchmarkSuite 'sqlserver-data-movement-read' -OutputRoot (Join-Path $outputRootBase 'Read') {
+            Set-BenchmarkPolicy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
+            Set-BenchmarkProfile Current -Cleanup KeepOnFailure
+            Add-BenchmarkMetadata ProcessorAffinity $appliedProcessorAffinity
+            Add-BenchmarkMetadata ProcessPriority $appliedProcessPriority
 
-            caseSource {
+            Add-BenchmarkCaseSource {
                 foreach ($rowCount in $rowCounts) {
                     foreach ($readShape in $readShapes) {
                         [pscustomobject]@{
@@ -623,7 +623,7 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            setup {
+            Set-BenchmarkSetup {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -670,7 +670,7 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            skip {
+            Add-BenchmarkSkipRule {
                 param($case)
 
                 if ($case.Engine -eq 'SqlServer') {
@@ -684,8 +684,8 @@ CREATE TABLE dbo.$TableName
                 return $false
             }
 
-            engine DbaClientX {
-                operation Read {
+            Add-BenchmarkEngine DbaClientX {
+                Add-BenchmarkOperation Read {
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -712,8 +712,8 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            engine dbatools {
-                operation Read {
+            Add-BenchmarkEngine dbatools {
+                Add-BenchmarkOperation Read {
                     param($case, $run)
 
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -741,13 +741,13 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            engine SqlServer {
-                operation Read {
+            Add-BenchmarkEngine SqlServer {
+                Add-BenchmarkOperation Read {
                     throw 'The SqlServer module read lane is not implemented for this benchmark suite.'
                 }
             }
 
-            validate {
+            Add-BenchmarkValidation {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
@@ -764,25 +764,25 @@ CREATE TABLE dbo.$TableName
                 }
             }
 
-            metric RowsProcessed {
+            Add-BenchmarkMetric RowsProcessed {
                 param($case, $run)
 
                 $run.RowsProcessed
             }
 
-            metric IdSum {
+            Add-BenchmarkMetric IdSum {
                 param($case, $run)
 
                 $run.IdSum
             }
 
-            metric ScoreSum {
+            Add-BenchmarkMetric ScoreSum {
                 param($case, $run)
 
                 $run.ScoreSum
             }
 
-            metric RowsPerSecond {
+            Add-BenchmarkMetric RowsPerSecond {
                 param($case, $run)
 
                 if ($run.DurationMs -le 0) {
@@ -792,11 +792,11 @@ CREATE TABLE dbo.$TableName
                 [double] $case.RowCount / ($run.DurationMs / 1000)
             }
 
-            comparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
+            Add-BenchmarkComparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
-                readme $readmePath -Block 'sqlserver-data-movement-read-benchmark' -Renderer ComparisonTable
+                Add-BenchmarkReadmeBlock $readmePath -Block 'sqlserver-data-movement-read-benchmark' -Renderer ComparisonTable
             }
-            artifacts Json, Csv, Markdown
+            Set-BenchmarkArtifacts Json, Csv, Markdown
         }
     }
 }.GetNewClosure()
