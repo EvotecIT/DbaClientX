@@ -201,18 +201,21 @@ public partial class SQLite
             }
         }
 
-        var connection = new SqliteConnection(connectionString);
-        try
+        return SqliteTransientRetry.Run(() =>
         {
-            connection.Open();
-            ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
-            return (connection, null, true);
-        }
-        catch
-        {
-            connection.Dispose();
-            throw;
-        }
+            var connection = new SqliteConnection(connectionString);
+            try
+            {
+                connection.Open();
+                ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
+                return (connection, (SqliteTransaction?)null, true);
+            }
+            catch
+            {
+                connection.Dispose();
+                throw;
+            }
+        }, CreateTransientRetryOptions());
     }
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>

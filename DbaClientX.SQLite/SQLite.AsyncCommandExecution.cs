@@ -381,23 +381,26 @@ public partial class SQLite
             }
         }
 
-        var connection = new SqliteConnection(connectionString);
-        try
+        return await SqliteTransientRetry.RunAsync(async retryToken =>
         {
-            await AwaitWithCallerCancellationAsync(
-                () => connection.OpenAsync(cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await ApplyBusyTimeoutAsync(
-                connection,
-                ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
-                cancellationToken).ConfigureAwait(false);
-            return (connection, null, true);
-        }
-        catch
-        {
-            await DisposeSQLiteConnectionAsync(connection).ConfigureAwait(false);
-            throw;
-        }
+            var connection = new SqliteConnection(connectionString);
+            try
+            {
+                await AwaitWithCallerCancellationAsync(
+                    () => connection.OpenAsync(retryToken),
+                    retryToken).ConfigureAwait(false);
+                await ApplyBusyTimeoutAsync(
+                    connection,
+                    ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
+                    retryToken).ConfigureAwait(false);
+                return (connection, (SqliteTransaction?)null, true);
+            }
+            catch
+            {
+                await DisposeSQLiteConnectionAsync(connection).ConfigureAwait(false);
+                throw;
+            }
+        }, CreateTransientRetryOptions(), cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Executes a query after the SQLite connection and optional transaction have been resolved.</summary>

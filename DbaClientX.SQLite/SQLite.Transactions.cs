@@ -22,10 +22,7 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
-                connection.Open();
-                ApplyBusyTimeout(connection);
-                transaction = connection.BeginTransaction();
+                (connection, transaction) = CreateStartedTransaction(connectionString, isolationLevel: null);
                 StoreStartedTransaction(
                     ref _transaction,
                     ref _transactionConnection,
@@ -58,10 +55,7 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
-                connection.Open();
-                ApplyBusyTimeout(connection);
-                transaction = connection.BeginTransaction(isolationLevel);
+                (connection, transaction) = CreateStartedTransaction(connectionString, isolationLevel);
                 StoreStartedTransaction(
                     ref _transaction,
                     ref _transactionConnection,
@@ -97,16 +91,10 @@ public partial class SQLite
             var connectionString = BuildOperationalConnectionString(database);
             var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
-            connection = new SqliteConnection(connectionString);
-            await AwaitWithCallerCancellationAsync(
-                () => connection.OpenAsync(cancellationToken),
+            (connection, transaction) = await CreateStartedTransactionAsync(
+                connectionString,
+                isolationLevel: null,
                 cancellationToken).ConfigureAwait(false);
-            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-#else
-            transaction = connection.BeginTransaction();
-#endif
 
             lock (_syncRoot)
             {
@@ -444,8 +432,7 @@ public partial class SQLite
 
     /// <inheritdoc />
     protected override bool IsTransient(Exception ex) =>
-        ex is SqliteException sqliteEx &&
-        sqliteEx.SqliteErrorCode is 5 or 6;
+        SqliteTransientRetry.IsTransient(ex);
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
@@ -478,16 +465,10 @@ public partial class SQLite
             var connectionString = BuildOperationalConnectionString(database);
             var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
-            connection = new SqliteConnection(connectionString);
-            await AwaitWithCallerCancellationAsync(
-                () => connection.OpenAsync(cancellationToken),
+            (connection, transaction) = await CreateStartedTransactionAsync(
+                connectionString,
+                isolationLevel,
                 cancellationToken).ConfigureAwait(false);
-            await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, cancellationToken).ConfigureAwait(false);
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            transaction = (SqliteTransaction)await connection.BeginTransactionAsync(isolationLevel, cancellationToken).ConfigureAwait(false);
-#else
-            transaction = connection.BeginTransaction(isolationLevel);
-#endif
 
             lock (_syncRoot)
             {
@@ -513,6 +494,67 @@ public partial class SQLite
             await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private (SqliteConnection Connection, SqliteTransaction Transaction) CreateStartedTransaction(
+        string connectionString,
+        IsolationLevel? isolationLevel)
+    {
+        return SqliteTransientRetry.Run(() =>
+        {
+            SqliteConnection? connection = null;
+            SqliteTransaction? transaction = null;
+            try
+            {
+                connection = new SqliteConnection(connectionString);
+                connection.Open();
+                ApplyBusyTimeout(connection);
+                transaction = isolationLevel.HasValue
+                    ? connection.BeginTransaction(isolationLevel.Value)
+                    : connection.BeginTransaction();
+                return (connection, transaction);
+            }
+            catch
+            {
+                DisposeTransactionResources(transaction, connection);
+                throw;
+            }
+        }, CreateTransientRetryOptions());
+    }
+
+    private Task<(SqliteConnection Connection, SqliteTransaction Transaction)> CreateStartedTransactionAsync(
+        string connectionString,
+        IsolationLevel? isolationLevel,
+        CancellationToken cancellationToken)
+    {
+        return SqliteTransientRetry.RunAsync(async retryToken =>
+        {
+            SqliteConnection? connection = null;
+            SqliteTransaction? transaction = null;
+            try
+            {
+                connection = new SqliteConnection(connectionString);
+                await AwaitWithCallerCancellationAsync(
+                    () => connection.OpenAsync(retryToken),
+                    retryToken).ConfigureAwait(false);
+                await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, retryToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
+                transaction = isolationLevel.HasValue
+                    ? (SqliteTransaction)await connection.BeginTransactionAsync(isolationLevel.Value, retryToken).ConfigureAwait(false)
+                    : (SqliteTransaction)await connection.BeginTransactionAsync(retryToken).ConfigureAwait(false);
+#else
+                transaction = isolationLevel.HasValue
+                    ? connection.BeginTransaction(isolationLevel.Value)
+                    : connection.BeginTransaction();
+#endif
+                return (connection, transaction);
+            }
+            catch
+            {
+                await DisposeTransactionResourcesAsync(transaction, connection).ConfigureAwait(false);
+                throw;
+            }
+        }, CreateTransientRetryOptions(), cancellationToken: cancellationToken);
     }
 
     /// <summary>

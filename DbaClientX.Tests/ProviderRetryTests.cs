@@ -177,6 +177,27 @@ public class ProviderRetryTests
     }
 
     [Fact]
+    public void Sqlite_RetriesIoErrors()
+    {
+        using var client = new SqliteRetryClient { MaxRetryAttempts = 2, RetryDelay = TimeSpan.Zero };
+        var exception = new SqliteException("disk I/O error", 10);
+        var attempts = 0;
+
+        var result = client.Run(() =>
+        {
+            if (++attempts < 2)
+            {
+                throw exception;
+            }
+
+            return 1;
+        });
+
+        Assert.Equal(1, result);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
     public void ProviderCancellationClassifiers_RecognizeOnlyProviderCancellationCodes()
     {
         using var sqlServer = new SqlServerRetryClient();

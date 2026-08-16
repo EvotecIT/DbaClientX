@@ -21,7 +21,7 @@ public static class SqliteTransientRetry {
         TransientRetryOptions? options = null,
         Action<TransientRetryAttempt>? onRetry = null,
         Action<SqliteTransientRetryAttempt>? onSqliteRetry = null) {
-        TransientRetry.Run(action, IsTransientSqlite, options, attempt => {
+        TransientRetry.Run(action, IsTransient, options, attempt => {
             onRetry?.Invoke(attempt);
             onSqliteRetry?.Invoke(ToSqliteAttempt(attempt));
         });
@@ -41,7 +41,7 @@ public static class SqliteTransientRetry {
         TransientRetryOptions? options = null,
         Action<TransientRetryAttempt>? onRetry = null,
         Action<SqliteTransientRetryAttempt>? onSqliteRetry = null) {
-        return TransientRetry.Run(operation, IsTransientSqlite, options, attempt => {
+        return TransientRetry.Run(operation, IsTransient, options, attempt => {
             onRetry?.Invoke(attempt);
             onSqliteRetry?.Invoke(ToSqliteAttempt(attempt));
         });
@@ -61,7 +61,7 @@ public static class SqliteTransientRetry {
         Action<TransientRetryAttempt>? onRetry = null,
         Action<SqliteTransientRetryAttempt>? onSqliteRetry = null,
         CancellationToken cancellationToken = default) {
-        return TransientRetry.RunAsync(operation, IsTransientSqlite, options, attempt => {
+        return TransientRetry.RunAsync(operation, IsTransient, options, attempt => {
             onRetry?.Invoke(attempt);
             onSqliteRetry?.Invoke(ToSqliteAttempt(attempt));
         }, cancellationToken);
@@ -83,18 +83,38 @@ public static class SqliteTransientRetry {
         Action<TransientRetryAttempt>? onRetry = null,
         Action<SqliteTransientRetryAttempt>? onSqliteRetry = null,
         CancellationToken cancellationToken = default) {
-        return TransientRetry.RunAsync(operation, IsTransientSqlite, options, attempt => {
+        return TransientRetry.RunAsync(operation, IsTransient, options, attempt => {
             onRetry?.Invoke(attempt);
             onSqliteRetry?.Invoke(ToSqliteAttempt(attempt));
         }, cancellationToken);
     }
 
-    private static bool IsTransientSqlite(Exception ex) =>
-        ex is SqliteException sqliteEx &&
-        sqliteEx.SqliteErrorCode is 5 or 6;
+    /// <summary>
+    /// Determines whether an exception chain contains a retryable SQLite busy, locked, or I/O failure.
+    /// </summary>
+    /// <param name="exception">The exception to classify.</param>
+    /// <returns><see langword="true"/> when the failure is suitable for bounded retry.</returns>
+    public static bool IsTransient(Exception exception) {
+        if (exception is null) {
+            throw new ArgumentNullException(nameof(exception));
+        }
+
+        return FindSqliteException(exception) is not null;
+    }
 
     private static SqliteTransientRetryAttempt ToSqliteAttempt(TransientRetryAttempt attempt) {
-        var sqliteErrorCode = attempt.Exception is SqliteException sqlite ? sqlite.SqliteErrorCode : 0;
+        int sqliteErrorCode = FindSqliteException(attempt.Exception)?.SqliteErrorCode ?? 0;
         return new SqliteTransientRetryAttempt(attempt.Attempt, attempt.Delay, sqliteErrorCode, attempt.Exception);
+    }
+
+    private static SqliteException? FindSqliteException(Exception exception) {
+        for (Exception? current = exception; current != null; current = current.InnerException) {
+            if (current is SqliteException sqliteException &&
+                sqliteException.SqliteErrorCode is 5 or 6 or 10) {
+                return sqliteException;
+            }
+        }
+
+        return null;
     }
 }
