@@ -73,6 +73,32 @@ public class SqliteTransientRetryTests {
     }
 
     [Fact]
+    public void Run_RetriesWrappedIoErrors() {
+        var attempts = 0;
+        var options = new TransientRetryOptions {
+            MaxAttempts = 2,
+            BaseDelay = TimeSpan.Zero
+        };
+
+        string result = SqliteTransientRetry.Run(
+            () => {
+                attempts++;
+                if (attempts == 1) {
+                    throw new DbaQueryExecutionException(
+                        "Temporary SQLite I/O failure.",
+                        "SELECT 1;",
+                        new SqliteException("disk I/O error", 10));
+                }
+
+                return "ok";
+            },
+            options);
+
+        Assert.Equal("ok", result);
+        Assert.Equal(2, attempts);
+    }
+
+    [Fact]
     public void Run_EmitsSqliteRetryTelemetryWithErrorCode() {
         var attempts = 0;
         var telemetry = new List<SqliteTransientRetryAttempt>();
