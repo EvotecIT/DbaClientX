@@ -2,7 +2,7 @@
 Module Name: DbaClientX
 Module Guid: c22cc272-c829-49e2-aaa1-58d3c36edb94
 Download Help Link: https://github.com/EvotecIT/DbaClientX
-Help Version: 1.0.6
+Help Version: 1.0.7
 Locale: en-US
 ---
 # DbaClientX Module

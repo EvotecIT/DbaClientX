@@ -444,6 +444,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
                             foreach ($Alias in $PowerForgeDevelopmentInnerModule.ExportedAliases.Values) {
                                 $AliasTarget = if ([string]::IsNullOrWhiteSpace($Alias.Definition)) { $Alias.ResolvedCommandName } else { $Alias.Definition }
                                 try {
+                                    # The alias must exist in this module scope before the private export table can reference it.
                                     Set-Alias -Name $Alias.Name -Value $AliasTarget -Scope Local -Force -ErrorAction Stop
                                     $ExportedAlias = $ExecutionContext.SessionState.InvokeCommand.GetCommand($Alias.Name, [System.Management.Automation.CommandTypes]::Alias)
                                     if ($null -ne $ExportedAlias) {
@@ -463,6 +464,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
                         & $ImportModule $PowerForgeDevelopmentBinaryPath -ErrorAction Stop
                     }
                 }
+
             } else {
                 $PowerForgeDevelopmentLoadedType = 'DBAClientX.PowerShell.Initialize' -as [type]
                 $PowerForgeDevelopmentLoadedAssembly = if ($PowerForgeDevelopmentLoadedType -and $PowerForgeDevelopmentLoadedType.Assembly) { $PowerForgeDevelopmentLoadedType.Assembly } else { $null }
@@ -827,6 +829,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
         }
     }
 }
+
 
 $FunctionsToExport = @()
 $CmdletsToExport = @('ConvertTo-DbaXParameterMap', 'Copy-DbaXAzureTableData', 'Copy-DbaXTableData', 'Get-DbaXAzureTableEntity', 'Get-DbaXMetadata', 'Get-DbaXProviderCapability', 'Get-DbaXSQLiteDiagnostics', 'Get-DbaXSqlServerManagement', 'Get-DbaXSqlServerMonitoring', 'Get-DbaXTableCopyPlan', 'Invoke-DbaXBulkInsert', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXQuery', 'Invoke-DbaXQueryStream', 'Invoke-DbaXSQLite', 'Invoke-DbaXSQLiteMaintenance', 'Invoke-DbaXSQLiteTransaction', 'Invoke-DbaXStoredProcedure', 'Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'New-DbaXQuery', 'New-DbaXTableCopyDefinition', 'New-DbaXTableCopyPlan', 'Test-DbaXConnection', 'Write-DbaXAzureTableEntity', 'Write-DbaXTableData')
