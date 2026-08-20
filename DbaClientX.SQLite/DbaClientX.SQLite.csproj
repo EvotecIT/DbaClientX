@@ -30,7 +30,9 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
+    <!-- Select native restore assets with a RID while keeping the managed provider usable by x86 and x64 hosts. -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
   <ItemGroup>
