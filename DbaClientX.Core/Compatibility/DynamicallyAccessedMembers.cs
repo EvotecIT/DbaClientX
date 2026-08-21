@@ -1,4 +1,4 @@
-#if NET472
+#if NET472 || NETSTANDARD2_1
 namespace System.Diagnostics.CodeAnalysis;
 
 [System.Flags]

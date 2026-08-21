@@ -3,9 +3,9 @@
     <Description>DbaClientX Core library</Description>
     <AssemblyName>DbaClientX.Core</AssemblyName>
     <AssemblyTitle>DbaClientX.Core</AssemblyTitle>
-    <VersionPrefix>1.0.1</VersionPrefix>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">net472;net8.0;net10.0</TargetFrameworks>
-    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">net8.0;net10.0</TargetFrameworks>
+    <VersionPrefix>1.0.2</VersionPrefix>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`Windows`))' ">net472;netstandard2.1;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks Condition=" '$([MSBuild]::IsOsPlatform(`OSX`))'  Or '$([MSBuild]::IsOsPlatform(`Linux`))' ">netstandard2.1;net8.0;net10.0</TargetFrameworks>
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <Company>Evotec</Company>
     <Authors>Przemyslaw Klys</Authors>

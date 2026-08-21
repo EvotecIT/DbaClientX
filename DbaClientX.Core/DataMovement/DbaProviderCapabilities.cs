@@ -67,7 +67,7 @@ public static class DbaProviderCapabilities
     {
         get
         {
-#if NETCOREAPP
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
             return true;
 #else
             return false;
