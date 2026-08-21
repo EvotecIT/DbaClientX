@@ -4,15 +4,16 @@
   "ExpectedVersion": null,
   "ExpectedVersionMap": {
     "DbaClientX.Core": "1.0.X",
-    "DbaClientX.AzureTables": "0.X.0",
-    "DbaClientX.SqlServer": "0.X.0",
-    "DbaClientX.PostgreSql": "0.X.0",
-    "DbaClientX.MySql": "0.X.0",
-    "DbaClientX.SQLite": "0.X.0",
-    "DbaClientX.Oracle": "0.X.0"
+    "DbaClientX.AzureTables": "1.0.X",
+    "DbaClientX.SqlServer": "1.0.X",
+    "DbaClientX.PostgreSql": "1.0.X",
+    "DbaClientX.MySql": "1.0.X",
+    "DbaClientX.SQLite": "1.0.X",
+    "DbaClientX.Oracle": "1.0.X"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,
+  "AlignPackageVersions": true,
   "ExcludeProjects": [
     "DbaClientX.PowerShell",
     "DbaClientX.Tests",

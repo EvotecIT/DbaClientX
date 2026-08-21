@@ -10,26 +10,17 @@ param(
 
 Import-Module PSPublishModule -MinimumVersion 3.0.55 -Force -ErrorAction Stop
 
-$publishingNuget = $PublishNuget -eq $true
-$publishingGitHub = $PublishGitHub -eq $true
-$publishingAny = $publishingNuget -or $publishingGitHub
-$publishingSingleDestination = $publishingNuget -xor $publishingGitHub
-$updateVersionsExplicitlyDisabled = $null -ne $UpdateVersions -and $UpdateVersions -eq $false
-
-if ($publishingSingleDestination -and -not $updateVersionsExplicitlyDisabled) {
-    throw "Publishing only one destination while version updates are enabled can split NuGet and GitHub across different versions. Run one command with both -PublishNuget `$true and -PublishGitHub `$true, or explicitly use -UpdateVersions `$false only when replaying an already-versioned build."
+if ($UpdateVersions -eq $true -or $PublishNuget -eq $true -or $PublishGitHub -eq $true) {
+    throw "DbaClientX versions and publishes its NuGet packages and PowerShell module as one coordinated release. Use Module\Build\Build-Module.ps1 with RunMode Build or Publish."
 }
 
 $invokeParams = @{
-    ConfigPath = $ConfigPath
+    ConfigPath     = $ConfigPath
+    UpdateVersions = $false
+    PublishNuget   = $false
+    PublishGitHub  = $false
 }
-if ($publishingAny -and $null -eq $UpdateVersions) {
-    $invokeParams.UpdateVersions = $true
-}
-if ($null -ne $UpdateVersions) { $invokeParams.UpdateVersions = $UpdateVersions }
 if ($null -ne $Build) { $invokeParams.Build = $Build }
-if ($null -ne $PublishNuget) { $invokeParams.PublishNuget = $PublishNuget }
-if ($null -ne $PublishGitHub) { $invokeParams.PublishGitHub = $PublishGitHub }
 if ($null -ne $Plan) { $invokeParams.Plan = $Plan }
 if ($PlanPath) { $invokeParams.PlanPath = $PlanPath }
 
