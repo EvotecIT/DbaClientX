@@ -3,7 +3,7 @@
 SQLite provider for DbaClientX (Microsoft.Data.Sqlite). Supports non-query, scalar, queries, streaming, transactions, bulk insert.
 Also includes SQLite maintenance helpers for online database backup, WAL checkpointing, `PRAGMA optimize`, and graceful shutdown preparation.
 
-- Target Frameworks: `net472` (win-x64), `net8.0`, `net10.0`
+- Target Frameworks: `net472` (win-x64), `netstandard2.1`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
 
 ## Install

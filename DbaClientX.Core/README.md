@@ -2,7 +2,7 @@
 
 Core building blocks for DbaClientX: retryable execution pipeline, parameter mapping for POCOs/dictionaries, SQL query builder/compiler, and light utilities.
 
-- Target Frameworks: `net472`, `net8.0`, `net10.0`
+- Target Frameworks: `net472`, `netstandard2.1`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.Core`
 
 ## Install
