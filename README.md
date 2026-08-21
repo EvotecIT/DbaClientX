@@ -580,26 +580,35 @@ Module package builds:
 
 Package publishing is intentionally manual in this repository because releases are signed locally with the USB key certificate.
 
-Generate a build plan:
+The DbaClientX PowerShell module and its seven NuGet packages use one coordinated version. FabricClientX remains a separate release train.
+
+Generate a package plan without changing versions:
 
 ```powershell
 pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Plan $true
 pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -ConfigPath .\Build\fabricclientx.build.json -Plan $true
 ```
 
-Build signed packages locally:
+Build signed release candidates without publishing:
 
 ```powershell
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Build $true -PublishNuget $false -PublishGitHub $false
+pwsh.exe -NoLogo -NoProfile -File .\Module\Build\Build-Module.ps1 -RunMode Build
+pwsh.exe -NoLogo -NoProfile -File .\Module-FabricClientX\Build\Build-Module.ps1 -RunMode Build
 ```
 
-Publish NuGet and GitHub together in one versioned run:
+Publish the coordinated DbaClientX module and NuGet release:
 
 ```powershell
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -PublishNuget $true -PublishGitHub $true
+pwsh.exe -NoLogo -NoProfile -File .\Module\Build\Build-Module.ps1 -RunMode Publish
 ```
 
-Build configuration lives in [`Build/project.build.json`](Build/project.build.json), and artifacts are generated under `Artefacts/ProjectBuild`.
+Publish FabricClientX separately:
+
+```powershell
+pwsh.exe -NoLogo -NoProfile -File .\Module-FabricClientX\Build\Build-Module.ps1 -RunMode Publish
+```
+
+Package build configuration lives in [`Build/project.build.json`](Build/project.build.json) and [`Build/fabricclientx.build.json`](Build/fabricclientx.build.json). Package artifacts are generated under `Artefacts/DbaClientX/ProjectBuild` and `Artefacts/FabricClientX/ProjectBuild`; coordinated release assets are staged under each module's `Artefacts/UploadReady` directory.
 
 ## Notes
 
@@ -607,4 +616,4 @@ Build configuration lives in [`Build/project.build.json`](Build/project.build.js
 - SourceLink is enabled for provider projects for easier debugging into packages.
 - SQL Server uses `Microsoft.Data.SqlClient`.
 - PowerShell 7 package builds use a module-scoped AssemblyLoadContext so DbaClientX can coexist more safely with other modules that load overlapping assemblies.
-- The release wrapper treats version updates as part of publishing. If you intentionally need a replay-only publish for already-versioned artifacts, pass `-UpdateVersions $false` explicitly.
+- `Build/Build-Project.ps1` is for package-only plans and local builds. Version updates and publication must run through the matching module build so package and module versions cannot diverge.

@@ -131,10 +131,8 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    # NuGet packages keep independent 0.x versions; build them as module dependencies,
-    # not as members of the PowerShell module's coordinated 1.0.x release line.
-    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$false -BuildBeforeModule -ProvideLocalNuGetFeed -PublishNuget
-    New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource Module -BuildOrder 'Module' -PublishOrder 'PowerShellGallery', 'GitHub'
+    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget
+    New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'DbaClientX.Core' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Artefacts\Unpacked' #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"
     New-ConfigurationArtefact -Type Packed -Enable -Path 'Artefacts\Packed' -IncludeTagName
