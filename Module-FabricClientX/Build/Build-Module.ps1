@@ -53,7 +53,10 @@ Build-Module -ModuleName 'FabricClientX' -NoInteractive {
             'FabricClientX.Core'
             'FabricClientX.PowerBI'
             'FabricClientX.OfficeIMO'
-            'OfficeIMO.CSV'
+        )
+        NETAssemblyTypeAccelerators           = @(
+            'OfficeIMO.CSV.CsvLoadOptions'
+            'OfficeIMO.CSV.CsvDataReaderOptions'
         )
         NETHandleRuntimes                    = $true
         NETIgnoreLibraryOnLoad               = @(
@@ -71,8 +74,8 @@ Build-Module -ModuleName 'FabricClientX' -NoInteractive {
     }
     New-ConfigurationBuild @build
 
-    New-ConfigurationProjectBuild -Name 'FabricClientX' -ConfigPath '..\Build\fabricclientx.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget
-    New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'FabricClientX.Core' -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
+    New-ConfigurationProjectBuild -Name 'FabricClientX' -ConfigPath '..\Build\fabricclientx.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -SignAssemblies:$SignModule -SignPackages:$SignModule
+    New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'FabricClientX.Core' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Artefacts\Unpacked'
     New-ConfigurationArtefact -Type Packed -Enable -Path 'Artefacts\Packed' -IncludeTagName

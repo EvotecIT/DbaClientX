@@ -66,6 +66,14 @@ public sealed class PowerBiRefreshDetail
 /// <summary>Represents a normalized Power BI refresh engine message.</summary>
 public sealed class PowerBiRefreshMessage
 {
+    /// <summary>Gets or sets the service error or warning code.</summary>
+    [JsonPropertyName("code")]
+    public string? Code { get; set; }
+
+    /// <summary>Gets or sets the service-provided error or warning text.</summary>
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
     /// <summary>Gets or sets the message type.</summary>
     [JsonPropertyName("type")]
     public string? Type { get; set; }
@@ -91,7 +99,8 @@ public sealed class PowerBiRefreshSettlement
 
     /// <summary>Gets whether the refresh completed successfully.</summary>
     public bool Succeeded =>
-        string.Equals(Detail.Status, "Completed", StringComparison.OrdinalIgnoreCase);
+        string.Equals(Detail.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Detail.ExtendedStatus, "Completed", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Gets the stable cross-library W3C operation identifier.</summary>
     public string OperationId => Start.OperationId;

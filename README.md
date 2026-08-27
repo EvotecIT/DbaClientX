@@ -585,8 +585,8 @@ The DbaClientX PowerShell module and its seven NuGet packages use one coordinate
 Generate a package plan without changing versions:
 
 ```powershell
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -Plan $true
-pwsh.exe -NoLogo -NoProfile -File .\Build\Build-Project.ps1 -ConfigPath .\Build\fabricclientx.build.json -Plan $true
+.\Build\Build-Project.ps1 -Plan $true
+.\Build\Build-Project.ps1 -ConfigPath .\Build\fabricclientx.build.json -Plan $true
 ```
 
 Build signed release candidates without publishing:

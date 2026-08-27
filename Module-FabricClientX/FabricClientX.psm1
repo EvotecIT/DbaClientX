@@ -183,8 +183,8 @@ namespace FabricClientX.DevelopmentModuleLoadContext
                     )
 
                     $Mode = 'Assembly'
-                    $RequestedTypes = @()
-                    $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO', 'OfficeIMO.CSV')
+                    $RequestedTypes = @('OfficeIMO.CSV.CsvLoadOptions', 'OfficeIMO.CSV.CsvDataReaderOptions')
+                    $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO')
 
                     if ($null -eq $ModuleAssembly) {
                         Write-Warning -Message 'Module assembly was not available. ALC dependency type exposure is disabled.'
@@ -470,8 +470,8 @@ namespace FabricClientX.DevelopmentModuleLoadContext
                     param([Parameter(Mandatory = $true)][string] $LibraryDirectory)
 
                     $Mode = 'Assembly'
-                    $RequestedTypes = @()
-                    $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO', 'OfficeIMO.CSV')
+                    $RequestedTypes = @('OfficeIMO.CSV.CsvLoadOptions', 'OfficeIMO.CSV.CsvDataReaderOptions')
+                    $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO')
                     $IgnoredLibraryFileNames = @('Microsoft.Data.SqlClient.SNI.arm64.dll', 'Microsoft.Data.SqlClient.SNI.dll', 'Microsoft.Data.SqlClient.SNI.x64.dll', 'Microsoft.Data.SqlClient.SNI.x86.dll')
 
                     if ([string]::IsNullOrWhiteSpace($LibraryDirectory) -or -not (Test-Path -LiteralPath $LibraryDirectory)) {

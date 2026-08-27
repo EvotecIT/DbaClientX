@@ -3,12 +3,13 @@
   "RootPath": "..",
   "ExpectedVersion": null,
   "ExpectedVersionMap": {
-    "FabricClientX.Core": "0.X.0",
-    "FabricClientX.PowerBI": "0.X.0",
-    "FabricClientX.OfficeIMO": "0.X.0"
+    "FabricClientX.Core": "0.1.X",
+    "FabricClientX.PowerBI": "0.1.X",
+    "FabricClientX.OfficeIMO": "0.1.X"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,
+  "AlignPackageVersions": true,
   "IncludeProjects": [
     "FabricClientX.Core",
     "FabricClientX.PowerBI",
