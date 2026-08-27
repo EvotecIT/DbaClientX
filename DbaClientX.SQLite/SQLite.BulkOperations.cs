@@ -57,7 +57,7 @@ public partial class SQLite
                     if (command == null || preparedRowsPerBatch != currentRows)
                     {
                         command?.Dispose();
-                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows);
                         preparedRowsPerBatch = currentRows;
                     }
 
@@ -182,7 +182,7 @@ public partial class SQLite
 #endif
                         }
 
-                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows, CommandTimeout);
+                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows);
                         preparedRowsPerBatch = currentRows;
                     }
 
@@ -366,15 +366,12 @@ public partial class SQLite
         return $"INSERT INTO {QuoteIdentifierPath(destinationTable)} ({string.Join(", ", columnNames)}) VALUES {string.Join(", ", values)};";
     }
 
-    private static SqliteCommand CreatePreparedBulkInsertCommand(SqliteConnection connection, SqliteTransaction? transaction, string destinationTable, DataColumn[] columns, int rowsPerBatch, int commandTimeout)
+    private SqliteCommand CreatePreparedBulkInsertCommand(SqliteConnection connection, SqliteTransaction? transaction, string destinationTable, DataColumn[] columns, int rowsPerBatch)
     {
         var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = BuildBulkInsertStatement(destinationTable, columns, rowsPerBatch);
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
+        ApplyCommandTimeout(command);
 
         for (var rowIndex = 0; rowIndex < rowsPerBatch; rowIndex++)
         {

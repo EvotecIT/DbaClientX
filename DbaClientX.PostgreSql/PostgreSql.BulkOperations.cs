@@ -157,7 +157,7 @@ public partial class PostgreSql
     /// <param name="connection">An open PostgreSQL connection.</param>
     /// <param name="table">Source table whose rows will be copied.</param>
     /// <param name="destinationTable">Fully qualified destination table name.</param>
-    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation.</param>
+    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation. Specify 0 for no timeout.</param>
     /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
     protected virtual void WriteTable(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction)
         => WriteRows(connection, table.Rows.Cast<DataRow>(), table.Columns, destinationTable, bulkCopyTimeout, transaction);
@@ -188,7 +188,7 @@ public partial class PostgreSql
     /// <param name="connection">An open PostgreSQL connection.</param>
     /// <param name="table">Source table whose rows will be copied.</param>
     /// <param name="destinationTable">Fully qualified destination table name.</param>
-    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation.</param>
+    /// <param name="bulkCopyTimeout">Optional timeout (seconds) applied to the COPY operation. Specify 0 for no timeout.</param>
     /// <param name="transaction">Ambient transaction to enlist in, if any.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     protected virtual async Task WriteTableAsync(NpgsqlConnection connection, DataTable table, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
@@ -325,9 +325,9 @@ public partial class PostgreSql
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
         }
 
-        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value <= 0)
+        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
+            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout cannot be negative.");
         }
     }
 

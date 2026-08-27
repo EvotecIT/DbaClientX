@@ -399,9 +399,9 @@ public partial class SqlServer
             throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
         }
 
-        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value <= 0)
+        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout must be greater than zero.");
+            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout cannot be negative.");
         }
 
         if (options?.NotifyAfter is int notifyAfter && notifyAfter <= 0)

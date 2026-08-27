@@ -155,11 +155,7 @@ public partial class SQLite
         {
             using var command = connection.CreateCommand();
             command.CommandText = commandText;
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             return await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteScalarAsync(cancellationToken),

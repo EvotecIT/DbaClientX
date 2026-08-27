@@ -251,12 +251,4 @@ public partial class Oracle
         }
     }
 
-    private void ApplyCommandTimeout(OracleCommand command)
-    {
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
-    }
 }

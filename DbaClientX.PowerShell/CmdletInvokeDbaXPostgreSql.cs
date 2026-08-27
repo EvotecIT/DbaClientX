@@ -63,9 +63,10 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string StoredProcedure { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter(ParameterSetName = "Query")]
     [Parameter(ParameterSetName = "StoredProcedure")]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Streams results instead of buffering them.</summary>
@@ -116,7 +117,7 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
         await Task.Yield();
         using var postgreSql = PostgreSqlFactory();
         postgreSql.ReturnType = ReturnType;
-        postgreSql.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(postgreSql, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         var action = !string.IsNullOrEmpty(StoredProcedure) ? "Execute PostgreSQL stored procedure" : "Execute PostgreSQL query";
         if (!ShouldProcess($"{Server}/{Database}", action)) {
             return;

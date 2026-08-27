@@ -310,6 +310,7 @@ public partial class SQLite : DatabaseClientBase
 
         using var command = connection.CreateCommand();
         command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+        ApplyCommandTimeout(command);
         command.ExecuteNonQuery();
     }
 
@@ -323,6 +324,7 @@ public partial class SQLite : DatabaseClientBase
 
         using var command = connection.CreateCommand();
         command.CommandText = $"PRAGMA busy_timeout = {effectiveTimeout};";
+        ApplyCommandTimeout(command);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
         await AwaitWithCallerCancellationAsync(
             () => command.ExecuteNonQueryAsync(cancellationToken),

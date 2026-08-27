@@ -39,8 +39,9 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Provides parameters for the SQL command.</summary>
@@ -74,7 +75,7 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
     /// </summary>
     protected override void ProcessRecord() {
         using var postgreSql = PostgreSqlFactory();
-        postgreSql.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(postgreSql, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         if (!ShouldProcess($"{Server}/{Database}", "Execute PostgreSQL non-query")) {
             return;
         }

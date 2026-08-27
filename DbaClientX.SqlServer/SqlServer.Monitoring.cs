@@ -111,6 +111,7 @@ public partial class SqlServer
             using SqlCommand command = connection.CreateCommand();
             command.CommandText = ConnectionDiagnosticsQuery;
             command.CommandType = CommandType.Text;
+            ApplyCommandTimeout(command);
             using SqlDataReader reader = await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(cancellationToken),
                 cancellationToken).ConfigureAwait(false);
@@ -224,6 +225,7 @@ public partial class SqlServer
             {
                 using SqlCommand command = connection.CreateCommand();
                 command.CommandText = $"DBCC DBINFO({QuoteSqlIdentifier(database.DatabaseName)}) WITH TABLERESULTS";
+                ApplyCommandTimeout(command);
                 using SqlDataReader reader = await AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(cancellationToken),
                     cancellationToken).ConfigureAwait(false);
@@ -321,6 +323,7 @@ public partial class SqlServer
         using SqlCommand command = connection.CreateCommand();
         command.CommandText = query;
         command.CommandType = CommandType.Text;
+        ApplyCommandTimeout(command);
         if (parameters != null)
         {
             foreach (KeyValuePair<string, object?> parameter in parameters)

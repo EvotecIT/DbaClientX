@@ -15,11 +15,10 @@ namespace DBAClientX;
 /// Provides a common foundation for database client implementations, including
 /// retry logic, parameter handling, and result materialization helpers.
 /// </summary>
-public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
+public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
 {
     private readonly object _syncRoot = new();
     private ReturnType _returnType;
-    private int _commandTimeout;
     private int _maxRetryAttempts = 3;
     private TimeSpan _retryDelay = TimeSpan.FromMilliseconds(200);
     private bool _retryNonQueryOperations;
@@ -33,16 +32,6 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
     {
         get { lock (_syncRoot) { return _returnType; } }
         set { lock (_syncRoot) { _returnType = value; } }
-    }
-
-    /// <summary>
-    /// Gets or sets the command timeout applied to database commands, in seconds.
-    /// Specify <c>0</c> to use the provider default.
-    /// </summary>
-    public int CommandTimeout
-    {
-        get { lock (_syncRoot) { return _commandTimeout; } }
-        set { lock (_syncRoot) { _commandTimeout = value; } }
     }
 
     /// <summary>
@@ -614,11 +603,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             object? result;
             using (var reader = command.ExecuteReader(CommandBehavior.SequentialAccess))
@@ -704,11 +689,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var rows = new List<T>();
             using (var reader = command.ExecuteReader(CommandBehavior.Default))
@@ -744,11 +725,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var affected = command.ExecuteNonQuery();
             UpdateOutputParameters(command, parameters);
@@ -779,11 +756,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
             var result = command.ExecuteScalar();
             UpdateOutputParameters(command, parameters);
             return result;
@@ -810,11 +783,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             object? result;
             using (var reader = await AwaitWithCallerCancellationAsync(
@@ -908,11 +877,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var rows = new List<T>();
             using (var reader = await AwaitWithCallerCancellationAsync(
@@ -960,11 +925,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var affected = await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteNonQueryAsync(cancellationToken),
@@ -1001,11 +962,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, parameterTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var result = await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteScalarAsync(cancellationToken),
@@ -1047,11 +1004,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         command.CommandType = commandType;
         AddParameters(command, parameters, parameterTypes, parameterDirections);
         AddParameters(command, dbParameters);
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
+        ApplyCommandTimeout(command);
 
         await using var reader = await TransientRetry.RunAsync(
             ct => AwaitWithCallerCancellationAsync(
@@ -1123,11 +1076,7 @@ public abstract class DatabaseClientBase : IDisposable, IAsyncDisposable
         command.CommandType = commandType;
         AddParameters(command, parameters, parameterTypes, parameterDirections);
         AddParameters(command, dbParameters);
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
+        ApplyCommandTimeout(command);
 
         await using var reader = await TransientRetry.RunAsync(
             ct => AwaitWithCallerCancellationAsync(

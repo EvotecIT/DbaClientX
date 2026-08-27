@@ -190,11 +190,7 @@ public partial class SQLite
 
             using var command = connection.CreateCommand();
             command.CommandText = pragma;
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             command.ExecuteNonQuery();
             cancellationToken.ThrowIfCancellationRequested();

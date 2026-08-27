@@ -39,8 +39,9 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Streams results instead of buffering them.</summary>
@@ -73,7 +74,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         await Task.Yield();
         using var sqlite = SQLiteFactory();
         sqlite.ReturnType = ReturnType;
-        sqlite.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(sqlite, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         if (!ShouldProcess(Database, "Execute SQLite query")) {
             return;
         }

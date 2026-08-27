@@ -121,12 +121,12 @@ public sealed class PowerBiClient
                 var detail = response.Value ??
                     throw new InvalidOperationException("Power BI returned an empty refresh status.");
 
-                if (IsTerminal(detail.Status))
+                if (IsTerminal(detail))
                 {
                     return new PowerBiRefreshSettlement(start, detail);
                 }
 
-                if (!IsInProgress(detail.Status))
+                if (!IsInProgress(detail))
                 {
                     throw new InvalidOperationException(
                         "Power BI returned an unsupported refresh status.");
@@ -194,14 +194,23 @@ public sealed class PowerBiClient
             cancellationToken);
     }
 
-    private static bool IsTerminal(string status)
+    private static bool IsTerminal(PowerBiRefreshDetail detail)
+        => IsTerminalStatus(detail.Status) ||
+           IsTerminalStatus(detail.ExtendedStatus);
+
+    private static bool IsTerminalStatus(string? status)
         => string.Equals(status, "Completed", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "TimedOut", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Disabled", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsInProgress(string status)
+    private static bool IsInProgress(PowerBiRefreshDetail detail)
+        => IsInProgressStatus(detail.Status) &&
+           (string.IsNullOrWhiteSpace(detail.ExtendedStatus) ||
+            IsInProgressStatus(detail.ExtendedStatus));
+
+    private static bool IsInProgressStatus(string? status)
         => string.Equals(status, "Unknown", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "NotStarted", StringComparison.OrdinalIgnoreCase) ||
            string.Equals(status, "Running", StringComparison.OrdinalIgnoreCase) ||

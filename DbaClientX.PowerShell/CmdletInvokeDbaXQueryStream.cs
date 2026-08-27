@@ -38,8 +38,9 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
-    /// <summary>Optional command timeout in seconds.</summary>
+    /// <summary>Optional command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter(Mandatory = false)]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <inheritdoc />
@@ -57,7 +58,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
         switch (Provider)
         {
             case DbaXProvider.SqlServer:
-                using (var client = new DBAClientX.SqlServer { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                using (var client = ConfigureClient(new DBAClientX.SqlServer { ReturnType = ReturnType }))
                 {
                     if (RequiresBufferedAggregate())
                     {
@@ -70,7 +71,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
                 }
                 break;
             case DbaXProvider.PostgreSql:
-                using (var client = new DBAClientX.PostgreSql { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                using (var client = ConfigureClient(new DBAClientX.PostgreSql { ReturnType = ReturnType }))
                 {
                     if (RequiresBufferedAggregate())
                     {
@@ -83,7 +84,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
                 }
                 break;
             case DbaXProvider.MySql:
-                using (var client = new DBAClientX.MySql { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                using (var client = ConfigureClient(new DBAClientX.MySql { ReturnType = ReturnType }))
                 {
                     if (RequiresBufferedAggregate())
                     {
@@ -96,7 +97,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
                 }
                 break;
             case DbaXProvider.Oracle:
-                using (var client = new DBAClientX.Oracle { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                using (var client = ConfigureClient(new DBAClientX.Oracle { ReturnType = ReturnType }))
                 {
                     if (RequiresBufferedAggregate())
                     {
@@ -109,7 +110,7 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
                 }
                 break;
             case DbaXProvider.SQLite:
-                using (var client = new DBAClientX.SQLite { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                using (var client = ConfigureClient(new DBAClientX.SQLite { ReturnType = ReturnType }))
                 {
                     var connectionString = DbaXProviderHelpers.GetValidatedSQLiteConnectionString(ConnectionString);
                     if (RequiresBufferedAggregate())
@@ -133,4 +134,10 @@ public sealed class CmdletInvokeDbaXQueryStream : AsyncPSCmdlet
 
     private bool RequiresBufferedAggregate()
         => ReturnType == ReturnType.DataTable || ReturnType == ReturnType.DataSet;
+
+    private T ConfigureClient<T>(T client) where T : DatabaseClientBase
+    {
+        PowerShellHelpers.ApplyQueryTimeout(client, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
+        return client;
+    }
 }

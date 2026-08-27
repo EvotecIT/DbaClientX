@@ -83,10 +83,11 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string StoredProcedure { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter(Mandatory = false, ParameterSetName = "Query")]
     [Parameter(Mandatory = false, ParameterSetName = "QueryReader")]
     [Parameter(Mandatory = false, ParameterSetName = "StoredProcedure")]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Streams results instead of buffering them.</summary>
@@ -362,7 +363,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
     {
         var sqlServer = SqlServerFactory();
         sqlServer.ReturnType = ReturnType;
-        sqlServer.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(sqlServer, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         return sqlServer;
     }
 

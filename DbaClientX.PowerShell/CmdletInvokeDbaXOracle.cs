@@ -58,8 +58,9 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the timeout for the command in seconds.</summary>
+    /// <summary>Sets the timeout for the command in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Streams results without buffering.</summary>
@@ -158,7 +159,7 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
     private DBAClientX.Oracle CreateOracle() {
         var oracle = OracleFactory();
         oracle.ReturnType = ReturnType;
-        oracle.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(oracle, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         return oracle;
     }
 

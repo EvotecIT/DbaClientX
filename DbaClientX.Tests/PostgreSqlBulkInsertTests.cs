@@ -129,6 +129,21 @@ public class PostgreSqlBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_ZeroTimeoutIsInfiniteAndNegativeIsRejected()
+    {
+        using var pg = new CapturePostgreSql();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        pg.BulkInsert("h", "db", "u", "p", table, "Dest", bulkCopyTimeout: 0);
+
+        Assert.Equal(0, pg.Timeout);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            pg.BulkInsert("h", "db", "u", "p", table, "Dest", bulkCopyTimeout: -1));
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_SetsOptionsAndMappings()
     {
         using var pg = new CapturePostgreSql();

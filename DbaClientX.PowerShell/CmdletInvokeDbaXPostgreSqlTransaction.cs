@@ -39,8 +39,9 @@ public sealed class CmdletInvokeDbaXPostgreSqlTransaction : PSCmdlet
     [Credential]
     public PSCredential? Credential { get; set; }
 
-    /// <summary>Command timeout to assign to the transaction client.</summary>
+    /// <summary>Command timeout to assign to the transaction client. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Isolation level to use for the transaction.</summary>

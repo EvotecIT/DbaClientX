@@ -166,11 +166,18 @@ public sealed class CsvFabricWorkflow
         }
 
         FabricWarehouseProfile.ValidateBulkCopyOptions(request.BulkInsertOptions);
-        if (request.BatchSize <= 0 || request.BulkCopyTimeout <= 0)
+        if (request.BatchSize <= 0)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request),
-                "BatchSize and BulkCopyTimeout must be greater than zero when supplied.");
+                "BatchSize must be greater than zero when supplied.");
+        }
+
+        if (request.BulkCopyTimeout < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request),
+                "BulkCopyTimeout cannot be negative.");
         }
 
         if (request.RefreshAfterLoad &&

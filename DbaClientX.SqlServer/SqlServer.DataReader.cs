@@ -174,11 +174,7 @@ public partial class SqlServer
         command.Transaction = transaction;
         var dbTypes = ConvertParameterTypes(parameterTypes);
         AddParameters(command, parameters, dbTypes, parameterDirections);
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
+        ApplyCommandTimeout(command);
 
         return command;
     }

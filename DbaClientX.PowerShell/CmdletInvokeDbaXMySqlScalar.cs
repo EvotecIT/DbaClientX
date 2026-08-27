@@ -35,8 +35,9 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Selects the format of the returned value.</summary>
@@ -76,7 +77,7 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
     /// </summary>
     protected override async Task ProcessRecordAsync() {
         using var mySql = MySqlFactory();
-        mySql.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(mySql, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL scalar query")) {
             return;
         }

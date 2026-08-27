@@ -62,8 +62,9 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the timeout for the command in seconds.</summary>
+    /// <summary>Sets the timeout for the command in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Streams results without buffering.</summary>
@@ -108,7 +109,7 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
     protected override async Task ProcessRecordAsync() {
         using var mySql = MySqlFactory();
         mySql.ReturnType = ReturnType;
-        mySql.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(mySql, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         if (!ShouldProcess($"{Server}/{Database}", "Execute MySQL query")) {
             return;
         }

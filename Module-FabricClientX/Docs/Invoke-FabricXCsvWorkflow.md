@@ -45,7 +45,7 @@ Accept wildcard characters: False
 ```
 
 ### -BulkCopyTimeout
-Optional SQL bulk-copy timeout in seconds.
+Optional SQL bulk-copy timeout in seconds. Specify 0 for no timeout.
 
 ```yaml
 Type: Int32

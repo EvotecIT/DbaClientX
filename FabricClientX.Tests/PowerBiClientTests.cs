@@ -25,7 +25,7 @@ public sealed class PowerBiClientTests
         handler.Enqueue(HttpStatusCode.Accepted, """{"status":"Unknown","numberOfAttempts":0}""");
         handler.Enqueue(
             HttpStatusCode.OK,
-            """{"status":"Completed","extendedStatus":"Completed","numberOfAttempts":1}""");
+            """{"status":"Completed","extendedStatus":"Completed","numberOfAttempts":1,"messages":[{"code":"0xC112001C","message":"The command was cancelled.","type":"Error"}]}""");
         var transport = TestClients.Create(
             handler,
             baseAddress: PowerBiClient.DefaultBaseAddress);
@@ -42,6 +42,10 @@ public sealed class PowerBiClientTests
         Assert.True(settlement.Succeeded);
         Assert.Equal(operationId, settlement.OperationId);
         Assert.Equal(refreshId, settlement.Start.RefreshId);
+        var message = Assert.Single(settlement.Detail.Messages!);
+        Assert.Equal("0xC112001C", message.Code);
+        Assert.Equal("The command was cancelled.", message.Message);
+        Assert.Equal("Error", message.Type);
         Assert.Equal(HttpMethod.Post, handler.Requests[0].Method);
         Assert.DoesNotContain("\"notifyOption\"", handler.Requests[0].Body);
         Assert.Equal(new Uri(refreshLocation), handler.Requests[1].Uri);
@@ -119,7 +123,7 @@ public sealed class PowerBiClientTests
             });
         handler.Enqueue(
             HttpStatusCode.OK,
-            """{"status":"TimedOut","extendedStatus":"TimedOut","numberOfAttempts":1}""");
+            """{"status":"Unknown","extendedStatus":"TimedOut","numberOfAttempts":1}""");
         var client = new PowerBiClient(
             TestClients.Create(handler, baseAddress: PowerBiClient.DefaultBaseAddress),
             static (_, _) => Task.CompletedTask);
@@ -131,7 +135,8 @@ public sealed class PowerBiClientTests
             TimeSpan.Zero);
 
         Assert.False(settlement.Succeeded);
-        Assert.Equal("TimedOut", settlement.Detail.Status);
+        Assert.Equal("Unknown", settlement.Detail.Status);
+        Assert.Equal("TimedOut", settlement.Detail.ExtendedStatus);
         Assert.Equal(2, handler.Requests.Count);
     }
 

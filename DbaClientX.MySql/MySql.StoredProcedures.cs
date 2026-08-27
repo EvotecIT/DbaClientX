@@ -251,12 +251,4 @@ public partial class MySql
         }
     }
 
-    private void ApplyCommandTimeout(MySqlCommand command)
-    {
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
-    }
 }

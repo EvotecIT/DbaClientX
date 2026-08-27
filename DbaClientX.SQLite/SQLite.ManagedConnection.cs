@@ -72,6 +72,7 @@ public partial class SQLite
     {
         int busyTimeout = ResolveBusyTimeoutMs(options.BusyTimeoutMs);
         using var command = connection.CreateCommand();
+        ApplyCommandTimeout(command);
         var sql = new System.Text.StringBuilder();
         if (busyTimeout > 0)
         {

@@ -16,7 +16,7 @@ public sealed class DbaTableCopyOptions
     /// <summary>Optional destination bulk-write batch size.</summary>
     public int? BatchSize { get; init; }
 
-    /// <summary>Optional destination bulk-write timeout in seconds.</summary>
+    /// <summary>Optional destination bulk-write timeout in seconds. Specify 0 for no timeout.</summary>
     public int? BulkCopyTimeout { get; init; }
 
     /// <summary>When true, clears all destination tables in reverse definition order before copying rows.</summary>

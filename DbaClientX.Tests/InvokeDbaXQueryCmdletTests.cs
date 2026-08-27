@@ -66,6 +66,28 @@ public class InvokeDbaXQueryCmdletTests
         Assert.Equal(ReturnType.PSObject, returnType);
     }
 
+    [Theory]
+    [InlineData(null, 37)]
+    [InlineData(0, 0)]
+    [InlineData(12, 12)]
+    public void QueryTimeout_AppliesOnlyWhenExplicitlyBound(int? queryTimeout, int expectedTimeout)
+    {
+        using var table = CreateTable();
+        var sqlServer = new TimeoutCaptureSqlServer(table);
+        CmdletIInvokeDbaXQuery.SqlServerFactory = () => sqlServer;
+
+        try
+        {
+            InvokeQuery(ReturnType.DataTable, queryTimeout);
+
+            Assert.Equal(expectedTimeout, sqlServer.AppliedTimeout);
+        }
+        finally
+        {
+            CmdletIInvokeDbaXQuery.SqlServerFactory = () => new SqlServer();
+        }
+    }
+
     [Fact]
     public void AsDataReader_EmitsSingleLiveReaderWithoutEnumeratingIt()
     {
@@ -265,6 +287,35 @@ public class InvokeDbaXQueryCmdletTests
             => throw new InvalidOperationException("The buffered query contract must not request a data reader.");
     }
 
+    private sealed class TimeoutCaptureSqlServer : SqlServer
+    {
+        private readonly DataTable _table;
+
+        public TimeoutCaptureSqlServer(DataTable table)
+        {
+            _table = table;
+        }
+
+        public int? AppliedTimeout { get; private set; }
+
+        public override object? Query(
+            string connectionString,
+            string query,
+            IDictionary<string, object?>? parameters = null,
+            bool useTransaction = false,
+            IDictionary<string, SqlDbType>? parameterTypes = null,
+            IDictionary<string, ParameterDirection>? parameterDirections = null)
+        {
+            using var command = new SqlCommand
+            {
+                CommandTimeout = 37
+            };
+            ApplyCommandTimeout(command);
+            AppliedTimeout = command.CommandTimeout;
+            return _table;
+        }
+    }
+
     private sealed class DataReaderSqlServer : SqlServer
     {
         private readonly DbaDataReader _reader;
@@ -342,7 +393,7 @@ public class InvokeDbaXQueryCmdletTests
         return table;
     }
 
-    private static Collection<PSObject> InvokeQuery(ReturnType returnType)
+    private static Collection<PSObject> InvokeQuery(ReturnType returnType, int? queryTimeout = null)
     {
         var state = InitialSessionState.CreateDefault();
         state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXQuery", typeof(CmdletIInvokeDbaXQuery), helpFileName: null));
@@ -354,6 +405,11 @@ public class InvokeDbaXQueryCmdletTests
             .AddParameter("Database", "tempdb")
             .AddParameter("Query", "SELECT 1")
             .AddParameter("ReturnType", returnType);
+
+        if (queryTimeout.HasValue)
+        {
+            powerShell.AddParameter("QueryTimeout", queryTimeout.Value);
+        }
 
         return powerShell.Invoke();
     }

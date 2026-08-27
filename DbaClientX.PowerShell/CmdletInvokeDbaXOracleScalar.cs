@@ -30,8 +30,9 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Selects the format of the returned value.</summary>
@@ -131,7 +132,7 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
 
     private DBAClientX.Oracle CreateOracle() {
         var oracle = OracleFactory();
-        oracle.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(oracle, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         return oracle;
     }
 }

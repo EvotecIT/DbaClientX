@@ -50,7 +50,7 @@ public sealed class CsvFabricWorkflowRequest
     /// <summary>Gets or sets the provider bulk-copy batch size.</summary>
     public int? BatchSize { get; set; }
 
-    /// <summary>Gets or sets the provider bulk-copy timeout in seconds.</summary>
+    /// <summary>Gets or sets the provider bulk-copy timeout in seconds. Specify 0 for no timeout.</summary>
     public int? BulkCopyTimeout { get; set; }
 
     /// <summary>Gets or sets whether a Power BI refresh follows successful ingestion.</summary>

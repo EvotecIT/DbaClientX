@@ -50,4 +50,16 @@ describe 'Fabric and Power BI cmdlets' {
         @($officeAssembly.GetReferencedAssemblies().Name) | Should -Not -Contain 'FabricClientX.OfficeIMO'
         @($officeAssembly.GetReferencedAssemblies().Name) | Should -Not -Contain 'FabricClientX.Core'
     }
+
+    it 'exposes only the OfficeIMO CSV option types used by the command surface' {
+        $typeAccelerators = [psobject].Assembly.GetType('System.Management.Automation.TypeAccelerators')
+        $getProperty = $typeAccelerators.GetProperty(
+            'Get',
+            [System.Reflection.BindingFlags] 'Static,Public,NonPublic')
+        $registered = $getProperty.GetValue($null)
+
+        $registered.ContainsKey('OfficeIMO.CSV.CsvLoadOptions') | Should -BeTrue
+        $registered.ContainsKey('OfficeIMO.CSV.CsvDataReaderOptions') | Should -BeTrue
+        $registered.ContainsKey('OfficeIMO.CSV.CsvDocument') | Should -BeFalse
+    }
 }
