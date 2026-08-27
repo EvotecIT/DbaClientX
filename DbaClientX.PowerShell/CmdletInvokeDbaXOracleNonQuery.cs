@@ -37,8 +37,9 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
     [ValidateNotNullOrEmpty]
     public string Query { get; set; } = string.Empty;
 
-    /// <summary>Sets the command timeout in seconds.</summary>
+    /// <summary>Sets the command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <summary>Provides parameters for the SQL command.</summary>
@@ -72,7 +73,7 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
     /// </summary>
     protected override void ProcessRecord() {
         using var oracle = OracleFactory();
-        oracle.CommandTimeout = QueryTimeout;
+        PowerShellHelpers.ApplyQueryTimeout(oracle, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
         if (!ShouldProcess($"{Server}/{Database}", "Execute Oracle non-query")) {
             return;
         }

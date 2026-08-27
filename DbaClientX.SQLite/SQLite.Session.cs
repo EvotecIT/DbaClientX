@@ -88,11 +88,7 @@ public partial class SQLite
                 command.Transaction = transaction;
                 command.CommandText = query;
                 AddParameters(command, parameters);
-                var commandTimeout = CommandTimeout;
-                if (commandTimeout > 0)
-                {
-                    command.CommandTimeout = commandTimeout;
-                }
+                ApplyCommandTimeout(command);
 
                 using var reader = command.ExecuteReader(CommandBehavior.Default);
                 initialize?.Invoke(reader);

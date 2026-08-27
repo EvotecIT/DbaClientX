@@ -124,6 +124,21 @@ public class MySqlBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_ZeroTimeoutIsInfiniteAndNegativeIsRejected()
+    {
+        using var mySql = new CaptureBulkCopyMySql();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        mySql.BulkInsert("h", "db", "u", "p", table, "Dest", bulkCopyTimeout: 0);
+
+        Assert.Equal(0, mySql.Timeout);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            mySql.BulkInsert("h", "db", "u", "p", table, "Dest", bulkCopyTimeout: -1));
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_SetsOptionsAndMappings()
     {
         using var mySql = new CaptureBulkCopyMySql();

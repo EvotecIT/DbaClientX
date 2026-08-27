@@ -157,6 +157,7 @@ public partial class SqlServer
         command.Transaction = transaction;
         command.CommandText = commandText;
         AddParameters(command, parameters);
+        ApplyCommandTimeout(command);
         command.ExecuteNonQuery();
     }
 
@@ -180,6 +181,7 @@ public partial class SqlServer
         command.Transaction = transaction;
         command.CommandText = commandText;
         AddParameters(command, parameters);
+        ApplyCommandTimeout(command);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

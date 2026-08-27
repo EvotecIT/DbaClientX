@@ -55,11 +55,7 @@ public partial class SqlServer
             command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
             using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
@@ -116,11 +112,7 @@ public partial class SqlServer
             command.Transaction = transaction;
             var dbTypes = ConvertParameterTypes(parameterTypes);
             AddParameters(command, parameters, dbTypes, parameterDirections);
-            var commandTimeout = CommandTimeout;
-            if (commandTimeout > 0)
-            {
-                command.CommandTimeout = commandTimeout;
-            }
+            ApplyCommandTimeout(command);
 
             var dataSet = await ReadStoredProcedureResultsAsync(command, cancellationToken).ConfigureAwait(false);
 

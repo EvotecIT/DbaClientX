@@ -95,9 +95,11 @@ public sealed class CsvFabricWorkflowTests
                 "Input",
                 "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
                 "dbo.Input");
+            request.BulkCopyTimeout = 0;
             var workflow = new CsvFabricWorkflow();
             var plan = workflow.CreatePlan(request);
             request.BatchSize = 500;
+            request.BulkCopyTimeout = 30;
             request.CsvLoadOptions.Delimiter = ';';
             request.CsvReaderOptions.InferSchema = false;
             var warehouse = new CountingSqlServer
@@ -115,6 +117,7 @@ public sealed class CsvFabricWorkflowTests
 
             Assert.Equal(1, result.RowsCopied);
             Assert.Null(warehouse.LastBatchSize);
+            Assert.Equal(0, warehouse.LastBulkCopyTimeout);
             Assert.Equal(2, warehouse.LastFieldCount);
         }
         finally
@@ -322,6 +325,8 @@ public sealed class CsvFabricWorkflowTests
 
         public int? LastBatchSize { get; private set; }
 
+        public int? LastBulkCopyTimeout { get; private set; }
+
         public int? LastFieldCount { get; private set; }
 
         public CancellationToken LastCancellationToken { get; private set; }
@@ -339,6 +344,7 @@ public sealed class CsvFabricWorkflowTests
         {
             WasCalled = true;
             LastBatchSize = batchSize;
+            LastBulkCopyTimeout = bulkCopyTimeout;
             LastFieldCount = reader.FieldCount;
             LastCancellationToken = cancellationToken;
             long rows = 0;

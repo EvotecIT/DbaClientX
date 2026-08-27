@@ -58,9 +58,9 @@ public sealed class CmdletInvokeFabricXCsvWorkflow : AsyncPSCmdlet
     [ValidateRange(1, int.MaxValue)]
     public int? BatchSize { get; set; }
 
-    /// <summary>Optional SQL bulk-copy timeout in seconds.</summary>
+    /// <summary>Optional SQL bulk-copy timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter]
-    [ValidateRange(1, int.MaxValue)]
+    [ValidateRange(0, int.MaxValue)]
     public int? BulkCopyTimeout { get; set; }
 
     /// <summary>Requests a Power BI semantic-model refresh after successful ingestion.</summary>

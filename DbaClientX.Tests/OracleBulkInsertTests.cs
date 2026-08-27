@@ -120,6 +120,21 @@ public class OracleBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_ZeroTimeoutIsInfiniteAndNegativeIsRejected()
+    {
+        using var oracle = new CaptureBulkCopyOracle();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        oracle.BulkInsert("h", "svc", "u", "p", table, "Dest", bulkCopyTimeout: 0);
+
+        Assert.Equal(0, oracle.Timeout);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            oracle.BulkInsert("h", "svc", "u", "p", table, "Dest", bulkCopyTimeout: -1));
+    }
+
+    [Fact]
     public async Task BulkInsertAsync_SetsOptionsAndMappings()
     {
         using var oracle = new CaptureBulkCopyOracle();

@@ -483,6 +483,27 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
+    public void BulkInsert_ZeroTimeoutIsInfiniteAndNegativeIsRejected()
+    {
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        using (var sqlServer = new CaptureBulkCopySqlServer())
+        {
+            sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", bulkCopyTimeout: 0);
+            Assert.Equal(0, sqlServer.Timeout);
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", bulkCopyTimeout: -1));
+        }
+
+        using var dataReaderSqlServer = new CaptureBulkCopySqlServer();
+        using var reader = table.CreateDataReader();
+        dataReaderSqlServer.BulkInsert("s", "db", true, reader, "dbo.Dest", bulkCopyTimeout: 0);
+        Assert.Equal(0, dataReaderSqlServer.Timeout);
+    }
+
+    [Fact]
     public void BulkInsert_WithDataReader_StreamsRowsAndAppliesMappings()
     {
         using var sqlServer = new CaptureBulkCopySqlServer();

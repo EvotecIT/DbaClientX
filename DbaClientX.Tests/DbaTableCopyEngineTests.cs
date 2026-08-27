@@ -912,7 +912,7 @@ public class DbaTableCopyEngineTests
     [Theory]
     [InlineData(0, null, null)]
     [InlineData(100, 0, null)]
-    [InlineData(100, null, 0)]
+    [InlineData(100, null, -1)]
     public async Task CopyAsync_RejectsInvalidOptions(int pageSize, int? batchSize, int? timeout)
     {
         var source = new MemoryTableCopySource(CreateRows(1));
@@ -928,6 +928,21 @@ public class DbaTableCopyEngineTests
                 BatchSize = batchSize,
                 BulkCopyTimeout = timeout
             }));
+    }
+
+    [Fact]
+    public async Task CopyAsync_AllowsInfiniteBulkCopyTimeout()
+    {
+        var source = new MemoryTableCopySource(CreateRows(1));
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
+            new DbaTableCopyOptions { BulkCopyTimeout = 0 });
+
+        Assert.Equal(1, result.CopiedRows);
     }
 
     [Fact]

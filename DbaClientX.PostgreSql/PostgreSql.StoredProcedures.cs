@@ -252,12 +252,4 @@ public partial class PostgreSql
         }
     }
 
-    private void ApplyCommandTimeout(NpgsqlCommand command)
-    {
-        var commandTimeout = CommandTimeout;
-        if (commandTimeout > 0)
-        {
-            command.CommandTimeout = commandTimeout;
-        }
-    }
 }

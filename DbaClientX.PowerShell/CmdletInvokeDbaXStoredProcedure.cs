@@ -42,8 +42,9 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
     [Alias("As")]
     public ReturnType ReturnType { get; set; } = ReturnType.PSObject;
 
-    /// <summary>Optional command timeout in seconds.</summary>
+    /// <summary>Optional command timeout in seconds. Specify 0 for no timeout.</summary>
     [Parameter(Mandatory = false)]
+    [ValidateRange(0, int.MaxValue)]
     public int QueryTimeout { get; set; }
 
     /// <inheritdoc />
@@ -73,7 +74,7 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
             switch (Provider)
             {
                 case DbaXProvider.SqlServer:
-                    using (var client = new DBAClientX.SqlServer { ReturnType = ReturnType, CommandTimeout = QueryTimeout })
+                    using (var client = ConfigureClient(new DBAClientX.SqlServer { ReturnType = ReturnType }))
                     {
                         if (RequiresBufferedAggregate())
                         {
@@ -109,28 +110,34 @@ public sealed class CmdletInvokeDbaXStoredProcedure : AsyncPSCmdlet
 
     private async Task<object?> ExecuteSqlServerAsync(IDictionary<string, object?>? parameters)
     {
-        using var client = new DBAClientX.SqlServer { ReturnType = ReturnType, CommandTimeout = QueryTimeout };
+        using var client = ConfigureClient(new DBAClientX.SqlServer { ReturnType = ReturnType });
         return await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecutePostgreSqlAsync(IDictionary<string, object?>? parameters)
     {
-        using var client = new DBAClientX.PostgreSql { ReturnType = ReturnType, CommandTimeout = QueryTimeout };
+        using var client = ConfigureClient(new DBAClientX.PostgreSql { ReturnType = ReturnType });
         return await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecuteMySqlAsync(IDictionary<string, object?>? parameters)
     {
-        using var client = new DBAClientX.MySql { ReturnType = ReturnType, CommandTimeout = QueryTimeout };
+        using var client = ConfigureClient(new DBAClientX.MySql { ReturnType = ReturnType });
         return await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false);
     }
 
     private async Task<object?> ExecuteOracleAsync(IDictionary<string, object?>? parameters)
     {
-        using var client = new DBAClientX.Oracle { ReturnType = ReturnType, CommandTimeout = QueryTimeout };
+        using var client = ConfigureClient(new DBAClientX.Oracle { ReturnType = ReturnType });
         return await client.ExecuteStoredProcedureAsync(ConnectionString, Procedure, parameters, UseTransaction.IsPresent, CancelToken).ConfigureAwait(false);
     }
 
     private bool RequiresBufferedAggregate()
         => ReturnType == ReturnType.DataTable || ReturnType == ReturnType.DataSet;
+
+    private T ConfigureClient<T>(T client) where T : DatabaseClientBase
+    {
+        PowerShellHelpers.ApplyQueryTimeout(client, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
+        return client;
+    }
 }

@@ -702,9 +702,9 @@ public sealed class DbaTableCopyEngine
             throw new ArgumentOutOfRangeException(nameof(options.BatchSize), "BatchSize must be greater than zero.");
         }
 
-        if (options.BulkCopyTimeout is <= 0)
+        if (options.BulkCopyTimeout is < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(options.BulkCopyTimeout), "BulkCopyTimeout must be greater than zero.");
+            throw new ArgumentOutOfRangeException(nameof(options.BulkCopyTimeout), "BulkCopyTimeout cannot be negative.");
         }
     }
 

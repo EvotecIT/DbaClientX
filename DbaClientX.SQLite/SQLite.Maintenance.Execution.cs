@@ -93,10 +93,7 @@ public partial class SQLite
         command.CommandText = fullCheck
             ? $"PRAGMA integrity_check({maxIssues});"
             : $"PRAGMA quick_check({maxIssues});";
-        if (CommandTimeout > 0)
-        {
-            command.CommandTimeout = CommandTimeout;
-        }
+        ApplyCommandTimeout(command);
 
         var issues = new List<string>();
         try

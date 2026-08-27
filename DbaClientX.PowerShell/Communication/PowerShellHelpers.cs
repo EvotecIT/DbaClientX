@@ -18,6 +18,19 @@ internal static class PowerShellHelpers
 {
     internal static readonly IReadOnlyCollection<string> MySqlBulkCopyAllowedUnsupportedOptions = new[] { "AllowLoadLocalInfile", "Allow Load Local Infile" };
 
+    internal static void ApplyQueryTimeout(DatabaseClientBase client, int queryTimeout, bool queryTimeoutBound)
+    {
+        if (client == null)
+        {
+            throw new ArgumentNullException(nameof(client));
+        }
+
+        if (queryTimeoutBound)
+        {
+            client.CommandTimeout = queryTimeout;
+        }
+    }
+
     /// <summary>
     /// Converts a Hashtable of parameters (as supplied from PowerShell) into a nullable
     /// dictionary with string keys and nullable object values, filtering out null keys.

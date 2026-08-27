@@ -211,11 +211,7 @@ public partial class SQLite
                 using var command = connection.CreateCommand();
                 command.CommandText = query;
                 AddParameters(command, parameters, dbTypes, parameterDirections);
-                var commandTimeout = CommandTimeout;
-                if (commandTimeout > 0)
-                {
-                    command.CommandTimeout = commandTimeout;
-                }
+                ApplyCommandTimeout(command);
 
                 using var reader = await AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SingleResult, cancellationToken),

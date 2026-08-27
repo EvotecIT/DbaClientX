@@ -39,7 +39,7 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
     [Parameter(Mandatory = false)]
     public int? BatchSize { get; set; }
 
-    /// <summary>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</summary>
+    /// <summary>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</summary>
     [Parameter(Mandatory = false)]
     public int? BulkCopyTimeout { get; set; }
 
@@ -71,9 +71,9 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
             throw new PSArgumentException("BatchSize must be greater than zero.", nameof(BatchSize));
         }
 
-        if (BulkCopyTimeout.HasValue && BulkCopyTimeout.Value <= 0)
+        if (BulkCopyTimeout.HasValue && BulkCopyTimeout.Value < 0)
         {
-            throw new PSArgumentException("BulkCopyTimeout must be greater than zero.", nameof(BulkCopyTimeout));
+            throw new PSArgumentException("BulkCopyTimeout cannot be negative.", nameof(BulkCopyTimeout));
         }
 
         if (Provider == DbaXProvider.SQLite && BulkCopyTimeout.HasValue)
