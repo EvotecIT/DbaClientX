@@ -7,7 +7,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>
 /// Coordinates provider-neutral table-data copy operations using source and destination adapters.
 /// </summary>
-public sealed class DbaTableCopyEngine
+public sealed partial class DbaTableCopyEngine
 {
     /// <summary>
     /// Copies one or more table definitions from a source adapter to a destination adapter.
@@ -36,6 +36,9 @@ public sealed class DbaTableCopyEngine
 
         options ??= new DbaTableCopyOptions();
         ValidateOptions(options);
+        using IDisposable? readSession = source is IDbaTableCopyReadSession session
+            ? await session.OpenReadSessionAsync(cancellationToken).ConfigureAwait(false)
+            : null;
 
         var copyDefinitions = definitions.ToArray();
         foreach (var definition in copyDefinitions)
@@ -66,33 +69,49 @@ public sealed class DbaTableCopyEngine
         DbaTableCopyPreflight?[]? preflight = null;
         try
         {
-            preflight = options.ClearDestination
-                ? await PreflightSourceAsync(source, destination, copyDefinitions, options, cancellationToken).ConfigureAwait(false)
-                : null;
-
-            if (options.ClearDestination)
+            List<DbaTableCopyTableResult> results;
+            if (options.VerifyContent || options.CheckpointId != null)
             {
-                await PreflightDestinationAsync(destination, copyDefinitions, preflight!, cancellationToken).ConfigureAwait(false);
+                results = await CopyVerifiedTablesAsync(source, destination, copyDefinitions, options, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                if (options.RequireEmptyDestination && !options.ClearDestination)
+                {
+                    foreach (DbaTableCopyDefinition definition in copyDefinitions)
+                    {
+                        long? rows = await CountRowsAsync(destination, definition, "destination", cancellationToken).ConfigureAwait(false);
+                        if (rows != 0) throw new InvalidOperationException($"Destination table '{definition.DisplayName}' must be empty before copying.");
+                    }
+                }
+                preflight = options.ClearDestination
+                    ? await PreflightSourceAsync(source, destination, copyDefinitions, options, cancellationToken).ConfigureAwait(false)
+                    : null;
 
-                for (var index = copyDefinitions.Length - 1; index >= 0; index--)
+                if (options.ClearDestination)
+                {
+                    await PreflightDestinationAsync(destination, copyDefinitions, preflight!, cancellationToken).ConfigureAwait(false);
+
+                    for (var index = copyDefinitions.Length - 1; index >= 0; index--)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await ClearDestinationAsync(destination, copyDefinitions[index], cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                results = new List<DbaTableCopyTableResult>();
+                for (var index = 0; index < copyDefinitions.Length; index++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await ClearDestinationAsync(destination, copyDefinitions[index], cancellationToken).ConfigureAwait(false);
+                    results.Add(await CopyTableAsync(
+                            source,
+                            destination,
+                            copyDefinitions[index],
+                            options,
+                            preflight?[index],
+                            cancellationToken)
+                        .ConfigureAwait(false));
                 }
-            }
-
-            var results = new List<DbaTableCopyTableResult>();
-            for (var index = 0; index < copyDefinitions.Length; index++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                results.Add(await CopyTableAsync(
-                        source,
-                        destination,
-                        copyDefinitions[index],
-                        options,
-                        preflight?[index],
-                        cancellationToken)
-                    .ConfigureAwait(false));
             }
 
             sw.Stop();
@@ -136,123 +155,6 @@ public sealed class DbaTableCopyEngine
         }
     }
 
-    private static async Task<DbaTableCopyPreflight?[]> PreflightSourceAsync(
-        IDbaTableCopySource source,
-        IDbaTableCopyDestination destination,
-        IReadOnlyList<DbaTableCopyDefinition> definitions,
-        DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
-    {
-        var results = new DbaTableCopyPreflight?[definitions.Count];
-        var destinationPagePreflight = destination as IDbaTableCopyPagePreflightDestination;
-        try
-        {
-            for (var index = 0; index < definitions.Count; index++)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var definition = definitions[index];
-                var sourceRows = await CountRowsAsync(
-                        source,
-                        definition,
-                        "source",
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                DbaTableCopyPage? firstPage = null;
-                if (sourceRows != 0 || ShouldWriteEmptyPage(destination, definition))
-                {
-                    var pageSize = sourceRows > 0
-                        ? GetReadPageSize(options.PageSize, sourceRows, copied: 0)
-                        : options.PageSize;
-                    firstPage = await ReadPageAsync(
-                            source,
-                            new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: pageSize),
-                            pageSequence: 1,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 1);
-                    if (firstPage.Data.Columns.Count > 0)
-                    {
-                        PreflightTransform(firstPage.Data, definition, destinationPagePreflight);
-                    }
-                }
-                else
-                {
-                    results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 0);
-                }
-            }
-
-            return results;
-        }
-        catch
-        {
-            DisposePreflightPages(results);
-            throw;
-        }
-    }
-
-    private static async Task PreflightDestinationAsync(
-        IDbaTableCopyDestination destination,
-        IReadOnlyList<DbaTableCopyDefinition> definitions,
-        IReadOnlyList<DbaTableCopyPreflight?> preflight,
-        CancellationToken cancellationToken)
-    {
-        for (var index = 0; index < definitions.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var definition = definitions[index];
-            var destinationRows = await CountDestinationRowsBeforeClearAsync(destination, definition, cancellationToken).ConfigureAwait(false);
-            if (!destinationRows.HasValue &&
-                HasNonEmptySource(preflight[index]) &&
-                !ShouldWriteEmptyPage(destination, definition))
-            {
-                throw new InvalidOperationException(
-                    $"Destination table '{definition.DestinationName}' could not be counted before ClearDestination. " +
-                    "Missing destination tables are safe only for empty sources or destinations that can create the table before writing.");
-            }
-        }
-    }
-
-    private static bool HasNonEmptySource(DbaTableCopyPreflight? preflight)
-        => preflight?.SourceRows > 0 || preflight?.FirstPage?.Data.Rows.Count > 0;
-
-    private static async Task<long?> CountDestinationRowsBeforeClearAsync(
-        IDbaTableCopyDestination destination,
-        DbaTableCopyDefinition definition,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await CountRowsAsync(
-                    destination,
-                    definition,
-                    "destination",
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ShouldSuppressDestinationCountFailure(destination, definition, ex))
-        {
-            return null;
-        }
-    }
-
-    private static void PreflightTransform(
-        DataTable page,
-        DbaTableCopyDefinition definition,
-        IDbaTableCopyPagePreflightDestination? destinationPagePreflight)
-    {
-        var transformed = DbaTableCopyPageTransformer.Transform(page, definition);
-        using var transformedToDispose = ReferenceEquals(transformed, page) ? null : transformed;
-
-        if (transformed.Columns.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"Table copy definition '{definition.DisplayName}' produced no destination columns during preflight. " +
-                "At least one destination column is required before clearing destination data.");
-        }
-
-        destinationPagePreflight?.ValidatePage(definition, transformed);
-    }
-
     private static async Task<DbaTableCopyTableResult> CopyTableAsync(
         IDbaTableCopySource source,
         IDbaTableCopyDestination destination,
@@ -282,7 +184,7 @@ public sealed class DbaTableCopyEngine
             {
                 page = await ReadPageAsync(
                         source,
-                        new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: options.PageSize),
+                        new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: options.PageSize) { MaxBytes = options.MaxPageBytes },
                         pageSequence: ++pageCount,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -348,7 +250,7 @@ public sealed class DbaTableCopyEngine
             string? requestedToken = continuationToken;
             using var nextPage = await ReadPageAsync(
                     source,
-                    new DbaTableCopyPageRequest(definition, requestedToken, pageSize),
+                    new DbaTableCopyPageRequest(definition, requestedToken, pageSize) { MaxBytes = options.MaxPageBytes },
                     pageSequence: ++pageCount,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -542,156 +444,13 @@ public sealed class DbaTableCopyEngine
            destination is IDbaTableCopyMissingTableClassifier missingTableClassifier &&
            missingTableClassifier.IsMissingTableException(exception);
 
-    private static async Task<long?> CountRowsAsync(
-        IDbaTableCopySource source,
-        DbaTableCopyDefinition definition,
-        string role,
-        CancellationToken cancellationToken)
-    {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Count");
-        SetOperationTags(activity, definition, role);
-        try
-        {
-            var count = await source.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
-            activity?.SetTag("dbaclientx.row_count", count);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return count;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DbaClientXDiagnostics.RecordException(activity, ex);
-            throw;
-        }
-    }
-
-    private static async Task<long?> CountRowsAsync(
-        IDbaTableCopyDestination destination,
-        DbaTableCopyDefinition definition,
-        string role,
-        CancellationToken cancellationToken)
-    {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Count");
-        SetOperationTags(activity, definition, role);
-        try
-        {
-            var count = await destination.CountRowsAsync(definition, cancellationToken).ConfigureAwait(false);
-            activity?.SetTag("dbaclientx.row_count", count);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return count;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DbaClientXDiagnostics.RecordException(activity, ex);
-            throw;
-        }
-    }
-
-    private static async Task<DbaTableCopyPage> ReadPageAsync(
-        IDbaTableCopySource source,
-        DbaTableCopyPageRequest request,
-        int pageSequence,
-        CancellationToken cancellationToken)
-    {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.ReadPage");
-        activity?.SetTag(
-            "dbaclientx.table",
-            DbaClientXDiagnostics.SanitizeLogicalName(request.Definition.DisplayName));
-        activity?.SetTag("dbaclientx.page.sequence", pageSequence);
-        activity?.SetTag("dbaclientx.page.requested_rows", request.PageSize);
-        try
-        {
-            var page = await source.ReadPageAsync(request, cancellationToken).ConfigureAwait(false);
-            activity?.SetTag("dbaclientx.page.rows", page.Data.Rows.Count);
-            activity?.SetTag("dbaclientx.page.has_continuation", page.ContinuationToken != null);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return page;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DbaClientXDiagnostics.RecordException(activity, ex);
-            throw;
-        }
-    }
-
-    private static async Task WritePageAsync(
-        IDbaTableCopyDestination destination,
-        DbaTableCopyDefinition definition,
-        DataTable page,
-        DbaTableCopyOptions options,
-        int pageSequence,
-        CancellationToken cancellationToken)
-    {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.WritePage");
-        activity?.SetTag(
-            "dbaclientx.table",
-            DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
-        activity?.SetTag("dbaclientx.page.sequence", pageSequence);
-        activity?.SetTag("dbaclientx.page.rows", page.Rows.Count);
-        activity?.SetTag("dbaclientx.page.columns", page.Columns.Count);
-        try
-        {
-            await destination.WritePageAsync(definition, page, options, cancellationToken).ConfigureAwait(false);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DbaClientXDiagnostics.RecordException(activity, ex);
-            throw;
-        }
-    }
-
-    private static async Task ClearDestinationAsync(
-        IDbaTableCopyDestination destination,
-        DbaTableCopyDefinition definition,
-        CancellationToken cancellationToken)
-    {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Clear");
-        SetOperationTags(activity, definition, "destination");
-        try
-        {
-            await destination.ClearAsync(definition, cancellationToken).ConfigureAwait(false);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            DbaClientXDiagnostics.RecordException(activity, ex);
-            throw;
-        }
-    }
-
-    private static void SetOperationTags(
-        Activity? activity,
-        DbaTableCopyDefinition definition,
-        string role)
-    {
-        activity?.SetTag(
-            "dbaclientx.table",
-            DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
-        activity?.SetTag("dbaclientx.role", role);
-    }
-
     private static void ValidateOptions(DbaTableCopyOptions options)
     {
+        if (options.MaxPageBytes is <= 0) throw new ArgumentOutOfRangeException(nameof(options.MaxPageBytes));
+        if (options.CheckpointId != null && (string.IsNullOrWhiteSpace(options.CheckpointId) || options.CheckpointId.Length > 128))
+            throw new ArgumentException("CheckpointId must contain between 1 and 128 non-whitespace characters.", nameof(options.CheckpointId));
+        if (options.Resume && (options.CheckpointId == null || options.ClearDestination))
+            throw new ArgumentException("Resume requires CheckpointId and cannot be combined with ClearDestination.");
         if (options.PageSize <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(options.PageSize), "PageSize must be greater than zero.");
@@ -735,45 +494,4 @@ public sealed class DbaTableCopyEngine
         return DbaIdentifierPath.UnquoteSegment(trimmed);
     }
 
-    private static void DisposePreflightPages(IEnumerable<DbaTableCopyPreflight?>? preflight)
-    {
-        if (preflight == null)
-        {
-            return;
-        }
-
-        foreach (var item in preflight)
-        {
-            item?.Dispose();
-        }
-    }
-
-    private sealed class DbaTableCopyPreflight : IDisposable
-    {
-        public DbaTableCopyPreflight(long? sourceRows, DbaTableCopyPage? firstPage, int pageCount)
-        {
-            SourceRows = sourceRows;
-            FirstPage = firstPage;
-            PageCount = pageCount;
-        }
-
-        public long? SourceRows { get; }
-
-        public DbaTableCopyPage? FirstPage { get; private set; }
-
-        public int PageCount { get; }
-
-        public DbaTableCopyPage? TakeFirstPage()
-        {
-            var page = FirstPage;
-            FirstPage = null;
-            return page;
-        }
-
-        public void Dispose()
-        {
-            FirstPage?.Dispose();
-            FirstPage = null;
-        }
-    }
 }

@@ -6,7 +6,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>
 /// Provides the reusable provider-backed paging, quoting, and count behavior for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination, IDbaTableCopyMissingTableClassifier, IDbaTableCopyProviderIdentity
+public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDbaTableCopyDestination, IDbaTableCopyPagePreflightDestination, IDbaTableCopyEmptyPageDestination, IDbaTableCopyMissingTableClassifier, IDbaTableCopyProviderIdentity, IDbaTableCopyCheckpointDestination
 {
     private const string SourceAlias = "dbax_source";
     private const string DeduplicationRankColumnPrefix = "__DbaXR_";
@@ -54,6 +54,14 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
     /// <inheritdoc />
     public async Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.Definition.UseKeysetPagination)
+        {
+            return await ReadKeysetPageAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        if (request.MaxBytes.HasValue)
+        {
+            throw new NotSupportedException("Bounded provider pages require keyset pagination.");
+        }
         var offset = DbaOffsetContinuationToken.Decode(request.ContinuationToken);
         var query = BuildPageQuery(
             request.Definition.SourceName,
@@ -186,11 +194,11 @@ public abstract class DbaProviderTableCopyAdapterBase : IDbaTableCopySource, IDb
         var quotedTable = QuotePath(tableName);
         if (sourceOptions?.HasDeduplication != true)
         {
-            return $"SELECT COUNT(*) FROM {quotedTable}";
+            return $"SELECT {(Provider == DbaTableCopyProvider.SqlServer ? "COUNT_BIG(*)" : "COUNT(*)")} FROM {quotedTable}";
         }
 
         var keyColumns = BuildDeduplicationKeyClause(sourceOptions, withSourceAlias: false);
-        return $"SELECT COUNT(*) FROM (SELECT 1 AS dbax_key FROM {quotedTable} GROUP BY {keyColumns}) dbax_source_keys";
+        return $"SELECT {(Provider == DbaTableCopyProvider.SqlServer ? "COUNT_BIG(*)" : "COUNT(*)")} FROM (SELECT 1 AS dbax_key FROM {quotedTable} GROUP BY {keyColumns}) dbax_source_keys";
     }
 
     private string BuildDeduplicatedPageQuery(

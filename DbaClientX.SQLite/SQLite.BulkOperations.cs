@@ -154,53 +154,7 @@ public partial class SQLite
 #endif
             }
 
-            var totalRows = table.Rows.Count;
-            if (totalRows == 0)
-            {
-                return;
-            }
-
-            var columns = GetColumns(table);
-            var rowsPerBatch = ResolveRowsPerBatch(totalRows, batchSize, columns.Length);
-
-            SqliteCommand? command = null;
-            var preparedRowsPerBatch = 0;
-            try
-            {
-                for (var offset = 0; offset < totalRows; offset += rowsPerBatch)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var currentRows = Math.Min(rowsPerBatch, totalRows - offset);
-                    if (command == null || preparedRowsPerBatch != currentRows)
-                    {
-                        if (command != null)
-                        {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                            await command.DisposeAsync().ConfigureAwait(false);
-#else
-                            command.Dispose();
-#endif
-                        }
-
-                        command = CreatePreparedBulkInsertCommand(connection, activeTransaction ?? transaction, destinationTable, columns, currentRows);
-                        preparedRowsPerBatch = currentRows;
-                    }
-
-                    ApplyBatchValues(command, columns, table, offset, currentRows);
-                    await ExecuteBulkInsertCommandAsync(command, cancellationToken).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                if (command != null)
-                {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                    await command.DisposeAsync().ConfigureAwait(false);
-#else
-                    command.Dispose();
-#endif
-                }
-            }
+            await WriteBulkRowsAsync(connection, activeTransaction ?? transaction, table, destinationTable, batchSize, cancellationToken).ConfigureAwait(false);
 
             if (!useTransaction)
             {

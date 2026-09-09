@@ -20,9 +20,9 @@ This file is the open product backlog for database and table-shaped data access 
 ## Schema and data movement
 
 - [ ] Add a provider-neutral schema snapshot, comparison, and migration-plan product for tables, columns, keys, indexes, foreign keys, sequences or identities, and supported constraints. Generate ordered create/alter/drop plans with provider diagnostics, destructive-change authorization, dry-run output, and idempotency; do not turn it into a domain migration framework.
-- [ ] Add resumable table-copy checkpoints with opaque provider continuation state, source and destination fingerprints, plan identity, committed-row boundaries, verification state, and explicit restart or abandon decisions. Preserve current atomicity and never infer that an interrupted batch committed.
+- [ ] Extend the SQLite/SQL Server atomic table-copy checkpoint contract to other providers, including explicit checkpoint inspection and abandonment tools. Preserve page atomicity and never infer that an interrupted batch committed.
 - [ ] Add bounded incremental-copy contracts only after each provider has a stable ordering or change-token strategy. Keep database-native CDC, temporal-table, log-reading, and replication integrations in optional provider packages and expose their provenance and retention assumptions in the plan.
-- [ ] Deepen table-copy verification with key-range sampling, aggregate checks, configurable hashes, duplicate and missing-key reports, and post-copy constraint evidence. Verification must be streamable and must not silently read an entire large source into memory.
+- [ ] Extend full-content table-copy checksums with configurable sampling, duplicate and missing-key reports, and post-copy constraint evidence across providers. Keep verification bounded in memory.
 - [ ] Add a first-class mapping plan for renames, exclusions, defaults, computed values, safe conversions, and caller transformations that can be serialized, reviewed, fingerprinted, and reused by .NET and PowerShell without embedding executable code in the manifest.
 
 ## DBF and xBase files

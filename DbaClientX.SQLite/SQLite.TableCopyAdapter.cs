@@ -8,7 +8,7 @@ namespace DBAClientX;
 /// <summary>
 /// SQLite source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
 {
     /// <summary>
     /// Creates a SQLite table-copy adapter.
@@ -36,6 +36,7 @@ public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
         {
             throw new ArgumentException("Options must target SQLite.", nameof(options));
         }
+        CommandTimeout = options.CommandTimeout;
     }
 
     /// <inheritdoc />
@@ -58,6 +59,7 @@ public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         using var command = connection.CreateCommand();
         command.CommandText = query;
+        command.CommandTimeout = CommandTimeout;
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -68,6 +70,7 @@ public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         using var command = connection.CreateCommand();
         command.CommandText = query;
+        command.CommandTimeout = CommandTimeout;
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return await ReadDataTableAsync(reader, cancellationToken).ConfigureAwait(false);
     }
@@ -79,6 +82,7 @@ public sealed class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         using var command = connection.CreateCommand();
         command.CommandText = query;
+        command.CommandTimeout = CommandTimeout;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
