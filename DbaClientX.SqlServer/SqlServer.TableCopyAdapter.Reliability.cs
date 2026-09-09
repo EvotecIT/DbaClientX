@@ -24,13 +24,33 @@ public sealed partial class SqlServerTableCopyAdapter
     }
 
     /// <inheritdoc />
-    protected override async Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+    protected override async Task<string> ResolveCheckpointTableIdentityAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+    {
+        using DbCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = CommandTimeout;
+        command.CommandText = "SELECT CASE WHEN DB_ID(COALESCE(PARSENAME(@name, 3), DB_NAME())) IS NOT NULL AND OBJECT_ID(@name, N'U') IS NOT NULL THEN CONCAT(DB_ID(COALESCE(PARSENAME(@name, 3), DB_NAME())), ':', OBJECT_ID(@name, N'U')) END";
+        command.Parameters.Add(new SqlParameter("@name", SqlDbType.NVarChar, 776) { Value = QuotePath(definition.DestinationName) });
+        object? identity = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return identity as string ?? throw new InvalidOperationException($"Checkpoint destination '{definition.DestinationName}' cannot be resolved to a SQL Server table.");
+    }
+
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+        => ExecuteSqlServerPageAsync(null, query, parameters, maxBytes, cancellationToken);
+
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteKeysetPageCoreAsync(DbaTableCopyDefinition definition, string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+        => ExecuteSqlServerPageAsync(definition, query, parameters, maxBytes, cancellationToken);
+
+    private async Task<DataTable> ExecuteSqlServerPageAsync(DbaTableCopyDefinition? definition, string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
     {
         using SqlConnection? owned = _readConnection == null ? CreateTableCopyConnection() : null;
         SqlConnection connection = _readConnection ?? owned!;
         if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         using SqlCommand command = CreateSourceCommand(connection, query);
-        foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
+        if (parameters.Count > 0)
+            await AddKeysetParametersAsync(connection, command, definition!, parameters, cancellationToken).ConfigureAwait(false);
         using CancellationTokenRegistration cancellation = cancellationToken.Register(static state => ((SqlCommand)state!).Cancel(), command);
         using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         try

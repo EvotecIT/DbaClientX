@@ -5,7 +5,10 @@ namespace DBAClientX.DataMovement;
 public sealed partial class DbaTableCopyEngine
 {
     private sealed record ContentProof(long Rows, string Hash, IReadOnlyList<string> Columns);
-    private sealed record VerifiedTablePlan(DbaTableCopyDefinition Definition, DbaTableCopyDefinition ReadDestination, ContentProof Source, DbaTableCopyCheckpoint Initial, DbaTableCopyCheckpoint? Existing);
+    private sealed record VerifiedTablePlan(DbaTableCopyDefinition Definition, DbaTableCopyDefinition ReadDestination, ContentProof Source, DbaTableCopyCheckpoint Initial, DbaTableCopyCheckpoint? Existing)
+    {
+        internal ContentProof? CommittedDestinationProof { get; set; }
+    }
 
     private static DbaTableCopyDefinition CreateDestinationReadDefinition(DbaTableCopyDefinition definition)
     {
@@ -60,10 +63,11 @@ public sealed partial class DbaTableCopyEngine
             throw new InvalidOperationException($"Checkpoint source or copy contract no longer matches '{table}'. No destination data was changed. Restore the original source snapshot or start a new copy.");
     }
 
-    private static async Task VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken)
+    private static async Task<ContentProof> VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
         ContentProof actual = await ReadContentProofAsync(destination, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
         if (actual.Rows != checkpoint.CopiedRows || actual.Hash != checkpoint.CopiedContentHash)
             throw new InvalidOperationException($"Destination contents no longer match the committed checkpoint for '{plan.Definition.DisplayName}'. No new rows were written.");
+        return actual;
     }
 }

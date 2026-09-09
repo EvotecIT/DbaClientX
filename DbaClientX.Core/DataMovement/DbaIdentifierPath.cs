@@ -3,6 +3,15 @@ namespace DBAClientX.DataMovement;
 /// <summary>Parses and normalizes multipart database identifiers across provider surfaces.</summary>
 public static class DbaIdentifierPath
 {
+    /// <summary>Normalizes ASCII identifier case without folding Unicode characters that SQLite treats as distinct.</summary>
+    public static string NormalizeSqliteIdentifier(string identifier)
+    {
+        if (identifier == null) throw new ArgumentNullException(nameof(identifier));
+        char[] characters = identifier.ToCharArray();
+        for (int index = 0; index < characters.Length; index++)
+            if (characters[index] >= 'a' && characters[index] <= 'z') characters[index] = (char)(characters[index] - ('a' - 'A'));
+        return new string(characters);
+    }
     /// <summary>Quotes a plan segment only when it is not already delimited or a simple identifier.</summary>
     public static string QuotePlanSegment(string segment)
     {

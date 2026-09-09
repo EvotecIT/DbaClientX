@@ -14,6 +14,22 @@ public sealed partial class SQLiteTableCopyAdapter
     protected override DbConnection CreateCheckpointConnection() => new SqliteConnection(ResolveSQLiteConnectionString());
 
     /// <inheritdoc />
+    protected override async Task<string> ResolveCheckpointTableIdentityAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+    {
+        string[] segments = DbaIdentifierPath.SplitSegments(definition.DestinationName).Select(DbaIdentifierPath.UnquoteSegment).ToArray();
+        if (segments.Length is < 1 or > 2) throw new ArgumentException("SQLite checkpoint destinations require a table name with an optional schema.", nameof(definition));
+        string schema = segments.Length == 2 ? segments[0] : "main";
+        using DbCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandTimeout = CommandTimeout;
+        command.CommandText = $"SELECT name FROM {QuotePath(schema)}.sqlite_master WHERE type='table' AND name=@name COLLATE NOCASE";
+        command.Parameters.Add(new SqliteParameter("@name", segments[segments.Length - 1]));
+        object? name = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (name is not string actualName) throw new InvalidOperationException($"Checkpoint destination '{definition.DestinationName}' does not exist.");
+        return DbaIdentifierPath.NormalizeSqliteIdentifier(schema) + ":" + actualName;
+    }
+
+    /// <inheritdoc />
     protected override async Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
     {
         using var connection = new SqliteConnection(ResolveSQLiteConnectionString());

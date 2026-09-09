@@ -20,10 +20,17 @@ public sealed partial class DbaTableCopyEngine
             throw new ArgumentException("Content-verified and resumable copies require keyset pagination for every table.");
 
         var plans = new List<VerifiedTablePlan>();
+        var destinationIdentities = new HashSet<string>(StringComparer.Ordinal);
         using var emptyHasher = new DbaTableCopyContentHasher();
         foreach (DbaTableCopyDefinition definition in definitions)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (destination is DbaProviderTableCopyAdapterBase adapter && adapter.SupportsAtomicCheckpoints)
+            {
+                string identity = await adapter.ResolveDestinationTableIdentityAsync(definition, cancellationToken).ConfigureAwait(false);
+                if (!destinationIdentities.Add(identity))
+                    throw new InvalidOperationException($"Multiple definitions target destination table '{definition.DestinationName}'. Each verified destination must be unique.");
+            }
             DbaTableCopyDefinition destinationDefinition = CreateDestinationReadDefinition(definition);
             ContentProof proof = await ReadContentProofAsync(source, definition, options, null, DbaTableCopyPhase.ValidateSource, cancellationToken).ConfigureAwait(false);
             string fingerprint = DbaTableCopyRunManifest.ComputeDefinitionFingerprint(new[] { definition }, new DbaTableCopyOptions { KeepIdentity = options.KeepIdentity });
@@ -49,13 +56,17 @@ public sealed partial class DbaTableCopyEngine
             var plan = new VerifiedTablePlan(definition, destinationDefinition, proof, initial, existing);
             if (existing != null)
             {
-                await VerifyCommittedDestinationAsync(destinationReader, plan, existing, options, cancellationToken).ConfigureAwait(false);
+                plan.CommittedDestinationProof = await VerifyCommittedDestinationAsync(destinationReader, plan, existing, options, cancellationToken).ConfigureAwait(false);
             }
             else
             {
                 long? rows = await CountRowsAsync(destination, definition, "destination", cancellationToken).ConfigureAwait(false);
                 if (!rows.HasValue || (rows != 0 && !options.ClearDestination))
                     throw new InvalidOperationException($"Destination table '{definition.DisplayName}' must exist and be empty, or explicitly overwritten, before a verified copy.");
+                // Exercise the destination key even for an empty table, before any clearing or writes.
+                using DbaTableCopyPage probe = await ReadPageAsync(destinationReader,
+                    new DbaTableCopyPageRequest(destinationDefinition, null, 1) { MaxBytes = options.MaxPageBytes },
+                    1, cancellationToken).ConfigureAwait(false);
             }
             plans.Add(plan);
         }
@@ -113,14 +124,16 @@ public sealed partial class DbaTableCopyEngine
         }
         if (current.CopiedRows != plan.Source.Rows || current.CopiedContentHash != plan.Source.Hash)
             throw new InvalidOperationException($"Source contents changed during the copy of '{plan.Definition.DisplayName}'. The migration is not verified.");
-        ContentProof actual = await ReadContentProofAsync(destinationReader, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
+        ContentProof actual = current.CopiedRows == resumedRows && plan.CommittedDestinationProof != null
+            ? plan.CommittedDestinationProof
+            : await ReadContentProofAsync(destinationReader, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
         bool verified = actual.Rows == plan.Source.Rows && actual.Hash == plan.Source.Hash;
         if (verified && checkpoints != null && !current.Completed)
         {
             using var empty = new DataTable();
             await checkpoints.CommitPageAsync(plan.Definition, empty, options, current, current with { Completed = true }, cancellationToken).ConfigureAwait(false);
         }
-        return new DbaTableCopyTableResult(plan.Definition.DisplayName, plan.Source.Rows, current.CopiedRows, actual.Rows, verified)
+        return new DbaTableCopyTableResult(plan.Definition.DisplayName, plan.Source.Rows, current.CopiedRows - resumedRows, actual.Rows, verified)
         {
             SourceContentHash = plan.Source.Hash, DestinationContentHash = actual.Hash,
             ResumedRows = resumedRows, PageCount = pageCount

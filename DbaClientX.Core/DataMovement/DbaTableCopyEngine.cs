@@ -39,6 +39,8 @@ public sealed partial class DbaTableCopyEngine
         using IDisposable? readSession = source is IDbaTableCopyReadSession session
             ? await session.OpenReadSessionAsync(cancellationToken).ConfigureAwait(false)
             : null;
+        if (readSession != null && ReferenceEquals(source, destination))
+            throw new ArgumentException("Use separate source and destination adapters when the source holds a read session. Destination verification must observe committed writes.", nameof(destination));
 
         var copyDefinitions = definitions.ToArray();
         foreach (var definition in copyDefinitions)

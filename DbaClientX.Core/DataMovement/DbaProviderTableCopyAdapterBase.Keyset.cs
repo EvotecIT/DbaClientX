@@ -30,15 +30,22 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         DataTable table;
         try
         {
-            table = await ExecuteBoundedPageCoreAsync(query, parameters, request.MaxBytes, cancellationToken).ConfigureAwait(false);
+            table = await ExecuteKeysetPageCoreAsync(request.Definition, query, parameters, request.MaxBytes, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (_treatMissingTablesAsEmpty && IsMissingTableException(exception))
         {
-            table = new DataTable();
+            return new DbaTableCopyPage(new DataTable(request.Definition.DestinationName), null);
         }
         try
         {
             if (rankColumn != null && table.Columns.Contains(rankColumn)) table.Columns.Remove(rankColumn);
+            foreach (string column in request.Definition.OrderByColumns!)
+            {
+                bool exists = Provider == DbaTableCopyProvider.SQLite
+                    ? table.Columns.Cast<DataColumn>().Any(actual => DbaIdentifierPath.NormalizeSqliteIdentifier(actual.ColumnName) == DbaIdentifierPath.NormalizeSqliteIdentifier(column))
+                    : table.Columns.Contains(column);
+                if (!exists) throw new InvalidOperationException($"Paging column '{column}' does not exist in table '{request.Definition.SourceName}'.");
+            }
             table.TableName = request.Definition.DestinationName;
             string? nextToken = table.Rows.Count == 0 ? null : DbaKeysetContinuationToken.Encode(request.Definition, table.Rows[table.Rows.Count - 1]);
             if (nextToken != null && string.Equals(nextToken, request.ContinuationToken, StringComparison.Ordinal))
@@ -72,4 +79,8 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     /// <summary>Executes a parameterized keyset query with a row-payload limit. Providers opt in explicitly.</summary>
     protected virtual Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
         => throw new NotSupportedException("This provider does not implement bounded keyset pages.");
+
+    /// <summary>Executes a bounded keyset query with its source definition available for provider parameter typing.</summary>
+    protected virtual Task<DataTable> ExecuteKeysetPageCoreAsync(DbaTableCopyDefinition definition, string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+        => ExecuteBoundedPageCoreAsync(query, parameters, maxBytes, cancellationToken);
 }

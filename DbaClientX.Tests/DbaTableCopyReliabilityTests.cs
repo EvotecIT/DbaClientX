@@ -7,6 +7,78 @@ namespace DbaClientX.Tests;
 public sealed class DbaTableCopyReliabilityTests
 {
     [Fact]
+    public async Task ReadPageAsync_MissingOptionalSource_ReturnsEmptyKeysetPage()
+    {
+        using var fixture = new Fixture();
+        var source = new SQLiteTableCopyAdapter(fixture.SourcePath, treatMissingTablesAsEmpty: true);
+        DbaTableCopyDefinition definition = fixture.Definition with { SourceName = "MissingSource" };
+        using DbaTableCopyPage page = await source.ReadPageAsync(new(definition, null, 1));
+        Assert.Empty(page.Data.Rows.Cast<DataRow>());
+        Assert.Null(page.ContinuationToken);
+        await Assert.ThrowsAnyAsync<Exception>(() => fixture.Source.ReadPageAsync(new(definition, null, 1)));
+    }
+
+    [Fact]
+    public async Task CopyAsync_AliasedDestinations_RefusesBeforeClearing()
+    {
+        using var fixture = new Fixture();
+        using var sqlite = new SQLite();
+        sqlite.ExecuteNonQuery(fixture.DestinationPath, "INSERT INTO DestinationRows VALUES ('keep',1,'original')");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(fixture.Source, fixture.Destination,
+            new[] { fixture.Definition, fixture.Definition with { DestinationName = "main.\"destinationrows\"" } },
+            new() { VerifyContent = true, ClearDestination = true, CheckpointId = "aliases" }));
+        Assert.Equal("original", sqlite.ExecuteScalar(fixture.DestinationPath, "SELECT Payload FROM DestinationRows"));
+    }
+
+    [Fact]
+    public async Task CopyAsync_DestinationChangesPayload_RejectsMatchingCountsWithDifferentContent()
+    {
+        using var fixture = new Fixture();
+        using var sqlite = new SQLite();
+        sqlite.ExecuteNonQuery(fixture.DestinationPath,
+            "CREATE TRIGGER CorruptPayload AFTER INSERT ON DestinationRows BEGIN UPDATE DestinationRows SET Payload='changed' WHERE GroupName=NEW.GroupName AND Number=NEW.Number; END");
+        DbaTableCopyResult result = await fixture.CopyAsync(new() { VerifyContent = true, CheckpointId = "checksum", PageSize = 2 });
+        DbaTableCopyTableResult table = Assert.Single(result.Tables);
+        Assert.Equal(table.SourceRows, table.DestinationRows);
+        Assert.NotEqual(table.SourceContentHash, table.DestinationContentHash);
+        Assert.False(table.Verified);
+        Assert.False(result.Verified);
+        Assert.False((await fixture.Destination.ReadCheckpointAsync(fixture.Definition))!.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CopyAsync_UnreadableDestinationKey_RefusesBeforeWritingOrClearing(bool populated)
+    {
+        using var fixture = new Fixture();
+        using var sqlite = new SQLite();
+        if (populated) sqlite.ExecuteNonQuery(fixture.DestinationPath, "INSERT INTO DestinationRows VALUES ('keep',1,'original')");
+        DbaTableCopyDefinition definition = fixture.Definition with { DestinationOrderByColumns = new[] { "MissingKey" } };
+        await Assert.ThrowsAnyAsync<Exception>(() => new DbaTableCopyEngine().CopyAsync(fixture.Source, fixture.Destination,
+            new[] { definition }, new() { VerifyContent = true, ClearDestination = populated, CheckpointId = "bad-key" }));
+        Assert.Equal(populated ? 1 : 0, fixture.DestinationCount());
+        if (populated) Assert.Equal("original", sqlite.ExecuteScalar(fixture.DestinationPath, "SELECT Payload FROM DestinationRows"));
+    }
+
+    [Fact]
+    public async Task CopyAsync_UnicodeDistinctSQLiteTables_PreserveIndependentCheckpoints()
+    {
+        using var fixture = new Fixture();
+        using var sqlite = new SQLite();
+        string[] names = { "äRows", "ÄRows" };
+        foreach (string name in names)
+        {
+            sqlite.ExecuteNonQuery(fixture.DestinationPath, $"CREATE TABLE \"{name}\" (GroupName TEXT NOT NULL, Number INTEGER NOT NULL, Payload TEXT NULL, PRIMARY KEY(GroupName,Number))");
+            await new DbaTableCopyEngine().CopyAsync(fixture.Source, fixture.Destination,
+                new[] { fixture.Definition with { DestinationName = name } }, new() { CheckpointId = name, VerifyContent = true });
+        }
+        foreach (string name in names)
+            Assert.Equal(name, (await fixture.Destination.ReadCheckpointAsync(fixture.Definition with { DestinationName = name }))!.CopyId);
+        Assert.Equal("äRows", (await fixture.Destination.ReadCheckpointAsync(fixture.Definition with { DestinationName = "äROWS" }))!.CopyId);
+    }
+
+    [Fact]
     public async Task CopyAsync_DifferentGeneratedDestinationKey_VerifiesOnlyCopiedColumns()
     {
         using var fixture = new Fixture();
@@ -67,10 +139,18 @@ public sealed class DbaTableCopyReliabilityTests
         DbaTableCopyResult resumed = await fixture.CopyAsync(new DbaTableCopyOptions { CheckpointId = "resume", Resume = true, PageSize = 2 });
         Assert.True(resumed.Verified);
         Assert.Equal(3, Assert.Single(resumed.Tables).ResumedRows);
+        Assert.Equal(9, resumed.CopiedRows);
         Assert.Equal(12L, fixture.DestinationCount());
-        DbaTableCopyResult completedResume = await fixture.CopyAsync(new DbaTableCopyOptions { CheckpointId = "resume", Resume = true });
+        long verifiedRows = 0;
+        DbaTableCopyResult completedResume = await fixture.CopyAsync(new DbaTableCopyOptions
+        {
+            CheckpointId = "resume", Resume = true,
+            Progress = progress => { if (progress.Phase == DbaTableCopyPhase.VerifyDestination) verifiedRows += progress.PageRows; }
+        });
         Assert.True(completedResume.Verified);
         Assert.Equal(12, Assert.Single(completedResume.Tables).ResumedRows);
+        Assert.Equal(0, completedResume.CopiedRows);
+        Assert.Equal(12, verifiedRows);
     }
 
     [Theory]

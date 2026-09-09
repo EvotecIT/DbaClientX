@@ -5,7 +5,7 @@ using Microsoft.Data.SqlClient;
 
 namespace DbaClientX.Tests;
 
-public sealed class DbaTableCopySqlServerReliabilityTests
+public sealed partial class DbaTableCopySqlServerReliabilityTests
 {
     [Fact]
     public async Task ReadPageAsync_ByteLimitedSqlPage_StopsTransferAndPreservesSnapshot()

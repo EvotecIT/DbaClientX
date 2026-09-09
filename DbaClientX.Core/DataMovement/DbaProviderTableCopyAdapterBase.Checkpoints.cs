@@ -58,7 +58,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         }
         using (DbCommand delete = CreateCheckpointCommand(connection, transaction, $"DELETE FROM {CheckpointTable} WHERE TableKey = @tableKey"))
         {
-            AddCheckpointParameter(delete, "@tableKey", GetCheckpointTableKey(definition));
+            AddCheckpointParameter(delete, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
             await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await SaveCheckpointAsync(connection, transaction, definition, checkpoint, insert: true, cancellationToken).ConfigureAwait(false);
@@ -105,7 +105,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         string lockHint = Provider == DbaTableCopyProvider.SqlServer && transaction != null ? " WITH (UPDLOCK, HOLDLOCK)" : "";
         using DbCommand command = CreateCheckpointCommand(connection, transaction,
             $"SELECT CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed FROM {CheckpointTable}{lockHint} WHERE TableKey = @tableKey");
-        AddCheckpointParameter(command, "@tableKey", GetCheckpointTableKey(definition));
+        AddCheckpointParameter(command, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
         using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         return new DbaTableCopyCheckpoint
@@ -123,7 +123,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             ? $"INSERT INTO {CheckpointTable} (TableKey, CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed) VALUES (@tableKey, @copyId, @fingerprint, @sourceRows, @sourceHash, @copiedRows, @token, @copiedHash, @completed)"
             : $"UPDATE {CheckpointTable} SET CopyId=@copyId, DefinitionFingerprint=@fingerprint, SourceRows=@sourceRows, SourceContentHash=@sourceHash, CopiedRows=@copiedRows, ContinuationToken=@token, CopiedContentHash=@copiedHash, Completed=@completed WHERE TableKey=@tableKey";
         using DbCommand command = CreateCheckpointCommand(connection, transaction, sql);
-        AddCheckpointParameter(command, "@tableKey", GetCheckpointTableKey(definition));
+        AddCheckpointParameter(command, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
         AddCheckpointParameter(command, "@copyId", checkpoint.CopyId);
         AddCheckpointParameter(command, "@fingerprint", checkpoint.DefinitionFingerprint);
         AddCheckpointParameter(command, "@sourceRows", checkpoint.SourceRows);
@@ -153,10 +153,22 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         command.Parameters.Add(parameter);
     }
 
-    private string GetCheckpointTableKey(DbaTableCopyDefinition definition)
+    /// <summary>Resolves the physical destination identity using the provider's identifier rules.</summary>
+    protected virtual Task<string> ResolveCheckpointTableIdentityAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+        => throw new NotSupportedException("This provider does not resolve checkpoint table identities.");
+
+    internal async Task<string> ResolveDestinationTableIdentityAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
     {
+        using DbConnection connection = CreateCheckpointConnection();
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ResolveCheckpointTableIdentityAsync(connection, null, definition, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> GetCheckpointTableKeyAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+    {
+        string identity = await ResolveCheckpointTableIdentityAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false);
         using var sha = SHA256.Create();
-        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(QuotePath(definition.DestinationName).ToUpperInvariant()))).Replace("-", "").ToLowerInvariant();
+        return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "").ToLowerInvariant();
     }
 
     private static void ValidateCheckpoint(DbaTableCopyCheckpoint checkpoint)
