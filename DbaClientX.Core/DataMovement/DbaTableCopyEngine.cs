@@ -36,6 +36,8 @@ public sealed partial class DbaTableCopyEngine
 
         options ??= new DbaTableCopyOptions();
         ValidateOptions(options);
+        if (destination is IDbaTableCopyOptionsPreflightDestination optionsPreflight)
+            optionsPreflight.ValidateCopyOptions(options);
         using IDisposable? readSession = source is IDbaTableCopyReadSession session
             ? await session.OpenReadSessionAsync(cancellationToken).ConfigureAwait(false)
             : null;
@@ -82,7 +84,7 @@ public sealed partial class DbaTableCopyEngine
                 {
                     foreach (DbaTableCopyDefinition definition in copyDefinitions)
                     {
-                        long? rows = await CountRowsAsync(destination, definition, "destination", cancellationToken).ConfigureAwait(false);
+                        long? rows = await CountRowsForEmptyDestinationAsync(destination, definition, cancellationToken).ConfigureAwait(false);
                         if (rows != 0) throw new InvalidOperationException($"Destination table '{definition.DisplayName}' must be empty before copying.");
                     }
                 }

@@ -6,7 +6,7 @@ namespace DBAClientX;
 /// <summary>
 /// SQL Server source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
+public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession, IDbaTableCopyOptionsPreflightDestination
 {
     private readonly SqlServerBulkInsertOptions? _bulkInsertOptions;
     private readonly SqlServerConnectionOptions _connectionOptions;

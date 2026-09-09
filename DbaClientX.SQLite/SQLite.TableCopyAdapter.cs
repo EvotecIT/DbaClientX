@@ -72,7 +72,8 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await ReadDataTableAsync(reader, cancellationToken).ConfigureAwait(false);
+        var fields = new SqliteCopyFieldReader(reader);
+        return await DbaTableCopyPageReader.ReadAsync(reader, null, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

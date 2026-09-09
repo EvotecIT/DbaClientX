@@ -123,7 +123,7 @@ public sealed record DbaTableCopyRunManifest
                 AppendSequence(canonical, definition.DestinationOrderByColumns);
             }
             AppendDictionary(canonical, definition.ColumnMappings, static value => value);
-            AppendSequence(canonical, definition.ExcludedColumns);
+            AppendSequence(canonical, definition.ExcludedColumns?.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal));
             AppendDictionary(
                 canonical,
                 definition.ColumnTypeConversions,

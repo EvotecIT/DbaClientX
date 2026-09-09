@@ -32,7 +32,7 @@ public sealed partial class DbaTableCopyEngine
                     throw new InvalidOperationException($"Multiple definitions target destination table '{definition.DestinationName}'. Each verified destination must be unique.");
             }
             DbaTableCopyDefinition destinationDefinition = CreateDestinationReadDefinition(definition);
-            ContentProof proof = await ReadContentProofAsync(source, definition, options, null, DbaTableCopyPhase.ValidateSource, cancellationToken).ConfigureAwait(false);
+            ContentProof proof = await ReadContentProofAsync(source, definition, options, null, DbaTableCopyPhase.ValidateSource, cancellationToken, destination).ConfigureAwait(false);
             string fingerprint = DbaTableCopyRunManifest.ComputeDefinitionFingerprint(new[] { definition }, new DbaTableCopyOptions { KeepIdentity = options.KeepIdentity });
             var initial = new DbaTableCopyCheckpoint
             {

@@ -36,7 +36,10 @@ SELECT
     NULL AS numeric_precision,
     NULL AS numeric_scale,
     ti.dflt_value AS default_expression,
-    NULL AS is_identity,
+    CASE WHEN tl.wr = 0 AND ti.pk = 1 AND upper(ti.type) = 'INTEGER'
+        AND (SELECT COUNT(*) FROM pragma_table_xinfo(tl.name) key_column WHERE key_column.pk > 0) = 1
+        AND NOT EXISTS (SELECT 1 FROM pragma_index_list(tl.name) key_index WHERE key_index.origin = 'pk')
+        THEN 1 ELSE 0 END AS is_identity,
     NULL AS identity_generation,
     NULL AS generated_expression,
     CASE ti.hidden

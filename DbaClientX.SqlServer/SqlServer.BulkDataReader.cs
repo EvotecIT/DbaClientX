@@ -320,21 +320,7 @@ public partial class SqlServer
             throw new ArgumentException("Bulk insert requires at least one column.", nameof(reader));
         }
 
-        if (batchSize.HasValue && batchSize.Value <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
-        }
-
-        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout cannot be negative.");
-        }
-
-        if (options?.NotifyAfter is int notifyAfter && notifyAfter <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(SqlServerBulkInsertOptions.NotifyAfter), "NotifyAfter must be greater than zero.");
-        }
-
+        ValidateBulkInsertSettings(batchSize, bulkCopyTimeout, options);
         return GetValidatedReaderColumns(reader, options?.ColumnMappings);
     }
 

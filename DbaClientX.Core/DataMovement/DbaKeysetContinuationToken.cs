@@ -28,6 +28,10 @@ internal static class DbaKeysetContinuationToken
                     case DateTime date: writer.Write((byte)5); writer.Write(date.ToBinary()); break;
                     case DateTimeOffset date: writer.Write((byte)6); writer.Write(date.Ticks); writer.Write(date.Offset.Ticks); break;
                     case byte[] bytes: writer.Write((byte)7); writer.Write(bytes.Length); writer.Write(bytes); break;
+                    case bool boolean: writer.Write((byte)8); writer.Write(boolean); break;
+                    case TimeSpan time: writer.Write((byte)9); writer.Write(time.Ticks); break;
+                    case float number: writer.Write((byte)10); writer.Write(number); break;
+                    case double number: writer.Write((byte)11); writer.Write(number); break;
                     default: throw new InvalidOperationException($"Keyset column '{column}' must have a supported, non-null key value.");
                 }
             }
@@ -60,6 +64,10 @@ internal static class DbaKeysetContinuationToken
                     5 => DateTime.FromBinary(reader.ReadInt64()),
                     6 => new DateTimeOffset(reader.ReadInt64(), TimeSpan.FromTicks(reader.ReadInt64())),
                     7 => ReadBytes(reader, reader.ReadInt32()),
+                    8 => reader.ReadBoolean(),
+                    9 => TimeSpan.FromTicks(reader.ReadInt64()),
+                    10 => reader.ReadSingle(),
+                    11 => reader.ReadDouble(),
                     _ => throw new ArgumentException("Invalid key type in continuation token.", nameof(token))
                 };
             }

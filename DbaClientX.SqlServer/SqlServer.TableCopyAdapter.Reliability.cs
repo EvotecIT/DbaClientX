@@ -8,6 +8,29 @@ namespace DBAClientX;
 public sealed partial class SqlServerTableCopyAdapter
 {
     /// <inheritdoc />
+    public void ValidateCopyOptions(DbaTableCopyOptions options)
+    {
+        if (options == null) throw new ArgumentNullException(nameof(options));
+        SqlServer.ValidateBulkInsertSettings(options.BatchSize, options.BulkCopyTimeout, _bulkInsertOptions);
+        if ((options.VerifyContent || options.CheckpointId != null) && _bulkInsertOptions?.ColumnMappings?.Count > 0)
+            throw new ArgumentException("Verified and resumable copies require mappings in DbaTableCopyDefinition.ColumnMappings, not adapter-level bulk mappings.", nameof(options));
+        if (options.VerifyContent || options.CheckpointId != null)
+        {
+            SqlBulkCopyOptions flags = _bulkInsertOptions?.BulkCopyOptions ?? SqlBulkCopyOptions.Default;
+            if (!options.KeepIdentity && (flags & SqlBulkCopyOptions.KeepIdentity) != 0)
+                throw new ArgumentException("Verified and resumable copies require KeepIdentity in DbaTableCopyOptions so identity behavior is bound to the checkpoint contract.", nameof(options));
+            if ((flags & (SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.AllowEncryptedValueModifications)) != 0)
+                throw new ArgumentException("Verified and resumable copies do not support adapter flags that change trigger or encrypted-value write semantics.", nameof(options));
+        }
+        using var server = new SqlServer { ConnectionOptions = _connectionOptions };
+        server.ValidateCompatibility(ConnectionString, GetEffectiveBulkInsertOptions(options));
+    }
+
+    /// <inheritdoc />
+    public override void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
+        => SqlServer.ValidateBulkInsertInputs(page, NormalizeQuotedBulkDestinationTableName(definition.DestinationName), null, null, _bulkInsertOptions);
+
+    /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default;
 
     /// <inheritdoc />
@@ -48,6 +71,8 @@ public sealed partial class SqlServerTableCopyAdapter
         using SqlConnection? owned = _readConnection == null ? CreateTableCopyConnection() : null;
         SqlConnection connection = _readConnection ?? owned!;
         if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (maxBytes.HasValue && definition != null)
+            query = await PrepareBoundedProjectionAsync(connection, definition, query, cancellationToken).ConfigureAwait(false);
         using SqlCommand command = CreateSourceCommand(connection, query);
         if (parameters.Count > 0)
             await AddKeysetParametersAsync(connection, command, definition!, parameters, cancellationToken).ConfigureAwait(false);
@@ -73,24 +98,24 @@ public sealed partial class SqlServerTableCopyAdapter
     /// <inheritdoc />
     protected override async Task WriteTransactionalPageAsync(DbConnection connection, DbTransaction transaction, DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
-        if (_bulkInsertOptions?.AutoCreateTable == true)
-            throw new NotSupportedException("Create the destination schema before using atomic table-copy checkpoints.");
+        ValidateCopyOptions(options);
         using var server = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await server.WriteTableCopyRowsAsync((SqlConnection)connection, (SqlTransaction)transaction, page,
-            NormalizeQuotedBulkDestinationTableName(definition.DestinationName), GetEffectiveBulkInsertOptions(options),
+            NormalizeQuotedBulkDestinationTableName(definition.DestinationName), GetEffectiveBulkInsertOptions(options, externalTransaction: true),
             options.BatchSize, options.BulkCopyTimeout, cancellationToken).ConfigureAwait(false);
     }
 
-    private SqlServerBulkInsertOptions? GetEffectiveBulkInsertOptions(DbaTableCopyOptions options)
+    private SqlServerBulkInsertOptions? GetEffectiveBulkInsertOptions(DbaTableCopyOptions options, bool externalTransaction = false)
     {
-        if (!options.KeepIdentity && !options.VerifyContent && options.CheckpointId == null) return _bulkInsertOptions;
+        if (!externalTransaction && !options.KeepIdentity && !options.VerifyContent && options.CheckpointId == null) return _bulkInsertOptions;
         SqlBulkCopyOptions flags = _bulkInsertOptions?.BulkCopyOptions ?? SqlBulkCopyOptions.Default;
+        if (externalTransaction) flags &= ~SqlBulkCopyOptions.UseInternalTransaction;
         if (options.KeepIdentity) flags |= SqlBulkCopyOptions.KeepIdentity;
         if (options.VerifyContent || options.CheckpointId != null) flags |= SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints;
         return new SqlServerBulkInsertOptions
         {
             BulkCopyOptions = flags,
-            AutoCreateTable = _bulkInsertOptions?.AutoCreateTable ?? false,
+            AutoCreateTable = !externalTransaction && (_bulkInsertOptions?.AutoCreateTable ?? false),
             ColumnMappings = _bulkInsertOptions?.ColumnMappings,
             NotifyAfter = _bulkInsertOptions?.NotifyAfter,
             RowsCopied = _bulkInsertOptions?.RowsCopied

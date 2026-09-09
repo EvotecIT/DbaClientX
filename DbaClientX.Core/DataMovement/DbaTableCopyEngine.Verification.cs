@@ -22,7 +22,7 @@ public sealed partial class DbaTableCopyEngine
         { UseKeysetPagination = true };
     }
 
-    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken)
+    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null)
     {
         long? counted = await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
         if (!counted.HasValue) throw new InvalidOperationException($"Cannot verify '{definition.DisplayName}' without an exact row count.");
@@ -40,6 +40,12 @@ public sealed partial class DbaTableCopyEngine
             token = page.ContinuationToken;
             DataTable transformed = DbaTableCopyPageTransformer.Transform(page.Data, definition);
             using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
+            if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
+            {
+                ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
+                if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+                    await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
+            }
             columns ??= transformed.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray();
             hasher.Add(transformed, columns, cancellationToken);
             rows = checked(rows + transformed.Rows.Count);

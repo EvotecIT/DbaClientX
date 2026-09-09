@@ -40,7 +40,8 @@ public sealed partial class SQLiteTableCopyAdapter
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
         using var registration = cancellationToken.Register(() => command.Cancel());
         using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false);
+        var fields = new SqliteCopyFieldReader(reader);
+        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

@@ -4,7 +4,7 @@ using DBAClientX.DataMovement;
 
 namespace DbaClientX.Tests;
 
-public sealed class DbaTableCopyReliabilityTests
+public sealed partial class DbaTableCopyReliabilityTests
 {
     [Fact]
     public async Task ReadPageAsync_MissingOptionalSource_ReturnsEmptyKeysetPage()

@@ -8,6 +8,9 @@ public sealed partial class DbaTableCopySqlServerReliabilityTests
 {
     [Theory]
     [InlineData("decimal(28,12)", "1234567890123456.123456789001", "1234567890123456.123456789002", "1234567890123456.123456789003")]
+    [InlineData("time(7)", "00:00:00.0000001", "00:00:00.0000002", "00:00:00.0000003")]
+    [InlineData("real", "-1.125", "0.125", "1.125")]
+    [InlineData("float", "-1e200", "0.125", "1e200")]
     [InlineData("datetimeoffset(7)", "2026-01-01T00:00:00.0000001+02:00", "2026-01-01T00:00:00.0000002+02:00", "2026-01-01T00:00:00.0000003+02:00")]
     [InlineData("varchar(40)", "aA", "aB", "bA")]
     [InlineData("nvarchar(40)", "日本語A", "日本語B", "日本語C")]

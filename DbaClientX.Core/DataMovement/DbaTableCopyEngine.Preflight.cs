@@ -14,7 +14,6 @@ public sealed partial class DbaTableCopyEngine
         CancellationToken cancellationToken)
     {
         var results = new DbaTableCopyPreflight?[definitions.Count];
-        var destinationPagePreflight = destination as IDbaTableCopyPagePreflightDestination;
         try
         {
             for (var index = 0; index < definitions.Count; index++)
@@ -42,7 +41,7 @@ public sealed partial class DbaTableCopyEngine
                     results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 1);
                     if (firstPage.Data.Columns.Count > 0)
                     {
-                        PreflightTransform(firstPage.Data, definition, destinationPagePreflight);
+                        await PreflightTransformAsync(firstPage.Data, definition, destination, options, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 else
@@ -105,14 +104,29 @@ public sealed partial class DbaTableCopyEngine
         }
     }
 
-    private static void PreflightTransform(
+    private static async Task PreflightTransformAsync(
         DataTable page,
         DbaTableCopyDefinition definition,
-        IDbaTableCopyPagePreflightDestination? destinationPagePreflight)
+        IDbaTableCopyDestination destination,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
     {
         var transformed = DbaTableCopyPageTransformer.Transform(page, definition);
         using var transformedToDispose = ReferenceEquals(transformed, page) ? null : transformed;
 
+        ValidateTransformedPage(transformed, definition, destination as IDbaTableCopyPagePreflightDestination);
+        if (destination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+            await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<long?> CountRowsForEmptyDestinationAsync(IDbaTableCopyDestination destination, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+    {
+        try { return await CountRowsAsync(destination, definition, "destination", cancellationToken).ConfigureAwait(false); }
+        catch (Exception exception) when (ShouldSuppressDestinationCountFailure(destination, definition, exception)) { return 0; }
+    }
+
+    private static void ValidateTransformedPage(DataTable transformed, DbaTableCopyDefinition definition, IDbaTableCopyPagePreflightDestination? destinationPagePreflight)
+    {
         if (transformed.Columns.Count == 0)
         {
             throw new InvalidOperationException(

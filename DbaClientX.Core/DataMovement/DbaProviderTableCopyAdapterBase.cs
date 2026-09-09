@@ -104,7 +104,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     public abstract Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default);
 
     Task<long?> IDbaTableCopyDestination.CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
-        => ExecuteCountAsync(definition.DestinationName, null, treatMissingAsEmpty: false, cancellationToken);
+        => ExecuteCountAsync(definition.DestinationName, null, treatMissingAsEmpty: ShouldWriteEmptyPage(definition), cancellationToken);
 
     /// <inheritdoc />
     public virtual void ValidatePage(DbaTableCopyDefinition definition, DataTable page)

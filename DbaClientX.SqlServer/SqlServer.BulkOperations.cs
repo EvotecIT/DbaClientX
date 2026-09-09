@@ -377,7 +377,7 @@ public partial class SqlServer
 #endif
     }
 
-    private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options = null)
+    internal static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options = null)
     {
         if (table == null)
         {
@@ -394,21 +394,7 @@ public partial class SqlServer
             throw new ArgumentException("Bulk insert requires at least one column.", nameof(table));
         }
 
-        if (batchSize.HasValue && batchSize.Value <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(batchSize), "Batch size must be greater than zero.");
-        }
-
-        if (bulkCopyTimeout.HasValue && bulkCopyTimeout.Value < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(bulkCopyTimeout), "Bulk copy timeout cannot be negative.");
-        }
-
-        if (options?.NotifyAfter is int notifyAfter && notifyAfter <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(SqlServerBulkInsertOptions.NotifyAfter), "NotifyAfter must be greater than zero.");
-        }
-
+        ValidateBulkInsertSettings(batchSize, bulkCopyTimeout, options);
         ValidateColumnMappings(table, options?.ColumnMappings);
     }
 
@@ -474,7 +460,7 @@ public partial class SqlServer
             ? dictionary.Comparer
             : StringComparer.Ordinal;
 
-    private void ValidateCompatibility(
+    internal void ValidateCompatibility(
         string connectionString,
         SqlServerBulkInsertOptions? options)
     {
