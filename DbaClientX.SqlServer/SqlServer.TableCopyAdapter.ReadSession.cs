@@ -8,6 +8,7 @@ public sealed partial class SqlServerTableCopyAdapter
 {
     private SqlConnection? _readConnection;
     private SqlTransaction? _readTransaction;
+    private ReadSessionMetadata? _readMetadata;
     private int _readSessionActive;
 
     /// <summary>Consistency for an engine-owned read session. CallerManaged leaves connection ownership per operation.</summary>
@@ -33,6 +34,7 @@ public sealed partial class SqlServerTableCopyAdapter
                     throw new InvalidOperationException("The SQL Server source requires ALLOW_SNAPSHOT_ISOLATION to be enabled for online migration. For a stopped/offline source, explicitly select Serializable read consistency instead.");
             }
             _readTransaction = _readConnection.BeginTransaction(ReadConsistency == DbaTableCopyReadConsistency.Snapshot ? IsolationLevel.Snapshot : IsolationLevel.Serializable);
+            _readMetadata = new ReadSessionMetadata();
             return new ReadSessionLease(this);
         }
         catch
@@ -56,6 +58,7 @@ public sealed partial class SqlServerTableCopyAdapter
         try { _readTransaction?.Dispose(); }
         finally
         {
+            _readMetadata = null;
             _readTransaction = null;
             _readConnection?.Dispose();
             _readConnection = null;

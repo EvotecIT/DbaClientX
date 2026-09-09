@@ -123,9 +123,9 @@ public sealed partial class DbaTableCopySqlServerReliabilityTests
             Definition = new("SourceRows", Table, new[] { "Id" }, ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType> { ["Enabled"] = DbaTableCopyColumnType.Boolean }) { UseKeysetPagination = true };
         }
 
-        internal static async Task<Fixture> CreateAsync()
+        internal static async Task<Fixture> CreateAsync(string? connectionOverride = null)
         {
-            string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+            string? connection = connectionOverride ?? Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
             Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_SQLSERVER_TEST_CONNECTION to an isolated SQL Server database with ALLOW_SNAPSHOT_ISOLATION enabled.");
             var fixture = new Fixture(connection!);
             try

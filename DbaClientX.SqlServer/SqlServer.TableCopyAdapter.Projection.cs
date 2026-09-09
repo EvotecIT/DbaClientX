@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Data;
 using DBAClientX.DataMovement;
 using Microsoft.Data.SqlClient;
@@ -7,12 +6,11 @@ namespace DBAClientX;
 
 public sealed partial class SqlServerTableCopyAdapter
 {
-    private readonly ConcurrentDictionary<string, string> _boundedProjections = new(StringComparer.Ordinal);
-
     private async Task<string> PrepareBoundedProjectionAsync(SqlConnection connection, DbaTableCopyDefinition definition, string query, CancellationToken cancellationToken)
     {
         string tableName = QuotePath(definition.SourceName);
-        if (!_boundedProjections.TryGetValue(tableName, out string? projection))
+        ReadSessionMetadata? metadata = ReferenceEquals(connection, _readConnection) ? _readMetadata : null;
+        if (metadata == null || !metadata.BoundedProjections.TryGetValue(tableName, out string? projection))
         {
             using SqlCommand command = CreateSourceCommand(connection, $"SELECT TOP (0) * FROM {tableName}");
             using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SchemaOnly, cancellationToken).ConfigureAwait(false);
@@ -28,7 +26,7 @@ public sealed partial class SqlServerTableCopyAdapter
                 hasXml |= xml;
             }
             projection = hasXml ? string.Join(", ", columns) : "*";
-            _boundedProjections.TryAdd(tableName, projection);
+            metadata?.BoundedProjections.TryAdd(tableName, projection);
         }
         if (projection == "*") return query;
         // The base adapter owns this SELECT TOP (...) * FROM template, including key ordering.

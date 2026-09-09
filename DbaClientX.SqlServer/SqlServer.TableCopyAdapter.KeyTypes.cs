@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Data;
 using System.Globalization;
 using DBAClientX.DataMovement;
@@ -8,13 +7,12 @@ namespace DBAClientX;
 
 public sealed partial class SqlServerTableCopyAdapter
 {
-    private readonly ConcurrentDictionary<string, KeyColumnType[]> _keyColumnTypes = new(StringComparer.Ordinal);
-
     private async Task AddKeysetParametersAsync(SqlConnection connection, SqlCommand command, DbaTableCopyDefinition definition,
         IReadOnlyDictionary<string, object?> parameters, CancellationToken cancellationToken)
     {
         string schemaQuery = $"SELECT TOP (0) {string.Join(", ", definition.OrderByColumns!.Select(QuotePath))} FROM {QuotePath(definition.SourceName)}";
-        if (!_keyColumnTypes.TryGetValue(schemaQuery, out KeyColumnType[]? types))
+        ReadSessionMetadata? metadata = ReferenceEquals(connection, _readConnection) ? _readMetadata : null;
+        if (metadata == null || !metadata.KeyColumnTypes.TryGetValue(schemaQuery, out KeyColumnType[]? types))
         {
             using SqlCommand schemaCommand = CreateSourceCommand(connection, schemaQuery);
             using SqlDataReader schemaReader = await schemaCommand.ExecuteReaderAsync(CommandBehavior.SchemaOnly, cancellationToken).ConfigureAwait(false);
@@ -24,7 +22,7 @@ public sealed partial class SqlServerTableCopyAdapter
                 Convert.ToInt32(row["ColumnSize"], CultureInfo.InvariantCulture),
                 row["NumericPrecision"] is DBNull ? (byte)0 : Convert.ToByte(row["NumericPrecision"], CultureInfo.InvariantCulture),
                 row["NumericScale"] is DBNull ? (byte)0 : Convert.ToByte(row["NumericScale"], CultureInfo.InvariantCulture))).ToArray();
-            _keyColumnTypes.TryAdd(schemaQuery, types);
+            metadata?.KeyColumnTypes.TryAdd(schemaQuery, types);
         }
         for (int index = 0; index < types.Length; index++)
         {

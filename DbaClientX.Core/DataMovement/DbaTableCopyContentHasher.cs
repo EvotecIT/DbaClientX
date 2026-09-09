@@ -68,7 +68,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             case string text: _writer.Write((byte)2); _writer.Write(text); break;
             case byte[] bytes: _writer.Write((byte)3); _writer.Write(bytes.Length); _writer.Write(bytes); break;
             case DateTime date: _writer.Write((byte)4); _writer.Write(date.Kind == DateTimeKind.Local ? date.ToUniversalTime().Ticks : date.Ticks); break;
-            case DateTimeOffset date: _writer.Write((byte)4); _writer.Write(date.UtcTicks); break;
+            case DateTimeOffset date: _writer.Write((byte)7); _writer.Write(date.UtcTicks); _writer.Write(date.Offset.Ticks); break;
             case Guid guid: _writer.Write((byte)5); _writer.Write(guid.ToByteArray()); break;
             case TimeSpan duration: _writer.Write((byte)6); _writer.Write(duration.Ticks); break;
             default: throw new NotSupportedException($"Content verification does not support '{value.GetType().FullName}'. Declare a supported column conversion.");
