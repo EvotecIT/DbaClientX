@@ -15,8 +15,13 @@ public sealed partial class SqlServerTableCopyAdapter
     public DbaTableCopyReadConsistency ReadConsistency { get; set; }
 
     /// <inheritdoc />
-    public async Task<IDisposable?> OpenReadSessionAsync(CancellationToken cancellationToken = default)
+    public Task<IDisposable?> OpenReadSessionAsync(CancellationToken cancellationToken = default)
+        => OpenReadSessionAsync(Array.Empty<DbaTableCopyDefinition>(), cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<IDisposable?> OpenReadSessionAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, CancellationToken cancellationToken = default)
     {
+        if (definitions == null) throw new ArgumentNullException(nameof(definitions));
         if (ReadConsistency == DbaTableCopyReadConsistency.CallerManaged) return null;
         if (ReadConsistency is not (DbaTableCopyReadConsistency.Snapshot or DbaTableCopyReadConsistency.Serializable))
             throw new ArgumentOutOfRangeException(nameof(ReadConsistency));
@@ -28,10 +33,7 @@ public sealed partial class SqlServerTableCopyAdapter
             await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
             if (ReadConsistency == DbaTableCopyReadConsistency.Snapshot)
             {
-                using SqlCommand check = CreateSourceCommand(_readConnection, "SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID()");
-                object? state = await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-                if (Convert.ToInt32(state, System.Globalization.CultureInfo.InvariantCulture) != 1)
-                    throw new InvalidOperationException("The SQL Server source requires ALLOW_SNAPSHOT_ISOLATION to be enabled for online migration. For a stopped/offline source, explicitly select Serializable read consistency instead.");
+                await ValidateSnapshotDatabasesAsync(_readConnection, definitions, cancellationToken).ConfigureAwait(false);
             }
             _readTransaction = _readConnection.BeginTransaction(ReadConsistency == DbaTableCopyReadConsistency.Snapshot ? IsolationLevel.Snapshot : IsolationLevel.Serializable);
             _readMetadata = new ReadSessionMetadata();
@@ -41,6 +43,28 @@ public sealed partial class SqlServerTableCopyAdapter
         {
             CloseReadSession();
             throw;
+        }
+    }
+
+    private async Task ValidateSnapshotDatabasesAsync(SqlConnection connection, IReadOnlyList<DbaTableCopyDefinition> definitions, CancellationToken cancellationToken)
+    {
+        var databases = new HashSet<string>(StringComparer.Ordinal);
+        foreach (DbaTableCopyDefinition definition in definitions)
+        {
+            definition.Validate();
+            string[] parts = DbaIdentifierPath.SplitSegments(definition.SourceName).Select(DbaIdentifierPath.UnquoteSegment).ToArray();
+            if (parts.Length > 3)
+                throw new NotSupportedException("Snapshot table-copy sessions require local source databases; linked-server sources are not supported.");
+            databases.Add(parts.Length == 3 ? parts[0] : connection.Database);
+        }
+        if (definitions.Count == 0) databases.Add(connection.Database);
+        foreach (string database in databases)
+        {
+            using SqlCommand check = CreateSourceCommand(connection, "SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID(@database)");
+            check.Parameters.Add("@database", SqlDbType.NVarChar, 128).Value = database;
+            object? state = await check.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (state == null || state == DBNull.Value || Convert.ToInt32(state, System.Globalization.CultureInfo.InvariantCulture) != 1)
+                throw new InvalidOperationException($"The SQL Server source database '{database}' requires ALLOW_SNAPSHOT_ISOLATION to be enabled and visible for online migration. For a stopped/offline source, explicitly select Serializable read consistency instead.");
         }
     }
 

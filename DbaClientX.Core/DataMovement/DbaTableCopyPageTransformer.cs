@@ -8,6 +8,17 @@ namespace DBAClientX.DataMovement;
 /// </summary>
 internal static class DbaTableCopyPageTransformer
 {
+    internal static DataTable TransformReadback(DataTable page, DbaTableCopyDefinition definition)
+    {
+        if (definition.ColumnTypeConversions is not { Count: > 0 }) return Transform(page, definition);
+        // Bind the effective source conversions to the same physical columns the content
+        // hasher reads. Providers such as SQLite may return different identifier casing.
+        var conversions = definition.ColumnTypeConversions.ToDictionary(
+            pair => page.Columns[pair.Key]?.ColumnName ?? throw new InvalidOperationException($"Copied column '{pair.Key}' is missing from the verification result."),
+            pair => pair.Value, StringComparer.Ordinal);
+        return Transform(page, definition with { ColumnTypeConversions = conversions });
+    }
+
     internal static DataTable Transform(DataTable page, DbaTableCopyDefinition definition)
     {
         if (!HasTransforms(definition))
@@ -15,30 +26,19 @@ internal static class DbaTableCopyPageTransformer
             return page;
         }
 
-        var excluded = definition.ExcludedColumns is { Count: > 0 }
-            ? ToHashSet(definition.ExcludedColumns)
-            : new HashSet<string>(StringComparer.Ordinal);
-        var mappings = definition.ColumnMappings is { Count: > 0 }
-            ? ToDictionary(definition.ColumnMappings)
-            : null;
-        var conversions = definition.ColumnTypeConversions is { Count: > 0 }
-            ? ToDictionary(definition.ColumnTypeConversions)
-            : null;
-
+        var projection = new ColumnProjection(definition);
         var transformed = new DataTable(page.TableName);
         var columns = new List<ColumnTransform>();
         var destinationNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (DataColumn sourceColumn in page.Columns)
         {
-            var destinationName = mappings != null && mappings.TryGetValue(sourceColumn.ColumnName, out var mappedName)
-                ? mappedName
-                : sourceColumn.ColumnName;
-            if (excluded.Contains(sourceColumn.ColumnName) || excluded.Contains(destinationName))
+            var destinationName = projection.Map(sourceColumn.ColumnName);
+            if (projection.IsExcluded(sourceColumn.ColumnName, destinationName))
             {
                 continue;
             }
 
-            var conversion = ResolveConversion(conversions, sourceColumn.ColumnName, destinationName);
+            var conversion = projection.Conversion(sourceColumn.ColumnName, destinationName);
             if (!destinationNames.Add(destinationName))
             {
                 throw new InvalidOperationException(
@@ -61,6 +61,48 @@ internal static class DbaTableCopyPageTransformer
         }
 
         return transformed;
+    }
+
+    internal static DestinationReadProjection ResolveDestinationReadProjection(DataTable source, DbaTableCopyDefinition definition)
+    {
+        var projection = new ColumnProjection(definition);
+        IReadOnlyList<string> keys = definition.DestinationOrderByColumns ?? definition.OrderByColumns!.Select(key =>
+        {
+            string sourceName = source.Columns[key]?.ColumnName ?? key;
+            string destinationName = projection.Map(sourceName);
+            if (projection.IsExcluded(sourceName, destinationName))
+                throw new ArgumentException("Content-verified copies require the ordered key to be copied unchanged. Preserve identity keys or select another unique key.");
+            return destinationName;
+        }).ToArray();
+        var conversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal);
+        foreach (DataColumn column in source.Columns)
+        {
+            string destinationName = projection.Map(column.ColumnName);
+            if (projection.IsExcluded(column.ColumnName, destinationName)) continue;
+            DbaTableCopyColumnType conversion = projection.Conversion(column.ColumnName, destinationName);
+            if (conversion != DbaTableCopyColumnType.None) conversions[destinationName] = conversion;
+        }
+        return new DestinationReadProjection(keys, conversions);
+    }
+
+    internal sealed record DestinationReadProjection(IReadOnlyList<string> Keys, IReadOnlyDictionary<string, DbaTableCopyColumnType> Conversions);
+
+    private sealed class ColumnProjection
+    {
+        private readonly HashSet<string> _excluded;
+        private readonly Dictionary<string, string>? _mappings;
+        private readonly Dictionary<string, DbaTableCopyColumnType>? _conversions;
+
+        internal ColumnProjection(DbaTableCopyDefinition definition)
+        {
+            _excluded = definition.ExcludedColumns == null ? new HashSet<string>(StringComparer.Ordinal) : ToHashSet(definition.ExcludedColumns);
+            _mappings = definition.ColumnMappings == null ? null : ToDictionary(definition.ColumnMappings);
+            _conversions = definition.ColumnTypeConversions == null ? null : ToDictionary(definition.ColumnTypeConversions);
+        }
+
+        internal string Map(string sourceName) => _mappings != null && _mappings.TryGetValue(sourceName, out string? mapped) ? mapped : sourceName;
+        internal bool IsExcluded(string sourceName, string destinationName) => _excluded.Contains(sourceName) || _excluded.Contains(destinationName);
+        internal DbaTableCopyColumnType Conversion(string sourceName, string destinationName) => ResolveConversion(_conversions, sourceName, destinationName);
     }
 
     private static bool HasTransforms(DbaTableCopyDefinition definition)

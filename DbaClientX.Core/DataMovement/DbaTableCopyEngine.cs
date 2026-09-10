@@ -38,17 +38,19 @@ public sealed partial class DbaTableCopyEngine
         ValidateOptions(options);
         if (destination is IDbaTableCopyOptionsPreflightDestination optionsPreflight)
             optionsPreflight.ValidateCopyOptions(options);
-        using IDisposable? readSession = source is IDbaTableCopyReadSession session
-            ? await session.OpenReadSessionAsync(cancellationToken).ConfigureAwait(false)
-            : null;
-        if (readSession != null && ReferenceEquals(source, destination))
-            throw new ArgumentException("Use separate source and destination adapters when the source holds a read session. Destination verification must observe committed writes.", nameof(destination));
-
         var copyDefinitions = definitions.ToArray();
         foreach (var definition in copyDefinitions)
         {
             definition.Validate();
         }
+
+        using IDisposable? readSession = source is IDbaTableCopyDefinitionReadSession definitionSession
+            ? await definitionSession.OpenReadSessionAsync(copyDefinitions, cancellationToken).ConfigureAwait(false)
+            : source is IDbaTableCopyReadSession session
+            ? await session.OpenReadSessionAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+        if (readSession != null && ReferenceEquals(source, destination))
+            throw new ArgumentException("Use separate source and destination adapters when the source holds a read session. Destination verification must observe committed writes.", nameof(destination));
 
         if (options.ClearDestination)
         {
