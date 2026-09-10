@@ -840,7 +840,7 @@ public class DbaProviderTableCopyAdapterBaseTests
             "[dbo].[ProbeIndex]",
             new DbaTableCopySourceOptions(new[] { "ProbeName" }, new[] { "LastCompletedUtcMs" }, true));
 
-        Assert.Equal("SELECT COUNT(*) FROM (SELECT 1 AS dbax_key FROM [dbo].[ProbeIndex] GROUP BY LOWER([ProbeName])) dbax_source_keys", query);
+        Assert.Equal("SELECT COUNT_BIG(*) FROM (SELECT 1 AS dbax_key FROM [dbo].[ProbeIndex] GROUP BY LOWER([ProbeName])) dbax_source_keys", query);
     }
 
     [Fact]

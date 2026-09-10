@@ -19,4 +19,10 @@ public sealed class DbaProviderTableCopyAdapterOptions
 
     /// <summary>When true, missing source or destination tables are counted as empty instead of failing the copy.</summary>
     public bool TreatMissingTablesAsEmpty { get; set; }
+
+    /// <summary>Timeout in seconds for source pages, counts, and checkpoint operations. Zero disables the timeout.</summary>
+    public int CommandTimeout { get; set; } = 600;
+
+    /// <summary>Optional SQL Server source transaction spanning all migration reads.</summary>
+    public DbaTableCopyReadConsistency ReadConsistency { get; set; }
 }

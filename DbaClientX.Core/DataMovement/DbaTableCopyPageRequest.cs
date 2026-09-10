@@ -39,6 +39,12 @@ public sealed record DbaTableCopyPageRequest
     /// <summary>Maximum number of rows requested for this page.</summary>
     public int PageSize { get; }
 
+    /// <summary>
+    /// Optional estimated in-memory row payload limit. Supported provider readers stop before adding a row
+    /// that would exceed this limit; a single oversized row fails rather than silently truncating data.
+    /// </summary>
+    public long? MaxBytes { get; init; }
+
     /// <summary>Decoded offset for legacy offset-backed sources.</summary>
     [Obsolete("ContinuationToken is the canonical paging contract.")]
     public long Offset => DbaOffsetContinuationToken.Decode(ContinuationToken);

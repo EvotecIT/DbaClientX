@@ -6,7 +6,7 @@ namespace DBAClientX;
 /// <summary>
 /// SQL Server source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyDefinitionReadSession, IDbaTableCopyOptionsPreflightDestination
 {
     private readonly SqlServerBulkInsertOptions? _bulkInsertOptions;
     private readonly SqlServerConnectionOptions _connectionOptions;
@@ -46,17 +46,19 @@ public sealed class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase
         {
             throw new ArgumentException("Options must target SQL Server.", nameof(options));
         }
+        CommandTimeout = options.CommandTimeout;
+        ReadConsistency = options.ReadConsistency;
     }
 
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions };
+        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await sqlServer.BulkInsertAsync(
                 ConnectionString,
                 page,
                 NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
-                _bulkInsertOptions,
+                GetEffectiveBulkInsertOptions(options),
                 batchSize: options.BatchSize,
                 bulkCopyTimeout: options.BulkCopyTimeout,
                 cancellationToken: cancellationToken)
@@ -70,17 +72,27 @@ public sealed class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions };
+        if (_readConnection != null)
+        {
+            using var command = CreateSourceCommand(_readConnection, query);
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         return await sqlServer.ExecuteScalarAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
+        if (_readConnection != null)
+        {
+            return await ExecuteBoundedPageCoreAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+        }
         using var sqlServer = new SqlServer
         {
             ConnectionOptions = _connectionOptions,
-            ReturnType = ReturnType.DataTable
+            ReturnType = ReturnType.DataTable,
+            CommandTimeout = CommandTimeout
         };
         var result = await sqlServer.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result as DataTable
@@ -90,7 +102,7 @@ public sealed class SqlServerTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions };
+        using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await sqlServer.ExecuteNonQueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

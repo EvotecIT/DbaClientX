@@ -153,6 +153,45 @@ Use `Copy-DbaXAzureTableData` for a streaming account-to-account copy. Row-count
 
 Adapter authors upgrading to `DbaClientX.Core` 0.14 must return `DbaTableCopyPage` from `IDbaTableCopySource.ReadPageAsync`, carrying the provider's opaque continuation token in the page result. The offset constructor on `DbaTableCopyPageRequest` remains temporarily available for callers, but provider implementations should no longer invent paging state in consumers.
 
+### Verified and resumable database copies
+
+The .NET table-copy engine supports bounded keyset pages, content verification, and atomic destination checkpoints for SQLite and SQL Server. Define an ascending, unique, non-null key that is preserved in the destination, then enable the required options:
+
+```csharp
+var definition = new DbaTableCopyDefinition("SourceRows", "dbo.ArchiveRows", new[] { "Id" })
+{
+    UseKeysetPagination = true
+};
+var options = new DbaTableCopyOptions
+{
+    VerifyContent = true,
+    CheckpointId = migrationId, // Persist this identifier outside the process.
+    Resume = resume,
+    KeepIdentity = true,
+    PageSize = 10_000,
+    MaxPageBytes = 32L * 1024 * 1024,
+    BulkCopyTimeout = 600
+};
+var result = await new DbaTableCopyEngine().CopyAsync(sourceAdapter, destinationAdapter,
+    new[] { definition }, options, cancellationToken);
+```
+
+Create the destination schema first and keep its writers stopped during migration. Verified copies require empty destination tables unless `ClearDestination` explicitly discards their contents. The engine validates source contents and destination state before clearing tables. Each page and its checkpoint commit together in the destination database's `DbaClientX_TableCopyCheckpoints` table (`dbo` on SQL Server). Resume rereads the source and committed destination rows and refuses changed contents or definitions. A preflight interruption with no checkpoint may resume only into empty destination tables. Changing page size or timeouts does not require a new migration identifier.
+
+If initial destination clearing is interrupted, resume refuses nonempty tables that have no checkpoint. Confirm that the destination can still be discarded, then restart with a new checkpoint identifier and `ClearDestination` enabled.
+
+Content verification compares row counts and a SHA-256 multiset checksum over the copied columns. It normalizes numeric widths and booleans, preserves exact strings, nulls, binary values, and `datetimeoffset` offsets, and tolerates different provider sort orders. It does not verify excluded columns, triggers, permissions, or schema equivalence. Preflight rejects missing copied columns, generated columns in the write projection, and required destination columns without a supplied value or default. SQL Server verified writes preserve nulls and check constraints.
+
+For verified or resumable SQL Server copies, set identity preservation through `DbaTableCopyOptions.KeepIdentity` and column mappings through `DbaTableCopyDefinition.ColumnMappings`. These settings are part of the checkpoint contract. SQL bulk destination names must match the physical column casing; map source `id` to destination `ID` explicitly even when the database uses a case-insensitive collation. Adapter-level mappings and the `FireTriggers` or `AllowEncryptedValueModifications` bulk flags are rejected in this mode. Ordinary copies retain adapter mappings and automatic table creation. `KeepIdentity` retains supplied identity values; it does not copy schema or replace ordinary key mappings.
+
+Use a stable SQLite backup as the source. For SQL Server, set `DbaProviderTableCopyAdapterOptions.ReadConsistency` to `Snapshot` to hold one source snapshot for the whole engine call. The engine checks `ALLOW_SNAPSHOT_ISOLATION` in every database named by the source definitions before reading rows or changing destinations. Three-part source names use their named database; one- and two-part names use the connection database. Linked-server sources are not supported in snapshot sessions. `Serializable` is an alternative for offline sources and can block writers. `CallerManaged`, the default, leaves source consistency to the caller. A resumed SQL source must remain unchanged between calls.
+
+Source and destination keys must be unique under their own provider's comparison rules. Set `DbaTableCopyDefinition.DestinationOrderByColumns` when destination verification needs a different key, such as a generated binary hash that distinguishes text values SQL collation considers equal. Generated source keys may be excluded from copied content when an explicit destination verification key is supplied. These key settings are part of the checkpoint contract.
+
+Implicit destination keys follow the actual source column names and the same mapping and exclusion rules as copied pages. Exclusions apply to both source and mapped destination names. `Dictionary` mappings and `HashSet` exclusions retain their comparers; other collection implementations use ordinal matching. An exclusion such as ordinal `id` therefore leaves source column `Id` intact. If the projected key is excluded, supply an explicit destination verification key.
+
+`MaxPageBytes` limits estimated payload per keyset page, not total process memory or SQLite's native row buffers. SQL values are read in bounded chunks; SQLite values are sized before managed allocation. A single larger row fails without truncation; raise the limit explicitly for large report or binary payloads. Mixed SQLite storage types and embedded null characters in text are preserved, while malformed UTF-8 text is rejected. Full content scans add I/O before and after copying. Checkpoints provide page-level durability, not an all-or-nothing transaction over the entire migration, so an incomplete destination must remain offline. Other provider adapters retain their existing count-verification path.
+
 ### Build SQL
 
 ```powershell

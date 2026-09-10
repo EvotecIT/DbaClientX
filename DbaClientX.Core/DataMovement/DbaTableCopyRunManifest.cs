@@ -107,15 +107,23 @@ public sealed record DbaTableCopyRunManifest
         Append(canonical, options.BulkCopyTimeout?.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Append(canonical, options.ClearDestination ? "1" : "0");
         Append(canonical, options.VerifyRowCounts ? "1" : "0");
+        Append(canonical, options.VerifyContent ? "1" : "0");
+        Append(canonical, options.KeepIdentity ? "1" : "0");
 
         foreach (var definition in definitions)
         {
             Append(canonical, definition.SourceName);
             Append(canonical, definition.DestinationName);
             Append(canonical, definition.LogicalName);
+            Append(canonical, definition.UseKeysetPagination ? "1" : "0");
             AppendSequence(canonical, definition.OrderByColumns);
+            if (definition.DestinationOrderByColumns != null)
+            {
+                Append(canonical, "destination-order");
+                AppendSequence(canonical, definition.DestinationOrderByColumns);
+            }
             AppendDictionary(canonical, definition.ColumnMappings, static value => value);
-            AppendSequence(canonical, definition.ExcludedColumns);
+            AppendSequence(canonical, definition.ExcludedColumns?.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal));
             AppendDictionary(
                 canonical,
                 definition.ColumnTypeConversions,

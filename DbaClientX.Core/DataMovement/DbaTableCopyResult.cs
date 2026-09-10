@@ -56,4 +56,13 @@ public sealed record DbaTableCopyTableResult(
 {
     /// <summary>Number of source pages processed for the table.</summary>
     public int PageCount { get; init; }
+
+    /// <summary>Checksum of the projected source when content verification was enabled.</summary>
+    public string? SourceContentHash { get; init; }
+
+    /// <summary>Checksum of copied columns read back from the destination.</summary>
+    public string? DestinationContentHash { get; init; }
+
+    /// <summary>Rows already committed and verified when resuming.</summary>
+    public long ResumedRows { get; init; }
 }

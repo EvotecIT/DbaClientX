@@ -45,6 +45,7 @@ SELECT
     CASE WHEN sys_column.is_identity = 1 THEN N'IDENTITY' ELSE NULL END AS identity_generation,
     computed_column.definition AS generated_expression,
     CASE
+        WHEN COLUMNPROPERTY(sys_column.object_id, sys_column.name, 'GeneratedAlwaysType') > 0 THEN N'GENERATED_ALWAYS'
         WHEN computed_column.definition IS NULL THEN NULL
         WHEN computed_column.is_persisted = 1 THEN N'COMPUTED_PERSISTED'
         ELSE N'COMPUTED'
