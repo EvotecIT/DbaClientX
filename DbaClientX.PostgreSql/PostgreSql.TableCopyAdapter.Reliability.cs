@@ -29,7 +29,10 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
         }
 
         using var command = new NpgsqlCommand(
-            "SELECT current_database() || ':' || to_regclass(@name)::oid::text",
+            @"SELECT current_database() || ':' || cls.oid::text
+FROM pg_catalog.pg_class AS cls
+WHERE cls.oid = to_regclass(@name)
+  AND cls.relkind IN ('r', 'p', 'f')",
             (NpgsqlConnection)connection,
             (NpgsqlTransaction?)transaction)
         {
@@ -64,7 +67,8 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
 SELECT ns.nspname, cls.relname
 FROM pg_catalog.pg_class AS cls
 JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
-WHERE cls.oid = to_regclass(@name)", connection)
+WHERE cls.oid = to_regclass(@name)
+  AND cls.relkind IN ('r', 'p', 'f')", connection)
         {
             CommandTimeout = CommandTimeout
         };

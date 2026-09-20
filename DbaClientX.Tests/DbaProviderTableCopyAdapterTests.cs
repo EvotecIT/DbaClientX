@@ -167,6 +167,21 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void ContentHasher_AcceptsPostgreSqlArrayValues()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Values", typeof(int[]));
+        first.Rows.Add(new int[] { 1, 2, 3 });
+
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(new int[] { 1, 2, 4 });
+
+        Assert.Equal(ComputeContentHash(first, "Values"), ComputeContentHash(same, "Values"));
+        Assert.NotEqual(ComputeContentHash(first, "Values"), ComputeContentHash(changed, "Values"));
+    }
+
+    [Fact]
     public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading()
     {
         var exception = Assert.Throws<ArgumentException>(() => new MySqlTableCopyAdapter(

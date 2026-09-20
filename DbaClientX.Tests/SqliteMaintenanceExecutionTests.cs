@@ -61,6 +61,32 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task BackupDatabase_AllowsCaseDistinctPathsOnCaseSensitiveFileSystems()
+    {
+        Assert.SkipWhen(Path.DirectorySeparatorChar == '\\', "Windows paths are case-insensitive.");
+        string directory = Path.Combine(Path.GetTempPath(), $"dbaclientx-case-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "app.db");
+        string destination = Path.Combine(directory, "App.db");
+        try
+        {
+            CreateDatabase(source, rowCount: 2);
+            Assert.SkipWhen(File.Exists(destination), "The temporary filesystem is case-insensitive.");
+            using var sqlite = new SQLite();
+
+            sqlite.BackupDatabase(source, destination);
+
+            Assert.Equal(2, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            if (Directory.Exists(directory)) Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public void BackupDatabase_RejectsZeroBusyTimeoutInsteadOfSelectingUnboundedRetries()
     {
         string source = CreateDatabase();
@@ -438,6 +464,11 @@ public sealed class SqliteMaintenanceExecutionTests
     private static string CreateDatabase(int rowCount = 1)
     {
         string path = Path.Combine(Path.GetTempPath(), $"dbaclientx-maintenance-{Guid.NewGuid():N}.sqlite");
+        return CreateDatabase(path, rowCount);
+    }
+
+    private static string CreateDatabase(string path, int rowCount)
+    {
         using var connection = new SqliteConnection(SQLite.BuildConnectionString(path));
         connection.Open();
         using SqliteCommand command = connection.CreateCommand();

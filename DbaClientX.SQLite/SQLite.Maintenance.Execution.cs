@@ -136,7 +136,10 @@ public partial class SQLite
         cancellationToken.ThrowIfCancellationRequested();
         string sourcePath = Path.GetFullPath(sourceDatabase);
         string destinationPath = Path.GetFullPath(destinationDatabase);
-        if (string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+        StringComparison pathComparison = Path.DirectorySeparatorChar == '\\'
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(sourcePath, destinationPath, pathComparison))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
         }

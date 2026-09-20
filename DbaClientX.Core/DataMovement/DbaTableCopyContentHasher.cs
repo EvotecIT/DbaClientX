@@ -86,6 +86,9 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
                 _writer.Write(network.PrefixLength);
                 WriteIpAddressBytes(network.Address);
                 break;
+            case Array array:
+                WriteArray(array, depth: 0);
+                break;
 #if NET6_0_OR_GREATER
             // Match provider representations: PostgreSQL date/time values use DateOnly/TimeOnly,
             // while other providers commonly materialize the same values as DateTime/TimeSpan.
@@ -128,6 +131,24 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
         _writer.Write(bytes.Length);
         _writer.Write(bytes);
         _writer.Write(address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? address.ScopeId : 0L);
+    }
+
+    private void WriteArray(Array array, int depth)
+    {
+        if (depth >= 64)
+            throw new NotSupportedException("Content verification does not support arrays nested more than 64 levels.");
+        _writer.Write((byte)12);
+        _writer.Write(array.Rank);
+        for (var dimension = 0; dimension < array.Rank; dimension++)
+        {
+            _writer.Write(array.GetLength(dimension));
+            _writer.Write(array.GetLowerBound(dimension));
+        }
+        foreach (object? value in array)
+        {
+            if (value is Array nested) WriteArray(nested, depth + 1);
+            else WriteValue(value ?? DBNull.Value);
+        }
     }
 
     public void Dispose()
