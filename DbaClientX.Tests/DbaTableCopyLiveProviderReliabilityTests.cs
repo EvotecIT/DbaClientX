@@ -203,6 +203,55 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         }
     }
 
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlKeysetRead_RoundTripsDateAndTimeKeys()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var table = "dbax_temporal_" + Guid.NewGuid().ToString("N");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{table}\" (event_date date NOT NULL, event_time time without time zone NOT NULL, payload text NOT NULL, PRIMARY KEY (event_date, event_time))");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{table}\" VALUES (DATE '2026-09-20', TIME '01:02:03.000001', 'first'), (DATE '2026-09-20', TIME '01:02:03.000002', 'second'), (DATE '2026-09-21', TIME '00:00:00', 'third')");
+
+            var source = CreateAdapter(
+                DbaTableCopyProvider.PostgreSql,
+                connectionString!,
+                new[] { "event_date", "event_time" });
+            var definition = new DbaTableCopyDefinition(
+                table,
+                table,
+                new[] { "event_date", "event_time" })
+            {
+                UseKeysetPagination = true
+            };
+
+            using var first = await source.ReadPageAsync(new(definition, null, 1));
+            using var second = await source.ReadPageAsync(new(definition, first.ContinuationToken, 1));
+            using var third = await source.ReadPageAsync(new(definition, second.ContinuationToken, 1));
+
+            Assert.IsType<DateOnly>(first.Data.Rows[0]["event_date"]);
+            Assert.IsType<TimeOnly>(first.Data.Rows[0]["event_time"]);
+            Assert.Equal("first", first.Data.Rows[0].Field<string>("payload"));
+            Assert.Equal("second", second.Data.Rows[0].Field<string>("payload"));
+            Assert.Equal("third", third.Data.Rows[0].Field<string>("payload"));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{table}\"");
+        }
+    }
+
     [Theory]
     [Trait("Category", "LiveProvider")]
     [InlineData(DbaTableCopyProvider.PostgreSql, "DBACLIENTX_POSTGRESQL_TEST_CONNECTION")]

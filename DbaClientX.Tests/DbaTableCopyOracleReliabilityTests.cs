@@ -14,7 +14,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(DateTime), OracleDbType.TimeStamp)]
     [InlineData(typeof(DateTimeOffset), OracleDbType.TimeStampTZ)]
     [InlineData(typeof(TimeSpan), OracleDbType.IntervalDS)]
-    [InlineData(typeof(Guid), OracleDbType.Blob)]
+    [InlineData(typeof(Guid), OracleDbType.Raw)]
     public void CheckpointPageParameters_AreTypedFromDataColumns(Type dataType, OracleDbType expected)
     {
         Assert.Equal(expected, OracleTableCopyAdapter.GetPageParameterType(dataType));
@@ -58,5 +58,13 @@ public sealed class DbaTableCopyOracleReliabilityTests
     public void CheckpointPageValues_NormalizeUnsignedIntegerWithoutPrecisionLoss()
     {
         Assert.Equal(Convert.ToDecimal(ulong.MaxValue), OracleTableCopyAdapter.GetPageParameterValue(ulong.MaxValue));
+    }
+
+    [Fact]
+    public void CheckpointPageValues_ConvertGuidToRawBytes()
+    {
+        var value = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+
+        Assert.Equal(value.ToByteArray(), OracleTableCopyAdapter.GetPageParameterValue(value));
     }
 }

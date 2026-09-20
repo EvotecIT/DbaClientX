@@ -33,6 +33,10 @@ internal static class DbaKeysetContinuationToken
                     case TimeSpan time: writer.Write((byte)9); writer.Write(time.Ticks); break;
                     case float number: writer.Write((byte)10); writer.Write(number); break;
                     case double number: writer.Write((byte)11); writer.Write(number); break;
+#if NET6_0_OR_GREATER
+                    case DateOnly date: writer.Write((byte)13); writer.Write(date.DayNumber); break;
+                    case TimeOnly time: writer.Write((byte)14); writer.Write(time.Ticks); break;
+#endif
                     default: throw new InvalidOperationException($"Keyset column '{column}' must have a supported, non-null key value.");
                 }
             }
@@ -70,13 +74,17 @@ internal static class DbaKeysetContinuationToken
                     10 => reader.ReadSingle(),
                     11 => reader.ReadDouble(),
                     12 => reader.ReadUInt64(),
+#if NET6_0_OR_GREATER
+                    13 => DateOnly.FromDayNumber(reader.ReadInt32()),
+                    14 => new TimeOnly(reader.ReadInt64()),
+#endif
                     _ => throw new ArgumentException("Invalid key type in continuation token.", nameof(token))
                 };
             }
             if (stream.Position != stream.Length) throw new ArgumentException("Unexpected continuation token data.", nameof(token));
             return values;
         }
-        catch (Exception exception) when (exception is FormatException or IOException or OverflowException)
+        catch (Exception exception) when (exception is FormatException or IOException or OverflowException or ArgumentOutOfRangeException)
         {
             throw new ArgumentException("Invalid keyset continuation token.", nameof(token), exception);
         }

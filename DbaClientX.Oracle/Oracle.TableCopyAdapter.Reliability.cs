@@ -54,7 +54,7 @@ public sealed partial class OracleTableCopyAdapter
     {
         if (dataType == typeof(byte[])) return OracleDbType.Raw;
         if (dataType == typeof(char[])) return OracleDbType.Varchar2;
-        if (dataType == typeof(Guid)) return OracleDbType.Blob;
+        if (dataType == typeof(Guid)) return OracleDbType.Raw;
         if (dataType == typeof(TimeSpan)) return OracleDbType.IntervalDS;
         if (dataType == typeof(DateTimeOffset)) return OracleDbType.TimeStampTZ;
         if (dataType == typeof(OracleBinary)) return OracleDbType.Raw;
@@ -105,6 +105,7 @@ public sealed partial class OracleTableCopyAdapter
 
     internal static object GetPageParameterValue(object value)
         => value is ulong unsigned ? Convert.ToDecimal(unsigned)
+            : value is Guid guid ? guid.ToByteArray()
             : value;
 
     private async Task<OracleDbType[]> ResolveDestinationParameterTypesAsync(

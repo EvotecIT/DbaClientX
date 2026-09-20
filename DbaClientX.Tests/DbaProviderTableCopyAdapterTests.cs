@@ -50,6 +50,69 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void KeysetContinuationToken_RoundTripsPostgreSqlDateAndTimeValues()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "EventDate", "EventTime" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("EventDate", typeof(DateOnly));
+        table.Columns.Add("EventTime", typeof(TimeOnly));
+        var expectedDate = new DateOnly(2026, 9, 20);
+        var expectedTime = new TimeOnly(23, 59, 58, 123).Add(TimeSpan.FromTicks(4567));
+        DataRow row = table.Rows.Add(expectedDate, expectedTime);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expectedDate, Assert.IsType<DateOnly>(values[0]));
+        Assert.Equal(expectedTime, Assert.IsType<TimeOnly>(values[1]));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesPostgreSqlDateAndTimeRepresentations()
+    {
+        using var postgreSqlTable = new DataTable();
+        postgreSqlTable.Columns.Add("EventDate", typeof(DateOnly));
+        postgreSqlTable.Columns.Add("EventTime", typeof(TimeOnly));
+        postgreSqlTable.Rows.Add(new DateOnly(2026, 9, 20), new TimeOnly(12, 34, 56).Add(TimeSpan.FromTicks(7890)));
+
+        using var conventionalTable = new DataTable();
+        conventionalTable.Columns.Add("EventDate", typeof(DateTime));
+        conventionalTable.Columns.Add("EventTime", typeof(TimeSpan));
+        conventionalTable.Rows.Add(new DateTime(2026, 9, 20), new TimeSpan(0, 12, 34, 56).Add(TimeSpan.FromTicks(7890)));
+
+        Assert.Equal(Hash(conventionalTable), Hash(postgreSqlTable));
+
+        static string Hash(DataTable table)
+        {
+            var hasherType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+                "DBAClientX.DataMovement.DbaTableCopyContentHasher",
+                throwOnError: true)!;
+            using var hasher = (IDisposable)(Activator.CreateInstance(
+                hasherType,
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                args: new object?[] { null },
+                culture: null) ?? throw new InvalidOperationException("Could not create the content hasher."));
+            var add = hasherType.GetMethod("Add", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new MissingMethodException(hasherType.FullName, "Add");
+            var hash = hasherType.GetProperty("Hash", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new MissingMemberException(hasherType.FullName, "Hash");
+            add.Invoke(hasher, new object[] { table, new[] { "EventDate", "EventTime" }, CancellationToken.None });
+            return Assert.IsType<string>(hash.GetValue(hasher));
+        }
+    }
+
+    [Fact]
     public async Task SQLiteSnapshotReadSession_ExcludesRowsCommittedAfterFirstPage()
     {
         var sourcePath = CreateTempDatabasePath();
