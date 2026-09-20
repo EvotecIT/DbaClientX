@@ -76,7 +76,14 @@ public sealed partial class MySqlTableCopyAdapter
             // Access the source first so its metadata lock closes the validation/use race for this transaction.
             await using var metadataLock = CreateReadCommand(
                 $"SELECT 1 FROM {QuotePath(definition.SourceName)} LIMIT 0");
-            await metadataLock.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await metadataLock.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (TreatMissingTablesAsEmpty && IsMissingTableException(exception))
+            {
+                continue;
+            }
 
             await using var command = CreateReadCommand(
                 "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table");

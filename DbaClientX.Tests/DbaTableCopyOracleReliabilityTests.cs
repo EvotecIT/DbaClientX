@@ -25,6 +25,9 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(string), "NCLOB", OracleDbType.NClob)]
     [InlineData(typeof(byte[]), "BLOB", OracleDbType.Blob)]
     [InlineData(typeof(byte[]), "RAW", OracleDbType.Raw)]
+    [InlineData(typeof(DateOnly), "DATE", OracleDbType.Date)]
+    [InlineData(typeof(DateOnly), "TIMESTAMP(6)", OracleDbType.TimeStamp)]
+    [InlineData(typeof(TimeOnly), "INTERVAL DAY(2) TO SECOND(6)", OracleDbType.IntervalDS)]
     public void CheckpointPageParameters_UseDestinationLobMetadata(
         Type sourceType,
         string destinationType,
@@ -66,5 +69,31 @@ public sealed class DbaTableCopyOracleReliabilityTests
         var value = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
 
         Assert.Equal(value.ToByteArray(), OracleTableCopyAdapter.GetPageParameterValue(value));
+    }
+
+    [Fact]
+    public void CheckpointPageValues_ConvertPostgreSqlTemporalValues()
+    {
+        var date = new DateOnly(2026, 9, 20);
+        var time = new TimeOnly(12, 34, 56).Add(TimeSpan.FromTicks(7890));
+
+        Assert.Equal(date.ToDateTime(TimeOnly.MinValue), OracleTableCopyAdapter.GetPageParameterValue(date));
+        Assert.Equal(time.ToTimeSpan(), OracleTableCopyAdapter.GetPageParameterValue(time));
+    }
+
+    [Fact]
+    public void CheckpointPageParameters_RejectIncompatibleTimeOnlyDestination()
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.GetPageParameterType(typeof(TimeOnly), "DATE"));
+
+        Assert.Contains("INTERVAL DAY TO SECOND", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CheckpointPageParameters_RejectDateOnlyTimeZoneDestination()
+    {
+        Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.GetPageParameterType(typeof(DateOnly), "TIMESTAMP(6) WITH TIME ZONE"));
     }
 }

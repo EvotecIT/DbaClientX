@@ -6,7 +6,7 @@ using Oracle.ManagedDataAccess.Types;
 
 namespace DBAClientX;
 
-public sealed partial class OracleTableCopyAdapter
+public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
 {
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
@@ -93,8 +93,36 @@ public sealed partial class OracleTableCopyAdapter
     }
 
     internal static OracleDbType GetPageParameterType(Type dataType, string destinationDataType)
-        => destinationDataType.ToUpperInvariant() switch
+    {
+        var normalized = destinationDataType.ToUpperInvariant();
+#if NET6_0_OR_GREATER
+        if (dataType == typeof(DateOnly) &&
+            normalized != "DATE" &&
+            !(normalized.StartsWith("TIMESTAMP", StringComparison.Ordinal) &&
+              !normalized.Contains("TIME ZONE")))
         {
+            throw new NotSupportedException(
+                $"Oracle destination type '{destinationDataType}' is not compatible with DateOnly values.");
+        }
+        if (dataType == typeof(TimeOnly) &&
+            !normalized.StartsWith("INTERVAL DAY", StringComparison.Ordinal))
+        {
+            throw new NotSupportedException(
+                $"Oracle destination type '{destinationDataType}' is not compatible with TimeOnly values. Use INTERVAL DAY TO SECOND.");
+        }
+#endif
+        if (normalized.StartsWith("TIMESTAMP", StringComparison.Ordinal))
+        {
+            if (normalized.Contains("WITH LOCAL TIME ZONE")) return OracleDbType.TimeStampLTZ;
+            if (normalized.Contains("WITH TIME ZONE")) return OracleDbType.TimeStampTZ;
+            return OracleDbType.TimeStamp;
+        }
+        if (normalized.StartsWith("INTERVAL DAY", StringComparison.Ordinal)) return OracleDbType.IntervalDS;
+        if (normalized.StartsWith("INTERVAL YEAR", StringComparison.Ordinal)) return OracleDbType.IntervalYM;
+        return normalized switch
+        {
+            "DATE" => OracleDbType.Date,
+            "RAW" => OracleDbType.Raw,
             "BLOB" => OracleDbType.Blob,
             "CLOB" => OracleDbType.Clob,
             "NCLOB" => OracleDbType.NClob,
@@ -102,15 +130,22 @@ public sealed partial class OracleTableCopyAdapter
             "LONG RAW" => OracleDbType.LongRaw,
             _ => GetPageParameterType(dataType)
         };
+    }
 
     internal static object GetPageParameterValue(object value)
-        => value is ulong unsigned ? Convert.ToDecimal(unsigned)
-            : value is Guid guid ? guid.ToByteArray()
-            : value;
+    {
+        if (value is ulong unsigned) return Convert.ToDecimal(unsigned);
+        if (value is Guid guid) return guid.ToByteArray();
+#if NET6_0_OR_GREATER
+        if (value is DateOnly date) return date.ToDateTime(TimeOnly.MinValue);
+        if (value is TimeOnly time) return time.ToTimeSpan();
+#endif
+        return value;
+    }
 
     private async Task<OracleDbType[]> ResolveDestinationParameterTypesAsync(
         OracleConnection connection,
-        OracleTransaction transaction,
+        OracleTransaction? transaction,
         DbaTableCopyDefinition definition,
         IReadOnlyList<DataColumn> columns,
         CancellationToken cancellationToken)
@@ -168,6 +203,23 @@ public sealed partial class OracleTableCopyAdapter
         }
 
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task ValidateSchemaAsync(
+        DbaTableCopyDefinition definition,
+        DataTable page,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        using var connection = new OracleConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ResolveDestinationParameterTypesAsync(
+            connection,
+            null,
+            definition,
+            page.Columns.Cast<DataColumn>().ToArray(),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

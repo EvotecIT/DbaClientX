@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Data;
 using System.Data.Common;
 using DBAClientX.DataMovement;
 
@@ -38,6 +39,21 @@ public sealed class DbaTableCopyPageReaderTests
         using var page = await DbaTableCopyPageReader.ReadAsync(reader, 1000);
         Assert.Single(page.Rows.Cast<System.Data.DataRow>());
         Assert.InRange(reader.UnitsRead, 777, 1001);
+    }
+
+    [Fact]
+    public async Task ReadAsync_PreservesUtcDateTimeKindForVerification()
+    {
+        using var source = new DataTable();
+        DataColumn column = source.Columns.Add("Instant", typeof(DateTime));
+        column.DateTimeMode = DataSetDateTime.Utc;
+        source.Rows.Add(new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc));
+        using DataTableReader reader = source.CreateDataReader();
+
+        using DataTable page = await DbaTableCopyPageReader.ReadAsync(reader, maxBytes: null);
+
+        Assert.Equal(DataSetDateTime.Utc, page.Columns["Instant"]!.DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, page.Rows[0].Field<DateTime>("Instant").Kind);
     }
 
     private sealed class VirtualLargeValueReader(bool text, int length, int rows = 1) : DbDataReader

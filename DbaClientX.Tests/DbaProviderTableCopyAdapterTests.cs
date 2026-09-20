@@ -90,26 +90,29 @@ public class DbaProviderTableCopyAdapterBaseTests
         conventionalTable.Columns.Add("EventTime", typeof(TimeSpan));
         conventionalTable.Rows.Add(new DateTime(2026, 9, 20), new TimeSpan(0, 12, 34, 56).Add(TimeSpan.FromTicks(7890)));
 
-        Assert.Equal(Hash(conventionalTable), Hash(postgreSqlTable));
+        Assert.Equal(
+            ComputeContentHash(conventionalTable, "EventDate", "EventTime"),
+            ComputeContentHash(postgreSqlTable, "EventDate", "EventTime"));
+    }
 
-        static string Hash(DataTable table)
-        {
-            var hasherType = typeof(DbaTableCopyDefinition).Assembly.GetType(
-                "DBAClientX.DataMovement.DbaTableCopyContentHasher",
-                throwOnError: true)!;
-            using var hasher = (IDisposable)(Activator.CreateInstance(
-                hasherType,
-                BindingFlags.Instance | BindingFlags.NonPublic,
-                binder: null,
-                args: new object?[] { null },
-                culture: null) ?? throw new InvalidOperationException("Could not create the content hasher."));
-            var add = hasherType.GetMethod("Add", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new MissingMethodException(hasherType.FullName, "Add");
-            var hash = hasherType.GetProperty("Hash", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new MissingMemberException(hasherType.FullName, "Hash");
-            add.Invoke(hasher, new object[] { table, new[] { "EventDate", "EventTime" }, CancellationToken.None });
-            return Assert.IsType<string>(hash.GetValue(hasher));
-        }
+    [Fact]
+    public void ContentHasher_NormalizesProviderGuidAndTimestampRepresentations()
+    {
+        var guid = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+        using var source = new DataTable();
+        source.Columns.Add("Identifier", typeof(Guid));
+        source.Columns.Add("Instant", typeof(DateTimeOffset));
+        source.Rows.Add(guid, new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.FromHours(2)));
+
+        using var destination = new DataTable();
+        destination.Columns.Add("Identifier", typeof(byte[]));
+        destination.Columns.Add("Instant", typeof(DateTime));
+        destination.Columns["Instant"]!.DateTimeMode = DataSetDateTime.Utc;
+        destination.Rows.Add(guid.ToByteArray(), new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(
+            ComputeContentHash(source, "Identifier", "Instant"),
+            ComputeContentHash(destination, "Identifier", "Instant"));
     }
 
     [Fact]
@@ -1207,6 +1210,25 @@ public class DbaProviderTableCopyAdapterBaseTests
     {
         sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResults (ResultId INTEGER NOT NULL PRIMARY KEY, ProbeName TEXT NOT NULL, IsMaintenance INTEGER NOT NULL);");
         sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResultMetadata (ResultId INTEGER NOT NULL, MetaKey TEXT NOT NULL, MetaValue TEXT NOT NULL, PRIMARY KEY (ResultId, MetaKey));");
+    }
+
+    private static string ComputeContentHash(DataTable table, params string[] columns)
+    {
+        var hasherType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaTableCopyContentHasher",
+            throwOnError: true)!;
+        using var hasher = (IDisposable)(Activator.CreateInstance(
+            hasherType,
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: new object?[] { null },
+            culture: null) ?? throw new InvalidOperationException("Could not create the content hasher."));
+        var add = hasherType.GetMethod("Add", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(hasherType.FullName, "Add");
+        var hash = hasherType.GetProperty("Hash", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMemberException(hasherType.FullName, "Hash");
+        add.Invoke(hasher, new object[] { table, columns, CancellationToken.None });
+        return Assert.IsType<string>(hash.GetValue(hasher));
     }
 
     private static void DeleteIfExists(string path)

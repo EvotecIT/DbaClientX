@@ -47,6 +47,9 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     /// <summary>Connection string used by this adapter.</summary>
     protected string ConnectionString { get; }
 
+    /// <summary>Whether missing source tables are represented as empty inputs.</summary>
+    protected bool TreatMissingTablesAsEmpty => _treatMissingTablesAsEmpty;
+
     /// <inheritdoc />
     public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, treatMissingAsEmpty: true, cancellationToken);

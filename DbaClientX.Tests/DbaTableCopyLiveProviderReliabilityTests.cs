@@ -101,6 +101,37 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlConsistentRead_ToleratesMissingSourceAsEmpty()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var source = new MySqlTableCopyAdapter(
+            connectionString!,
+            new[] { "id" },
+            treatMissingTablesAsEmpty: true)
+        {
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+        };
+        var definition = new DbaTableCopyDefinition(
+            "dbax_missing_" + Guid.NewGuid().ToString("N"),
+            "unused",
+            new[] { "id" })
+        {
+            UseKeysetPagination = true
+        };
+
+        using var session = await source.OpenReadSessionAsync(new[] { definition });
+        using var page = await source.ReadPageAsync(new(definition, null, 1));
+
+        Assert.Empty(page.Data.Rows.Cast<DataRow>());
+        Assert.Null(page.ContinuationToken);
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlCheckpointedCopy_UsesMappedNamesWhenPhysicalColumnOrderDiffers()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
@@ -245,6 +276,40 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             Assert.Equal("first", first.Data.Rows[0].Field<string>("payload"));
             Assert.Equal("second", second.Data.Rows[0].Field<string>("payload"));
             Assert.Equal("third", third.Data.Rows[0].Field<string>("payload"));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{table}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlBoundedRead_RejectsVariableSizeNativeArraysBeforeMaterializing()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var table = "dbax_array_" + Guid.NewGuid().ToString("N");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE \"{table}\" (id bigint NOT NULL PRIMARY KEY, values integer[] NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{table}\" VALUES (1, ARRAY(SELECT generate_series(1, 10000)))");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var definition = new DbaTableCopyDefinition(table, table, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                source.ReadPageAsync(new DbaTableCopyPageRequest(definition, null, 1) { MaxBytes = 1024 }));
+
+            Assert.Contains("variable-size native type", exception.Message, StringComparison.Ordinal);
         }
         finally
         {

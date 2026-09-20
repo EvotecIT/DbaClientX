@@ -66,15 +66,18 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             case float number: WriteNumber(((double)number).ToString("R", CultureInfo.InvariantCulture)); break;
             case double number: WriteNumber(number.ToString("R", CultureInfo.InvariantCulture)); break;
             case string text: _writer.Write((byte)2); _writer.Write(text); break;
-            case byte[] bytes: _writer.Write((byte)3); _writer.Write(bytes.Length); _writer.Write(bytes); break;
-            case DateTime date: _writer.Write((byte)4); _writer.Write(date.Kind == DateTimeKind.Local ? date.ToUniversalTime().Ticks : date.Ticks); break;
-            case DateTimeOffset date: _writer.Write((byte)7); _writer.Write(date.UtcTicks); _writer.Write(date.Offset.Ticks); break;
-            case Guid guid: _writer.Write((byte)5); _writer.Write(guid.ToByteArray()); break;
+            case byte[] bytes: WriteBinary(bytes); break;
+            case DateTime date:
+                _writer.Write(date.Kind == DateTimeKind.Unspecified ? (byte)7 : (byte)4);
+                _writer.Write(date.Kind == DateTimeKind.Local ? date.ToUniversalTime().Ticks : date.Ticks);
+                break;
+            case DateTimeOffset date: _writer.Write((byte)4); _writer.Write(date.UtcTicks); break;
+            case Guid guid: WriteBinary(guid.ToByteArray()); break;
             case TimeSpan duration: _writer.Write((byte)6); _writer.Write(duration.Ticks); break;
 #if NET6_0_OR_GREATER
             // Match provider representations: PostgreSQL date/time values use DateOnly/TimeOnly,
             // while other providers commonly materialize the same values as DateTime/TimeSpan.
-            case DateOnly date: _writer.Write((byte)4); _writer.Write(date.ToDateTime(TimeOnly.MinValue).Ticks); break;
+            case DateOnly date: _writer.Write((byte)7); _writer.Write(date.ToDateTime(TimeOnly.MinValue).Ticks); break;
             case TimeOnly time: _writer.Write((byte)6); _writer.Write(time.Ticks); break;
 #endif
             default: throw new NotSupportedException($"Content verification does not support '{value.GetType().FullName}'. Declare a supported column conversion.");
@@ -85,6 +88,13 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
     {
         _writer.Write((byte)1);
         _writer.Write(value == "-0" ? "0" : value);
+    }
+
+    private void WriteBinary(byte[] value)
+    {
+        _writer.Write((byte)3);
+        _writer.Write(value.Length);
+        _writer.Write(value);
     }
 
     public void Dispose()

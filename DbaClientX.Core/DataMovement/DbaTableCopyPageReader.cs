@@ -83,6 +83,15 @@ public static class DbaTableCopyPageReader
         {
             object value = values[ordinal];
             DataColumn column = table.Columns[ordinal];
+            if (table.Rows.Count == 0 && column.DataType == typeof(DateTime) && value is DateTime dateTime)
+            {
+                column.DateTimeMode = dateTime.Kind switch
+                {
+                    DateTimeKind.Utc => DataSetDateTime.Utc,
+                    DateTimeKind.Local => DataSetDateTime.Local,
+                    _ => DataSetDateTime.Unspecified
+                };
+            }
             if (value == null || value is DBNull || column.DataType == typeof(object) || column.DataType == value.GetType()) continue;
             // SQLite and variant columns can change storage type per row. DataRow otherwise
             // silently coerces values (for example Double 1.5 into Int64 2) before hashing.

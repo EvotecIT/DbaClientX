@@ -61,7 +61,33 @@ public sealed partial class PostgreSqlTableCopyAdapter
             command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((NpgsqlCommand)state!).Cancel(), command);
         using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false);
+        Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
+            ? ordinal => ValidateBoundedFieldType(reader, ordinal)
+            : null;
+        return await DbaTableCopyPageReader.ReadAsync(
+            reader,
+            maxBytes,
+            fieldPayloadBytes,
+            readFieldValue: null,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static long? ValidateBoundedFieldType(NpgsqlDataReader reader, int ordinal)
+    {
+        Type type = reader.GetFieldType(ordinal);
+        if (type == typeof(string) || type == typeof(byte[]) ||
+            type.IsPrimitive || type.IsEnum ||
+            type == typeof(decimal) || type == typeof(Guid) ||
+            type == typeof(DateTime) || type == typeof(DateTimeOffset) || type == typeof(TimeSpan) ||
+            type == typeof(System.Net.IPAddress) || type == typeof(System.Net.NetworkInformation.PhysicalAddress))
+        {
+            return null;
+        }
+#if NET6_0_OR_GREATER
+        if (type == typeof(DateOnly) || type == typeof(TimeOnly)) return null;
+#endif
+        throw new NotSupportedException(
+            $"Bounded PostgreSQL table-copy pages do not materialize variable-size native type '{reader.GetDataTypeName(ordinal)}' ({type.FullName}). Project it to text or binary, or omit MaxPageBytes.");
     }
 
     private void CloseReadSession()
