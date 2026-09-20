@@ -56,9 +56,10 @@ public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterB
 
     internal static void ValidateTableCopyConnectionOptions(string connectionString)
     {
-        if (!new MySqlConnectionStringBuilder(connectionString).AllowZeroDateTime) return;
+        var builder = new MySqlConnectionStringBuilder(connectionString);
+        if (!builder.AllowZeroDateTime && !builder.ConvertZeroDateTime) return;
         throw new ArgumentException(
-            "MySQL table copies do not support AllowZeroDateTime=true because zero-component DATE and DATETIME values are not portable. Disable AllowZeroDateTime or project those columns to an explicit text representation.",
+            "MySQL table copies do not support AllowZeroDateTime=true or ConvertZeroDateTime=true because zero-component DATE and DATETIME values are not portable. Disable both options or project those columns to an explicit text representation.",
             nameof(connectionString));
     }
 

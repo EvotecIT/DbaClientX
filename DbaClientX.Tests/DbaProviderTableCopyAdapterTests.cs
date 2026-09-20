@@ -320,13 +320,17 @@ public class DbaProviderTableCopyAdapterBaseTests
             ComputeContentHash(changed, normalizer, columns));
     }
 
-    [Fact]
-    public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading()
+    [Theory]
+    [InlineData("AllowZeroDateTime=true", "AllowZeroDateTime")]
+    [InlineData("ConvertZeroDateTime=true", "ConvertZeroDateTime")]
+    public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading(
+        string option,
+        string expectedOption)
     {
         var exception = Assert.Throws<ArgumentException>(() => new MySqlTableCopyAdapter(
-            "Server=localhost;Database=test;User ID=test;Password=test;AllowZeroDateTime=true"));
+            $"Server=localhost;Database=test;User ID=test;Password=test;{option}"));
 
-        Assert.Contains("AllowZeroDateTime", exception.Message, StringComparison.Ordinal);
+        Assert.Contains(expectedOption, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
