@@ -15,9 +15,21 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
     public DbaTableCopyReadConsistency ReadConsistency { get; set; }
 
     /// <inheritdoc />
-    public async Task<IDisposable?> OpenReadSessionAsync(CancellationToken cancellationToken = default)
+    public Task<IDisposable?> OpenReadSessionAsync(CancellationToken cancellationToken = default)
+    {
+        if (ReadConsistency == DbaTableCopyReadConsistency.CallerManaged)
+            return Task.FromResult<IDisposable?>(null);
+        throw new InvalidOperationException(
+            "PostgreSQL consistent read sessions require the source table definitions so DbaClientX can reject foreign tables whose remote data is not protected by the local transaction. Use the table-copy engine or the definition-aware session overload.");
+    }
+
+    /// <inheritdoc />
+    public async Task<IDisposable?> OpenReadSessionAsync(
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        CancellationToken cancellationToken = default)
     {
         if (ReadConsistency == DbaTableCopyReadConsistency.CallerManaged) return null;
+        if (definitions == null) throw new ArgumentNullException(nameof(definitions));
         if (ReadConsistency is not (DbaTableCopyReadConsistency.Snapshot or DbaTableCopyReadConsistency.Serializable))
             throw new ArgumentOutOfRangeException(nameof(ReadConsistency));
         if (Interlocked.CompareExchange(ref _readSessionActive, 1, 0) != 0)
@@ -31,6 +43,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
                 : IsolationLevel.Serializable;
             cancellationToken.ThrowIfCancellationRequested();
             _readTransaction = _readConnection.BeginTransaction(isolation);
+            await ValidateConsistentSourceTablesAsync(definitions, cancellationToken).ConfigureAwait(false);
             return new ReadSessionLease(this);
         }
         catch
@@ -38,6 +51,66 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
             CloseReadSession();
             throw;
         }
+    }
+
+    private async Task ValidateConsistentSourceTablesAsync(
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
+        var validated = new HashSet<string>(StringComparer.Ordinal);
+        foreach (DbaTableCopyDefinition definition in definitions)
+        {
+            IReadOnlyList<string> segments = DbaIdentifierPath.SplitSegments(
+                definition.SourceName,
+                DbaTableCopyProvider.PostgreSql);
+            if (segments.Count is < 1 or > 2)
+            {
+                throw new ArgumentException(
+                    "PostgreSQL consistent-read sources require a table name with an optional schema.",
+                    nameof(definitions));
+            }
+
+            // Access the relation first so PostgreSQL retains an ACCESS SHARE lock through the
+            // transaction and closes the validation/use race with concurrent DDL.
+            using (NpgsqlCommand metadataLock = CreateReadCommand(
+                $"SELECT 1 FROM {QuotePath(definition.SourceName)} LIMIT 0"))
+            {
+                try
+                {
+                    await metadataLock.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (TreatMissingTablesAsEmpty && IsMissingTableException(exception))
+                {
+                    continue;
+                }
+            }
+
+            using NpgsqlCommand command = CreateReadCommand(@"
+SELECT cls.oid::text, cls.relkind::text
+FROM pg_catalog.pg_class AS cls
+WHERE cls.oid = to_regclass(@name)");
+            command.Parameters.AddWithValue("@name", QuotePath(definition.SourceName));
+            using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(
+                    $"PostgreSQL source '{definition.SourceName}' could not be resolved for consistent-read validation.");
+            }
+
+            string identity = reader.GetString(0);
+            if (!validated.Add(identity)) continue;
+            ValidateConsistentSourceRelationKind(definition.SourceName, reader.GetString(1), ReadConsistency);
+        }
+    }
+
+    internal static void ValidateConsistentSourceRelationKind(
+        string sourceName,
+        string relationKind,
+        DbaTableCopyReadConsistency consistency)
+    {
+        if (!string.Equals(relationKind, "f", StringComparison.Ordinal)) return;
+        throw new InvalidOperationException(
+            $"PostgreSQL {consistency} read consistency does not support foreign source table '{sourceName}' because the local transaction cannot guarantee a stable remote snapshot.");
     }
 
     private NpgsqlCommand CreateReadCommand(string query)

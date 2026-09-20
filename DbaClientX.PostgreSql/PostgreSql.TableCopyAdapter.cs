@@ -7,7 +7,7 @@ namespace DBAClientX;
 /// <summary>
 /// PostgreSQL source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed partial class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
+public sealed partial class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyDefinitionReadSession
 {
     /// <summary>
     /// Creates a PostgreSQL table-copy adapter.

@@ -380,6 +380,70 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCheckpointedCopy_PreflightsIncompatibleTypesBeforeClearingRows()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var destinationTable = "dbax_types_" + suffix;
+        var sqlitePath = Path.Combine(Path.GetTempPath(), "dbax-pg-types-" + suffix + ".sqlite");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, required_value integer NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 7)");
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(
+                    sqlitePath,
+                    "CREATE TABLE SourceRows (id INTEGER NOT NULL PRIMARY KEY, required_value TEXT NOT NULL)");
+                sqlite.ExecuteNonQuery(sqlitePath, "INSERT INTO SourceRows VALUES (1, 'not-an-integer')");
+            }
+
+            var source = new SQLiteTableCopyAdapter(sqlitePath, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition("SourceRows", destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions
+                    {
+                        CheckpointId = "types-" + suffix,
+                        ClearDestination = true,
+                        PageSize = 1
+                    }));
+
+            Assert.Contains("CLR types", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:7",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || required_value FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.PostgreSql, suffix));
+            File.Delete(sqlitePath);
+            File.Delete(sqlitePath + "-wal");
+            File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlCheckpointedCopy_RejectsViewBeforeClearingUnderlyingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");

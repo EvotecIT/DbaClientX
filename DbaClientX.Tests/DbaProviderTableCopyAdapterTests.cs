@@ -12,6 +12,36 @@ namespace DbaClientX.Tests;
 public class DbaProviderTableCopyAdapterBaseTests
 {
     [Fact]
+    public async Task PostgreSqlConsistentReadSession_RequiresDefinitionsForForeignTableValidation()
+    {
+        var source = new PostgreSqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.PostgreSql,
+            ConnectionString = "Host=localhost;Database=test;Username=test;Password=test;SslMode=Require",
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            source.OpenReadSessionAsync());
+
+        Assert.Contains("definitions", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsAssignableFrom<IDbaTableCopyDefinitionReadSession>(source);
+    }
+
+    [Fact]
+    public void PostgreSqlConsistentReadSession_RejectsForeignRelations()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateConsistentSourceRelationKind(
+                "public.remote_rows",
+                "f",
+                DbaTableCopyReadConsistency.Snapshot));
+
+        Assert.Contains("foreign source table", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stable remote snapshot", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task MySqlConsistentReadSession_RequiresDefinitionsForEngineValidation()
     {
         var source = new MySqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
@@ -1057,6 +1087,25 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(expected.Address, providerValue.BaseAddress);
         Assert.Equal(expected.PrefixLength, providerValue.PrefixLength);
         Assert.Equal(expected, Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(providerValue)));
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlNormalizesDateTimeOffsetValuesToUtc()
+    {
+        using var page = new DataTable("Events");
+        page.Columns.Add("OccurredAt", typeof(DateTimeOffset));
+        page.Columns.Add("DynamicInstant", typeof(object));
+        var sourceInstant = new DateTimeOffset(2026, 9, 20, 12, 30, 0, TimeSpan.FromHours(2));
+        page.Rows.Add(sourceInstant, sourceInstant);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Events");
+
+        var instant = Assert.IsType<DateTimeOffset>(normalized.Rows[0][0]);
+        Assert.Equal(TimeSpan.Zero, instant.Offset);
+        Assert.Equal(new DateTimeOffset(2026, 9, 20, 10, 30, 0, TimeSpan.Zero), instant);
+        Assert.Equal(TimeSpan.Zero, Assert.IsType<DateTimeOffset>(normalized.Rows[0][1]).Offset);
+        Assert.Equal(TimeSpan.FromHours(2), Assert.IsType<DateTimeOffset>(page.Rows[0][0]).Offset);
+        Assert.Equal(TimeSpan.FromHours(2), Assert.IsType<DateTimeOffset>(page.Rows[0][1]).Offset);
     }
 
     [Fact]

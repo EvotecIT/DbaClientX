@@ -48,18 +48,27 @@ public static class DbaPostgreSqlBulkCopyNormalizer
         var networkColumns = page.Columns.Cast<DataColumn>()
             .Select(static column => column.DataType == typeof(DbaIpNetwork))
             .ToArray();
+        var dateTimeOffsetColumns = page.Columns.Cast<DataColumn>()
+            .Select(static column => column.DataType == typeof(DateTimeOffset))
+            .ToArray();
+        bool normalizeDateTimeOffsets = false;
         foreach (DataRow row in page.Rows)
         {
             for (var index = 0; index < page.Columns.Count; index++)
             {
                 if (row[index] is DbaIpNetwork) networkColumns[index] = true;
+                if (row[index] is DateTimeOffset instant)
+                {
+                    dateTimeOffsetColumns[index] = true;
+                    if (instant.Offset != TimeSpan.Zero) normalizeDateTimeOffsets = true;
+                }
             }
         }
         bool normalizeNames = !page.Columns.Cast<DataColumn>()
             .Select(static column => column.ColumnName)
             .SequenceEqual(normalizedNames, StringComparer.Ordinal);
         bool normalizeNetworks = networkColumns.Any(static value => value);
-        if (!normalizeNames && !normalizeNetworks)
+        if (!normalizeNames && !normalizeNetworks && !normalizeDateTimeOffsets)
         {
             return page;
         }
@@ -77,6 +86,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             var renamed = page.Copy();
             for (var index = 0; index < renamed.Columns.Count; index++)
                 renamed.Columns[index].ColumnName = normalizedNames[index];
+            NormalizeDateTimeOffsets(renamed, dateTimeOffsetColumns);
             return renamed;
         }
 
@@ -105,10 +115,24 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             for (var index = 0; index < values.Length; index++)
             {
                 if (values[index] is DbaIpNetwork network) values[index] = CreateProviderNetwork(network);
+                if (values[index] is DateTimeOffset instant && dateTimeOffsetColumns[index])
+                    values[index] = instant.ToUniversalTime();
             }
             normalized.Rows.Add(values);
         }
         return normalized;
+    }
+
+    private static void NormalizeDateTimeOffsets(DataTable page, IReadOnlyList<bool> dateTimeOffsetColumns)
+    {
+        foreach (DataRow row in page.Rows)
+        {
+            for (var index = 0; index < page.Columns.Count; index++)
+            {
+                if (dateTimeOffsetColumns[index] && row[index] is DateTimeOffset instant && instant.Offset != TimeSpan.Zero)
+                    row[index] = instant.ToUniversalTime();
+            }
+        }
     }
 
 #if NET8_0_OR_GREATER
