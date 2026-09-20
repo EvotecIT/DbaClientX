@@ -111,7 +111,7 @@ public sealed partial class OracleTableCopyAdapter
             OracleIntervalYM interval => interval.IsNull
                 ? DBNull.Value
                 : new DbaYearMonthInterval(interval.Value),
-            OracleIntervalDS interval => interval.IsNull ? DBNull.Value : interval.Value,
+            OracleIntervalDS interval => interval.IsNull ? DBNull.Value : NormalizeDaySecondInterval(interval),
             OracleBinary binary => binary.IsNull ? DBNull.Value : binary.Value,
             OracleBoolean boolean => boolean.IsNull ? DBNull.Value : boolean.Value,
             OracleDecimal number => NormalizeOracleNumber(number),
@@ -121,7 +121,7 @@ public sealed partial class OracleTableCopyAdapter
             OracleString text => text.IsNull ? DBNull.Value : text.Value,
             OracleTimeStamp timestamp => timestamp.IsNull
                 ? DBNull.Value
-                : DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified),
+                : NormalizeTimestamp(timestamp),
             OracleTimeStampLTZ timestamp => timestamp.IsNull
                 ? DBNull.Value
                 : NormalizeTimestamp(timestamp.ToUniversalTime()),
@@ -185,8 +185,49 @@ public sealed partial class OracleTableCopyAdapter
         return null;
     }
 
+    private static TimeSpan NormalizeDaySecondInterval(OracleIntervalDS interval)
+    {
+        ValidateOracleNanosecondResolution(interval.Nanoseconds, "INTERVAL DAY TO SECOND");
+        try
+        {
+            return interval.Value;
+        }
+        catch (OverflowException exception)
+        {
+            throw new NotSupportedException(
+                "Oracle INTERVAL DAY TO SECOND value exceeds the CLR TimeSpan range and cannot be copied losslessly.",
+                exception);
+        }
+    }
+
+    private static DateTime NormalizeTimestamp(OracleTimeStamp timestamp)
+    {
+        ValidateOracleNanosecondResolution(timestamp.Nanosecond, "TIMESTAMP");
+        return DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified);
+    }
+
     private static DateTimeOffset NormalizeTimestamp(OracleTimeStampTZ timestamp)
-        => new(DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified), timestamp.GetTimeZoneOffset());
+    {
+        ValidateOracleNanosecondResolution(timestamp.Nanosecond, "TIMESTAMP WITH TIME ZONE");
+        if (IsOracleTimeZoneRegion(timestamp.TimeZone))
+        {
+            throw new NotSupportedException(
+                $"Oracle TIMESTAMP WITH TIME ZONE region '{timestamp.TimeZone}' cannot be represented losslessly by CLR DateTimeOffset values.");
+        }
+        return new DateTimeOffset(
+            DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified),
+            timestamp.GetTimeZoneOffset());
+    }
+
+    internal static bool IsOracleTimeZoneRegion(string timeZone)
+        => !string.IsNullOrWhiteSpace(timeZone) && timeZone[0] is not ('+' or '-');
+
+    private static void ValidateOracleNanosecondResolution(int nanoseconds, string dataType)
+    {
+        if (nanoseconds % 100 == 0) return;
+        throw new NotSupportedException(
+            $"Oracle {dataType} value contains fractional seconds below the 100-nanosecond CLR tick resolution and cannot be copied losslessly.");
+    }
 
     private void CloseReadSession()
     {

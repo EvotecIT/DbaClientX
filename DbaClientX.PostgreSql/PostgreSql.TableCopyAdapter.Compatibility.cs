@@ -50,6 +50,7 @@ ORDER BY attribute.attnum";
             }
 
             var infinityColumns = new List<(string Column, bool IsArray)>();
+            var numericColumns = new List<(string Column, bool IsArray)>();
             using var command = new NpgsqlCommand(PostgreSqlProviderSpecificColumnsQuery, connection, _readTransaction)
             {
                 CommandTimeout = CommandTimeout
@@ -71,6 +72,12 @@ ORDER BY attribute.attnum";
                     {
                         infinityColumns.Add((column, isArray));
                     }
+                    if ((string.Equals(typeName, "numeric", StringComparison.Ordinal) ||
+                         string.Equals(elementTypeName, "numeric", StringComparison.Ordinal)) &&
+                        !IsPortableProviderProjection(definition, column, allowStringConversion: false))
+                    {
+                        numericColumns.Add((column, isArray));
+                    }
 
                     if (destinationProvider == DbaTableCopyProvider.PostgreSql ||
                         !IsProviderSpecificPostgreSqlType(typeName, typeKind, elementTypeName, elementTypeKind) ||
@@ -91,6 +98,11 @@ ORDER BY attribute.attnum";
                 connection,
                 definition.SourceName,
                 infinityColumns,
+                cancellationToken).ConfigureAwait(false);
+            await ValidateNoNumericNaNAsync(
+                connection,
+                definition.SourceName,
+                numericColumns,
                 cancellationToken).ConfigureAwait(false);
         }
     }
@@ -137,6 +149,38 @@ ORDER BY attribute.attnum";
             throw new NotSupportedException(
                 $"PostgreSQL source '{sourceName}' contains date or timestamp infinity sentinels that cannot be represented losslessly by table-copy CLR values. " +
                 "Exclude the affected column or filter out the sentinel values before copying.");
+        }
+    }
+
+    private async Task ValidateNoNumericNaNAsync(
+        NpgsqlConnection connection,
+        string sourceName,
+        IReadOnlyList<(string Column, bool IsArray)> columns,
+        CancellationToken cancellationToken)
+    {
+        if (columns.Count == 0) return;
+
+        string predicates = string.Join(
+            " OR ",
+            columns.Select(static column =>
+            {
+                string identifier = QuoteExactPostgreSqlIdentifier(column.Column);
+                return column.IsArray
+                    ? $"EXISTS (SELECT 1 FROM unnest({identifier}) AS dbax_value WHERE dbax_value = 'NaN')"
+                    : $"{identifier} = 'NaN'";
+            }));
+        using var command = new NpgsqlCommand(
+            $"SELECT EXISTS (SELECT 1 FROM {QuotePath(sourceName)} WHERE {predicates})",
+            connection,
+            _readTransaction)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        if (Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)))
+        {
+            throw new NotSupportedException(
+                $"PostgreSQL source '{sourceName}' contains numeric NaN values that cannot be represented losslessly by table-copy CLR decimal values. " +
+                "Exclude the affected column or filter out NaN before copying.");
         }
     }
 

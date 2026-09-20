@@ -10,7 +10,7 @@ SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
   AND TABLE_NAME = :table
-  AND (DATA_TYPE IN ('NUMBER', 'FLOAT') OR DATA_TYPE LIKE 'TIMESTAMP%')";
+  AND (DATA_TYPE IN ('NUMBER', 'FLOAT') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%')";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -61,6 +61,7 @@ WHERE OWNER = :owner
             }
 
             string table = Normalize(segments[segments.Count - 1]);
+            var regionColumns = new List<string>();
             using var command = new OracleCommand(OracleTableCopyNumericColumnsQuery, connection)
             {
                 Transaction = _readTransaction,
@@ -69,32 +70,46 @@ WHERE OWNER = :owner
             };
             command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
             command.Parameters.Add("table", OracleDbType.Varchar2).Value = table;
-            using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            using (OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
-                string column = reader.GetString(0);
-                string dataType = reader.GetString(1);
-                int? precision = reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2));
-                int? scale = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
-                if (IsOracleTimestamp(dataType))
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    if (!IsPortableNumericProjection(definition, column, allowStringConversion: false))
-                        ValidateOracleTimestampPrecision(column, dataType, scale);
-                    continue;
+                    string column = reader.GetString(0);
+                    string dataType = reader.GetString(1);
+                    int? precision = reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2));
+                    int? scale = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
+                    bool excluded = IsPortableNumericProjection(definition, column, allowStringConversion: false);
+                    if (IsOracleTimestamp(dataType))
+                    {
+                        if (!excluded) ValidateOracleTimestampPrecision(column, dataType, scale);
+                        if (!excluded && IsOracleTimestampWithTimeZone(dataType)) regionColumns.Add(column);
+                        continue;
+                    }
+                    if (IsOracleDaySecondInterval(dataType))
+                    {
+                        if (!excluded) ValidateOracleDaySecondIntervalShape(column, dataType, precision, scale);
+                        continue;
+                    }
+
+                    if (destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.MySql) continue;
+                    if (IsPortableOracleNumeric(dataType, precision, scale) || IsPortableNumericProjection(definition, column)) continue;
+
+                    string shape = dataType == "FLOAT"
+                        ? precision.HasValue ? $"FLOAT({precision.Value})" : "unconstrained FLOAT"
+                        : precision.HasValue && scale.HasValue
+                            ? $"NUMBER({precision.Value},{scale.Value})"
+                            : "unconstrained NUMBER";
+                    throw new NotSupportedException(
+                        $"Oracle source column '{definition.SourceName}.{column}' uses {shape}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
+                        "Exclude the column, convert it explicitly to String, or copy it to an Oracle or MySQL destination.");
                 }
-
-                if (destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.MySql) continue;
-                if (IsPortableOracleNumeric(dataType, precision, scale) || IsPortableNumericProjection(definition, column)) continue;
-
-                string shape = dataType == "FLOAT"
-                    ? precision.HasValue ? $"FLOAT({precision.Value})" : "unconstrained FLOAT"
-                    : precision.HasValue && scale.HasValue
-                        ? $"NUMBER({precision.Value},{scale.Value})"
-                        : "unconstrained NUMBER";
-                throw new NotSupportedException(
-                    $"Oracle source column '{definition.SourceName}.{column}' uses {shape}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
-                    "Exclude the column, convert it explicitly to String, or copy it to an Oracle or MySQL destination.");
             }
+
+            await ValidateNoTimeZoneRegionsAsync(
+                connection,
+                definition.SourceName,
+                regionColumns,
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -125,6 +140,60 @@ WHERE OWNER = :owner
 
     private static bool IsOracleTimestamp(string dataType)
         => dataType.StartsWith("TIMESTAMP", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsOracleTimestampWithTimeZone(string dataType)
+        => IsOracleTimestamp(dataType) &&
+           dataType.IndexOf("WITH TIME ZONE", StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private static bool IsOracleDaySecondInterval(string dataType)
+        => dataType.StartsWith("INTERVAL DAY", StringComparison.OrdinalIgnoreCase);
+
+    internal static void ValidateOracleDaySecondIntervalShape(
+        string columnName,
+        string dataType,
+        int? dayPrecision,
+        int? fractionalSecondPrecision)
+    {
+        if (!IsOracleDaySecondInterval(dataType)) return;
+        int effectiveDayPrecision = dayPrecision ?? 2;
+        int effectiveFractionalPrecision = fractionalSecondPrecision ?? 6;
+        if (effectiveDayPrecision <= 7 && effectiveFractionalPrecision <= 7) return;
+
+        throw new NotSupportedException(
+            $"Oracle table-copy column '{columnName}' uses data type '{dataType}' with day precision {effectiveDayPrecision} and fractional-second precision {effectiveFractionalPrecision}, which exceeds the lossless CLR TimeSpan range or resolution. " +
+            "Exclude the column or project it to a lossless text representation before copying.");
+    }
+
+    private async Task ValidateNoTimeZoneRegionsAsync(
+        OracleConnection connection,
+        string sourceName,
+        IReadOnlyList<string> columns,
+        CancellationToken cancellationToken)
+    {
+        if (columns.Count == 0) return;
+
+        string predicates = string.Join(
+            " OR ",
+            columns.Select(static column =>
+                $"SUBSTR(TO_CHAR({QuoteExactOracleIdentifier(column)}, 'TZR'), 1, 1) NOT IN ('+', '-')"));
+        using var command = new OracleCommand(
+            $"SELECT 1 FROM {QuotePath(sourceName)} WHERE ({predicates}) AND ROWNUM = 1",
+            connection)
+        {
+            Transaction = _readTransaction,
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) != null)
+        {
+            throw new NotSupportedException(
+                $"Oracle source '{sourceName}' contains TIMESTAMP WITH TIME ZONE values backed by named regions, which cannot be represented losslessly by table-copy CLR DateTimeOffset values. " +
+                "Exclude the affected column or project it to a fixed-offset or lossless text representation before copying.");
+        }
+    }
+
+    private static string QuoteExactOracleIdentifier(string identifier)
+        => "\"" + identifier.Replace("\"", "\"\"") + "\"";
 
     internal static bool IsPortableNumericProjection(
         DbaTableCopyDefinition definition,

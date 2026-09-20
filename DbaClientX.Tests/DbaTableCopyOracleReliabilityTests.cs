@@ -38,6 +38,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.True(OracleTableCopyAdapter.IsPortableOracleNumeric("NUMBER", 28, 0));
         Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'TIMESTAMP%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("DATA_TYPE LIKE 'INTERVAL DAY%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -98,6 +99,36 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.True(OracleTableCopyAdapter.IsPortableNumericProjection(converted, "EVENT_TIME"));
         Assert.False(OracleTableCopyAdapter.IsPortableNumericProjection(converted, "EVENT_TIME", allowStringConversion: false));
         Assert.True(OracleTableCopyAdapter.IsPortableNumericProjection(excluded, "EVENT_TIME", allowStringConversion: false));
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(7, 7)]
+    [InlineData(6, 7)]
+    public void DestinationCompatibility_AcceptsClrSafeDaySecondIntervalShape(int? dayPrecision, int? fractionalPrecision)
+    {
+        OracleTableCopyAdapter.ValidateOracleDaySecondIntervalShape(
+            "DURATION",
+            "INTERVAL DAY TO SECOND",
+            dayPrecision,
+            fractionalPrecision);
+    }
+
+    [Theory]
+    [InlineData(8, 6)]
+    [InlineData(7, 8)]
+    [InlineData(9, 9)]
+    public void DestinationCompatibility_RejectsDaySecondIntervalOutsideClrRangeOrResolution(int dayPrecision, int fractionalPrecision)
+    {
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.ValidateOracleDaySecondIntervalShape(
+                "DURATION",
+                "INTERVAL DAY TO SECOND",
+                dayPrecision,
+                fractionalPrecision));
+
+        Assert.Contains("TimeSpan", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("DURATION", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -335,6 +366,27 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(
             new DateTimeOffset(timestamp, TimeSpan.FromHours(2)),
             OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStampTZ(timestamp, "+02:00")));
+    }
+
+    [Fact]
+    public void ProviderValues_RejectSubTickOracleTemporalValues()
+    {
+        Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.NormalizeProviderValue(new OracleIntervalDS(0, 0, 0, 0, 1)));
+        Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStamp(2026, 9, 20, 12, 34, 56, 1)));
+        Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStampTZ(2026, 9, 20, 12, 34, 56, 1, "+02:00")));
+    }
+
+    [Theory]
+    [InlineData("+02:00", false)]
+    [InlineData("-05:30", false)]
+    [InlineData("Europe/Warsaw", true)]
+    [InlineData("UTC", true)]
+    public void ProviderValues_ClassifyOracleTimeZoneRegions(string timeZone, bool expected)
+    {
+        Assert.Equal(expected, OracleTableCopyAdapter.IsOracleTimeZoneRegion(timeZone));
     }
 
     [Fact]
