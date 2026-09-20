@@ -190,6 +190,8 @@ MySQL `DECIMAL` values beyond `System.Decimal` precision are carried losslessly 
 
 Oracle bulk and transactional writes apply the same provider-neutral conversions for GUID/RAW, date/time, interval, unsigned, and arbitrary-precision numeric values.
 
+PostgreSQL bulk writes preserve Oracle `INTERVAL YEAR TO MONTH` values as native month-based intervals instead of approximating them as fixed-duration `TimeSpan` values.
+
 With `ClearDestination`, PostgreSQL, MySQL, and Oracle validate every projected source page against the real destination in one rollback-only transaction before committed destination rows are removed. This extra preflight pass catches cross-page uniqueness and destination-constraint failures without retaining the projected pages in memory. Because sequence and auto-increment advances are not transactionally reversible, preflight rejects projections that omit a generator-backed destination column; project explicit values or copy without `ClearDestination`.
 
 For verified or resumable SQL Server copies, set identity preservation through `DbaTableCopyOptions.KeepIdentity` and column mappings through `DbaTableCopyDefinition.ColumnMappings`. These settings are part of the checkpoint contract. SQL bulk destination names must match the physical column casing; map source `id` to destination `ID` explicitly even when the database uses a case-insensitive collation. Adapter-level mappings and the `FireTriggers` or `AllowEncryptedValueModifications` bulk flags are rejected in this mode. Ordinary copies retain adapter mappings and automatic table creation. `KeepIdentity` retains supplied identity values; it does not copy schema or replace ordinary key mappings.

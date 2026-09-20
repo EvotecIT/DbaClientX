@@ -11,6 +11,40 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 {
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlBulkCopy_WritesProviderNeutralYearMonthIntervalsLosslessly()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var table = "dbax_interval_" + Guid.NewGuid().ToString("N");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE \"{table}\" (id BIGINT NOT NULL PRIMARY KEY, period INTERVAL NOT NULL)");
+            using var page = new DataTable(table);
+            page.Columns.Add("id", typeof(long));
+            page.Columns.Add("period", typeof(DbaYearMonthInterval));
+            page.Rows.Add(1L, new DbaYearMonthInterval(-27));
+
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition("unused", table, new[] { "id" });
+            await destination.WritePageAsync(definition, page, new DbaTableCopyOptions());
+
+            Assert.Equal(-27L, Convert.ToInt64(await ExecuteScalarAsync(
+                connection,
+                $"SELECT EXTRACT(YEAR FROM period)::bigint * 12 + EXTRACT(MONTH FROM period)::bigint FROM \"{table}\" WHERE id = 1")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{table}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlCheckpointedCopy_RejectsNontransactionalDestinationBeforeClearingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");

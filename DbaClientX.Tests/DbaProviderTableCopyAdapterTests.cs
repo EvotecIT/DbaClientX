@@ -1291,6 +1291,38 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void BulkPage_PostgreSqlRehydratesProviderNeutralYearMonthIntervals()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        var expected = new DbaYearMonthInterval(-27);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods");
+
+        Assert.Equal(typeof(NpgsqlTypes.NpgsqlInterval), normalized.Columns[0].DataType);
+        var providerValue = Assert.IsType<NpgsqlTypes.NpgsqlInterval>(normalized.Rows[0][0]);
+        Assert.Equal(expected.TotalMonths, providerValue.Months);
+        Assert.Equal(0, providerValue.Days);
+        Assert.Equal(0, providerValue.Time);
+        Assert.Equal(expected, page.Rows[0][0]);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRejectsYearMonthIntervalsOutsideProviderRange()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        page.Rows.Add(new DbaYearMonthInterval((long)int.MaxValue + 1));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods"));
+
+        Assert.Contains("exceeds", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("native interval range", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BulkPage_PostgreSqlPreservesUtcDateTimeModeWhenRehydratingNetworkValues()
     {
         using var page = new DataTable("Networks");

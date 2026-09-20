@@ -2,9 +2,7 @@ using System.Data;
 #if NET8_0_OR_GREATER
 using System.Diagnostics.CodeAnalysis;
 #endif
-#if NET472
 using NpgsqlTypes;
-#endif
 
 namespace DBAClientX.DataMovement;
 
@@ -48,6 +46,9 @@ public static class DbaPostgreSqlBulkCopyNormalizer
         var networkColumns = page.Columns.Cast<DataColumn>()
             .Select(static column => column.DataType == typeof(DbaIpNetwork))
             .ToArray();
+        var yearMonthIntervalColumns = page.Columns.Cast<DataColumn>()
+            .Select(static column => column.DataType == typeof(DbaYearMonthInterval))
+            .ToArray();
         var dateTimeOffsetColumns = page.Columns.Cast<DataColumn>()
             .Select(static column => column.DataType == typeof(DateTimeOffset))
             .ToArray();
@@ -57,6 +58,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             for (var index = 0; index < page.Columns.Count; index++)
             {
                 if (row[index] is DbaIpNetwork) networkColumns[index] = true;
+                if (row[index] is DbaYearMonthInterval) yearMonthIntervalColumns[index] = true;
                 if (row[index] is DateTimeOffset instant)
                 {
                     dateTimeOffsetColumns[index] = true;
@@ -68,7 +70,8 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             .Select(static column => column.ColumnName)
             .SequenceEqual(normalizedNames, StringComparer.Ordinal);
         bool normalizeNetworks = networkColumns.Any(static value => value);
-        if (!normalizeNames && !normalizeNetworks && !normalizeDateTimeOffsets)
+        bool normalizeYearMonthIntervals = yearMonthIntervalColumns.Any(static value => value);
+        if (!normalizeNames && !normalizeNetworks && !normalizeYearMonthIntervals && !normalizeDateTimeOffsets)
         {
             return page;
         }
@@ -81,7 +84,7 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             throw new InvalidOperationException($"PostgreSQL bulk copy column normalization would create duplicate destination column '{duplicates.Key}'.");
         }
 
-        if (!normalizeNetworks)
+        if (!normalizeNetworks && !normalizeYearMonthIntervals)
         {
             var renamed = page.Copy();
             for (var index = 0; index < renamed.Columns.Count; index++)
@@ -95,10 +98,17 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             for (var index = 0; index < page.Columns.Count; index++)
             {
                 object value = row[index];
-                if (!networkColumns[index] || value == DBNull.Value || value is DbaIpNetwork || IsProviderNetwork(value))
-                    continue;
-                throw new InvalidOperationException(
-                    $"PostgreSQL network column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+                if (value == DBNull.Value) continue;
+                if (networkColumns[index] && value is not DbaIpNetwork && !IsProviderNetwork(value))
+                {
+                    throw new InvalidOperationException(
+                        $"PostgreSQL network column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+                }
+                if (yearMonthIntervalColumns[index] && value is not DbaYearMonthInterval and not NpgsqlInterval)
+                {
+                    throw new InvalidOperationException(
+                        $"PostgreSQL year-month interval column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+                }
             }
         }
 
@@ -108,7 +118,11 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             DataColumn sourceColumn = page.Columns[index];
             DataColumn destinationColumn = normalized.Columns.Add(
                 normalizedNames[index],
-                networkColumns[index] ? GetProviderNetworkType() : sourceColumn.DataType);
+                networkColumns[index]
+                    ? GetProviderNetworkType()
+                    : yearMonthIntervalColumns[index]
+                        ? typeof(NpgsqlInterval)
+                        : sourceColumn.DataType);
             destinationColumn.AllowDBNull = sourceColumn.AllowDBNull;
             if (destinationColumn.DataType == typeof(DateTime))
                 destinationColumn.DateTimeMode = sourceColumn.DateTimeMode;
@@ -121,6 +135,8 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             for (var index = 0; index < values.Length; index++)
             {
                 if (values[index] is DbaIpNetwork network) values[index] = CreateProviderNetwork(network);
+                if (values[index] is DbaYearMonthInterval interval)
+                    values[index] = CreateProviderYearMonthInterval(interval, page.Columns[index].ColumnName);
                 if (values[index] is DateTimeOffset instant && dateTimeOffsetColumns[index])
                     values[index] = instant.ToUniversalTime();
             }
@@ -169,6 +185,17 @@ public static class DbaPostgreSqlBulkCopyNormalizer
 #else
         return new System.Net.IPNetwork(network.Address, network.PrefixLength);
 #endif
+    }
+
+    private static NpgsqlInterval CreateProviderYearMonthInterval(DbaYearMonthInterval interval, string columnName)
+    {
+        if (interval.TotalMonths is < int.MinValue or > int.MaxValue)
+        {
+            throw new InvalidOperationException(
+                $"PostgreSQL year-month interval column '{columnName}' contains {interval.TotalMonths} months, which exceeds the provider's native interval range.");
+        }
+
+        return new NpgsqlInterval((int)interval.TotalMonths, 0, 0);
     }
 
     private static string NormalizeColumnName(string columnName)
