@@ -62,20 +62,30 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
 
     internal static bool IsPortableDecimalProjection(DbaTableCopyDefinition definition, string sourceColumn)
     {
+        IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
+            ? mappingDictionary.Comparer
+            : StringComparer.Ordinal;
         string destinationColumn = definition.ColumnMappings?
-            .FirstOrDefault(pair => string.Equals(pair.Key, sourceColumn, StringComparison.OrdinalIgnoreCase)).Value
+            .FirstOrDefault(pair => mappingComparer.Equals(pair.Key, sourceColumn)).Value
             ?? sourceColumn;
+
+        IEqualityComparer<string> excludedComparer = definition.ExcludedColumns is HashSet<string> excludedSet
+            ? excludedSet.Comparer
+            : StringComparer.Ordinal;
         if (definition.ExcludedColumns?.Any(name =>
-                string.Equals(name, sourceColumn, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, destinationColumn, StringComparison.OrdinalIgnoreCase)) == true)
+                excludedComparer.Equals(name, sourceColumn) ||
+                excludedComparer.Equals(name, destinationColumn)) == true)
         {
             return true;
         }
 
         if (definition.ColumnTypeConversions == null) return false;
+        IEqualityComparer<string> conversionComparer = definition.ColumnTypeConversions is Dictionary<string, DbaTableCopyColumnType> conversionDictionary
+            ? conversionDictionary.Comparer
+            : StringComparer.Ordinal;
         return definition.ColumnTypeConversions.Any(pair =>
-            (string.Equals(pair.Key, sourceColumn, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(pair.Key, destinationColumn, StringComparison.OrdinalIgnoreCase)) &&
+            (conversionComparer.Equals(pair.Key, sourceColumn) ||
+             conversionComparer.Equals(pair.Key, destinationColumn)) &&
             pair.Value == DbaTableCopyColumnType.String);
     }
 

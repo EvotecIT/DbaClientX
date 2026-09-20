@@ -191,12 +191,17 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 sourceTable,
                 destinationTable,
                 new[] { "id" },
-                ColumnMappings: new Dictionary<string, string> { ["values"] = "values_json" });
+                ColumnMappings: new Dictionary<string, string> { ["values"] = "values_json" },
+                ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>
+                {
+                    ["values_json"] = DbaTableCopyColumnType.String
+                });
 
             var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
                 new DbaTableCopyEngine().CopyAsync(source, destination, new[] { definition }));
 
             Assert.Contains("provider-specific type", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("not lossless", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT COUNT(*) FROM `{destinationTable}`")));
             Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT id FROM `{destinationTable}`")));
         }

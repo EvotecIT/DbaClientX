@@ -98,6 +98,7 @@ public class DbaProviderTableCopyAdapterBaseTests
             });
 
         Assert.True(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "SHAPE"));
+        Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "SHAPE", allowStringConversion: false));
         Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "period"));
         Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
@@ -429,7 +430,10 @@ public class DbaProviderTableCopyAdapterBaseTests
     public void MySqlArbitraryDecimal_CrossProviderCompatibilityRequiresExclusionOrStringConversion()
     {
         var direct = new DbaTableCopyDefinition("Source", "Destination");
-        var excluded = direct with { ExcludedColumns = new[] { "Amount" } };
+        var excluded = direct with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Amount" }
+        };
         var converted = direct with
         {
             ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Amount"] = "Total" },
@@ -442,6 +446,52 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(direct, "Amount"));
         Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(excluded, "amount"));
         Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(converted, "amount"));
+    }
+
+    [Fact]
+    public void MySqlArbitraryDecimalProjection_HonorsConfiguredComparers()
+    {
+        var ordinalMapping = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ColumnMappings: new Dictionary<string, string>(StringComparer.Ordinal) { ["amount"] = "Total" },
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal)
+            {
+                ["Total"] = DbaTableCopyColumnType.String
+            });
+        var ignoreCaseMapping = ordinalMapping with
+        {
+            ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["amount"] = "Total" }
+        };
+        var ordinalExclusion = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ExcludedColumns: new HashSet<string>(StringComparer.Ordinal) { "amount" });
+        var ignoreCaseExclusion = ordinalExclusion with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "amount" }
+        };
+        var ordinalConversion = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal)
+            {
+                ["amount"] = DbaTableCopyColumnType.String
+            });
+        var ignoreCaseConversion = ordinalConversion with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["amount"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalMapping, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseMapping, "Amount"));
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalExclusion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseExclusion, "Amount"));
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalConversion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseConversion, "Amount"));
     }
 
     [Theory]

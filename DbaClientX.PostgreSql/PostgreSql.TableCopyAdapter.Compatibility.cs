@@ -63,15 +63,18 @@ ORDER BY attribute.attnum";
                 string typeKind = reader.GetString(2);
                 string? elementTypeName = reader.IsDBNull(3) ? null : reader.GetString(3);
                 string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
+                bool isArray = elementTypeName != null;
                 if (!IsProviderSpecificPostgreSqlType(typeName, typeKind, elementTypeName, elementTypeKind) ||
-                    IsPortableProviderProjection(definition, column))
+                    IsPortableProviderProjection(definition, column, allowStringConversion: !isArray))
                 {
                     continue;
                 }
 
                 throw new NotSupportedException(
                     $"PostgreSQL source column '{definition.SourceName}.{column}' uses provider-specific type '{typeName}', which is not portable to {destinationProvider}. " +
-                    "Exclude the column, convert it explicitly to String, or copy it to a PostgreSQL destination.");
+                    (isArray
+                        ? "Exclude the column or copy it to a PostgreSQL destination. Array-to-String conversion is not lossless."
+                        : "Exclude the column, convert it explicitly to String, or copy it to a PostgreSQL destination."));
             }
         }
     }
@@ -86,7 +89,10 @@ ORDER BY attribute.attnum";
     private static bool IsProviderSpecificPostgreSqlScalar(string typeName, string? typeKind)
         => typeKind is "r" or "m" or "c" || ProviderSpecificTypeNames.Contains(typeName);
 
-    internal static bool IsPortableProviderProjection(DbaTableCopyDefinition definition, string sourceColumn)
+    internal static bool IsPortableProviderProjection(
+        DbaTableCopyDefinition definition,
+        string sourceColumn,
+        bool allowStringConversion = true)
     {
         IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
             ? mappingDictionary.Comparer
@@ -105,7 +111,7 @@ ORDER BY attribute.attnum";
             return true;
         }
 
-        if (definition.ColumnTypeConversions == null) return false;
+        if (!allowStringConversion || definition.ColumnTypeConversions == null) return false;
         IEqualityComparer<string> conversionComparer = definition.ColumnTypeConversions is Dictionary<string, DbaTableCopyColumnType> conversionDictionary
             ? conversionDictionary.Comparer
             : StringComparer.Ordinal;
