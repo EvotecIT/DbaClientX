@@ -98,10 +98,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
                 $"RELEASE SAVEPOINT {sourceProbeSavepoint}",
                 cancellationToken).ConfigureAwait(false);
 
-            using NpgsqlCommand command = CreateReadCommand(@"
-SELECT cls.oid::text, cls.relkind::text
-FROM pg_catalog.pg_class AS cls
-WHERE cls.oid = to_regclass(@name)");
+            using NpgsqlCommand command = CreateReadCommand(PostgreSqlConsistentSourceRelationQuery);
             command.Parameters.AddWithValue("@name", QuotePath(definition.SourceName));
             using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -112,18 +109,46 @@ WHERE cls.oid = to_regclass(@name)");
 
             string identity = reader.GetString(0);
             if (!validated.Add(identity)) continue;
-            ValidateConsistentSourceRelationKind(definition.SourceName, reader.GetString(1), ReadConsistency);
+            ValidateConsistentSourceRelationKind(
+                definition.SourceName,
+                reader.GetString(1),
+                reader.GetBoolean(2),
+                ReadConsistency);
         }
     }
+
+    internal const string PostgreSqlConsistentSourceRelationQuery = @"
+WITH RECURSIVE root AS (
+    SELECT cls.oid, cls.relkind
+    FROM pg_catalog.pg_class AS cls
+    WHERE cls.oid = to_regclass(@name)
+), relation_tree AS (
+    SELECT root.oid
+    FROM root
+    UNION ALL
+    SELECT inheritance.inhrelid
+    FROM pg_catalog.pg_inherits AS inheritance
+    JOIN relation_tree AS parent ON inheritance.inhparent = parent.oid
+)
+SELECT root.oid::text,
+       root.relkind::text,
+       EXISTS (
+           SELECT 1
+           FROM relation_tree AS tree
+           JOIN pg_catalog.pg_class AS descendant ON descendant.oid = tree.oid
+           WHERE descendant.relkind = 'f'
+       )
+FROM root";
 
     internal static void ValidateConsistentSourceRelationKind(
         string sourceName,
         string relationKind,
+        bool containsForeignRelation,
         DbaTableCopyReadConsistency consistency)
     {
-        if (!string.Equals(relationKind, "f", StringComparison.Ordinal)) return;
+        if (!containsForeignRelation && !string.Equals(relationKind, "f", StringComparison.Ordinal)) return;
         throw new InvalidOperationException(
-            $"PostgreSQL {consistency} read consistency does not support foreign source table '{sourceName}' because the local transaction cannot guarantee a stable remote snapshot.");
+            $"PostgreSQL {consistency} read consistency does not support foreign source table or partition tree '{sourceName}' because the local transaction cannot guarantee a stable remote snapshot.");
     }
 
     private NpgsqlCommand CreateReadCommand(string query)

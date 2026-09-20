@@ -94,22 +94,26 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
         for (var index = 0; index < page.Columns.Count; index++)
         {
             DataColumn column = page.Columns[index];
+            DataColumn normalizedColumn;
             if (normalizedColumnTypes[index] == typeof(OracleIntervalYM))
-                normalized.Columns.Add(column.ColumnName, typeof(OracleIntervalYM));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(OracleIntervalYM));
             else if (normalizedColumnTypes[index] == typeof(OracleDecimal))
-                normalized.Columns.Add(column.ColumnName, typeof(OracleDecimal));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(OracleDecimal));
             else if (normalizedColumnTypes[index] == typeof(byte[]))
-                normalized.Columns.Add(column.ColumnName, typeof(byte[]));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(byte[]));
             else if (normalizedColumnTypes[index] == typeof(decimal))
-                normalized.Columns.Add(column.ColumnName, typeof(decimal));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(decimal));
 #if NET6_0_OR_GREATER
             else if (normalizedColumnTypes[index] == typeof(DateTime))
-                normalized.Columns.Add(column.ColumnName, typeof(DateTime));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(DateTime));
             else if (normalizedColumnTypes[index] == typeof(TimeSpan))
-                normalized.Columns.Add(column.ColumnName, typeof(TimeSpan));
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, typeof(TimeSpan));
 #endif
             else
-                normalized.Columns.Add(column.ColumnName, column.DataType);
+                normalizedColumn = normalized.Columns.Add(column.ColumnName, column.DataType);
+
+            if (normalizedColumn.DataType == typeof(DateTime) && column.DataType == typeof(DateTime))
+                normalizedColumn.DateTimeMode = column.DateTimeMode;
         }
         foreach (DataRow row in page.Rows)
         {

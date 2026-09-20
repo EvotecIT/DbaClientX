@@ -342,6 +342,23 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void BulkPages_PreserveUtcDateTimeModeWhenAnotherColumnRequiresNormalization()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Identifier", typeof(Guid));
+        DataColumn occurredAt = page.Columns.Add("OccurredAt", typeof(DateTime));
+        occurredAt.DateTimeMode = DataSetDateTime.Utc;
+        DateTime instant = new(2026, 9, 20, 19, 0, 0, DateTimeKind.Utc);
+        page.Rows.Add(Guid.NewGuid(), instant);
+
+        using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
+
+        Assert.Equal(DataSetDateTime.Utc, normalized.Columns["OccurredAt"]!.DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(normalized.Rows[0]["OccurredAt"]).Kind);
+        Assert.Equal(instant, normalized.Rows[0]["OccurredAt"]);
+    }
+
+    [Fact]
     public void BulkPages_RejectMixedYearMonthIntervalColumns()
     {
         using var page = new DataTable();

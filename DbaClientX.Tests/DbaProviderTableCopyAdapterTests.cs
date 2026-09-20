@@ -37,10 +37,69 @@ public class DbaProviderTableCopyAdapterBaseTests
             PostgreSqlTableCopyAdapter.ValidateConsistentSourceRelationKind(
                 "public.remote_rows",
                 "f",
+                containsForeignRelation: true,
                 DbaTableCopyReadConsistency.Snapshot));
 
         Assert.Contains("foreign source table", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("stable remote snapshot", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PostgreSqlConsistentReadSession_RejectsPartitionTreesWithForeignDescendants()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateConsistentSourceRelationKind(
+                "public.partitioned_rows",
+                "p",
+                containsForeignRelation: true,
+                DbaTableCopyReadConsistency.Serializable));
+
+        Assert.Contains("partition tree", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("descendant.relkind = 'f'", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("point", "b", null, null, true)]
+    [InlineData("int8range", "r", null, null, true)]
+    [InlineData("int8multirange", "m", null, null, true)]
+    [InlineData("_point", "b", "point", "b", true)]
+    [InlineData("_int8range", "b", "int8range", "r", true)]
+    [InlineData("tsvector", "b", null, null, true)]
+    [InlineData("custom_composite", "c", null, null, true)]
+    [InlineData("inet", "b", null, null, false)]
+    [InlineData("int8", "b", null, null, false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesProviderSpecificTypes(
+        string typeName,
+        string typeKind,
+        string? elementTypeName,
+        string? elementTypeKind,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PostgreSqlTableCopyAdapter.IsProviderSpecificPostgreSqlType(
+                typeName,
+                typeKind,
+                elementTypeName,
+                elementTypeKind));
+    }
+
+    [Fact]
+    public void PostgreSqlDestinationCompatibility_AllowsExplicitStringProjection()
+    {
+        var definition = new DbaTableCopyDefinition(
+            "source_rows",
+            "destination_rows",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["shape"] = DbaTableCopyColumnType.String
+            });
+
+        Assert.True(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "SHAPE"));
+        Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "period"));
+        Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
     }
 
     [Fact]
