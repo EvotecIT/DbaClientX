@@ -11,6 +11,53 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 {
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlCheckpointedCopy_RejectsNontransactionalDestinationBeforeClearingRows()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var destinationTable = "dbax_myisam_" + suffix;
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE `{destinationTable}` (id BIGINT NOT NULL PRIMARY KEY, payload TEXT NOT NULL) ENGINE=MyISAM");
+            await ExecuteAsync(connection, $"INSERT INTO `{destinationTable}` VALUES (1, 'preserve')");
+
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!);
+            var definition = new DbaTableCopyDefinition("unused", destinationTable, new[] { "id" });
+            var checkpoint = new DbaTableCopyCheckpoint
+            {
+                CopyId = "myisam-" + suffix,
+                DefinitionFingerprint = new string('1', 64),
+                SourceRows = 1,
+                SourceContentHash = new string('2', 64),
+                CopiedRows = 0,
+                CopiedContentHash = new string('3', 64),
+                Completed = false
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                destination.InitializeCheckpointAsync(definition, checkpoint, clearDestination: true));
+
+            Assert.Contains("InnoDB", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(
+                connection,
+                $"SELECT COUNT(*) FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlCheckpointedCopy_UsesMappedNamesWhenPhysicalColumnOrderDiffers()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
@@ -168,6 +215,14 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             Assert.True(result.Verified);
             Assert.Equal(3, result.CopiedRows);
             Assert.True((await destination.ReadCheckpointAsync(definition))!.Completed);
+            if (provider == DbaTableCopyProvider.MySql)
+            {
+                Assert.Equal(
+                    "InnoDB",
+                    Convert.ToString(await ExecuteScalarAsync(
+                        connection,
+                        "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'DbaClientX_TableCopyCheckpoints'")));
+            }
 
             var providerSource = CreateAdapter(
                 provider,

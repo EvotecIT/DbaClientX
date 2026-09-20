@@ -15,6 +15,25 @@ public sealed partial class MySqlTableCopyAdapter
         => new MySqlConnection(ConnectionString);
 
     /// <inheritdoc />
+    protected override async Task ValidateCheckpointSchemaAsync(
+        DbConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new MySqlCommand(
+            "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'DbaClientX_TableCopyCheckpoints'",
+            (MySqlConnection)connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        var engine = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Atomic MySQL checkpoints require the DbaClientX checkpoint table to use the InnoDB storage engine.");
+        }
+    }
+
+    /// <inheritdoc />
     protected override async Task<string> ResolveCheckpointTableIdentityAsync(
         DbConnection connection,
         DbTransaction? transaction,
@@ -33,7 +52,7 @@ public sealed partial class MySqlTableCopyAdapter
 
         var database = segments.Length == 2 ? segments[0] : ((MySqlConnection)connection).Database;
         await using var command = new MySqlCommand(
-            "SELECT CONCAT(TABLE_SCHEMA, ':', TABLE_NAME) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
+            "SELECT CONCAT(TABLE_SCHEMA, ':', TABLE_NAME), ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
             (MySqlConnection)connection,
             (MySqlTransaction?)transaction)
         {
@@ -41,9 +60,22 @@ public sealed partial class MySqlTableCopyAdapter
         };
         command.Parameters.AddWithValue("@database", database);
         command.Parameters.AddWithValue("@table", segments[segments.Length - 1]);
-        var identity = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return identity as string ?? throw new InvalidOperationException(
-            $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to a MySQL table.");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to a MySQL table.");
+        }
+
+        var identity = reader.GetString(0);
+        var engine = reader.IsDBNull(1) ? null : reader.GetString(1);
+        if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Atomic MySQL checkpoints require destination table '{definition.DestinationName}' to use the InnoDB storage engine; found '{engine ?? "unknown"}'.");
+        }
+
+        return identity;
     }
 
     /// <inheritdoc />

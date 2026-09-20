@@ -5,7 +5,7 @@ namespace DBAClientX.DataMovement;
 /// <summary>Destination support for atomic page writes and durable, compare-and-swap checkpoints.</summary>
 public interface IDbaTableCopyCheckpointDestination
 {
-    /// <summary>Whether this destination implements atomic checkpoint storage.</summary>
+    /// <summary>Whether this provider implements atomic checkpoint storage. Definition-specific storage requirements are validated before copying.</summary>
     bool SupportsAtomicCheckpoints { get; }
     /// <summary>Reads the checkpoint bound to a destination table, or null if no copy has initialized it.</summary>
     Task<DbaTableCopyCheckpoint?> ReadCheckpointAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default);

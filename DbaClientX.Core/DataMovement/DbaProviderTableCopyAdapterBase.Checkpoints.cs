@@ -95,6 +95,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             throw new ArgumentException("Checkpoint progress does not match the page and existing copy contract.", nameof(next));
         using DbConnection connection = CreateCheckpointConnection();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ValidateCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         using DbTransaction transaction = connection.BeginTransaction(IsolationLevel.Serializable);
         DbaTableCopyCheckpoint? stored = await ReadCheckpointCoreAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false);
         if (stored != expected)
@@ -113,7 +114,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             DbaTableCopyProvider.SqlServer => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId nvarchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken nvarchar(max) NULL, CopiedContentHash varchar(64) NOT NULL, Completed bit NOT NULL",
             DbaTableCopyProvider.PostgreSql => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId varchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken text NULL, CopiedContentHash varchar(64) NOT NULL, Completed boolean NOT NULL",
             DbaTableCopyProvider.MySql => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId varchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken longtext NULL, CopiedContentHash varchar(64) NOT NULL, Completed tinyint(1) NOT NULL",
-            DbaTableCopyProvider.Oracle => "TableKey varchar2(64) NOT NULL PRIMARY KEY, CopyId varchar2(128) NOT NULL, DefinitionFingerprint varchar2(64) NOT NULL, SourceRows number(19) NOT NULL, SourceContentHash varchar2(64) NOT NULL, CopiedRows number(19) NOT NULL, ContinuationToken clob NULL, CopiedContentHash varchar2(64) NOT NULL, Completed number(1) NOT NULL",
+            DbaTableCopyProvider.Oracle => "TableKey varchar2(64 CHAR) NOT NULL PRIMARY KEY, CopyId varchar2(128 CHAR) NOT NULL, DefinitionFingerprint varchar2(64 CHAR) NOT NULL, SourceRows number(19) NOT NULL, SourceContentHash varchar2(64 CHAR) NOT NULL, CopiedRows number(19) NOT NULL, ContinuationToken clob NULL, CopiedContentHash varchar2(64 CHAR) NOT NULL, Completed number(1) NOT NULL",
             _ => "TableKey TEXT NOT NULL PRIMARY KEY, CopyId TEXT NOT NULL, DefinitionFingerprint TEXT NOT NULL, SourceRows INTEGER NOT NULL, SourceContentHash TEXT NOT NULL, CopiedRows INTEGER NOT NULL, ContinuationToken TEXT NULL, CopiedContentHash TEXT NOT NULL, Completed INTEGER NOT NULL"
         };
         string create = $"CREATE TABLE {CheckpointTable} ({fields})";
@@ -121,10 +122,12 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         {
             DbaTableCopyProvider.SqlServer => $"IF OBJECT_ID(N'dbo.DbaClientX_TableCopyCheckpoints', N'U') IS NULL {create}",
             DbaTableCopyProvider.Oracle => $"BEGIN EXECUTE IMMEDIATE '{create.Replace("'", "''")}'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END;",
+            DbaTableCopyProvider.MySql => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields}) ENGINE=InnoDB",
             _ => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields})"
         };
         using DbCommand command = CreateCheckpointCommand(connection, null, sql);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await ValidateCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<DbaTableCopyCheckpoint?> ReadCheckpointCoreAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
@@ -181,12 +184,22 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     {
     }
 
+    /// <summary>Validates provider-specific checkpoint storage requirements after the schema exists.</summary>
+    protected virtual Task ValidateCheckpointSchemaAsync(DbConnection connection, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>Applies provider-specific type metadata to a checkpoint parameter.</summary>
+    protected virtual void ConfigureCheckpointParameter(DbParameter parameter, string name, object? value)
+    {
+    }
+
     private string ParameterToken(string name) => Provider == DbaTableCopyProvider.Oracle ? ":" + name : "@" + name;
 
     private void AddCheckpointParameter(DbCommand command, string name, object? value)
     {
         DbParameter parameter = command.CreateParameter();
         parameter.ParameterName = Provider == DbaTableCopyProvider.Oracle ? name : "@" + name;
+        ConfigureCheckpointParameter(parameter, name, value);
         parameter.Value = value ?? DBNull.Value;
         command.Parameters.Add(parameter);
     }
