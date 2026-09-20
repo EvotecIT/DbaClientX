@@ -10,7 +10,7 @@ SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
   AND TABLE_NAME = :table
-  AND DATA_TYPE IN ('NUMBER', 'FLOAT')";
+  AND (DATA_TYPE IN ('NUMBER', 'FLOAT') OR DATA_TYPE LIKE 'TIMESTAMP%')";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -18,8 +18,6 @@ WHERE OWNER = :owner
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         CancellationToken cancellationToken)
     {
-        if (destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.MySql) return;
-
         using OracleConnection? owned = _readConnection == null ? new OracleConnection(ConnectionString) : null;
         OracleConnection connection = _readConnection ?? owned!;
         if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -78,6 +76,14 @@ WHERE OWNER = :owner
                 string dataType = reader.GetString(1);
                 int? precision = reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2));
                 int? scale = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
+                if (IsOracleTimestamp(dataType))
+                {
+                    if (!IsPortableNumericProjection(definition, column, allowStringConversion: false))
+                        ValidateOracleTimestampPrecision(column, dataType, scale);
+                    continue;
+                }
+
+                if (destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.MySql) continue;
                 if (IsPortableOracleNumeric(dataType, precision, scale) || IsPortableNumericProjection(definition, column)) continue;
 
                 string shape = dataType == "FLOAT"
@@ -103,7 +109,27 @@ WHERE OWNER = :owner
         => string.Equals(dataType, "NUMBER", StringComparison.OrdinalIgnoreCase) &&
            IsPortableOracleNumber(precision, scale);
 
-    internal static bool IsPortableNumericProjection(DbaTableCopyDefinition definition, string sourceColumn)
+    internal static void ValidateOracleTimestampPrecision(
+        string columnName,
+        string dataType,
+        int? fractionalSecondPrecision)
+    {
+        if (!IsOracleTimestamp(dataType)) return;
+        int effectivePrecision = fractionalSecondPrecision ?? 6;
+        if (effectivePrecision <= 7) return;
+
+        throw new NotSupportedException(
+            $"Oracle table-copy column '{columnName}' uses data type '{dataType}' with fractional-second precision {effectivePrecision}, which exceeds the seven digits representable by CLR DateTime values. " +
+            "Exclude the column or project it to a lossless text representation before copying.");
+    }
+
+    private static bool IsOracleTimestamp(string dataType)
+        => dataType.StartsWith("TIMESTAMP", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsPortableNumericProjection(
+        DbaTableCopyDefinition definition,
+        string sourceColumn,
+        bool allowStringConversion = true)
     {
         IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
             ? mappingDictionary.Comparer
@@ -122,7 +148,7 @@ WHERE OWNER = :owner
             return true;
         }
 
-        if (definition.ColumnTypeConversions == null) return false;
+        if (!allowStringConversion || definition.ColumnTypeConversions == null) return false;
         IEqualityComparer<string> conversionComparer = definition.ColumnTypeConversions is Dictionary<string, DbaTableCopyColumnType> conversionDictionary
             ? conversionDictionary.Comparer
             : StringComparer.Ordinal;

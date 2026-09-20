@@ -68,7 +68,10 @@ public class DbaProviderTableCopyAdapterBaseTests
     [InlineData("_int4", "b", "int4", "b", true)]
     [InlineData("tsvector", "b", null, null, true)]
     [InlineData("custom_composite", "c", null, null, true)]
-    [InlineData("inet", "b", null, null, false)]
+    [InlineData("inet", "b", null, null, true)]
+    [InlineData("cidr", "b", null, null, true)]
+    [InlineData("macaddr", "b", null, null, true)]
+    [InlineData("macaddr8", "b", null, null, true)]
     [InlineData("int8", "b", null, null, false)]
     public void PostgreSqlDestinationCompatibility_ClassifiesProviderSpecificTypes(
         string typeName,
@@ -102,6 +105,17 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "period"));
         Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("date", true)]
+    [InlineData("timestamp", true)]
+    [InlineData("timestamptz", true)]
+    [InlineData("time", false)]
+    [InlineData("interval", false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesInfinityCapableTypes(string typeName, bool expected)
+    {
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.IsPostgreSqlInfinityCapableType(typeName));
     }
 
     [Fact]
@@ -492,6 +506,31 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseExclusion, "Amount"));
         Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalConversion, "Amount"));
         Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseConversion, "Amount"));
+    }
+
+    [Fact]
+    public void MySqlUnsignedProjection_RequiresDecimalOrStringConversion()
+    {
+        var direct = new DbaTableCopyDefinition("Source", "Destination");
+        var decimalConversion = direct with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["Amount"] = DbaTableCopyColumnType.Decimal
+            }
+        };
+        var stringConversion = direct with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["Amount"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableUnsignedProjection(direct, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(decimalConversion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(stringConversion, "Amount"));
+        Assert.Contains("COLUMN_TYPE LIKE '%unsigned%'", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Theory]

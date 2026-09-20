@@ -138,9 +138,9 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         await mySqlConnection.OpenAsync();
         try
         {
-            await ExecuteAsync(postgreSqlConnection, $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, shape POINT NOT NULL)");
-            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{sourceTable}\" VALUES (1, POINT(1.5, 2.5))");
-            await ExecuteAsync(mySqlConnection, $"CREATE TABLE `{destinationTable}` (id BIGINT NOT NULL PRIMARY KEY, shape TEXT NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(postgreSqlConnection, $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, address INET NOT NULL)");
+            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{sourceTable}\" VALUES (1, '192.0.2.42')");
+            await ExecuteAsync(mySqlConnection, $"CREATE TABLE `{destinationTable}` (id BIGINT NOT NULL PRIMARY KEY, address TEXT NOT NULL) ENGINE=InnoDB");
             await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, 'preserved')");
 
             var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
@@ -202,6 +202,52 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
             Assert.Contains("provider-specific type", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("not lossless", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT COUNT(*) FROM `{destinationTable}`")));
+            Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT id FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(mySqlConnection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(postgreSqlConnection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlInfinitySentinels_RejectCrossProviderCopyBeforeWriting()
+    {
+        string? postgreSqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        string? mySqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(postgreSqlConnectionString) || string.IsNullOrWhiteSpace(mySqlConnectionString),
+            "Set both PostgreSQL and MySQL live-provider connection strings.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_infinity_source_" + suffix;
+        string destinationTable = "dbax_infinity_destination_" + suffix;
+        await using var postgreSqlConnection = new NpgsqlConnection(postgreSqlConnectionString!);
+        await using var mySqlConnection = new MySqlConnection(mySqlConnectionString!);
+        await postgreSqlConnection.OpenAsync();
+        await mySqlConnection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                postgreSqlConnection,
+                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, event_date DATE NOT NULL, event_time TIMESTAMP NOT NULL)");
+            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{sourceTable}\" VALUES (1, 'infinity', '-infinity')");
+            await ExecuteAsync(
+                mySqlConnection,
+                $"CREATE TABLE `{destinationTable}` (id BIGINT NOT NULL PRIMARY KEY, event_date DATE NOT NULL, event_time DATETIME(6) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, '2026-01-01', '2026-01-01 00:00:00')");
+
+            var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
+            var destination = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(source, destination, new[] { definition }));
+
+            Assert.Contains("infinity sentinels", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT COUNT(*) FROM `{destinationTable}`")));
             Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT id FROM `{destinationTable}`")));
         }
@@ -1055,6 +1101,52 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         finally
         {
             await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{table}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlUnsignedBigInteger_RejectsCrossProviderCopyBeforeWriting()
+    {
+        string? mySqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        string? postgreSqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(mySqlConnectionString) || string.IsNullOrWhiteSpace(postgreSqlConnectionString),
+            "Set both MySQL and PostgreSQL live-provider connection strings.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_unsigned_source_" + suffix;
+        string destinationTable = "dbax_unsigned_destination_" + suffix;
+        await using var mySqlConnection = new MySqlConnection(mySqlConnectionString!);
+        await using var postgreSqlConnection = new NpgsqlConnection(postgreSqlConnectionString!);
+        await mySqlConnection.OpenAsync();
+        await postgreSqlConnection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                mySqlConnection,
+                $"CREATE TABLE `{sourceTable}` (id BIGINT UNSIGNED NOT NULL PRIMARY KEY, payload VARCHAR(32) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(mySqlConnection, $"INSERT INTO `{sourceTable}` VALUES (18446744073709551615, 'source')");
+            await ExecuteAsync(
+                postgreSqlConnection,
+                $"CREATE TABLE \"{destinationTable}\" (id NUMERIC(20,0) NOT NULL PRIMARY KEY, payload TEXT NOT NULL)");
+            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+
+            var source = new MySqlTableCopyAdapter(mySqlConnectionString!, new[] { "id" });
+            var destination = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(source, destination, new[] { definition }));
+
+            Assert.Contains("BIGINT UNSIGNED", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(postgreSqlConnection, $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
+            Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(postgreSqlConnection, $"SELECT id FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(postgreSqlConnection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(mySqlConnection, $"DROP TABLE IF EXISTS `{sourceTable}`");
         }
     }
 

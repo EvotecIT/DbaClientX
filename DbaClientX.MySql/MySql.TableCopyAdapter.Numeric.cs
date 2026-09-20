@@ -7,6 +7,12 @@ namespace DBAClientX;
 
 public sealed partial class MySqlTableCopyAdapter
 {
+    internal const string MySqlTableCopyNumericColumnsQuery = @"SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, COLUMN_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))
+  AND (DATA_TYPE IN ('decimal', 'numeric') OR (DATA_TYPE = 'bigint' AND COLUMN_TYPE LIKE '%unsigned%'))";
+
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
         DbaTableCopyProvider destinationProvider,
@@ -35,11 +41,7 @@ public sealed partial class MySqlTableCopyAdapter
             string database = segments.Length == 2 ? segments[0] : connection.Database;
             string table = segments[segments.Length - 1];
             await using var command = new MySqlCommand(
-                @"SELECT COLUMN_NAME, NUMERIC_PRECISION
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
-       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))
-  AND DATA_TYPE IN ('decimal', 'numeric')",
+                MySqlTableCopyNumericColumnsQuery,
                 connection,
                 _readTransaction)
             {
@@ -51,16 +53,34 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 string column = reader.GetString(0);
-                int precision = reader.GetInt32(1);
-                if (precision <= 28 || IsPortableDecimalProjection(definition, column)) continue;
+                string dataType = reader.GetString(1).ToLowerInvariant();
+                if (dataType is "decimal" or "numeric")
+                {
+                    int precision = reader.GetInt32(2);
+                    if (precision <= 28 || IsPortableDecimalProjection(definition, column)) continue;
+                    throw new NotSupportedException(
+                        $"MySQL source column '{definition.SourceName}.{column}' uses DECIMAL precision {precision}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
+                        "Exclude the column, convert it explicitly to String, or copy it to a MySQL or Oracle destination.");
+                }
+
+                if (IsPortableUnsignedProjection(definition, column)) continue;
                 throw new NotSupportedException(
-                    $"MySQL source column '{definition.SourceName}.{column}' uses DECIMAL precision {precision}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
-                    "Exclude the column, convert it explicitly to String, or copy it to a MySQL or Oracle destination.");
+                    $"MySQL source column '{definition.SourceName}.{column}' uses BIGINT UNSIGNED, which can exceed Int64 and is not portable to {destinationProvider}. " +
+                    "Exclude the column, convert it explicitly to Decimal or String, or copy it to a MySQL or Oracle destination.");
             }
         }
     }
 
     internal static bool IsPortableDecimalProjection(DbaTableCopyDefinition definition, string sourceColumn)
+        => IsPortableNumericProjection(definition, sourceColumn, allowDecimalConversion: false);
+
+    internal static bool IsPortableUnsignedProjection(DbaTableCopyDefinition definition, string sourceColumn)
+        => IsPortableNumericProjection(definition, sourceColumn, allowDecimalConversion: true);
+
+    private static bool IsPortableNumericProjection(
+        DbaTableCopyDefinition definition,
+        string sourceColumn,
+        bool allowDecimalConversion)
     {
         IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
             ? mappingDictionary.Comparer
@@ -86,7 +106,8 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
         return definition.ColumnTypeConversions.Any(pair =>
             (conversionComparer.Equals(pair.Key, sourceColumn) ||
              conversionComparer.Equals(pair.Key, destinationColumn)) &&
-            pair.Value == DbaTableCopyColumnType.String);
+            (pair.Value == DbaTableCopyColumnType.String ||
+             (allowDecimalConversion && pair.Value == DbaTableCopyColumnType.Decimal)));
     }
 
     internal static object ReadProviderValue(MySqlDataReader reader, int ordinal)

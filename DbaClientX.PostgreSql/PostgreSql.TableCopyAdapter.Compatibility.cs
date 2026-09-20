@@ -23,7 +23,8 @@ ORDER BY attribute.attnum";
     private static readonly HashSet<string> ProviderSpecificTypeNames = new(StringComparer.Ordinal)
     {
         "point", "line", "lseg", "box", "path", "polygon", "circle",
-        "tsquery", "tsvector", "pg_lsn", "tid", "bit", "varbit", "hstore"
+        "tsquery", "tsvector", "pg_lsn", "tid", "bit", "varbit", "hstore",
+        "inet", "cidr", "macaddr", "macaddr8"
     };
 
     /// <inheritdoc />
@@ -32,8 +33,6 @@ ORDER BY attribute.attnum";
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         CancellationToken cancellationToken)
     {
-        if (destinationProvider == DbaTableCopyProvider.PostgreSql) return;
-
         using NpgsqlConnection? owned = _readConnection == null ? new NpgsqlConnection(ConnectionString) : null;
         NpgsqlConnection connection = _readConnection ?? owned!;
         if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -50,32 +49,49 @@ ORDER BY attribute.attnum";
                     nameof(definitions));
             }
 
+            var infinityColumns = new List<(string Column, bool IsArray)>();
             using var command = new NpgsqlCommand(PostgreSqlProviderSpecificColumnsQuery, connection, _readTransaction)
             {
                 CommandTimeout = CommandTimeout
             };
             command.Parameters.AddWithValue("@name", QuotePath(definition.SourceName));
-            using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
-                string column = reader.GetString(0);
-                string typeName = reader.GetString(1);
-                string typeKind = reader.GetString(2);
-                string? elementTypeName = reader.IsDBNull(3) ? null : reader.GetString(3);
-                string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
-                bool isArray = elementTypeName != null;
-                if (!IsProviderSpecificPostgreSqlType(typeName, typeKind, elementTypeName, elementTypeKind) ||
-                    IsPortableProviderProjection(definition, column, allowStringConversion: !isArray))
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    continue;
-                }
+                    string column = reader.GetString(0);
+                    string typeName = reader.GetString(1);
+                    string typeKind = reader.GetString(2);
+                    string? elementTypeName = reader.IsDBNull(3) ? null : reader.GetString(3);
+                    string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
+                    bool isArray = elementTypeName != null;
+                    if ((IsPostgreSqlInfinityCapableType(typeName) ||
+                         (elementTypeName != null && IsPostgreSqlInfinityCapableType(elementTypeName))) &&
+                        !IsPortableProviderProjection(definition, column, allowStringConversion: false))
+                    {
+                        infinityColumns.Add((column, isArray));
+                    }
 
-                throw new NotSupportedException(
-                    $"PostgreSQL source column '{definition.SourceName}.{column}' uses provider-specific type '{typeName}', which is not portable to {destinationProvider}. " +
-                    (isArray
-                        ? "Exclude the column or copy it to a PostgreSQL destination. Array-to-String conversion is not lossless."
-                        : "Exclude the column, convert it explicitly to String, or copy it to a PostgreSQL destination."));
+                    if (destinationProvider == DbaTableCopyProvider.PostgreSql ||
+                        !IsProviderSpecificPostgreSqlType(typeName, typeKind, elementTypeName, elementTypeKind) ||
+                        IsPortableProviderProjection(definition, column, allowStringConversion: !isArray))
+                    {
+                        continue;
+                    }
+
+                    throw new NotSupportedException(
+                        $"PostgreSQL source column '{definition.SourceName}.{column}' uses provider-specific type '{typeName}', which is not portable to {destinationProvider}. " +
+                        (isArray
+                            ? "Exclude the column or copy it to a PostgreSQL destination. Array-to-String conversion is not lossless."
+                            : "Exclude the column, convert it explicitly to String, or copy it to a PostgreSQL destination."));
+                }
             }
+
+            await ValidateNoInfinitySentinelsAsync(
+                connection,
+                definition.SourceName,
+                infinityColumns,
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -88,6 +104,44 @@ ORDER BY attribute.attnum";
 
     private static bool IsProviderSpecificPostgreSqlScalar(string typeName, string? typeKind)
         => typeKind is "r" or "m" or "c" || ProviderSpecificTypeNames.Contains(typeName);
+
+    internal static bool IsPostgreSqlInfinityCapableType(string typeName)
+        => typeName is "date" or "timestamp" or "timestamptz";
+
+    private async Task ValidateNoInfinitySentinelsAsync(
+        NpgsqlConnection connection,
+        string sourceName,
+        IReadOnlyList<(string Column, bool IsArray)> columns,
+        CancellationToken cancellationToken)
+    {
+        if (columns.Count == 0) return;
+
+        string predicates = string.Join(
+            " OR ",
+            columns.Select(static column =>
+            {
+                string identifier = QuoteExactPostgreSqlIdentifier(column.Column);
+                return column.IsArray
+                    ? $"EXISTS (SELECT 1 FROM unnest({identifier}) AS dbax_value WHERE dbax_value IN ('infinity', '-infinity'))"
+                    : $"{identifier} IN ('infinity', '-infinity')";
+            }));
+        using var command = new NpgsqlCommand(
+            $"SELECT EXISTS (SELECT 1 FROM {QuotePath(sourceName)} WHERE {predicates})",
+            connection,
+            _readTransaction)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        if (Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)))
+        {
+            throw new NotSupportedException(
+                $"PostgreSQL source '{sourceName}' contains date or timestamp infinity sentinels that cannot be represented losslessly by table-copy CLR values. " +
+                "Exclude the affected column or filter out the sentinel values before copying.");
+        }
+    }
+
+    private static string QuoteExactPostgreSqlIdentifier(string identifier)
+        => "\"" + identifier.Replace("\"", "\"\"") + "\"";
 
     internal static bool IsPortableProviderProjection(
         DbaTableCopyDefinition definition,
