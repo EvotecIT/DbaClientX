@@ -112,6 +112,43 @@ jobs:
         with:
           dotnet-version: 10.x
 
+      - name: Configure PostgreSQL TLS for live contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          certificate_directory="$(mktemp -d)"
+          postgres_container="${{ job.services.postgres.id }}"
+          trap 'rm -rf "$certificate_directory"' EXIT
+
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout "$certificate_directory/server.key" \
+            -out "$certificate_directory/server.crt" \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+
+          docker cp "$certificate_directory/server.key" "$postgres_container:/var/lib/postgresql/data/server.key"
+          docker cp "$certificate_directory/server.crt" "$postgres_container:/var/lib/postgresql/data/server.crt"
+          docker exec -u root "$postgres_container" \
+            chown postgres:postgres /var/lib/postgresql/data/server.key /var/lib/postgresql/data/server.crt
+          docker exec -u root "$postgres_container" \
+            chmod 600 /var/lib/postgresql/data/server.key
+          docker exec "$postgres_container" \
+            psql -U dbax -d dbax -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on';"
+          docker restart "$postgres_container"
+
+          for attempt in {1..30}; do
+            if docker exec "$postgres_container" pg_isready -U dbax -d dbax; then
+              ssl_state="$(docker exec "$postgres_container" psql -U dbax -d dbax -tAc 'SHOW ssl' | tr -d '\r')"
+              if [[ "$ssl_state" == "on" ]]; then
+                exit 0
+              fi
+            fi
+            sleep 1
+          done
+
+          docker logs "$postgres_container"
+          exit 1
+
       - name: Enable MySQL local-infile for bulk-copy contracts
         run: >-
           docker exec ${{ job.services.mysql.id }}
@@ -129,8 +166,8 @@ jobs:
           --filter Category=LiveProvider
           --verbosity normal
         env:
-          DBACLIENTX_POSTGRESQL_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=dbax;Username=dbax;Password=dbax-test-password;SSL Mode=Disable
-          DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=None;AllowLoadLocalInfile=true
+          DBACLIENTX_POSTGRESQL_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=dbax;Username=dbax;Password=dbax-test-password;SSL Mode=Require
+          DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=Required;AllowLoadLocalInfile=true
 
   package-contracts:
     name: NuGet API compatibility
