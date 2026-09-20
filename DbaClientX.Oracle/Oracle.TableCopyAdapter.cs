@@ -79,6 +79,11 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                     normalizedColumnTypes[index] = typeof(OracleDecimal);
                     requiresNormalization = true;
                 }
+                else if (page.Columns[index].DataType == typeof(object) && IsNumericValue(row[index]))
+                {
+                    normalizedColumnTypes[index] = typeof(OracleDecimal);
+                    requiresNormalization = true;
+                }
             }
         }
         if (!requiresNormalization) return null;
@@ -92,7 +97,7 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                 if (normalizedType == null || value == DBNull.Value) continue;
                 bool compatible = normalizedType == typeof(OracleIntervalYM)
                     ? value is DbaYearMonthInterval or OracleIntervalYM
-                    : value is DbaArbitraryDecimal or OracleDecimal;
+                    : value is DbaArbitraryDecimal or OracleDecimal || IsNumericValue(value);
                 if (!compatible)
                     throw new InvalidOperationException(
                         $"Oracle normalized column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
@@ -119,6 +124,10 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                     values[index] = new OracleIntervalYM(interval.TotalMonths);
                 else if (values[index] is DbaArbitraryDecimal number)
                     values[index] = new OracleDecimal(number.CanonicalValue);
+                else if (normalizedColumnTypes[index] == typeof(OracleDecimal) &&
+                         values[index] is object numeric &&
+                         IsNumericValue(numeric))
+                    values[index] = new OracleDecimal(Convert.ToString(numeric, System.Globalization.CultureInfo.InvariantCulture)!);
             }
             normalized.Rows.Add(values);
         }

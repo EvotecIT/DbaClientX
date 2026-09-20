@@ -1,4 +1,5 @@
 using System.Data;
+using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
 using DBAClientX.Metadata;
@@ -134,7 +135,40 @@ public sealed class DbaTableCopyOracleReliabilityTests
         var rebound = Assert.IsType<OracleDecimal>(
             OracleTableCopyAdapter.GetPageParameterValue(number, OracleDbType.Decimal));
         Assert.Equal(expected, rebound.ToString());
-        Assert.Equal(typeof(DbaArbitraryDecimal), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal)));
+        Assert.Equal(typeof(object), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal)));
+    }
+
+    [Fact]
+    public void ProviderValues_KeepOrdinaryOracleNumbersCrossProviderCompatible()
+    {
+        object normalized = OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m));
+
+        Assert.Equal(12.5m, Assert.IsType<decimal>(normalized));
+        Assert.Equal(typeof(object), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal), "NUMBER"));
+    }
+
+    [Fact]
+    public void ProviderValues_OrdinaryOracleNumbersSupportDecimalColumnConversion()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Amount", typeof(object));
+        page.Rows.Add(OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
+        var definition = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["Amount"] = DbaTableCopyColumnType.Decimal
+            });
+
+        Type transformer = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaTableCopyPageTransformer",
+            throwOnError: true)!;
+        MethodInfo transform = transformer.GetMethod("Transform", BindingFlags.Static | BindingFlags.NonPublic)!;
+        using DataTable transformed = Assert.IsType<DataTable>(transform.Invoke(null, new object[] { page, definition }));
+
+        Assert.Equal(typeof(decimal), transformed.Columns["Amount"]!.DataType);
+        Assert.Equal(12.5m, transformed.Rows[0]["Amount"]);
     }
 
     [Fact]
@@ -164,7 +198,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(OracleClob), typeof(string))]
     [InlineData(typeof(OracleXmlType), typeof(string))]
     [InlineData(typeof(OracleTimeStampTZ), typeof(DateTimeOffset))]
-    [InlineData(typeof(OracleDecimal), typeof(DbaArbitraryDecimal))]
+    [InlineData(typeof(OracleDecimal), typeof(object))]
     public void ProviderSchemas_UseNormalizedManagedTypes(Type providerType, Type expected)
     {
         Assert.Equal(expected, OracleTableCopyAdapter.GetNormalizedFieldType(providerType));
@@ -190,7 +224,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(TimeSpan.FromHours(27), OracleTableCopyAdapter.NormalizeProviderValue(new OracleIntervalDS(TimeSpan.FromHours(27))));
         Assert.Equal(new byte[] { 1, 2, 3 }, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBinary(new byte[] { 1, 2, 3 })));
         Assert.Equal(true, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBoolean(true)));
-        Assert.Equal(new DbaArbitraryDecimal("12.5"), OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
+        Assert.Equal(12.5m, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
         Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDate(timestamp)));
         Assert.Equal("value", OracleTableCopyAdapter.NormalizeProviderValue(new OracleString("value")));
         Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStamp(timestamp)));
@@ -219,15 +253,17 @@ public sealed class DbaTableCopyOracleReliabilityTests
     {
         using var page = new DataTable();
         page.Columns.Add("Amount", typeof(object));
+        page.Rows.Add(12.5m);
         page.Rows.Add(new DbaArbitraryDecimal("1000000000000000000000000000000"));
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
 
         Assert.Equal(typeof(OracleDecimal), normalized.Columns["Amount"]!.DataType);
+        Assert.Equal("12.5", Assert.IsType<OracleDecimal>(normalized.Rows[0]["Amount"]).ToString());
         Assert.Equal(
             "1000000000000000000000000000000",
-            Assert.IsType<OracleDecimal>(normalized.Rows[0]["Amount"]).ToString());
-        Assert.IsType<DbaArbitraryDecimal>(page.Rows[0]["Amount"]);
+            Assert.IsType<OracleDecimal>(normalized.Rows[1]["Amount"]).ToString());
+        Assert.IsType<DbaArbitraryDecimal>(page.Rows[1]["Amount"]);
     }
 
     [Fact]

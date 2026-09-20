@@ -114,9 +114,7 @@ public sealed partial class OracleTableCopyAdapter
             OracleIntervalDS interval => interval.IsNull ? DBNull.Value : interval.Value,
             OracleBinary binary => binary.IsNull ? DBNull.Value : binary.Value,
             OracleBoolean boolean => boolean.IsNull ? DBNull.Value : boolean.Value,
-            OracleDecimal number => number.IsNull
-                ? DBNull.Value
-                : new DbaArbitraryDecimal(number.ToString()),
+            OracleDecimal number => NormalizeOracleNumber(number),
             OracleDate date => date.IsNull
                 ? DBNull.Value
                 : DateTime.SpecifyKind(date.Value, DateTimeKind.Unspecified),
@@ -139,12 +137,12 @@ public sealed partial class OracleTableCopyAdapter
 
     internal static Type GetNormalizedFieldType(Type providerType, string? dataTypeName)
     {
-        if (dataTypeName != null && IsOracleNumber(dataTypeName)) return typeof(DbaArbitraryDecimal);
+        if (dataTypeName != null && IsOracleNumber(dataTypeName)) return typeof(object);
         if (providerType == typeof(OracleIntervalYM)) return typeof(DbaYearMonthInterval);
         if (providerType == typeof(OracleIntervalDS)) return typeof(TimeSpan);
         if (providerType == typeof(OracleBinary) || providerType == typeof(OracleBlob)) return typeof(byte[]);
         if (providerType == typeof(OracleBoolean)) return typeof(bool);
-        if (providerType == typeof(OracleDecimal)) return typeof(DbaArbitraryDecimal);
+        if (providerType == typeof(OracleDecimal)) return typeof(object);
         if (providerType == typeof(OracleDate) || providerType == typeof(OracleTimeStamp)) return typeof(DateTime);
         if (providerType == typeof(OracleTimeStampLTZ) || providerType == typeof(OracleTimeStampTZ)) return typeof(DateTimeOffset);
         if (providerType == typeof(OracleString) || providerType == typeof(OracleClob) || providerType == typeof(OracleXmlType)) return typeof(string);
@@ -159,6 +157,21 @@ public sealed partial class OracleTableCopyAdapter
                normalized.StartsWith("NUMERIC", StringComparison.Ordinal) ||
                normalized == "INTEGER" ||
                normalized == "SMALLINT";
+    }
+
+    private static object NormalizeOracleNumber(OracleDecimal number)
+    {
+        if (number.IsNull) return DBNull.Value;
+        try
+        {
+            return number.Value;
+        }
+        catch (Exception exception) when (
+            exception is OverflowException or InvalidCastException ||
+            exception.InnerException is OverflowException)
+        {
+            return new DbaArbitraryDecimal(number.ToString());
+        }
     }
 
     internal static long? ValidateBoundedFieldType(Type providerType, string dataTypeName)
