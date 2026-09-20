@@ -73,9 +73,19 @@ public sealed partial class OracleTableCopyAdapter
             reader,
             maxBytes,
             fieldPayloadBytes,
-            readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
-            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal)),
+            readFieldValue: ordinal => ReadProviderValue(reader, ordinal),
+            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal)),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static object ReadProviderValue(OracleDataReader reader, int ordinal)
+    {
+        string dataTypeName = reader.GetDataTypeName(ordinal);
+        if (IsOracleNumber(dataTypeName))
+        {
+            return NormalizeProviderValue(reader.GetOracleDecimal(ordinal));
+        }
+        return NormalizeProviderValue(reader.GetValue(ordinal));
     }
 
     internal static object NormalizeProviderValue(object value)
@@ -104,7 +114,9 @@ public sealed partial class OracleTableCopyAdapter
             OracleIntervalDS interval => interval.IsNull ? DBNull.Value : interval.Value,
             OracleBinary binary => binary.IsNull ? DBNull.Value : binary.Value,
             OracleBoolean boolean => boolean.IsNull ? DBNull.Value : boolean.Value,
-            OracleDecimal number => number.IsNull ? DBNull.Value : number.Value,
+            OracleDecimal number => number.IsNull
+                ? DBNull.Value
+                : new DbaArbitraryDecimal(number.ToString()),
             OracleDate date => date.IsNull
                 ? DBNull.Value
                 : DateTime.SpecifyKind(date.Value, DateTimeKind.Unspecified),
@@ -123,16 +135,30 @@ public sealed partial class OracleTableCopyAdapter
     }
 
     internal static Type GetNormalizedFieldType(Type providerType)
+        => GetNormalizedFieldType(providerType, dataTypeName: null);
+
+    internal static Type GetNormalizedFieldType(Type providerType, string? dataTypeName)
     {
+        if (dataTypeName != null && IsOracleNumber(dataTypeName)) return typeof(DbaArbitraryDecimal);
         if (providerType == typeof(OracleIntervalYM)) return typeof(DbaYearMonthInterval);
         if (providerType == typeof(OracleIntervalDS)) return typeof(TimeSpan);
         if (providerType == typeof(OracleBinary) || providerType == typeof(OracleBlob)) return typeof(byte[]);
         if (providerType == typeof(OracleBoolean)) return typeof(bool);
-        if (providerType == typeof(OracleDecimal)) return typeof(decimal);
+        if (providerType == typeof(OracleDecimal)) return typeof(DbaArbitraryDecimal);
         if (providerType == typeof(OracleDate) || providerType == typeof(OracleTimeStamp)) return typeof(DateTime);
         if (providerType == typeof(OracleTimeStampLTZ) || providerType == typeof(OracleTimeStampTZ)) return typeof(DateTimeOffset);
         if (providerType == typeof(OracleString) || providerType == typeof(OracleClob) || providerType == typeof(OracleXmlType)) return typeof(string);
         return providerType;
+    }
+
+    private static bool IsOracleNumber(string dataTypeName)
+    {
+        string normalized = dataTypeName.Trim().ToUpperInvariant();
+        return normalized.StartsWith("NUMBER", StringComparison.Ordinal) ||
+               normalized.StartsWith("DECIMAL", StringComparison.Ordinal) ||
+               normalized.StartsWith("NUMERIC", StringComparison.Ordinal) ||
+               normalized == "INTEGER" ||
+               normalized == "SMALLINT";
     }
 
     internal static long? ValidateBoundedFieldType(Type providerType, string dataTypeName)

@@ -42,6 +42,26 @@ public sealed class DbaTableCopyPageReaderTests
     }
 
     [Fact]
+    public async Task ReadAsync_ArbitraryDecimalCountsCanonicalPayloadAgainstBudget()
+    {
+        using var source = new DataTable();
+        source.Columns.Add("Amount", typeof(object));
+        source.Rows.Add("provider value");
+        using DataTableReader reader = source.CreateDataReader();
+        var number = new DbaArbitraryDecimal("0." + new string('0', 100) + "1");
+
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            DbaTableCopyPageReader.ReadAsync(
+                reader,
+                maxBytes: 160,
+                fieldPayloadBytes: null,
+                readFieldValue: _ => number,
+                normalizedFieldType: _ => typeof(DbaArbitraryDecimal)));
+
+        Assert.Contains("page payload limit", error.Message);
+    }
+
+    [Fact]
     public async Task ReadAsync_PreservesUtcDateTimeKindForVerification()
     {
         using var source = new DataTable();

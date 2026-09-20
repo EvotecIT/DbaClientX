@@ -58,6 +58,7 @@ internal static class DbaKeysetContinuationToken
                         writer.Write(network.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? network.Address.ScopeId : 0L);
                         writer.Write(network.PrefixLength);
                         break;
+                    case DbaArbitraryDecimal number: writer.Write((byte)19); writer.Write(number.CanonicalValue); break;
 #if NET6_0_OR_GREATER
                     case DateOnly date: writer.Write((byte)13); writer.Write(date.DayNumber); break;
                     case TimeOnly time: writer.Write((byte)14); writer.Write(time.Ticks); break;
@@ -106,6 +107,7 @@ internal static class DbaKeysetContinuationToken
                     18 => new DbaIpNetwork(
                         ReadIpAddress(reader),
                         reader.ReadInt32()),
+                    19 => new DbaArbitraryDecimal(reader.ReadString()),
 #if NET6_0_OR_GREATER
                     13 => DateOnly.FromDayNumber(reader.ReadInt32()),
                     14 => new TimeOnly(reader.ReadInt64()),

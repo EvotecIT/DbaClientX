@@ -70,6 +70,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             case byte or sbyte or short or ushort or int or uint or long or ulong:
                 WriteNumber(Convert.ToString(value, CultureInfo.InvariantCulture)!); break;
             case decimal number: WriteNumber(number.ToString("G29", CultureInfo.InvariantCulture)); break;
+            case DbaArbitraryDecimal number: WriteNumber(number.CanonicalValue); break;
             case float number: WriteNumber(((double)number).ToString("R", CultureInfo.InvariantCulture)); break;
             case double number: WriteNumber(number.ToString("R", CultureInfo.InvariantCulture)); break;
             case string text: _writer.Write((byte)2); _writer.Write(text); break;

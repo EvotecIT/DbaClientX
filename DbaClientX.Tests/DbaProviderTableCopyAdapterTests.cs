@@ -136,6 +136,29 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void KeysetContinuationToken_RoundTripsArbitraryDecimals()
+    {
+        Type tokenType = typeof(DbaTableCopyEngine).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        MethodInfo encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definition = new DbaTableCopyDefinition("Source", "Destination", new[] { "Amount" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(DbaArbitraryDecimal));
+        var expected = new DbaArbitraryDecimal("1.25e30");
+        table.Rows.Add(expected);
+
+        string token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, table.Rows[0] }));
+        object[] values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaArbitraryDecimal>(Assert.Single(values)));
+    }
+
+    [Fact]
     public void KeysetContinuationToken_RoundTripsNetworkValues()
     {
         var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
@@ -176,6 +199,31 @@ public class DbaProviderTableCopyAdapterBaseTests
         using var second = first.Copy();
 
         Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(second, "Period"));
+    }
+
+    [Theory]
+    [InlineData("0012.5000", "12.5")]
+    [InlineData("1.25e30", "1250000000000000000000000000000")]
+    [InlineData("-0.000", "0")]
+    public void ArbitraryDecimal_UsesStableProviderNeutralRepresentation(string input, string expected)
+    {
+        var value = new DbaArbitraryDecimal(input);
+
+        Assert.Equal(expected, value.CanonicalValue);
+        Assert.Equal(value, new DbaArbitraryDecimal(expected));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesArbitraryAndClrDecimals()
+    {
+        using var arbitrary = new DataTable();
+        arbitrary.Columns.Add("Amount", typeof(DbaArbitraryDecimal));
+        arbitrary.Rows.Add(new DbaArbitraryDecimal("12.500"));
+        using var clr = new DataTable();
+        clr.Columns.Add("Amount", typeof(decimal));
+        clr.Rows.Add(12.5m);
+
+        Assert.Equal(ComputeContentHash(clr, "Amount"), ComputeContentHash(arbitrary, "Amount"));
     }
 
     [Fact]

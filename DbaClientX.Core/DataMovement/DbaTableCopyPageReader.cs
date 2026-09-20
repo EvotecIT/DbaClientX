@@ -228,6 +228,7 @@ public static class DbaTableCopyPageReader
     {
         string text => 24L + text.Length * 2L,
         byte[] binary => 24L + binary.LongLength,
+        DbaArbitraryDecimal number => 24L + number.CanonicalValue.Length * 2L,
         _ => 16L
     };
 

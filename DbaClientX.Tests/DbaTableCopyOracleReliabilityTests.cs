@@ -27,6 +27,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(DateTimeOffset), OracleDbType.TimeStampTZ)]
     [InlineData(typeof(TimeSpan), OracleDbType.IntervalDS)]
     [InlineData(typeof(Guid), OracleDbType.Raw)]
+    [InlineData(typeof(DbaArbitraryDecimal), OracleDbType.Decimal)]
     public void CheckpointPageParameters_AreTypedFromDataColumns(Type dataType, OracleDbType expected)
     {
         Assert.Equal(expected, OracleTableCopyAdapter.GetPageParameterType(dataType));
@@ -77,6 +78,22 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void SchemaPreflight_RejectsNonNumericTextForNumericDestinations()
+    {
+        Assert.Throws<FormatException>(() =>
+            OracleTableCopyAdapter.GetPageParameterValue("abc", OracleDbType.Decimal));
+    }
+
+    [Fact]
+    public void SchemaPreflight_RejectsClrValuesThatRequireImplicitOracleConversion()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidatePageParameterValue("2026-09-20", OracleDbType.Date));
+
+        Assert.Contains("explicit column conversion", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CheckpointPageValues_ConvertGuidToRawBytes()
     {
         var value = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
@@ -106,6 +123,21 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void ProviderValues_NormalizeNumbersBeyondDecimalRangeWithoutPrecisionLoss()
+    {
+        const string expected = "1000000000000000000000000000000";
+
+        object normalized = OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(expected));
+
+        var number = Assert.IsType<DbaArbitraryDecimal>(normalized);
+        Assert.Equal(expected, number.CanonicalValue);
+        var rebound = Assert.IsType<OracleDecimal>(
+            OracleTableCopyAdapter.GetPageParameterValue(number, OracleDbType.Decimal));
+        Assert.Equal(expected, rebound.ToString());
+        Assert.Equal(typeof(DbaArbitraryDecimal), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal)));
+    }
+
+    [Fact]
     public async Task BoundedPages_NormalizeYearMonthIntervalsBeforeMaterialization()
     {
         using var source = new DataTable();
@@ -132,6 +164,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(OracleClob), typeof(string))]
     [InlineData(typeof(OracleXmlType), typeof(string))]
     [InlineData(typeof(OracleTimeStampTZ), typeof(DateTimeOffset))]
+    [InlineData(typeof(OracleDecimal), typeof(DbaArbitraryDecimal))]
     public void ProviderSchemas_UseNormalizedManagedTypes(Type providerType, Type expected)
     {
         Assert.Equal(expected, OracleTableCopyAdapter.GetNormalizedFieldType(providerType));
@@ -157,7 +190,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(TimeSpan.FromHours(27), OracleTableCopyAdapter.NormalizeProviderValue(new OracleIntervalDS(TimeSpan.FromHours(27))));
         Assert.Equal(new byte[] { 1, 2, 3 }, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBinary(new byte[] { 1, 2, 3 })));
         Assert.Equal(true, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBoolean(true)));
-        Assert.Equal(12.5m, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
+        Assert.Equal(new DbaArbitraryDecimal("12.5"), OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
         Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDate(timestamp)));
         Assert.Equal("value", OracleTableCopyAdapter.NormalizeProviderValue(new OracleString("value")));
         Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStamp(timestamp)));
@@ -179,6 +212,22 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(typeof(OracleIntervalYM), normalized.Columns["Period"]!.DataType);
         Assert.Equal(27L, Assert.IsType<OracleIntervalYM>(normalized.Rows[0]["Period"]).Value);
         Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
+    }
+
+    [Fact]
+    public void BulkPages_RehydrateArbitraryDecimalsForOracle()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Amount", typeof(object));
+        page.Rows.Add(new DbaArbitraryDecimal("1000000000000000000000000000000"));
+
+        using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
+
+        Assert.Equal(typeof(OracleDecimal), normalized.Columns["Amount"]!.DataType);
+        Assert.Equal(
+            "1000000000000000000000000000000",
+            Assert.IsType<OracleDecimal>(normalized.Rows[0]["Amount"]).ToString());
+        Assert.IsType<DbaArbitraryDecimal>(page.Rows[0]["Amount"]);
     }
 
     [Fact]

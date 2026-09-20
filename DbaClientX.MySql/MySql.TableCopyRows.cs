@@ -14,7 +14,7 @@ public partial class MySql
         int? bulkCopyTimeout,
         CancellationToken cancellationToken)
     {
-        var bulkCopy = CreateBulkCopy(connection, transaction);
+        var bulkCopy = TrackBulkCopy(CreateBulkCopy(connection, transaction), transaction);
         ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
         if (batchSize is > 0)
@@ -34,9 +34,9 @@ public partial class MySql
         }
     }
 
-    private static void ThrowIfBulkCopyWarnings(MySqlBulkCopyResult result, string? destinationTable)
+    private void ThrowIfBulkCopyWarnings(MySqlBulkCopyResult result, string? destinationTable, MySqlBulkCopy bulkCopy)
     {
-        if (result.Warnings.Count == 0) return;
+        if (result.Warnings.Count == 0 || !_transactionalBulkCopies.TryGetValue(bulkCopy, out _)) return;
         throw new InvalidOperationException(
             $"MySQL bulk copy to '{destinationTable ?? "the destination"}' produced {result.Warnings.Count} conversion warning(s); the write was rejected to prevent silent data loss.");
     }

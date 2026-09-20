@@ -69,6 +69,7 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
         if (dataType == typeof(Guid)) return OracleDbType.Raw;
         if (dataType == typeof(TimeSpan)) return OracleDbType.IntervalDS;
         if (dataType == typeof(DbaYearMonthInterval)) return OracleDbType.IntervalYM;
+        if (dataType == typeof(DbaArbitraryDecimal)) return OracleDbType.Decimal;
         if (dataType == typeof(DateTimeOffset)) return OracleDbType.TimeStampTZ;
         if (dataType == typeof(OracleBinary)) return OracleDbType.Raw;
         if (dataType == typeof(OracleBlob)) return OracleDbType.Blob;
@@ -154,6 +155,8 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
     internal static object GetPageParameterValue(object value, OracleDbType? parameterType)
     {
         if (value is DbaYearMonthInterval interval) return new OracleIntervalYM(interval.TotalMonths);
+        if (value is DbaArbitraryDecimal number) return new OracleDecimal(number.CanonicalValue);
+        if (value is string text && parameterType == OracleDbType.Decimal) return new OracleDecimal(text);
         if (value is bool boolean && parameterType == OracleDbType.Decimal) return boolean ? 1m : 0m;
         if (value is ulong unsigned) return Convert.ToDecimal(unsigned);
         if (value is Guid guid) return guid.ToByteArray();
@@ -163,6 +166,40 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
 #endif
         return value;
     }
+
+    internal static void ValidatePageParameterValue(object value, OracleDbType parameterType)
+    {
+        bool valid = parameterType switch
+        {
+            OracleDbType.Decimal => IsNumericValue(value) || value is OracleDecimal,
+            OracleDbType.Byte or OracleDbType.Int16 or OracleDbType.Int32 or OracleDbType.Int64 or
+                OracleDbType.Double or OracleDbType.Single => IsNumericValue(value) || value is OracleDecimal,
+            OracleDbType.Boolean => value is bool or OracleBoolean,
+            OracleDbType.Date => value is DateTime or OracleDate,
+            OracleDbType.TimeStamp => value is DateTime or OracleDate or OracleTimeStamp,
+            OracleDbType.TimeStampLTZ => value is DateTime or DateTimeOffset or OracleTimeStampLTZ,
+            OracleDbType.TimeStampTZ => value is DateTime or DateTimeOffset or OracleTimeStampTZ,
+            OracleDbType.IntervalDS => value is TimeSpan or OracleIntervalDS,
+            OracleDbType.IntervalYM => value is OracleIntervalYM,
+            OracleDbType.Raw or OracleDbType.LongRaw => value is byte[] or OracleBinary,
+            OracleDbType.Blob => value is byte[] or OracleBinary or OracleBlob,
+            OracleDbType.Char or OracleDbType.NChar or OracleDbType.Varchar2 or OracleDbType.NVarchar2 or
+                OracleDbType.Long or OracleDbType.Clob or OracleDbType.NClob =>
+                value is string or char or char[] or OracleString or OracleClob,
+            _ => true
+        };
+        if (!valid)
+        {
+            throw new InvalidOperationException(
+                $"CLR value type '{value.GetType().FullName}' is not compatible with Oracle parameter type '{parameterType}'. Declare an explicit column conversion.");
+        }
+    }
+
+    private static bool IsNumericValue(object value)
+        => Type.GetTypeCode(value.GetType()) is
+            TypeCode.Byte or TypeCode.SByte or TypeCode.Int16 or TypeCode.UInt16 or
+            TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64 or
+            TypeCode.Decimal or TypeCode.Double or TypeCode.Single;
 
     internal static string ResolveDestinationDataType(
         IReadOnlyDictionary<string, string> destinationTypes,
@@ -335,12 +372,71 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
             definition.DestinationName,
             projectedColumns,
             destinationColumns);
-        await ResolveDestinationParameterTypesAsync(
+        OracleDbType[] parameterTypes = await ResolveDestinationParameterTypesAsync(
             connection,
             null,
             definition,
             page.Columns.Cast<DataColumn>().ToArray(),
             cancellationToken).ConfigureAwait(false);
+        await ValidateDestinationValuesAsync(
+            connection,
+            definition,
+            page,
+            parameterTypes,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ValidateDestinationValuesAsync(
+        OracleConnection connection,
+        DbaTableCopyDefinition definition,
+        DataTable page,
+        IReadOnlyList<OracleDbType> parameterTypes,
+        CancellationToken cancellationToken)
+    {
+        if (page.Rows.Count == 0) return;
+        string[] parameterNames = page.Columns.Cast<DataColumn>().Select((_, index) => ":p" + index).ToArray();
+        using var command = new OracleCommand(
+            "SELECT " + string.Join(", ", parameterNames) + " FROM dual",
+            connection)
+        {
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        for (var index = 0; index < parameterTypes.Count; index++)
+        {
+            command.Parameters.Add(new OracleParameter
+            {
+                ParameterName = "p" + index,
+                OracleDbType = parameterTypes[index],
+                Value = DBNull.Value
+            });
+        }
+
+        try
+        {
+            foreach (DataRow row in page.Rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                for (var index = 0; index < parameterTypes.Count; index++)
+                {
+                    object value = row[index];
+                    object converted = value == DBNull.Value
+                        ? DBNull.Value
+                        : GetPageParameterValue(value, parameterTypes[index]);
+                    if (converted != DBNull.Value)
+                        ValidatePageParameterValue(converted, parameterTypes[index]);
+                    if (command.Parameters[index].Value == DBNull.Value && converted != DBNull.Value)
+                        command.Parameters[index].Value = converted;
+                }
+            }
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Oracle destination '{definition.DestinationName}' rejected projected values during schema preflight. No destination rows were changed.",
+                exception);
+        }
     }
 
     /// <inheritdoc />

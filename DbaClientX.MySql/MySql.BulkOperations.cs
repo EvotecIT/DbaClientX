@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using MySqlConnector;
@@ -9,6 +10,8 @@ namespace DBAClientX;
 
 public partial class MySql
 {
+    private readonly ConditionalWeakTable<MySqlBulkCopy, TransactionalBulkCopyMarker> _transactionalBulkCopies = new();
+
     /// <summary>
     /// Performs a bulk insert using <see cref="MySqlBulkCopy"/> and the provided <see cref="DataTable"/> payload.
     /// </summary>
@@ -50,7 +53,7 @@ public partial class MySql
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
-            var bulkCopy = CreateBulkCopy(connection!, transaction);
+            var bulkCopy = TrackBulkCopy(CreateBulkCopy(connection!, transaction), transaction);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
@@ -126,7 +129,7 @@ public partial class MySql
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            var bulkCopy = CreateBulkCopy(connection!, transaction);
+            var bulkCopy = TrackBulkCopy(CreateBulkCopy(connection!, transaction), transaction);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
@@ -165,7 +168,7 @@ public partial class MySql
     /// Writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
     protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table)
-        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(table), bulkCopy.DestinationTableName);
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(table), bulkCopy.DestinationTableName, bulkCopy);
 
     /// <summary>
     /// Asynchronously writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
@@ -173,13 +176,14 @@ public partial class MySql
     protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
         => ThrowIfBulkCopyWarnings(
             await bulkCopy.WriteToServerAsync(table, cancellationToken).ConfigureAwait(false),
-            bulkCopy.DestinationTableName);
+            bulkCopy.DestinationTableName,
+            bulkCopy);
 
     /// <summary>
     /// Writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
     protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount)
-        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(rows, columnCount), bulkCopy.DestinationTableName);
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(rows, columnCount), bulkCopy.DestinationTableName, bulkCopy);
 
     /// <summary>
     /// Asynchronously writes a row sequence to the server using the provided bulk copy instance.
@@ -187,7 +191,8 @@ public partial class MySql
     protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken)
         => ThrowIfBulkCopyWarnings(
             await bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).ConfigureAwait(false),
-            bulkCopy.DestinationTableName);
+            bulkCopy.DestinationTableName,
+            bulkCopy);
 
     private static void ConfigureBulkCopy(MySqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
     {
@@ -250,6 +255,16 @@ public partial class MySql
         {
             yield return rows[i];
         }
+    }
+
+    private sealed class TransactionalBulkCopyMarker
+    {
+    }
+
+    private MySqlBulkCopy TrackBulkCopy(MySqlBulkCopy bulkCopy, MySqlTransaction? transaction)
+    {
+        if (transaction != null) _transactionalBulkCopies.Add(bulkCopy, new TransactionalBulkCopyMarker());
+        return bulkCopy;
     }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)

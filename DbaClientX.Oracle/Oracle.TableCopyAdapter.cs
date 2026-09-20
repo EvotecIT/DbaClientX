@@ -57,17 +57,28 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
 
     internal static DataTable? NormalizeBulkPage(DataTable page)
     {
-        var intervalColumns = page.Columns.Cast<DataColumn>()
-            .Select(static column => column.DataType == typeof(DbaYearMonthInterval))
+        var normalizedColumnTypes = page.Columns.Cast<DataColumn>()
+            .Select(static column => column.DataType == typeof(DbaYearMonthInterval)
+                ? typeof(OracleIntervalYM)
+                : column.DataType == typeof(DbaArbitraryDecimal)
+                    ? typeof(OracleDecimal)
+                    : null)
             .ToArray();
-        bool requiresNormalization = intervalColumns.Any(static interval => interval);
+        bool requiresNormalization = normalizedColumnTypes.Any(static type => type != null);
         foreach (DataRow row in page.Rows)
         {
             for (var index = 0; index < page.Columns.Count; index++)
             {
-                if (row[index] is not DbaYearMonthInterval) continue;
-                intervalColumns[index] = true;
-                requiresNormalization = true;
+                if (row[index] is DbaYearMonthInterval)
+                {
+                    normalizedColumnTypes[index] = typeof(OracleIntervalYM);
+                    requiresNormalization = true;
+                }
+                else if (row[index] is DbaArbitraryDecimal)
+                {
+                    normalizedColumnTypes[index] = typeof(OracleDecimal);
+                    requiresNormalization = true;
+                }
             }
         }
         if (!requiresNormalization) return null;
@@ -77,10 +88,14 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
             for (var index = 0; index < page.Columns.Count; index++)
             {
                 object value = row[index];
-                if (!intervalColumns[index] || value == DBNull.Value || value is DbaYearMonthInterval or OracleIntervalYM)
-                    continue;
-                throw new InvalidOperationException(
-                    $"Oracle year-to-month interval column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+                Type? normalizedType = normalizedColumnTypes[index];
+                if (normalizedType == null || value == DBNull.Value) continue;
+                bool compatible = normalizedType == typeof(OracleIntervalYM)
+                    ? value is DbaYearMonthInterval or OracleIntervalYM
+                    : value is DbaArbitraryDecimal or OracleDecimal;
+                if (!compatible)
+                    throw new InvalidOperationException(
+                        $"Oracle normalized column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
             }
         }
 
@@ -88,9 +103,12 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
         for (var index = 0; index < page.Columns.Count; index++)
         {
             DataColumn column = page.Columns[index];
-            normalized.Columns.Add(
-                column.ColumnName,
-                intervalColumns[index] ? typeof(OracleIntervalYM) : column.DataType);
+            if (normalizedColumnTypes[index] == typeof(OracleIntervalYM))
+                normalized.Columns.Add(column.ColumnName, typeof(OracleIntervalYM));
+            else if (normalizedColumnTypes[index] == typeof(OracleDecimal))
+                normalized.Columns.Add(column.ColumnName, typeof(OracleDecimal));
+            else
+                normalized.Columns.Add(column.ColumnName, column.DataType);
         }
         foreach (DataRow row in page.Rows)
         {
@@ -99,6 +117,8 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
             {
                 if (values[index] is DbaYearMonthInterval interval)
                     values[index] = new OracleIntervalYM(interval.TotalMonths);
+                else if (values[index] is DbaArbitraryDecimal number)
+                    values[index] = new OracleDecimal(number.CanonicalValue);
             }
             normalized.Rows.Add(values);
         }
