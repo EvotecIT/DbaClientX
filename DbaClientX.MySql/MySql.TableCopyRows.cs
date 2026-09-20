@@ -33,4 +33,11 @@ public partial class MySql
             await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private static void ThrowIfBulkCopyWarnings(MySqlBulkCopyResult result, string? destinationTable)
+    {
+        if (result.Warnings.Count == 0) return;
+        throw new InvalidOperationException(
+            $"MySQL bulk copy to '{destinationTable ?? "the destination"}' produced {result.Warnings.Count} conversion warning(s); the write was rejected to prevent silent data loss.");
+    }
 }

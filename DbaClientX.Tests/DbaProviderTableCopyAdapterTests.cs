@@ -237,6 +237,42 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void ContentHasher_NormalizesPostgreSqlGeometricValues()
+    {
+        var normalizer = new PostgreSqlTableCopyAdapter(
+            "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require");
+        var points = new[] { new NpgsqlPoint(1, 2), new NpgsqlPoint(3, 4) };
+        using var first = new DataTable();
+        first.Columns.Add("Point", typeof(NpgsqlPoint));
+        first.Columns.Add("Line", typeof(NpgsqlLine));
+        first.Columns.Add("Segment", typeof(NpgsqlLSeg));
+        first.Columns.Add("Box", typeof(NpgsqlBox));
+        first.Columns.Add("Path", typeof(NpgsqlPath));
+        first.Columns.Add("Polygon", typeof(NpgsqlPolygon));
+        first.Columns.Add("Circle", typeof(NpgsqlCircle));
+        first.Rows.Add(
+            points[0],
+            new NpgsqlLine(1, 2, 3),
+            new NpgsqlLSeg(points[0], points[1]),
+            new NpgsqlBox(points[1], points[0]),
+            new NpgsqlPath(points, open: true),
+            new NpgsqlPolygon(points),
+            new NpgsqlCircle(points[0], 5));
+
+        using var same = first.Copy();
+        using var changed = first.Copy();
+        changed.Rows[0]["Circle"] = new NpgsqlCircle(points[0], 6);
+        string[] columns = { "Point", "Line", "Segment", "Box", "Path", "Polygon", "Circle" };
+
+        Assert.Equal(
+            ComputeContentHash(first, normalizer, columns),
+            ComputeContentHash(same, normalizer, columns));
+        Assert.NotEqual(
+            ComputeContentHash(first, normalizer, columns),
+            ComputeContentHash(changed, normalizer, columns));
+    }
+
+    [Fact]
     public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading()
     {
         var exception = Assert.Throws<ArgumentException>(() => new MySqlTableCopyAdapter(

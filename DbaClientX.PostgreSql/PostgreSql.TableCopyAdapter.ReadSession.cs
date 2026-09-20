@@ -162,6 +162,13 @@ WHERE cls.oid = to_regclass(@name)");
     {
         return value switch
         {
+            NpgsqlPoint point => NormalizePoint(point),
+            NpgsqlLine line => new object?[] { "PostgreSQL line", line.A, line.B, line.C },
+            NpgsqlLSeg segment => new object?[] { "PostgreSQL line segment", NormalizePoint(segment.Start), NormalizePoint(segment.End) },
+            NpgsqlBox box => new object?[] { "PostgreSQL box", NormalizePoint(box.UpperRight), NormalizePoint(box.LowerLeft) },
+            NpgsqlPath path => new object?[] { "PostgreSQL path", path.Open, NormalizePoints(path) },
+            NpgsqlPolygon polygon => new object?[] { "PostgreSQL polygon", NormalizePoints(polygon) },
+            NpgsqlCircle circle => new object?[] { "PostgreSQL circle", NormalizePoint(circle.Center), circle.Radius },
             NpgsqlRange<int> range => NormalizeRange(range),
             NpgsqlRange<long> range => NormalizeRange(range),
             NpgsqlRange<decimal> range => NormalizeRange(range),
@@ -172,6 +179,12 @@ WHERE cls.oid = to_regclass(@name)");
             _ => value
         };
     }
+
+    private static object?[] NormalizePoint(NpgsqlPoint point)
+        => new object?[] { "PostgreSQL point", point.X, point.Y };
+
+    private static object?[] NormalizePoints(IEnumerable<NpgsqlPoint> points)
+        => points.Select(NormalizePoint).Cast<object?>().ToArray();
 
     private static object?[] NormalizeRange<T>(NpgsqlRange<T> range)
     {

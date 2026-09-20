@@ -164,22 +164,30 @@ public partial class MySql
     /// <summary>
     /// Writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table)
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(table), bulkCopy.DestinationTableName);
 
     /// <summary>
     /// Asynchronously writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken).AsTask();
+    protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
+        => ThrowIfBulkCopyWarnings(
+            await bulkCopy.WriteToServerAsync(table, cancellationToken).ConfigureAwait(false),
+            bulkCopy.DestinationTableName);
 
     /// <summary>
     /// Writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount) => bulkCopy.WriteToServer(rows, columnCount);
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount)
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(rows, columnCount), bulkCopy.DestinationTableName);
 
     /// <summary>
     /// Asynchronously writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).AsTask();
+    protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken)
+        => ThrowIfBulkCopyWarnings(
+            await bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).ConfigureAwait(false),
+            bulkCopy.DestinationTableName);
 
     private static void ConfigureBulkCopy(MySqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
     {

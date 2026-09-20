@@ -444,6 +444,70 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlCheckpointedCopy_PreflightsIncompatibleTypesBeforeClearingRows()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var destinationTable = "dbax_types_" + suffix;
+        var sqlitePath = Path.Combine(Path.GetTempPath(), "dbax-mysql-types-" + suffix + ".sqlite");
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE `{destinationTable}` (id bigint NOT NULL PRIMARY KEY, required_value integer NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(connection, $"INSERT INTO `{destinationTable}` VALUES (99, 7)");
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(
+                    sqlitePath,
+                    "CREATE TABLE SourceRows (id INTEGER NOT NULL PRIMARY KEY, required_value TEXT NOT NULL)");
+                sqlite.ExecuteNonQuery(sqlitePath, "INSERT INTO SourceRows VALUES (1, 'not-an-integer')");
+            }
+
+            var source = new SQLiteTableCopyAdapter(sqlitePath, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!);
+            var definition = new DbaTableCopyDefinition("SourceRows", destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions
+                    {
+                        CheckpointId = "types-" + suffix,
+                        ClearDestination = true,
+                        PageSize = 1
+                    }));
+
+            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:7",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT CONCAT(id, ':', required_value) FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.MySql, suffix));
+            File.Delete(sqlitePath);
+            File.Delete(sqlitePath + "-wal");
+            File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlCheckpointedCopy_RejectsViewBeforeClearingUnderlyingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
@@ -735,6 +799,52 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
             Assert.True(result.Verified);
             Assert.Equal(2, result.CopiedRows);
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlVerifiedCopy_HashesGeometricValues()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var sourceTable = "dbax_geometry_source_" + suffix;
+        var destinationTable = "dbax_geometry_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            const string columns = "id bigint NOT NULL PRIMARY KEY, p point NOT NULL, l line NOT NULL, s lseg NOT NULL, b box NOT NULL, path path NOT NULL, polygon polygon NOT NULL, circle circle NOT NULL";
+            await ExecuteAsync(connection, $"CREATE TABLE \"{sourceTable}\" ({columns})");
+            await ExecuteAsync(connection, $"CREATE TABLE \"{destinationTable}\" ({columns})");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, '(1,2)', '{{1,2,3}}', '[(1,2),(3,4)]', '(3,4),(1,2)', '[(1,2),(3,4)]', '((1,2),(3,4),(5,6))', '<(1,2),5>')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { PageSize = 1, VerifyContent = true });
+
+            Assert.True(result.Verified);
+            Assert.Equal(1, result.CopiedRows);
         }
         finally
         {
