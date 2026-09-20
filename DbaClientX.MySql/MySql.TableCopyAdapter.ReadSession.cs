@@ -70,7 +70,7 @@ public sealed partial class MySqlTableCopyAdapter
 
             var database = segments.Length == 2 ? segments[0] : _readConnection!.Database;
             var table = segments[segments.Length - 1];
-            var identity = database + ":" + table;
+            var identity = CreateTableIdentity(database, table);
             if (!validated.Add(identity)) continue;
 
             // Access the source first so its metadata lock closes the validation/use race for this transaction.
@@ -117,10 +117,16 @@ public sealed partial class MySqlTableCopyAdapter
             ? new MySqlCommand(query, connection) { CommandTimeout = CommandTimeout }
             : CreateReadCommand(query);
         foreach (KeyValuePair<string, object?> parameter in parameters)
-            command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
+            AddPageParameter(command, parameter.Key, parameter.Value);
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((MySqlCommand)state!).Cancel(), command);
         await using MySqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false);
+        return await DbaTableCopyPageReader.ReadAsync(
+            reader,
+            maxBytes,
+            fieldPayloadBytes: null,
+            readFieldValue: ordinal => ReadProviderValue(reader, ordinal),
+            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal)),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask CloseReadSessionAsync()

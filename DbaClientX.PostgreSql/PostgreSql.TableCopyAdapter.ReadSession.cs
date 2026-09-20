@@ -154,6 +154,7 @@ WHERE cls.oid = to_regclass(@name)");
             command.Parameters.AddWithValue(parameter.Key, GetPageParameterValue(parameter.Value));
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((NpgsqlCommand)state!).Cancel(), command);
         using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+        ValidateNumericColumns(reader);
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
             ? ordinal => ValidateBoundedFieldType(reader, ordinal)
             : null;
@@ -164,6 +165,38 @@ WHERE cls.oid = to_regclass(@name)");
             readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
             normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void ValidateNumericColumns(NpgsqlDataReader reader)
+    {
+        var schema = reader.GetColumnSchema();
+        for (var ordinal = 0; ordinal < reader.FieldCount; ordinal++)
+        {
+            if (!IsPostgreSqlNumeric(reader.GetDataTypeName(ordinal))) continue;
+            ValidateNumericShape(
+                reader.GetName(ordinal),
+                schema[ordinal].NumericPrecision,
+                schema[ordinal].NumericScale);
+        }
+    }
+
+    internal static void ValidateNumericShape(string columnName, int? precision, int? scale)
+    {
+        long effectivePrecision = precision.GetValueOrDefault() + Math.Max(0L, -(long)scale.GetValueOrDefault());
+        if (precision is > 0 and <= 28 && scale is >= -27 and <= 28 && effectivePrecision <= 28) return;
+
+        string shape = precision.HasValue && scale.HasValue
+            ? $"numeric({precision.Value},{scale.Value})"
+            : "unconstrained numeric";
+        throw new NotSupportedException(
+            $"PostgreSQL table-copy column '{columnName}' uses {shape}, which can exceed System.Decimal precision. " +
+            "Project it to text or apply an explicit provider-neutral column conversion before copying.");
+    }
+
+    private static bool IsPostgreSqlNumeric(string dataTypeName)
+    {
+        string normalized = dataTypeName.Trim().ToLowerInvariant();
+        return normalized is "numeric" or "decimal";
     }
 
     internal static object NormalizeProviderValue(object value)

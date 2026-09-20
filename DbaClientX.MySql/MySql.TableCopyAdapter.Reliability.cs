@@ -68,7 +68,7 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
 
         var database = segments.Length == 2 ? segments[0] : ((MySqlConnection)connection).Database;
         await using var command = new MySqlCommand(
-            "SELECT CONCAT(TABLE_SCHEMA, ':', TABLE_NAME), ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
+            "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
             (MySqlConnection)connection,
             (MySqlTransaction?)transaction)
         {
@@ -83,8 +83,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to a MySQL table.");
         }
 
-        var identity = reader.GetString(0);
-        var engine = reader.IsDBNull(1) ? null : reader.GetString(1);
+        var identity = CreateTableIdentity(reader.GetString(0), reader.GetString(1));
+        var engine = reader.IsDBNull(2) ? null : reader.GetString(2);
         if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
@@ -232,11 +232,12 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         CancellationToken cancellationToken)
     {
         ValidatePage(definition, page);
+        using DataTable? normalizedPage = NormalizeBulkPage(page);
         using var mySql = new MySql { CommandTimeout = CommandTimeout };
         await mySql.WriteTableCopyRowsAsync(
             (MySqlConnection)connection,
             (MySqlTransaction)transaction,
-            page,
+            normalizedPage ?? page,
             NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
             options.BatchSize,
             options.BulkCopyTimeout,

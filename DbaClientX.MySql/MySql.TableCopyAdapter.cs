@@ -43,10 +43,11 @@ public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterB
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
+        using DataTable? normalizedPage = NormalizeBulkPage(page);
         using var mySql = new MySql { CommandTimeout = CommandTimeout };
         await mySql.BulkInsertAsync(
                 ConnectionString,
-                page,
+                normalizedPage ?? page,
                 NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
                 batchSize: options.BatchSize,
                 bulkCopyTimeout: options.BulkCopyTimeout,

@@ -823,6 +823,109 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlVerifiedCopy_RoundTripsArbitraryPrecisionDecimalKeysets()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_decimal_source_" + suffix;
+        string destinationTable = "dbax_decimal_destination_" + suffix;
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE `{sourceTable}` (amount DECIMAL(65,0) NOT NULL PRIMARY KEY, payload VARCHAR(32) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(connection, $"CREATE TABLE `{destinationTable}` (amount DECIMAL(65,0) NOT NULL PRIMARY KEY, payload VARCHAR(32) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO `{sourceTable}` VALUES (1000000000000000000000000000000, 'first'), (10000000000000000000000000000000, 'second')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!, new[] { "amount" });
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "amount" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions
+                {
+                    VerifyContent = true,
+                    PageSize = 1
+                });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal(
+                "1000000000000000000000000000000,10000000000000000000000000000000",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT GROUP_CONCAT(CAST(amount AS CHAR) ORDER BY amount SEPARATOR ',') FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{sourceTable}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCopy_RejectsOversizedNumericShapeBeforeClearingRows()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_numeric_source_" + suffix;
+        string destinationTable = "dbax_numeric_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE \"{sourceTable}\" (id bigint NOT NULL PRIMARY KEY, amount numeric(65,0) NOT NULL)");
+            await ExecuteAsync(connection, $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, amount numeric(65,0) NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{sourceTable}\" VALUES (1, 1), (2, 1000000000000000000000000000000)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 7)");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(
+                "99:7",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || amount FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlKeysetRead_RoundTripsDateAndTimeKeys()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");

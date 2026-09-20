@@ -5,6 +5,7 @@ using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
 using Microsoft.Data.Sqlite;
+using MySqlConnector;
 using NpgsqlTypes;
 
 namespace DbaClientX.Tests;
@@ -331,6 +332,59 @@ public class DbaProviderTableCopyAdapterBaseTests
             $"Server=localhost;Database=test;User ID=test;Password=test;{option}"));
 
         Assert.Contains(expectedOption, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MySqlTableIdentity_IsCollisionFreeForDelimiterCharacters()
+    {
+        string first = MySqlTableCopyAdapter.CreateTableIdentity("a", "b:c");
+        string second = MySqlTableCopyAdapter.CreateTableIdentity("a:b", "c");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void MySqlArbitraryDecimal_RehydratesBulkAndKeysetValuesLosslessly()
+    {
+        var number = new DbaArbitraryDecimal("1000000000000000000000000000000");
+        using var page = new DataTable();
+        page.Columns.Add("Amount", typeof(object));
+        page.Rows.Add(12.5m);
+        page.Rows.Add(number);
+
+        using DataTable normalized = Assert.IsType<DataTable>(MySqlTableCopyAdapter.NormalizeBulkPage(page));
+        Assert.Equal(12.5m, Assert.IsType<decimal>(normalized.Rows[0][0]));
+        Assert.Equal(number.CanonicalValue, Assert.IsType<string>(normalized.Rows[1][0]));
+        Assert.Equal(typeof(object), MySqlTableCopyAdapter.GetNormalizedFieldType(typeof(decimal), "DECIMAL"));
+
+        using var command = new MySqlCommand();
+        MySqlTableCopyAdapter.AddPageParameter(command, "@amount", number);
+        MySqlParameter parameter = Assert.Single(command.Parameters.Cast<MySqlParameter>());
+        Assert.Equal(MySqlDbType.NewDecimal, parameter.MySqlDbType);
+        Assert.Equal(number.CanonicalValue, parameter.Value);
+    }
+
+    [Theory]
+    [InlineData(28, 0)]
+    [InlineData(28, 28)]
+    [InlineData(2, -3)]
+    public void PostgreSqlNumericShape_AcceptsDecimalSafeShapes(int precision, int scale)
+    {
+        PostgreSqlTableCopyAdapter.ValidateNumericShape("Amount", precision, scale);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(29, 0)]
+    [InlineData(28, -1)]
+    [InlineData(29, 29)]
+    public void PostgreSqlNumericShape_RejectsPotentiallyOversizedValues(int? precision, int? scale)
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateNumericShape("Amount", precision, scale));
+
+        Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Project it to text", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
