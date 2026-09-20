@@ -41,7 +41,22 @@ public sealed partial class DbaTableCopyEngine
                     results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 1);
                     if (firstPage.Data.Columns.Count > 0)
                     {
-                        await PreflightTransformAsync(firstPage.Data, definition, destination, options, cancellationToken).ConfigureAwait(false);
+                        if (options.ClearDestination && destination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                        {
+                            await PreflightAllSourcePagesAsync(
+                                source,
+                                sessionDestination,
+                                destination as IDbaTableCopyPagePreflightDestination,
+                                definition,
+                                firstPage,
+                                sourceRows,
+                                options,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await PreflightTransformAsync(firstPage.Data, definition, destination, options, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
                 else
@@ -56,6 +71,57 @@ public sealed partial class DbaTableCopyEngine
         {
             DisposePreflightPages(results);
             throw;
+        }
+    }
+
+    private static async Task PreflightAllSourcePagesAsync(
+        IDbaTableCopySource source,
+        IDbaTableCopySchemaPreflightSessionDestination destination,
+        IDbaTableCopyPagePreflightDestination? pagePreflight,
+        DbaTableCopyDefinition definition,
+        DbaTableCopyPage firstPage,
+        long? sourceRows,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        DataTable transformed = DbaTableCopyPageTransformer.Transform(firstPage.Data, definition);
+        using var transformedToDispose = ReferenceEquals(transformed, firstPage.Data) ? null : transformed;
+        ValidateTransformedPage(transformed, definition, pagePreflight);
+        await using IDbaTableCopySchemaPreflightSession session = await destination
+            .OpenSchemaPreflightSessionAsync(definition, transformed, options, cancellationToken)
+            .ConfigureAwait(false);
+
+        long rows = firstPage.Data.Rows.Count;
+        string? token = firstPage.ContinuationToken;
+        var observedTokens = new HashSet<string>(StringComparer.Ordinal);
+        if (token != null) observedTokens.Add(token);
+        while (token != null && (!sourceRows.HasValue || rows < sourceRows.Value))
+        {
+            string requestedToken = token;
+            using DbaTableCopyPage page = await ReadPageAsync(
+                    source,
+                    new DbaTableCopyPageRequest(
+                        definition,
+                        requestedToken,
+                        GetReadPageSize(options.PageSize, sourceRows, rows)) { MaxBytes = options.MaxPageBytes },
+                    pageSequence: 1,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            token = page.ContinuationToken;
+            ValidateContinuationProgress(requestedToken, token, observedTokens, definition);
+
+            DataTable nextTransformed = DbaTableCopyPageTransformer.Transform(page.Data, definition);
+            using var nextTransformedToDispose = ReferenceEquals(nextTransformed, page.Data) ? null : nextTransformed;
+            ValidateTransformedPage(nextTransformed, definition, pagePreflight);
+            await session.ValidatePageAsync(nextTransformed, cancellationToken).ConfigureAwait(false);
+            rows = checked(rows + page.Data.Rows.Count);
+            if (page.Data.Rows.Count == 0) break;
+        }
+
+        if (sourceRows.HasValue && rows != sourceRows.Value)
+        {
+            throw new InvalidOperationException(
+                $"Source contents or continuation changed while preflighting '{definition.DisplayName}'. Expected {sourceRows.Value} rows but read {rows}.");
         }
     }
 

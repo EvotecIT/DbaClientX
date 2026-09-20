@@ -364,6 +364,25 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(number.CanonicalValue, parameter.Value);
     }
 
+    [Fact]
+    public void MySqlArbitraryDecimal_CrossProviderCompatibilityRequiresExclusionOrStringConversion()
+    {
+        var direct = new DbaTableCopyDefinition("Source", "Destination");
+        var excluded = direct with { ExcludedColumns = new[] { "Amount" } };
+        var converted = direct with
+        {
+            ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Amount"] = "Total" },
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Total"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(direct, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(excluded, "amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(converted, "amount"));
+    }
+
     [Theory]
     [InlineData(28, 0)]
     [InlineData(28, 28)]

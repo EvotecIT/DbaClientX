@@ -52,6 +52,15 @@ public sealed partial class DbaTableCopyEngine
         if (readSession != null && ReferenceEquals(source, destination))
             throw new ArgumentException("Use separate source and destination adapters when the source holds a read session. Destination verification must observe committed writes.", nameof(destination));
 
+        if (source is IDbaTableCopyDestinationCompatibilitySource compatibilitySource &&
+            destination is IDbaTableCopyProviderIdentity destinationIdentity)
+        {
+            await compatibilitySource.ValidateDestinationCompatibilityAsync(
+                destinationIdentity.Provider,
+                copyDefinitions,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (options.ClearDestination)
         {
             ValidateUniqueClearDestinations(copyDefinitions);

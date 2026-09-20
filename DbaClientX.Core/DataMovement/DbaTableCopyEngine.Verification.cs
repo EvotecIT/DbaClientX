@@ -27,37 +27,60 @@ public sealed partial class DbaTableCopyEngine
         string? token = null;
         long rows = 0;
         int pageNumber = 0;
-        do
+        IDbaTableCopySchemaPreflightSession? schemaSession = null;
+        try
         {
-            using DbaTableCopyPage page = await ReadPageAsync(source,
-                new DbaTableCopyPageRequest(definition, token, options.PageSize) { MaxBytes = options.MaxPageBytes },
-                ++pageNumber, cancellationToken).ConfigureAwait(false);
-            string? previousToken = token;
-            token = page.ContinuationToken;
-            if (phase == DbaTableCopyPhase.ValidateSource && pageNumber == 1)
-                destinationProjection = DbaTableCopyPageTransformer.ResolveDestinationReadProjection(page.Data, definition);
-            DataTable transformed = phase == DbaTableCopyPhase.VerifyDestination
-                ? DbaTableCopyPageTransformer.TransformReadback(page.Data, definition)
-                : DbaTableCopyPageTransformer.Transform(page.Data, definition);
-            using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
-            if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
+            do
             {
-                ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
-                if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
-                    await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
-            }
-            columns ??= transformed.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray();
-            hasher.Add(
-                transformed,
-                columns,
-                cancellationToken,
-                source as IDbaTableCopyContentValueNormalizer);
-            rows = checked(rows + transformed.Rows.Count);
-            options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, rows, counted, transformed.Rows.Count) { Phase = phase });
-            if (transformed.Rows.Count == 0 || token == null) break;
-            if (token == previousToken || rows > counted.Value)
-                throw new InvalidOperationException($"Source contents or continuation changed while verifying '{definition.DisplayName}'. Use a stable source snapshot.");
-        } while (true);
+                using DbaTableCopyPage page = await ReadPageAsync(source,
+                    new DbaTableCopyPageRequest(definition, token, options.PageSize) { MaxBytes = options.MaxPageBytes },
+                    ++pageNumber, cancellationToken).ConfigureAwait(false);
+                string? previousToken = token;
+                token = page.ContinuationToken;
+                if (phase == DbaTableCopyPhase.ValidateSource && pageNumber == 1)
+                    destinationProjection = DbaTableCopyPageTransformer.ResolveDestinationReadProjection(page.Data, definition);
+                DataTable transformed = phase == DbaTableCopyPhase.VerifyDestination
+                    ? DbaTableCopyPageTransformer.TransformReadback(page.Data, definition)
+                    : DbaTableCopyPageTransformer.Transform(page.Data, definition);
+                using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
+                if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
+                {
+                    ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
+                    if (options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                    {
+                        if (schemaSession == null)
+                        {
+                            schemaSession = await sessionDestination
+                                .OpenSchemaPreflightSessionAsync(definition, transformed, options, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await schemaSession.ValidatePageAsync(transformed, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    else if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+                    {
+                        await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                columns ??= transformed.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray();
+                hasher.Add(
+                    transformed,
+                    columns,
+                    cancellationToken,
+                    source as IDbaTableCopyContentValueNormalizer);
+                rows = checked(rows + transformed.Rows.Count);
+                options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, rows, counted, transformed.Rows.Count) { Phase = phase });
+                if (transformed.Rows.Count == 0 || token == null) break;
+                if (token == previousToken || rows > counted.Value)
+                    throw new InvalidOperationException($"Source contents or continuation changed while verifying '{definition.DisplayName}'. Use a stable source snapshot.");
+            } while (true);
+        }
+        finally
+        {
+            if (schemaSession != null) await schemaSession.DisposeAsync().ConfigureAwait(false);
+        }
         if (rows != counted.Value)
             throw new InvalidOperationException($"Source contents changed or the paging key is not unique for '{definition.DisplayName}'. Expected {counted.Value} rows but read {rows}.");
         return new ContentProof(rows, hasher.Hash, columns ?? Array.Empty<string>(), destinationProjection);

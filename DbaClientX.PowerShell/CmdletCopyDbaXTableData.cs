@@ -288,12 +288,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
         catch (Exception ex)
         {
+            ErrorRecord safeError = PowerShellHelpers.CreateSafeErrorRecord(
+                ex,
+                "CopyDbaXTableData",
+                destinationTarget);
             if (_errorAction == ActionPreference.Stop)
             {
-                throw;
+                ThrowTerminatingError(safeError);
+                return;
             }
 
-            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "CopyDbaXTableData", destinationTarget));
+            WriteError(safeError);
         }
     }
 

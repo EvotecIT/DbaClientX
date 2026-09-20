@@ -7,6 +7,74 @@ namespace DBAClientX;
 
 public sealed partial class MySqlTableCopyAdapter
 {
+    /// <inheritdoc />
+    public async Task ValidateDestinationCompatibilityAsync(
+        DbaTableCopyProvider destinationProvider,
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        CancellationToken cancellationToken)
+    {
+        if (destinationProvider is DbaTableCopyProvider.MySql or DbaTableCopyProvider.Oracle) return;
+
+        await using MySqlConnection? owned = _readConnection == null
+            ? new MySqlConnection(ResolveMySqlRegularOperationConnectionString())
+            : null;
+        MySqlConnection connection = _readConnection ?? owned!;
+        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        foreach (DbaTableCopyDefinition definition in definitions)
+        {
+            string[] segments = DbaIdentifierPath.SplitSegments(definition.SourceName, DbaTableCopyProvider.MySql)
+                .Select(segment => DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.MySql))
+                .ToArray();
+            if (segments.Length is < 1 or > 2)
+            {
+                throw new ArgumentException(
+                    "MySQL source compatibility validation requires a table name with an optional database.",
+                    nameof(definitions));
+            }
+
+            string database = segments.Length == 2 ? segments[0] : connection.Database;
+            string table = segments[segments.Length - 1];
+            await using var command = new MySqlCommand(
+                "SELECT COLUMN_NAME, NUMERIC_PRECISION FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @database AND TABLE_NAME = @table AND DATA_TYPE IN ('decimal', 'numeric')",
+                connection,
+                _readTransaction)
+            {
+                CommandTimeout = CommandTimeout
+            };
+            command.Parameters.AddWithValue("@database", database);
+            command.Parameters.AddWithValue("@table", table);
+            await using MySqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string column = reader.GetString(0);
+                int precision = reader.GetInt32(1);
+                if (precision <= 28 || IsPortableDecimalProjection(definition, column)) continue;
+                throw new NotSupportedException(
+                    $"MySQL source column '{definition.SourceName}.{column}' uses DECIMAL precision {precision}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
+                    "Exclude the column, convert it explicitly to String, or copy it to a MySQL or Oracle destination.");
+            }
+        }
+    }
+
+    internal static bool IsPortableDecimalProjection(DbaTableCopyDefinition definition, string sourceColumn)
+    {
+        string destinationColumn = definition.ColumnMappings?
+            .FirstOrDefault(pair => string.Equals(pair.Key, sourceColumn, StringComparison.OrdinalIgnoreCase)).Value
+            ?? sourceColumn;
+        if (definition.ExcludedColumns?.Any(name =>
+                string.Equals(name, sourceColumn, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, destinationColumn, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            return true;
+        }
+
+        if (definition.ColumnTypeConversions == null) return false;
+        return definition.ColumnTypeConversions.Any(pair =>
+            (string.Equals(pair.Key, sourceColumn, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(pair.Key, destinationColumn, StringComparison.OrdinalIgnoreCase)) &&
+            pair.Value == DbaTableCopyColumnType.String);
+    }
+
     internal static object ReadProviderValue(MySqlDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal)) return DBNull.Value;

@@ -315,6 +315,24 @@ public class DbaTableCopyEngineTests
         Assert.False(destination.ClearCalled);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CopyAsync_PreflightsEverySourcePageBeforeClear(bool verifyContent)
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new SessionPreflightDestination(rejectedId: 2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) { UseKeysetPagination = true } },
+            new DbaTableCopyOptions { ClearDestination = true, VerifyContent = verifyContent, PageSize = 1 }));
+
+        Assert.Equal(new[] { 1, 2 }, destination.PreflightIds);
+        Assert.False(destination.ClearCalled);
+    }
+
     [Fact]
     public async Task CopyAsync_DisposesFirstPageWhenDestinationPagePreflightFails()
     {
@@ -1321,5 +1339,67 @@ public class DbaTableCopyEngineTests
 
         public bool IsMissingTableException(Exception exception)
             => exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class SessionPreflightDestination : IDbaTableCopyDestination, IDbaTableCopySource, IDbaTableCopySchemaPreflightSessionDestination
+    {
+        private readonly int _rejectedId;
+
+        internal SessionPreflightDestination(int rejectedId) => _rejectedId = rejectedId;
+
+        internal List<int> PreflightIds { get; } = new();
+
+        internal bool ClearCalled { get; private set; }
+
+        public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+            => Task.FromResult<long?>(1);
+
+        public Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Destination readback must not run after failed source preflight.");
+
+        public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+        {
+            ClearCalled = true;
+            return Task.CompletedTask;
+        }
+
+        public Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
+            DbaTableCopyDefinition definition,
+            DataTable firstPage,
+            DbaTableCopyOptions options,
+            CancellationToken cancellationToken)
+        {
+            var session = new Session(this);
+            return session.OpenAsync(firstPage, cancellationToken);
+        }
+
+        private sealed class Session : IDbaTableCopySchemaPreflightSession
+        {
+            private readonly SessionPreflightDestination _owner;
+
+            internal Session(SessionPreflightDestination owner) => _owner = owner;
+
+            internal async Task<IDbaTableCopySchemaPreflightSession> OpenAsync(DataTable page, CancellationToken cancellationToken)
+            {
+                await ValidatePageAsync(page, cancellationToken);
+                return this;
+            }
+
+            public Task ValidatePageAsync(DataTable page, CancellationToken cancellationToken)
+            {
+                foreach (DataRow row in page.Rows)
+                {
+                    int id = Convert.ToInt32(row["Id"], System.Globalization.CultureInfo.InvariantCulture);
+                    _owner.PreflightIds.Add(id);
+                    if (id == _owner._rejectedId) throw new InvalidOperationException("Later source page rejected.");
+                }
+                return Task.CompletedTask;
+            }
+
+            public ValueTask DisposeAsync() => default;
+        }
     }
 }

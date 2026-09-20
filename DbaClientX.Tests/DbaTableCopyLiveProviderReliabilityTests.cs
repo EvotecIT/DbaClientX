@@ -877,6 +877,42 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlArbitraryPrecisionDecimal_RejectsUnsupportedDestinationBeforeCopying()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        string sourceTable = "dbax_decimal_portability_" + Guid.NewGuid().ToString("N");
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE `{sourceTable}` (amount DECIMAL(65,0) NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+            var source = new MySqlTableCopyAdapter(connectionString!, new[] { "amount" });
+            var definition = new DbaTableCopyDefinition(sourceTable, "Destination", new[] { "amount" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                source.ValidateDestinationCompatibilityAsync(
+                    DbaTableCopyProvider.SQLite,
+                    new[] { definition },
+                    CancellationToken.None));
+
+            Assert.Contains("not portable to SQLite", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("convert it explicitly to String", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{sourceTable}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlCopy_RejectsOversizedNumericShapeBeforeClearingRows()
     {
         string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
@@ -916,6 +952,55 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 Convert.ToString(await ExecuteScalarAsync(
                     connection,
                     $"SELECT id || ':' || amount FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCopy_PreflightsCrossPageConstraintsBeforeClearingRows()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_constraint_source_" + suffix;
+        string destinationTable = "dbax_constraint_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE \"{sourceTable}\" (id bigint NOT NULL PRIMARY KEY, code text NOT NULL)");
+            await ExecuteAsync(connection, $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, code text NOT NULL UNIQUE)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{sourceTable}\" VALUES (1, 'duplicate'), (2, 'duplicate')");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || code FROM \"{destinationTable}\"")));
         }
         finally
         {

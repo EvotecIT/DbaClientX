@@ -196,7 +196,9 @@ WHERE cls.oid = to_regclass(@name)");
     private static bool IsPostgreSqlNumeric(string dataTypeName)
     {
         string normalized = dataTypeName.Trim().ToLowerInvariant();
-        return normalized is "numeric" or "decimal";
+        return normalized is "numeric" or "decimal" ||
+               normalized.StartsWith("numeric(", StringComparison.Ordinal) ||
+               normalized.StartsWith("decimal(", StringComparison.Ordinal);
     }
 
     internal static object NormalizeProviderValue(object value)

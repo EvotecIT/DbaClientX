@@ -5,7 +5,7 @@ using MySqlConnector;
 
 namespace DBAClientX;
 
-public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
+public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
@@ -101,6 +101,20 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
+        await using IDbaTableCopySchemaPreflightSession session = await OpenSchemaPreflightSessionAsync(
+            definition,
+            page,
+            options,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
+        DbaTableCopyDefinition definition,
+        DataTable firstPage,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
         string[] segments = DbaIdentifierPath.SplitSegments(
                 definition.DestinationName,
                 DbaTableCopyProvider.MySql)
@@ -113,89 +127,137 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 nameof(definition));
         }
 
-        await using var connection = new MySqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        string database = segments.Length == 2 ? segments[0] : connection.Database;
-        if (string.IsNullOrWhiteSpace(database))
-        {
-            throw new InvalidOperationException(
-                $"MySQL destination '{definition.DestinationName}' requires a selected database or a database-qualified table name for schema validation.");
-        }
-
-        using var mySql = new MySql { CommandTimeout = CommandTimeout };
-        var columns = await mySql.GetTableCopyColumnsAsync(
-            connection,
-            database,
-            segments[segments.Length - 1],
-            cancellationToken).ConfigureAwait(false);
-        DbaTableCopySchemaValidator.Validate(
-            definition.DestinationName,
-            page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
-            columns,
-            static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
-            requirePreservedIdentity: false,
-            keepIdentity: true);
-        await ValidateDestinationWriteAsync(
-            connection,
-            definition,
-            page,
-            options,
-            database,
-            segments[segments.Length - 1],
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ValidateDestinationWriteAsync(
-        MySqlConnection connection,
-        DbaTableCopyDefinition definition,
-        DataTable page,
-        DbaTableCopyOptions options,
-        string database,
-        string table,
-        CancellationToken cancellationToken)
-    {
-        if (page.Rows.Count == 0) return;
-
-        await EnsureTransactionalPreflightDestinationAsync(
-            connection,
-            definition.DestinationName,
-            database,
-            table,
-            cancellationToken).ConfigureAwait(false);
-
-        cancellationToken.ThrowIfCancellationRequested();
-        using MySqlTransaction transaction = connection.BeginTransaction();
+        var connection = new MySqlConnection(ConnectionString);
         try
         {
-            if (options.ClearDestination)
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            string database = segments.Length == 2 ? segments[0] : connection.Database;
+            if (string.IsNullOrWhiteSpace(database))
+            {
+                throw new InvalidOperationException(
+                    $"MySQL destination '{definition.DestinationName}' requires a selected database or a database-qualified table name for schema validation.");
+            }
+
+            using var mySql = new MySql { CommandTimeout = CommandTimeout };
+            var columns = await mySql.GetTableCopyColumnsAsync(
+                connection,
+                database,
+                segments[segments.Length - 1],
+                cancellationToken).ConfigureAwait(false);
+            DbaTableCopySchemaValidator.Validate(
+                definition.DestinationName,
+                firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+                columns,
+                static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
+                requirePreservedIdentity: false,
+                keepIdentity: true);
+            await EnsureTransactionalPreflightDestinationAsync(
+                connection,
+                definition.DestinationName,
+                database,
+                segments[segments.Length - 1],
+                cancellationToken).ConfigureAwait(false);
+            var session = new MySqlSchemaPreflightSession(
+                this,
+                connection,
+                connection.BeginTransaction(),
+                definition,
+                options);
+            try
+            {
+                await session.InitializeAsync(firstPage, cancellationToken).ConfigureAwait(false);
+                return session;
+            }
+            catch
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class MySqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession
+    {
+        private readonly MySqlTableCopyAdapter _owner;
+        private readonly MySqlConnection _connection;
+        private readonly MySqlTransaction _transaction;
+        private readonly DbaTableCopyDefinition _definition;
+        private readonly DbaTableCopyOptions _options;
+        private bool _disposed;
+
+        internal MySqlSchemaPreflightSession(
+            MySqlTableCopyAdapter owner,
+            MySqlConnection connection,
+            MySqlTransaction transaction,
+            DbaTableCopyDefinition definition,
+            DbaTableCopyOptions options)
+        {
+            _owner = owner;
+            _connection = connection;
+            _transaction = transaction;
+            _definition = definition;
+            _options = options;
+        }
+
+        internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_options.ClearDestination)
             {
                 await using var clear = new MySqlCommand(
-                    $"DELETE FROM {QuotePath(definition.DestinationName)}",
-                    connection,
-                    transaction)
+                    $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
+                    _connection,
+                    _transaction)
                 {
-                    CommandTimeout = CommandTimeout
+                    CommandTimeout = _owner.CommandTimeout
                 };
                 await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            await WriteTransactionalPageAsync(
-                connection,
-                transaction,
-                definition,
-                page,
-                options,
-                cancellationToken).ConfigureAwait(false);
+            await ValidatePageAsync(page, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+
+        public async Task ValidatePageAsync(DataTable page, CancellationToken cancellationToken)
         {
-            throw new InvalidOperationException(
-                $"MySQL destination '{definition.DestinationName}' rejected the projected values or constraints during schema preflight. No destination rows were changed.",
-                exception);
+            if (_disposed) throw new ObjectDisposedException(nameof(MySqlSchemaPreflightSession));
+            if (page.Rows.Count == 0) return;
+            try
+            {
+                await _owner.WriteTransactionalPageAsync(
+                    _connection,
+                    _transaction,
+                    _definition,
+                    page,
+                    _options,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"MySQL destination '{_definition.DestinationName}' rejected the projected values or constraints during schema preflight. No destination rows were changed.",
+                    exception);
+            }
         }
-        finally
+
+        public ValueTask DisposeAsync()
         {
-            transaction.Rollback();
+            if (_disposed) return default;
+            _disposed = true;
+            try
+            {
+                _transaction.Rollback();
+            }
+            finally
+            {
+                _transaction.Dispose();
+                _connection.Dispose();
+            }
+            return default;
         }
     }
 

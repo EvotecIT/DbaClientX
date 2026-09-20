@@ -7,7 +7,7 @@ namespace DBAClientX;
 /// <summary>
 /// MySQL source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyDefinitionReadSession
+public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyDefinitionReadSession, IDbaTableCopyDestinationCompatibilitySource
 {
     /// <summary>
     /// Creates a MySQL table-copy adapter.

@@ -6,7 +6,7 @@ using Npgsql;
 
 namespace DBAClientX;
 
-public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
+public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
     internal const string PostgreSqlCheckpointDestinationIdentityQuery = @"SELECT current_database() || ':' || cls.oid::text
 FROM pg_catalog.pg_class AS cls
@@ -93,6 +93,20 @@ WHERE cls.oid = to_regclass(@name)
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
+        await using IDbaTableCopySchemaPreflightSession session = await OpenSchemaPreflightSessionAsync(
+            definition,
+            page,
+            options,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
+        DbaTableCopyDefinition definition,
+        DataTable firstPage,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
         IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
             definition.DestinationName,
             DbaTableCopyProvider.PostgreSql);
@@ -103,92 +117,152 @@ WHERE cls.oid = to_regclass(@name)
                 nameof(definition));
         }
 
-        await using var connection = new NpgsqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        using var resolve = new NpgsqlCommand(PostgreSqlSchemaPreflightDestinationQuery, connection)
-        {
-            CommandTimeout = CommandTimeout
-        };
-        resolve.Parameters.AddWithValue("@name", QuotePath(definition.DestinationName));
-        string schema;
-        string table;
-        using (NpgsqlDataReader reader = await resolve.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-        {
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                throw new InvalidOperationException(
-                    $"PostgreSQL destination '{definition.DestinationName}' could not be resolved for schema preflight.");
-            }
-
-            schema = reader.GetString(0);
-            table = reader.GetString(1);
-        }
-
-        using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
-        var columns = await postgreSql.GetTableCopyColumnsAsync(
-            connection,
-            schema,
-            table,
-            cancellationToken).ConfigureAwait(false);
-        DataTable normalizedPage = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, definition.DestinationName);
-        using var normalizedPageToDispose = ReferenceEquals(normalizedPage, page) ? null : normalizedPage;
-        DbaTableCopySchemaValidator.Validate(
-            definition.DestinationName,
-            normalizedPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
-            columns,
-            static name => name,
-            requirePreservedIdentity: false,
-            keepIdentity: true);
-        await ValidateDestinationWriteAsync(
-            connection,
-            definition,
-            normalizedPage,
-            options,
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task ValidateDestinationWriteAsync(
-        NpgsqlConnection connection,
-        DbaTableCopyDefinition definition,
-        DataTable normalizedPage,
-        DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
-    {
-        if (normalizedPage.Rows.Count == 0) return;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        using NpgsqlTransaction transaction = connection.BeginTransaction();
+        var connection = new NpgsqlConnection(ConnectionString);
         try
         {
-            if (options.ClearDestination)
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            using var resolve = new NpgsqlCommand(PostgreSqlSchemaPreflightDestinationQuery, connection)
+            {
+                CommandTimeout = CommandTimeout
+            };
+            resolve.Parameters.AddWithValue("@name", QuotePath(definition.DestinationName));
+            string schema;
+            string table;
+            using (NpgsqlDataReader reader = await resolve.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException(
+                        $"PostgreSQL destination '{definition.DestinationName}' could not be resolved for schema preflight.");
+                }
+
+                schema = reader.GetString(0);
+                table = reader.GetString(1);
+            }
+
+            using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
+            var columns = await postgreSql.GetTableCopyColumnsAsync(
+                connection,
+                schema,
+                table,
+                cancellationToken).ConfigureAwait(false);
+            DataTable normalizedPage = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(firstPage, definition.DestinationName);
+            using var normalizedPageToDispose = ReferenceEquals(normalizedPage, firstPage) ? null : normalizedPage;
+            DbaTableCopySchemaValidator.Validate(
+                definition.DestinationName,
+                normalizedPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+                columns,
+                static name => name,
+                requirePreservedIdentity: false,
+                keepIdentity: true);
+            var session = new PostgreSqlSchemaPreflightSession(
+                this,
+                connection,
+                connection.BeginTransaction(),
+                definition,
+                options);
+            try
+            {
+                await session.InitializeAsync(normalizedPage, cancellationToken).ConfigureAwait(false);
+                return session;
+            }
+            catch
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class PostgreSqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession
+    {
+        private readonly PostgreSqlTableCopyAdapter _owner;
+        private readonly NpgsqlConnection _connection;
+        private readonly NpgsqlTransaction _transaction;
+        private readonly DbaTableCopyDefinition _definition;
+        private readonly DbaTableCopyOptions _options;
+        private bool _disposed;
+
+        internal PostgreSqlSchemaPreflightSession(
+            PostgreSqlTableCopyAdapter owner,
+            NpgsqlConnection connection,
+            NpgsqlTransaction transaction,
+            DbaTableCopyDefinition definition,
+            DbaTableCopyOptions options)
+        {
+            _owner = owner;
+            _connection = connection;
+            _transaction = transaction;
+            _definition = definition;
+            _options = options;
+        }
+
+        internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_options.ClearDestination)
             {
                 using var clear = new NpgsqlCommand(
-                    $"DELETE FROM {QuotePath(definition.DestinationName)}",
-                    connection,
-                    transaction)
+                    $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
+                    _connection,
+                    _transaction)
                 {
-                    CommandTimeout = CommandTimeout
+                    CommandTimeout = _owner.CommandTimeout
                 };
                 await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            await WriteTransactionalPageAsync(
-                connection,
-                transaction,
-                definition,
-                normalizedPage,
-                options,
-                cancellationToken).ConfigureAwait(false);
+            await ValidatePageCoreAsync(page, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+
+        public async Task ValidatePageAsync(DataTable page, CancellationToken cancellationToken)
         {
-            throw new InvalidOperationException(
-                $"PostgreSQL destination '{definition.DestinationName}' rejected the projected CLR types, values, or constraints during schema preflight. No destination rows were changed.",
-                exception);
+            if (_disposed) throw new ObjectDisposedException(nameof(PostgreSqlSchemaPreflightSession));
+            DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, _definition.DestinationName);
+            using var normalizedToDispose = ReferenceEquals(normalized, page) ? null : normalized;
+            await ValidatePageCoreAsync(normalized, cancellationToken).ConfigureAwait(false);
         }
-        finally
+
+        private async Task ValidatePageCoreAsync(DataTable page, CancellationToken cancellationToken)
         {
-            transaction.Rollback();
+            if (page.Rows.Count == 0) return;
+            try
+            {
+                await _owner.WriteTransactionalPageAsync(
+                    _connection,
+                    _transaction,
+                    _definition,
+                    page,
+                    _options,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"PostgreSQL destination '{_definition.DestinationName}' rejected the projected CLR types, values, or constraints during schema preflight. No destination rows were changed.",
+                    exception);
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            if (_disposed) return default;
+            _disposed = true;
+            try
+            {
+                _transaction.Rollback();
+            }
+            finally
+            {
+                _transaction.Dispose();
+                _connection.Dispose();
+            }
+            return default;
         }
     }
 

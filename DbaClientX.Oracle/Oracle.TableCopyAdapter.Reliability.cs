@@ -7,7 +7,7 @@ using Oracle.ManagedDataAccess.Types;
 
 namespace DBAClientX;
 
-public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
+public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
     internal const string OracleDurableDestinationTableQuery =
         "SELECT 1 FROM ALL_TABLES WHERE OWNER = :owner AND TABLE_NAME = :table AND TEMPORARY = 'N'";
@@ -304,127 +304,194 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
-        using var connection = new OracleConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
-            definition.DestinationName,
-            DbaTableCopyProvider.Oracle);
-        if (rawSegments.Count is < 1 or > 2)
-        {
-            throw new ArgumentException(
-                "Oracle table-copy destinations support table or owner.table names.",
-                nameof(definition));
-        }
-        string Normalize(string segment) => DbaIdentifierPath.IsDelimitedSegment(segment)
-            ? DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.Oracle)
-            : segment.ToUpperInvariant();
-        string owner;
-        if (rawSegments.Count == 2)
-        {
-            owner = Normalize(rawSegments[0]);
-        }
-        else
-        {
-            using var currentSchema = new OracleCommand(
-                "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual",
-                connection)
-            {
-                CommandTimeout = CommandTimeout
-            };
-            owner = Convert.ToString(await currentSchema.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) ?? "";
-            if (string.IsNullOrWhiteSpace(owner))
-            {
-                throw new InvalidOperationException("Oracle current schema could not be resolved for destination preflight.");
-            }
-        }
-
-        string table = Normalize(rawSegments[rawSegments.Count - 1]);
-        using (var durableTable = new OracleCommand(OracleDurableDestinationTableQuery, connection)
-        {
-            BindByName = true,
-            CommandTimeout = CommandTimeout
-        })
-        {
-            durableTable.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, owner, ParameterDirection.Input));
-            durableTable.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
-            if (await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
-            {
-                throw new InvalidOperationException(
-                    $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for schema preflight.");
-            }
-        }
-
-        using var oracle = new Oracle { CommandTimeout = CommandTimeout };
-        IReadOnlyList<DbaColumnInfo> destinationColumns = await oracle.GetTableCopyColumnsAsync(
-            connection,
-            owner,
-            table,
-            cancellationToken).ConfigureAwait(false);
-        string[] projectedColumns = page.Columns.Cast<DataColumn>().Select(column =>
-            DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
-                ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
-                : column.ColumnName.ToUpperInvariant()).ToArray();
-        DbaTableCopySchemaValidator.Validate(
-            definition.DestinationName,
-            projectedColumns,
-            destinationColumns,
-            static name => name,
-            requirePreservedIdentity: false,
-            keepIdentity: true);
-        ValidateProjectedIdentityColumns(
-            definition.DestinationName,
-            projectedColumns,
-            destinationColumns);
-        await ValidateDestinationWriteAsync(
-            connection,
+        await using IDbaTableCopySchemaPreflightSession session = await OpenSchemaPreflightSessionAsync(
             definition,
             page,
             options,
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ValidateDestinationWriteAsync(
-        OracleConnection connection,
+    /// <inheritdoc />
+    public async Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
         DbaTableCopyDefinition definition,
-        DataTable page,
+        DataTable firstPage,
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
-        if (page.Rows.Count == 0) return;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        using var transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+        var connection = new OracleConnection(ConnectionString);
         try
         {
-            if (options.ClearDestination)
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
+                definition.DestinationName,
+                DbaTableCopyProvider.Oracle);
+            if (rawSegments.Count is < 1 or > 2)
             {
-                using var clear = new OracleCommand(
-                    $"DELETE FROM {QuotePath(definition.DestinationName)}",
+                throw new ArgumentException(
+                    "Oracle table-copy destinations support table or owner.table names.",
+                    nameof(definition));
+            }
+            string Normalize(string segment) => DbaIdentifierPath.IsDelimitedSegment(segment)
+                ? DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.Oracle)
+                : segment.ToUpperInvariant();
+            string owner;
+            if (rawSegments.Count == 2)
+            {
+                owner = Normalize(rawSegments[0]);
+            }
+            else
+            {
+                using var currentSchema = new OracleCommand(
+                    "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual",
                     connection)
                 {
-                    Transaction = transaction,
                     CommandTimeout = CommandTimeout
+                };
+                owner = Convert.ToString(await currentSchema.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) ?? "";
+                if (string.IsNullOrWhiteSpace(owner))
+                {
+                    throw new InvalidOperationException("Oracle current schema could not be resolved for destination preflight.");
+                }
+            }
+
+            string table = Normalize(rawSegments[rawSegments.Count - 1]);
+            using (var durableTable = new OracleCommand(OracleDurableDestinationTableQuery, connection)
+            {
+                BindByName = true,
+                CommandTimeout = CommandTimeout
+            })
+            {
+                durableTable.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, owner, ParameterDirection.Input));
+                durableTable.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
+                if (await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for schema preflight.");
+                }
+            }
+
+            using var oracle = new Oracle { CommandTimeout = CommandTimeout };
+            IReadOnlyList<DbaColumnInfo> destinationColumns = await oracle.GetTableCopyColumnsAsync(
+                connection,
+                owner,
+                table,
+                cancellationToken).ConfigureAwait(false);
+            string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>
+                DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
+                    ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
+                    : column.ColumnName.ToUpperInvariant()).ToArray();
+            DbaTableCopySchemaValidator.Validate(
+                definition.DestinationName,
+                projectedColumns,
+                destinationColumns,
+                static name => name,
+                requirePreservedIdentity: false,
+                keepIdentity: true);
+            ValidateProjectedIdentityColumns(
+                definition.DestinationName,
+                projectedColumns,
+                destinationColumns);
+            var session = new OracleSchemaPreflightSession(
+                this,
+                connection,
+                connection.BeginTransaction(IsolationLevel.ReadCommitted),
+                definition,
+                options);
+            try
+            {
+                await session.InitializeAsync(firstPage, cancellationToken).ConfigureAwait(false);
+                return session;
+            }
+            catch
+            {
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class OracleSchemaPreflightSession : IDbaTableCopySchemaPreflightSession
+    {
+        private readonly OracleTableCopyAdapter _owner;
+        private readonly OracleConnection _connection;
+        private readonly OracleTransaction _transaction;
+        private readonly DbaTableCopyDefinition _definition;
+        private readonly DbaTableCopyOptions _options;
+        private bool _disposed;
+
+        internal OracleSchemaPreflightSession(
+            OracleTableCopyAdapter owner,
+            OracleConnection connection,
+            OracleTransaction transaction,
+            DbaTableCopyDefinition definition,
+            DbaTableCopyOptions options)
+        {
+            _owner = owner;
+            _connection = connection;
+            _transaction = transaction;
+            _definition = definition;
+            _options = options;
+        }
+
+        internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_options.ClearDestination)
+            {
+                using var clear = new OracleCommand(
+                    $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
+                    _connection)
+                {
+                    Transaction = _transaction,
+                    CommandTimeout = _owner.CommandTimeout
                 };
                 await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            await WriteTransactionalPageAsync(
-                connection,
-                transaction,
-                definition,
-                page,
-                options,
-                cancellationToken).ConfigureAwait(false);
+            await ValidatePageAsync(page, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+
+        public async Task ValidatePageAsync(DataTable page, CancellationToken cancellationToken)
         {
-            throw new InvalidOperationException(
-                $"Oracle destination '{definition.DestinationName}' rejected projected values during schema preflight. No destination rows were changed.",
-                exception);
+            if (_disposed) throw new ObjectDisposedException(nameof(OracleSchemaPreflightSession));
+            if (page.Rows.Count == 0) return;
+            try
+            {
+                await _owner.WriteTransactionalPageAsync(
+                    _connection,
+                    _transaction,
+                    _definition,
+                    page,
+                    _options,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"Oracle destination '{_definition.DestinationName}' rejected projected values during schema preflight. No destination rows were changed.",
+                    exception);
+            }
         }
-        finally
+
+        public ValueTask DisposeAsync()
         {
-            transaction.Rollback();
+            if (_disposed) return default;
+            _disposed = true;
+            try
+            {
+                _transaction.Rollback();
+            }
+            finally
+            {
+                _transaction.Dispose();
+                _connection.Dispose();
+            }
+            return default;
         }
     }
 
