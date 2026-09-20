@@ -52,7 +52,7 @@ public partial class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {
@@ -108,7 +108,7 @@ public partial class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -164,7 +164,7 @@ public partial class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute non-query.", query, ex);
         }
         finally
         {
@@ -173,5 +173,23 @@ public partial class SqlServer
                 DisposeConnection(connection!);
             }
         }
+    }
+
+    /// <inheritdoc />
+    protected override int? GetProviderErrorCode(Exception exception)
+        => FindSqlException(exception)?.Number ?? base.GetProviderErrorCode(exception);
+
+    /// <inheritdoc />
+    protected override DbaProviderErrorKind GetProviderErrorKind(Exception exception)
+        => FindSqlException(exception) is SqlException sqlException &&
+           SqlServerTableCopyAdapter.IsMissingTableErrorNumber(sqlException.Number)
+            ? DbaProviderErrorKind.MissingTable
+            : base.GetProviderErrorKind(exception);
+
+    private static SqlException? FindSqlException(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+            if (current is SqlException sqlException) return sqlException;
+        return null;
     }
 }

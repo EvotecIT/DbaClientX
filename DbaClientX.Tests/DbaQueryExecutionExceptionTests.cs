@@ -1,4 +1,5 @@
 using DBAClientX;
+using DBAClientX.DataMovement;
 
 namespace DbaClientX.Tests;
 
@@ -42,8 +43,53 @@ public sealed class DbaQueryExecutionExceptionTests
         Assert.NotSame(providerException, exception.InnerException);
         Assert.Equal(typeof(InvalidOperationException).FullName, exception.ProviderExceptionType);
         Assert.Null(exception.ProviderErrorCode);
+        Assert.Null(exception.ProviderSqlState);
+        Assert.Equal(DbaProviderErrorKind.Unknown, exception.ProviderErrorKind);
         Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("SELECT secret", exception.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("query-secret", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProviderClassification_IsRetainedWithoutProviderExceptionDetails()
+    {
+        const string secret = "native-provider-secret";
+
+        var exception = new DbaQueryExecutionException(
+            "Failed to execute query.",
+            "SELECT * FROM MissingRows",
+            new InvalidOperationException(secret),
+            providerErrorCode: 208,
+            providerSqlState: "42P01",
+            providerErrorKind: DbaProviderErrorKind.MissingTable);
+
+        Assert.Equal(208, exception.ProviderErrorCode);
+        Assert.Equal("42P01", exception.ProviderSqlState);
+        Assert.Equal(DbaProviderErrorKind.MissingTable, exception.ProviderErrorKind);
+        Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SqliteMissingTable_RetainsPortableClassificationEndToEnd()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"dbaclientx-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var sqlite = new SQLite();
+            var exception = Assert.Throws<DbaQueryExecutionException>(() =>
+                sqlite.Query(path, "SELECT * FROM MissingRows"));
+
+            Assert.Equal(DbaProviderErrorKind.MissingTable, exception.ProviderErrorKind);
+            Assert.Equal(1, exception.ProviderErrorCode);
+            var adapter = new SQLiteTableCopyAdapter($"Data Source={path}");
+            Assert.True(((IDbaTableCopyMissingTableClassifier)adapter).IsMissingTableException(exception));
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 }

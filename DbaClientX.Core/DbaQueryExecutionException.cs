@@ -22,6 +22,12 @@ public class DbaQueryExecutionException : DbaClientXException
     /// <summary>Gets the provider error code when the original exception was a <see cref="System.Data.Common.DbException"/>.</summary>
     public int? ProviderErrorCode { get; }
 
+    /// <summary>Gets the provider SQLSTATE when one was supplied as a five-character alphanumeric code.</summary>
+    public string? ProviderSqlState { get; }
+
+    /// <summary>Gets a portable, non-sensitive classification of the provider failure.</summary>
+    public DbaProviderErrorKind ProviderErrorKind { get; }
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DbaQueryExecutionException"/> class.
     /// </summary>
@@ -61,11 +67,44 @@ public class DbaQueryExecutionException : DbaClientXException
         string? message,
         string? query,
         Exception? innerException,
-        int? providerErrorCode) : base(BuildMessage(message, query), CreateSanitizedProviderException(innerException))
+        int? providerErrorCode)
+        : this(message, query, innerException, providerErrorCode, null, DbaProviderErrorKind.Unknown)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DbaQueryExecutionException"/> class with sanitized provider metadata.
+    /// </summary>
+    /// <param name="message">The error message.</param>
+    /// <param name="query">The query text that failed.</param>
+    /// <param name="innerException">The exception that caused the current exception. The original object is not retained.</param>
+    /// <param name="providerErrorCode">A provider-native numeric error code, when available.</param>
+    /// <param name="providerSqlState">A five-character alphanumeric SQLSTATE, when available.</param>
+    /// <param name="providerErrorKind">A portable, non-sensitive provider failure category.</param>
+    public DbaQueryExecutionException(
+        string? message,
+        string? query,
+        Exception? innerException,
+        int? providerErrorCode,
+        string? providerSqlState,
+        DbaProviderErrorKind providerErrorKind) : base(BuildMessage(message, query), CreateSanitizedProviderException(innerException))
     {
         QueryFingerprint = CreateFingerprint(query);
         ProviderExceptionType = innerException?.GetType().FullName;
         ProviderErrorCode = providerErrorCode ?? (innerException as System.Data.Common.DbException)?.ErrorCode;
+        ProviderSqlState = NormalizeSqlState(providerSqlState);
+        ProviderErrorKind = providerErrorKind;
+    }
+
+    private static string? NormalizeSqlState(string? sqlState)
+    {
+        if (sqlState == null || sqlState.Length != 5 ||
+            sqlState.Any(static value => !char.IsLetterOrDigit(value)))
+        {
+            return null;
+        }
+
+        return sqlState.ToUpperInvariant();
     }
 
     internal static Exception? CreateSanitizedProviderException(Exception? exception)

@@ -16,6 +16,19 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Contains("TEMPORARY = 'N'", OracleTableCopyAdapter.OracleDurableDestinationTableQuery, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("TEMPORARY = 'N'", OracleTableCopyAdapter.OracleCheckpointDestinationIdentityQuery, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("JOIN ALL_TABLES", OracleTableCopyAdapter.OracleCheckpointDestinationIdentityQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TEMPORARY", OracleTableCopyAdapter.OracleCheckpointStorageDurabilityQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("DbaX_TableCopyCheckpoints", OracleTableCopyAdapter.OracleCheckpointStorageDurabilityQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CheckpointStorage_RequiresPermanentTable()
+    {
+        OracleTableCopyAdapter.ValidateCheckpointStorageDurability("N");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidateCheckpointStorageDurability("Y"));
+        Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidateCheckpointStorageDurability(null));
     }
 
     [Theory]

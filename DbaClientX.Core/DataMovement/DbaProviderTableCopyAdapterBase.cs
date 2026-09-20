@@ -573,6 +573,12 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     {
         for (Exception? current = exception; current != null; current = current.InnerException)
         {
+            if (current is DbaQueryExecutionException queryException &&
+                queryException.ProviderErrorKind == DbaProviderErrorKind.MissingTable)
+            {
+                return true;
+            }
+
             if (IsMissingTableExceptionCore(current))
             {
                 return true;

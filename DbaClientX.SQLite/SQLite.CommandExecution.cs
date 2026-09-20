@@ -33,7 +33,7 @@ public partial class SQLite
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {
@@ -69,7 +69,7 @@ public partial class SQLite
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -114,7 +114,7 @@ public partial class SQLite
         }
         catch (Exception ex) when (ex is DbException or InvalidOperationException or ArgumentException)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
     }
 
@@ -169,7 +169,7 @@ public partial class SQLite
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute non-query.", query, ex);
         }
         finally
         {
@@ -220,4 +220,28 @@ public partial class SQLite
 
     private static IDictionary<string, DbType>? ConvertParameterTypes(IDictionary<string, SqliteType>? types) =>
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
+
+    /// <inheritdoc />
+    protected override int? GetProviderErrorCode(Exception exception)
+        => FindSqliteException(exception)?.SqliteErrorCode ?? base.GetProviderErrorCode(exception);
+
+    /// <inheritdoc />
+    protected override DbaProviderErrorKind GetProviderErrorKind(Exception exception)
+        => FindSqliteException(exception) is SqliteException sqliteException &&
+           SQLiteTableCopyAdapter.IsMissingTableError(sqliteException.SqliteErrorCode, sqliteException.Message)
+            ? DbaProviderErrorKind.MissingTable
+            : base.GetProviderErrorKind(exception);
+
+    private static SqliteException? FindSqliteException(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            if (current is SqliteException sqliteException)
+            {
+                return sqliteException;
+            }
+        }
+
+        return null;
+    }
 }

@@ -1276,6 +1276,27 @@ public class DbaProviderTableCopyAdapterBaseTests
     [InlineData(DbaTableCopyProvider.MySql)]
     [InlineData(DbaTableCopyProvider.Oracle)]
     [InlineData(DbaTableCopyProvider.SQLite)]
+    public void MissingTableDetection_UsesSanitizedProviderClassification(DbaTableCopyProvider provider)
+    {
+        var adapter = CreateAdapter(provider, GetTestConnectionString(provider));
+        var exception = new DbaQueryExecutionException(
+            "Failed to execute query.",
+            "SELECT * FROM MissingRows",
+            new InvalidOperationException("provider-secret"),
+            providerErrorCode: null,
+            providerSqlState: null,
+            providerErrorKind: DbaProviderErrorKind.MissingTable);
+
+        Assert.True(((IDbaTableCopyMissingTableClassifier)adapter).IsMissingTableException(exception));
+        Assert.DoesNotContain("provider-secret", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
     public void ProviderOptions_PropagateCommandTimeout(DbaTableCopyProvider provider)
     {
         var adapter = CreateAdapter(new DbaProviderTableCopyAdapterOptions

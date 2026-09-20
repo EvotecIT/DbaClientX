@@ -20,6 +20,9 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
   AND obj.OBJECT_NAME = :table
   AND tab.TEMPORARY = 'N'";
 
+    internal const string OracleCheckpointStorageDurabilityQuery =
+        "SELECT TEMPORARY FROM ALL_TABLES WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND TABLE_NAME = 'DbaX_TableCopyCheckpoints'";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -372,70 +375,81 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
             definition.DestinationName,
             projectedColumns,
             destinationColumns);
-        OracleDbType[] parameterTypes = await ResolveDestinationParameterTypesAsync(
-            connection,
-            null,
-            definition,
-            page.Columns.Cast<DataColumn>().ToArray(),
-            cancellationToken).ConfigureAwait(false);
-        await ValidateDestinationValuesAsync(
+        await ValidateDestinationWriteAsync(
             connection,
             definition,
             page,
-            parameterTypes,
+            options,
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ValidateDestinationValuesAsync(
+    private async Task ValidateDestinationWriteAsync(
         OracleConnection connection,
         DbaTableCopyDefinition definition,
         DataTable page,
-        IReadOnlyList<OracleDbType> parameterTypes,
+        DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
         if (page.Rows.Count == 0) return;
-        string[] parameterNames = page.Columns.Cast<DataColumn>().Select((_, index) => ":p" + index).ToArray();
-        using var command = new OracleCommand(
-            "SELECT " + string.Join(", ", parameterNames) + " FROM dual",
-            connection)
-        {
-            BindByName = true,
-            CommandTimeout = CommandTimeout
-        };
-        for (var index = 0; index < parameterTypes.Count; index++)
-        {
-            command.Parameters.Add(new OracleParameter
-            {
-                ParameterName = "p" + index,
-                OracleDbType = parameterTypes[index],
-                Value = DBNull.Value
-            });
-        }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        using var transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
         try
         {
-            foreach (DataRow row in page.Rows)
+            if (options.ClearDestination)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                for (var index = 0; index < parameterTypes.Count; index++)
+                using var clear = new OracleCommand(
+                    $"DELETE FROM {QuotePath(definition.DestinationName)}",
+                    connection)
                 {
-                    object value = row[index];
-                    object converted = value == DBNull.Value
-                        ? DBNull.Value
-                        : GetPageParameterValue(value, parameterTypes[index]);
-                    if (converted != DBNull.Value)
-                        ValidatePageParameterValue(converted, parameterTypes[index]);
-                    if (command.Parameters[index].Value == DBNull.Value && converted != DBNull.Value)
-                        command.Parameters[index].Value = converted;
-                }
+                    Transaction = transaction,
+                    CommandTimeout = CommandTimeout
+                };
+                await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
-            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+            await WriteTransactionalPageAsync(
+                connection,
+                transaction,
+                definition,
+                page,
+                options,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new InvalidOperationException(
                 $"Oracle destination '{definition.DestinationName}' rejected projected values during schema preflight. No destination rows were changed.",
                 exception);
+        }
+        finally
+        {
+            transaction.Rollback();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task ValidateCheckpointSchemaAsync(
+        DbConnection connection,
+        CancellationToken cancellationToken)
+    {
+        using var command = new OracleCommand(
+            OracleCheckpointStorageDurabilityQuery,
+            (OracleConnection)connection)
+        {
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        object? temporary = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        ValidateCheckpointStorageDurability(temporary as string);
+    }
+
+    internal static void ValidateCheckpointStorageDurability(string? temporaryFlag)
+    {
+        if (!string.Equals(temporaryFlag, "N", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Atomic Oracle checkpoints require DbaX_TableCopyCheckpoints to be a permanent table in the current schema.");
         }
     }
 
