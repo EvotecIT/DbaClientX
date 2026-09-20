@@ -61,6 +61,28 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public void BackupDatabase_RejectsZeroBusyTimeoutInsteadOfSelectingUnboundedRetries()
+    {
+        string source = CreateDatabase();
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-zero-timeout-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+                sqlite.BackupDatabase(source, destination, busyTimeoutMs: 0));
+
+            Assert.Equal("busyTimeoutMs", exception.ParamName);
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
     public async Task CheckIntegrityAsync_HealthyDatabase_ReturnsHealthyResult()
     {
         string database = CreateDatabase();

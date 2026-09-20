@@ -9,6 +9,30 @@ namespace DbaClientX.Tests;
 public class DbaProviderTableCopyAdapterBaseTests
 {
     [Fact]
+    public void KeysetContinuationToken_RoundTripsUnsignedBigIntWithoutNarrowing()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(ulong));
+        DataRow row = table.Rows.Add(ulong.MaxValue);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(ulong.MaxValue, Assert.IsType<ulong>(Assert.Single(values)));
+    }
+
+    [Fact]
     public async Task SQLiteSnapshotReadSession_ExcludesRowsCommittedAfterFirstPage()
     {
         var sourcePath = CreateTempDatabasePath();

@@ -9,6 +9,110 @@ namespace DbaClientX.Tests;
 
 public sealed class DbaTableCopyLiveProviderReliabilityTests
 {
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlCheckpointedCopy_UsesMappedNamesWhenPhysicalColumnOrderDiffers()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var destinationTable = "dbax_mapping_" + suffix;
+        var sqlitePath = Path.Combine(Path.GetTempPath(), "dbax-mapping-" + suffix + ".sqlite");
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE `{destinationTable}` (destination_payload VARCHAR(64) NOT NULL, destination_id BIGINT NOT NULL PRIMARY KEY)");
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sqlitePath, "CREATE TABLE SourceRows (SourceId INTEGER NOT NULL PRIMARY KEY, SourcePayload TEXT NOT NULL)");
+                sqlite.ExecuteNonQuery(sqlitePath, "INSERT INTO SourceRows VALUES (1, 'One'), (2, 'Dwa')");
+            }
+
+            var source = new SQLiteTableCopyAdapter(sqlitePath, new[] { "SourceId" });
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!);
+            var definition = new DbaTableCopyDefinition(
+                "SourceRows",
+                destinationTable,
+                new[] { "SourceId" },
+                ColumnMappings: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["SourceId"] = "destination_id",
+                    ["SourcePayload"] = "destination_payload"
+                })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions
+                {
+                    CheckpointId = "mapping-" + suffix,
+                    PageSize = 1,
+                    VerifyContent = true
+                });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal(
+                "1:One",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT CONCAT(destination_id, ':', destination_payload) FROM `{destinationTable}` ORDER BY destination_id LIMIT 1")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.MySql, suffix));
+            File.Delete(sqlitePath);
+            File.Delete(sqlitePath + "-wal");
+            File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlKeysetRead_RoundTripsUnsignedBigIntBeyondInt64Range()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var table = "dbax_unsigned_" + Guid.NewGuid().ToString("N");
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE `{table}` (id BIGINT UNSIGNED NOT NULL PRIMARY KEY, payload VARCHAR(32) NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO `{table}` VALUES (9223372036854775808, 'first'), (18446744073709551615, 'second')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!, new[] { "id" });
+            var definition = new DbaTableCopyDefinition(table, table, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            using var first = await source.ReadPageAsync(new(definition, null, 1));
+            using var second = await source.ReadPageAsync(new(definition, first.ContinuationToken, 1));
+
+            Assert.Equal(9223372036854775808UL, Assert.IsType<ulong>(first.Data.Rows[0]["id"]));
+            Assert.Equal(ulong.MaxValue, Assert.IsType<ulong>(second.Data.Rows[0]["id"]));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{table}`");
+        }
+    }
+
     [Theory]
     [Trait("Category", "LiveProvider")]
     [InlineData(DbaTableCopyProvider.PostgreSql, "DBACLIENTX_POSTGRESQL_TEST_CONNECTION")]

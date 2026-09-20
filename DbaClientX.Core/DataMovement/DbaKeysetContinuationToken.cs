@@ -23,6 +23,7 @@ internal static class DbaKeysetContinuationToken
                     case string text: writer.Write((byte)1); writer.Write(text); break;
                     case byte or sbyte or short or ushort or int or uint or long:
                         writer.Write((byte)2); writer.Write(Convert.ToInt64(value, CultureInfo.InvariantCulture)); break;
+                    case ulong unsignedNumber: writer.Write((byte)12); writer.Write(unsignedNumber); break;
                     case decimal number: writer.Write((byte)3); writer.Write(number); break;
                     case Guid guid: writer.Write((byte)4); writer.Write(guid.ToByteArray()); break;
                     case DateTime date: writer.Write((byte)5); writer.Write(date.ToBinary()); break;
@@ -68,6 +69,7 @@ internal static class DbaKeysetContinuationToken
                     9 => TimeSpan.FromTicks(reader.ReadInt64()),
                     10 => reader.ReadSingle(),
                     11 => reader.ReadDouble(),
+                    12 => reader.ReadUInt64(),
                     _ => throw new ArgumentException("Invalid key type in continuation token.", nameof(token))
                 };
             }

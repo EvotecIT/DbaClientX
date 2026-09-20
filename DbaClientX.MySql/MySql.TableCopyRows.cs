@@ -15,11 +15,7 @@ public partial class MySql
         CancellationToken cancellationToken)
     {
         var bulkCopy = CreateBulkCopy(connection, transaction);
-        bulkCopy.DestinationTableName = destinationTable;
-        if (bulkCopyTimeout.HasValue)
-        {
-            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-        }
+        ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
         if (batchSize is > 0)
         {

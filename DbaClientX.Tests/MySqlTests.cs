@@ -19,6 +19,48 @@ public class MySqlTests
     private static readonly FieldInfo TransactionConnectionField = typeof(DBAClientX.MySql).GetField("_transactionConnection", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly FieldInfo TransactionConnectionStringField = typeof(DBAClientX.MySql).GetField("_transactionConnectionString", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
+    private sealed class MappingCaptureMySql : DBAClientX.MySql
+    {
+        public IReadOnlyList<(int SourceOrdinal, string DestinationColumn)> Mappings { get; private set; }
+            = Array.Empty<(int SourceOrdinal, string DestinationColumn)>();
+
+        protected override Task WriteToServerAsync(
+            MySqlBulkCopy bulkCopy,
+            IEnumerable<DataRow> rows,
+            int columnCount,
+            CancellationToken cancellationToken)
+        {
+            Mappings = bulkCopy.ColumnMappings
+                .Select(static mapping => (mapping.SourceOrdinal, mapping.DestinationColumn))
+                .ToArray();
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task WriteTableCopyRowsAsync_ConfiguresNameBasedMappingsForCheckpointedBatches()
+    {
+        using var table = new DataTable();
+        table.Columns.Add("SourceId", typeof(long));
+        table.Columns.Add("Payload", typeof(string));
+        table.Rows.Add(42L, "mapped");
+        using var connection = new MySqlConnection();
+        using var mySql = new MappingCaptureMySql();
+
+        await mySql.WriteTableCopyRowsAsync(
+            connection,
+            transaction: null!,
+            table,
+            "destination_rows",
+            batchSize: 1,
+            bulkCopyTimeout: 17,
+            CancellationToken.None);
+
+        Assert.Equal(
+            new[] { (0, "SourceId"), (1, "Payload") },
+            mySql.Mappings);
+    }
+
     [Fact]
     public async Task QueryAsync_InvalidServer_ThrowsDbaQueryExecutionException()
     {

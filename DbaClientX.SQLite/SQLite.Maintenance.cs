@@ -14,7 +14,7 @@ public partial class SQLite
     /// </summary>
     /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
     /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
-    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds applied to both connections.</param>
+    /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
     /// <remarks>
     /// The source database is opened read-only and the destination is created when it does not exist. This is
     /// intended for backup-first maintenance workflows that need a provider-owned copy operation without exposing
@@ -32,7 +32,7 @@ public partial class SQLite
     /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
     /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
     /// <param name="overwriteDestination">Whether an existing destination may be atomically replaced.</param>
-    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds applied to both connections.</param>
+    /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
     /// <remarks>
     /// The source database is opened read-only. The destination is created when it does not exist and is replaced
     /// atomically only when <paramref name="overwriteDestination"/> is true.
@@ -46,18 +46,19 @@ public partial class SQLite
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
         EnsureNoActiveTransaction();
-        if (busyTimeoutMs < 0)
+        if (busyTimeoutMs is <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout must be positive when specified.");
         }
 
         var options = new SqliteBackupOptions
         {
-            OverwriteDestination = overwriteDestination,
-            BusyRetryTimeout = busyTimeoutMs.HasValue
-                ? TimeSpan.FromMilliseconds(busyTimeoutMs.Value)
-                : TimeSpan.FromSeconds(30)
+            OverwriteDestination = overwriteDestination
         };
+        if (busyTimeoutMs.HasValue)
+        {
+            options.BusyRetryTimeout = TimeSpan.FromMilliseconds(busyTimeoutMs.Value);
+        }
         BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
             .GetAwaiter()
             .GetResult();
