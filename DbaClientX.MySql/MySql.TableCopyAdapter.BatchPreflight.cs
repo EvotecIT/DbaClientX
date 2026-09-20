@@ -1,5 +1,6 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using MySqlConnector;
 
 namespace DBAClientX;
@@ -19,6 +20,9 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             using var mySql = new MySql { CommandTimeout = CommandTimeout };
+            bool noAutoValueOnZero = options.ClearDestination &&
+                await ResolveNoAutoValueOnZeroAsync(connection, cancellationToken).ConfigureAwait(false);
+            var destinationColumns = new IReadOnlyList<DbaColumnInfo>?[definitions.Count];
             for (var index = 0; index < definitions.Count; index++)
             {
                 DbaTableCopyDefinition definition = definitions[index];
@@ -52,21 +56,32 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                         cancellationToken).ConfigureAwait(false);
                 }
                 DataTable? firstPage = firstPages[index];
-                if (firstPage != null)
+                if (firstPage != null || options.ClearDestination)
                 {
                     var columns = await mySql.GetTableCopyColumnsAsync(connection, database, table, cancellationToken).ConfigureAwait(false);
-                    string[] projectedColumns = firstPage.Columns.Cast<DataColumn>()
-                        .Select(static column => column.ColumnName)
-                        .ToArray();
-                    DbaTableCopySchemaValidator.Validate(
-                        definition.DestinationName,
-                        projectedColumns,
-                        columns,
-                        static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
-                        requirePreservedIdentity: false,
-                        keepIdentity: true);
-                    if (options.ClearDestination)
-                        ValidateRollbackSafeGeneratorProjection(definition.DestinationName, projectedColumns, columns);
+                    destinationColumns[index] = columns;
+                    if (firstPage != null)
+                    {
+                        string[] projectedColumns = firstPage.Columns.Cast<DataColumn>()
+                            .Select(static column => column.ColumnName)
+                            .ToArray();
+                        DbaTableCopySchemaValidator.Validate(
+                            definition.DestinationName,
+                            projectedColumns,
+                            columns,
+                            static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
+                            requirePreservedIdentity: false,
+                            keepIdentity: true);
+                        if (options.ClearDestination)
+                        {
+                            ValidateRollbackSafeGeneratorProjection(definition.DestinationName, projectedColumns, columns);
+                            ValidateRollbackSafeGeneratorValues(
+                                definition.DestinationName,
+                                firstPage,
+                                columns,
+                                noAutoValueOnZero);
+                        }
+                    }
                 }
 
                 await EnsureTransactionalPreflightDestinationAsync(
@@ -82,7 +97,9 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 connection,
                 connection.BeginTransaction(),
                 definitions,
-                options);
+                options,
+                destinationColumns,
+                noAutoValueOnZero);
             try
             {
                 await session.InitializeAsync(firstPages, cancellationToken).ConfigureAwait(false);
@@ -118,6 +135,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         private readonly MySqlTransaction _transaction;
         private readonly IReadOnlyList<DbaTableCopyDefinition> _definitions;
         private readonly DbaTableCopyOptions _options;
+        private readonly IReadOnlyList<DbaColumnInfo>?[] _destinationColumns;
+        private readonly bool _noAutoValueOnZero;
         private bool _disposed;
 
         internal MySqlSchemaPreflightBatchSession(
@@ -125,19 +144,36 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             MySqlConnection connection,
             MySqlTransaction transaction,
             IReadOnlyList<DbaTableCopyDefinition> definitions,
-            DbaTableCopyOptions options)
+            DbaTableCopyOptions options,
+            IReadOnlyList<DbaColumnInfo>?[] destinationColumns,
+            bool noAutoValueOnZero)
         {
             _owner = owner;
             _connection = connection;
             _transaction = transaction;
             _definitions = definitions;
             _options = options;
+            _destinationColumns = destinationColumns;
+            _noAutoValueOnZero = noAutoValueOnZero;
         }
 
         internal async Task InitializeAsync(IReadOnlyList<DataTable?> firstPages, CancellationToken cancellationToken)
         {
             if (_options.ClearDestination)
             {
+                for (var index = 0; index < _definitions.Count; index++)
+                {
+                    DataTable? firstPage = firstPages[index];
+                    IReadOnlyList<DbaColumnInfo>? columns = _destinationColumns[index];
+                    if (firstPage != null && columns != null)
+                    {
+                        ValidateRollbackSafeGeneratorValues(
+                            _definitions[index].DestinationName,
+                            firstPage,
+                            columns,
+                            _noAutoValueOnZero);
+                    }
+                }
                 for (var index = _definitions.Count - 1; index >= 0; index--)
                 {
                     await using var clear = new MySqlCommand(
@@ -159,6 +195,14 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             if ((uint)definitionIndex >= (uint)_definitions.Count) throw new ArgumentOutOfRangeException(nameof(definitionIndex));
             if (page.Rows.Count == 0) return;
             DbaTableCopyDefinition definition = _definitions[definitionIndex];
+            if (_options.ClearDestination && _destinationColumns[definitionIndex] is { } columns)
+            {
+                ValidateRollbackSafeGeneratorValues(
+                    definition.DestinationName,
+                    page,
+                    columns,
+                    _noAutoValueOnZero);
+            }
             try
             {
                 await _owner.WriteTransactionalPageAsync(

@@ -1,5 +1,6 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using Oracle.ManagedDataAccess.Client;
 
 namespace DBAClientX;
@@ -20,6 +21,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             string? currentOwner = null;
             using var oracle = new Oracle { CommandTimeout = CommandTimeout };
+            var destinationColumns = new IReadOnlyList<DbaColumnInfo>?[definitions.Count];
             for (var index = 0; index < definitions.Count; index++)
             {
                 DbaTableCopyDefinition definition = definitions[index];
@@ -84,22 +86,31 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                         definition.DestinationName,
                         cancellationToken).ConfigureAwait(false);
                 }
-                if (firstPage == null) continue;
-                var columns = await oracle.GetTableCopyColumnsAsync(connection, owner, table, cancellationToken).ConfigureAwait(false);
-                string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>
-                    DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
-                        ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
-                        : column.ColumnName.ToUpperInvariant()).ToArray();
-                DbaTableCopySchemaValidator.Validate(
-                    definition.DestinationName,
-                    projectedColumns,
-                    columns,
-                    static name => name,
-                    requirePreservedIdentity: false,
-                    keepIdentity: true);
-                ValidateProjectedIdentityColumns(definition.DestinationName, projectedColumns, columns);
-                if (options.ClearDestination)
-                    ValidateRollbackSafeGeneratorProjection(definition.DestinationName, projectedColumns, columns);
+                if (firstPage != null || options.ClearDestination)
+                {
+                    var columns = await oracle.GetTableCopyColumnsAsync(connection, owner, table, cancellationToken).ConfigureAwait(false);
+                    destinationColumns[index] = columns;
+                    if (firstPage != null)
+                    {
+                        string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>
+                            DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
+                                ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
+                                : column.ColumnName.ToUpperInvariant()).ToArray();
+                        DbaTableCopySchemaValidator.Validate(
+                            definition.DestinationName,
+                            projectedColumns,
+                            columns,
+                            static name => name,
+                            requirePreservedIdentity: false,
+                            keepIdentity: true);
+                        ValidateProjectedIdentityColumns(definition.DestinationName, projectedColumns, columns);
+                        if (options.ClearDestination)
+                        {
+                            ValidateRollbackSafeGeneratorProjection(definition.DestinationName, projectedColumns, columns);
+                            ValidateRollbackSafeGeneratorValues(definition.DestinationName, firstPage, columns);
+                        }
+                    }
+                }
             }
 
             var session = new OracleSchemaPreflightBatchSession(
@@ -107,7 +118,8 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                 connection,
                 connection.BeginTransaction(IsolationLevel.ReadCommitted),
                 definitions,
-                options);
+                options,
+                destinationColumns);
             try
             {
                 await session.InitializeAsync(firstPages, cancellationToken).ConfigureAwait(false);
@@ -143,6 +155,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         private readonly OracleTransaction _transaction;
         private readonly IReadOnlyList<DbaTableCopyDefinition> _definitions;
         private readonly DbaTableCopyOptions _options;
+        private readonly IReadOnlyList<DbaColumnInfo>?[] _destinationColumns;
         private bool _disposed;
 
         internal OracleSchemaPreflightBatchSession(
@@ -150,19 +163,33 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
             OracleConnection connection,
             OracleTransaction transaction,
             IReadOnlyList<DbaTableCopyDefinition> definitions,
-            DbaTableCopyOptions options)
+            DbaTableCopyOptions options,
+            IReadOnlyList<DbaColumnInfo>?[] destinationColumns)
         {
             _owner = owner;
             _connection = connection;
             _transaction = transaction;
             _definitions = definitions;
             _options = options;
+            _destinationColumns = destinationColumns;
         }
 
         internal async Task InitializeAsync(IReadOnlyList<DataTable?> firstPages, CancellationToken cancellationToken)
         {
             if (_options.ClearDestination)
             {
+                for (var index = 0; index < _definitions.Count; index++)
+                {
+                    DataTable? firstPage = firstPages[index];
+                    IReadOnlyList<DbaColumnInfo>? columns = _destinationColumns[index];
+                    if (firstPage != null && columns != null)
+                    {
+                        ValidateRollbackSafeGeneratorValues(
+                            _definitions[index].DestinationName,
+                            firstPage,
+                            columns);
+                    }
+                }
                 for (var index = _definitions.Count - 1; index >= 0; index--)
                 {
                     using var clear = new OracleCommand(
@@ -184,6 +211,10 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
             if ((uint)definitionIndex >= (uint)_definitions.Count) throw new ArgumentOutOfRangeException(nameof(definitionIndex));
             if (page.Rows.Count == 0) return;
             DbaTableCopyDefinition definition = _definitions[definitionIndex];
+            if (_options.ClearDestination && _destinationColumns[definitionIndex] is { } columns)
+            {
+                ValidateRollbackSafeGeneratorValues(definition.DestinationName, page, columns);
+            }
             try
             {
                 await _owner.WriteTransactionalPageAsync(

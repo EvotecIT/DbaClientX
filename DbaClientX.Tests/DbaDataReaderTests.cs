@@ -219,7 +219,7 @@ public class DbaDataReaderTests
     {
         const string rawMessage = "server=secret;password=hidden";
         await using var reader = new DBAClientX.DbaDataReader(
-            new ThrowingDataReader(new InvalidOperationException(rawMessage)),
+            new ThrowingDataReader(new TestProviderException(rawMessage)),
             command: null,
             connection: null,
             ownsConnection: false,
@@ -244,7 +244,7 @@ public class DbaDataReaderTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await using var reader = new DBAClientX.DbaDataReader(
-            new ThrowingDataReader(new InvalidOperationException("provider canceled")),
+            new ThrowingDataReader(new OperationCanceledException("provider canceled")),
             command: null,
             connection: null,
             ownsConnection: false,
@@ -279,9 +279,17 @@ public class DbaDataReaderTests
         Assert.DoesNotContain(rawMessage, valueException.ToString(), StringComparison.Ordinal);
     }
 
-    private static DBAClientX.DbaDataReader CreateNormalizingReader(string rawMessage)
-        => new(
-            new ThrowingDataReader(new InvalidOperationException(rawMessage), throwOnFieldAccess: true),
+    [Theory]
+    [InlineData(typeof(IndexOutOfRangeException))]
+    [InlineData(typeof(InvalidCastException))]
+    [InlineData(typeof(ObjectDisposedException))]
+    public void SynchronousFieldReads_PreserveCallerContractErrors(Type exceptionType)
+    {
+        Exception expected = exceptionType == typeof(ObjectDisposedException)
+            ? new ObjectDisposedException("reader", "caller contract")
+            : (Exception)Activator.CreateInstance(exceptionType, "caller contract")!;
+        using var reader = new DBAClientX.DbaDataReader(
+            new ThrowingDataReader(expected, throwOnFieldAccess: true),
             command: null,
             connection: null,
             ownsConnection: false,
@@ -291,6 +299,78 @@ public class DbaDataReaderTests
             afterReaderDisposedAsync: null,
             consumptionExceptionFactory: (exception, _) =>
                 new DBAClientX.DbaQueryExecutionException("Deferred field read failed.", "SELECT sensitive", exception));
+
+        Exception actual = Assert.Throws(exceptionType, () => reader.GetValue(0));
+
+        Assert.Same(expected, actual);
+    }
+
+    [Fact]
+    public void DeferredStreamAndTextReads_NormalizeProviderFailures()
+    {
+        const string rawMessage = "server=secret;password=hidden";
+        using var reader = CreateDeferredValueReader(
+            new ThrowingStream(new TestProviderException(rawMessage)),
+            new ThrowingTextReader(new TestProviderException(rawMessage)));
+        using Stream stream = reader.GetStream(0);
+        using TextReader textReader = reader.GetTextReader(0);
+
+        var streamException = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => stream.ReadByte());
+        var textException = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() => textReader.Read());
+
+        Assert.DoesNotContain(rawMessage, streamException.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(rawMessage, textException.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DeferredStreamReadAsync_PassesCallerTokenToFailureNormalizer()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var reader = CreateDeferredValueReader(
+            new ThrowingStream(new OperationCanceledException("provider canceled")),
+            TextReader.Null,
+            (exception, token) => new OperationCanceledException("safe cancellation", exception, token));
+        await using Stream stream = reader.GetStream(0);
+
+        OperationCanceledException exception = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => stream.ReadAsync(new byte[1], 0, 1, cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.Equal("safe cancellation", exception.Message);
+    }
+
+    private static DBAClientX.DbaDataReader CreateNormalizingReader(string rawMessage)
+        => new(
+            new ThrowingDataReader(new TestProviderException(rawMessage), throwOnFieldAccess: true),
+            command: null,
+            connection: null,
+            ownsConnection: false,
+            disposeConnection: null,
+            afterReaderDisposed: null,
+            disposeConnectionAsync: null,
+            afterReaderDisposedAsync: null,
+            consumptionExceptionFactory: (exception, _) =>
+                new DBAClientX.DbaQueryExecutionException("Deferred field read failed.", "SELECT sensitive", exception));
+
+    private static DBAClientX.DbaDataReader CreateDeferredValueReader(
+        Stream stream,
+        TextReader textReader,
+        Func<Exception, CancellationToken, Exception>? exceptionFactory = null)
+        => new(
+            new ThrowingDataReader(
+                new TestProviderException("unused"),
+                stream: stream,
+                textReader: textReader),
+            command: null,
+            connection: null,
+            ownsConnection: false,
+            disposeConnection: null,
+            afterReaderDisposed: null,
+            disposeConnectionAsync: null,
+            afterReaderDisposedAsync: null,
+            consumptionExceptionFactory: exceptionFactory ?? ((exception, _) =>
+                new DBAClientX.DbaQueryExecutionException("Deferred value read failed.", "SELECT sensitive", exception)));
 
     private sealed class DisposableCommand : IDisposable, IAsyncDisposable
     {
@@ -312,11 +392,19 @@ public class DbaDataReaderTests
         private readonly DataTableReader _inner = new DataTable().CreateDataReader();
         private readonly Exception _exception;
         private readonly bool _throwOnFieldAccess;
+        private readonly Stream? _stream;
+        private readonly TextReader? _textReader;
 
-        public ThrowingDataReader(Exception exception, bool throwOnFieldAccess = false)
+        public ThrowingDataReader(
+            Exception exception,
+            bool throwOnFieldAccess = false,
+            Stream? stream = null,
+            TextReader? textReader = null)
         {
             _exception = exception;
             _throwOnFieldAccess = throwOnFieldAccess;
+            _stream = stream;
+            _textReader = textReader;
         }
 
         public override int FieldCount => _inner.FieldCount;
@@ -356,8 +444,49 @@ public class DbaDataReaderTests
         public override decimal GetDecimal(int ordinal) => _inner.GetDecimal(ordinal);
         public override DateTime GetDateTime(int ordinal) => _inner.GetDateTime(ordinal);
         public override bool IsDBNull(int ordinal) => _inner.IsDBNull(ordinal);
+        public override Stream GetStream(int ordinal) => _stream ?? base.GetStream(ordinal);
+        public override TextReader GetTextReader(int ordinal) => _textReader ?? base.GetTextReader(ordinal);
         public override IEnumerator GetEnumerator() => ((IEnumerable)_inner).GetEnumerator();
         public override void Close() => _inner.Close();
         public override DataTable? GetSchemaTable() => _inner.GetSchemaTable();
+    }
+
+    private sealed class TestProviderException : DbException
+    {
+        public TestProviderException(string message) : base(message)
+        {
+        }
+    }
+
+    private sealed class ThrowingStream : Stream
+    {
+        private readonly Exception _exception;
+
+        public ThrowingStream(Exception exception) => _exception = exception;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw _exception;
+        public override int ReadByte() => throw _exception;
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            => Task.FromException<int>(_exception);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingTextReader : TextReader
+    {
+        private readonly Exception _exception;
+
+        public ThrowingTextReader(Exception exception) => _exception = exception;
+
+        public override int Read() => throw _exception;
+        public override Task<int> ReadAsync(char[] buffer, int index, int count)
+            => Task.FromException<int>(_exception);
     }
 }

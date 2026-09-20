@@ -15,7 +15,7 @@ namespace DBAClientX;
 /// Both synchronous and asynchronous disposal are idempotent. Asynchronous disposal uses provider async cleanup when available
 /// and still invokes the post-reader callback before the command and owned connection are released.
 /// </remarks>
-public sealed class DbaDataReader : DbDataReader
+public sealed partial class DbaDataReader : DbDataReader
 {
     private readonly IDataReader _reader;
     private readonly DbDataReader? _dbReader;
@@ -261,15 +261,25 @@ public sealed class DbaDataReader : DbDataReader
 
     /// <inheritdoc />
     public override Stream GetStream(int ordinal)
-        => _dbReader != null
+    {
+        Stream stream = _dbReader != null
             ? ExecuteConsumptionOperation(() => _dbReader.GetStream(ordinal), CancellationToken.None)
             : base.GetStream(ordinal);
+        return _consumptionExceptionFactory == null
+            ? stream
+            : new NormalizingReadStream(stream, _consumptionExceptionFactory);
+    }
 
     /// <inheritdoc />
     public override TextReader GetTextReader(int ordinal)
-        => _dbReader != null
+    {
+        TextReader reader = _dbReader != null
             ? ExecuteConsumptionOperation(() => _dbReader.GetTextReader(ordinal), CancellationToken.None)
             : base.GetTextReader(ordinal);
+        return _consumptionExceptionFactory == null
+            ? reader
+            : new NormalizingTextReader(reader, _consumptionExceptionFactory);
+    }
 
     /// <inheritdoc />
     public override Task<bool> ReadAsync(CancellationToken cancellationToken)
@@ -301,9 +311,9 @@ public sealed class DbaDataReader : DbDataReader
         {
             return operation();
         }
-        catch (Exception exception) when (_consumptionExceptionFactory != null)
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception))
         {
-            throw _consumptionExceptionFactory(exception, cancellationToken);
+            throw _consumptionExceptionFactory!(exception, cancellationToken);
         }
     }
 
@@ -313,11 +323,17 @@ public sealed class DbaDataReader : DbDataReader
         {
             return await operation().ConfigureAwait(false);
         }
-        catch (Exception exception) when (_consumptionExceptionFactory != null)
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception))
         {
-            throw _consumptionExceptionFactory(exception, cancellationToken);
+            throw _consumptionExceptionFactory!(exception, cancellationToken);
         }
     }
+
+    private bool ShouldNormalizeConsumptionException(Exception exception)
+        => _consumptionExceptionFactory != null && IsProviderConsumptionException(exception);
+
+    private static bool IsProviderConsumptionException(Exception exception)
+        => exception is DbException or IOException or TimeoutException or OperationCanceledException;
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

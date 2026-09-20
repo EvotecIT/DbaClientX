@@ -159,6 +159,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                 database,
                 segments[segments.Length - 1],
                 cancellationToken).ConfigureAwait(false);
+            bool noAutoValueOnZero = options.ClearDestination &&
+                await ResolveNoAutoValueOnZeroAsync(connection, cancellationToken).ConfigureAwait(false);
             DbaTableCopySchemaValidator.Validate(
                 definition.DestinationName,
                 firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
@@ -172,6 +174,11 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                     definition.DestinationName,
                     firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
                     columns);
+                ValidateRollbackSafeGeneratorValues(
+                    definition.DestinationName,
+                    firstPage,
+                    columns,
+                    noAutoValueOnZero);
                 await ValidateRollbackSafeTriggersAsync(
                     connection,
                     database,
@@ -190,7 +197,9 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                 connection,
                 connection.BeginTransaction(),
                 definition,
-                options);
+                options,
+                columns,
+                noAutoValueOnZero);
             try
             {
                 await session.InitializeAsync(firstPage, cancellationToken).ConfigureAwait(false);
@@ -229,6 +238,59 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             "Project an explicit value for the column or copy without ClearDestination.");
     }
 
+    internal static void ValidateRollbackSafeGeneratorValues(
+        string tableName,
+        DataTable page,
+        IReadOnlyList<DbaColumnInfo> destinationColumns,
+        bool noAutoValueOnZero)
+    {
+        var projectedColumns = page.Columns.Cast<DataColumn>().ToDictionary(
+            column => DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.MySql).ToUpperInvariant(),
+            StringComparer.Ordinal);
+        foreach (DbaColumnInfo identity in destinationColumns.Where(static column => column.IsIdentity == true))
+        {
+            string normalizedName = DbaIdentifierPath.UnquoteSegment(identity.Name, DbaTableCopyProvider.MySql).ToUpperInvariant();
+            if (!projectedColumns.TryGetValue(normalizedName, out DataColumn? sourceColumn)) continue;
+            foreach (DataRow row in page.Rows)
+            {
+                object value = row[sourceColumn];
+                if (value == DBNull.Value || (!noAutoValueOnZero && IsMySqlZeroValue(value)))
+                {
+                    string unsafeValue = value == DBNull.Value ? "NULL" : "zero";
+                    throw new InvalidOperationException(
+                        $"MySQL destination '{tableName}' projects {unsafeValue} for auto-increment column '{identity.Name}'. " +
+                        "ClearDestination cannot safely preflight this value because auto-increment advances are not rolled back. " +
+                        "Project a non-generating explicit value, enable NO_AUTO_VALUE_ON_ZERO when zero is intentional, or copy without ClearDestination.");
+                }
+            }
+        }
+    }
+
+    private static bool IsMySqlZeroValue(object value)
+    {
+        try
+        {
+            return value is IConvertible && Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture) == 0m;
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidCastException or OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private async Task<bool> ResolveNoAutoValueOnZeroAsync(
+        MySqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new MySqlCommand("SELECT @@SESSION.sql_mode", connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        string sqlMode = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) ?? "";
+        return sqlMode.Split(',').Any(mode =>
+            string.Equals(mode.Trim(), "NO_AUTO_VALUE_ON_ZERO", StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task ValidateRollbackSafeTriggersAsync(
         MySqlConnection connection,
         string database,
@@ -257,6 +319,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         private readonly MySqlTransaction _transaction;
         private readonly DbaTableCopyDefinition _definition;
         private readonly DbaTableCopyOptions _options;
+        private readonly IReadOnlyList<DbaColumnInfo> _destinationColumns;
+        private readonly bool _noAutoValueOnZero;
         private bool _disposed;
 
         internal MySqlSchemaPreflightSession(
@@ -264,13 +328,17 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             MySqlConnection connection,
             MySqlTransaction transaction,
             DbaTableCopyDefinition definition,
-            DbaTableCopyOptions options)
+            DbaTableCopyOptions options,
+            IReadOnlyList<DbaColumnInfo> destinationColumns,
+            bool noAutoValueOnZero)
         {
             _owner = owner;
             _connection = connection;
             _transaction = transaction;
             _definition = definition;
             _options = options;
+            _destinationColumns = destinationColumns;
+            _noAutoValueOnZero = noAutoValueOnZero;
         }
 
         internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
@@ -278,6 +346,11 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             cancellationToken.ThrowIfCancellationRequested();
             if (_options.ClearDestination)
             {
+                ValidateRollbackSafeGeneratorValues(
+                    _definition.DestinationName,
+                    page,
+                    _destinationColumns,
+                    _noAutoValueOnZero);
                 await using var clear = new MySqlCommand(
                     $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
                     _connection,
@@ -295,6 +368,14 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         {
             if (_disposed) throw new ObjectDisposedException(nameof(MySqlSchemaPreflightSession));
             if (page.Rows.Count == 0) return;
+            if (_options.ClearDestination)
+            {
+                ValidateRollbackSafeGeneratorValues(
+                    _definition.DestinationName,
+                    page,
+                    _destinationColumns,
+                    _noAutoValueOnZero);
+            }
             try
             {
                 await _owner.WriteTransactionalPageAsync(

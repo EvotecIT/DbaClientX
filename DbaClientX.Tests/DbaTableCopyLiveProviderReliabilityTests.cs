@@ -171,7 +171,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             string.IsNullOrWhiteSpace(postgreSqlConnectionString) || string.IsNullOrWhiteSpace(mySqlConnectionString),
             "Set both PostgreSQL and MySQL live-provider connection strings.");
 
-        string suffix = Guid.NewGuid().ToString("N");
+        string suffix = Guid.NewGuid().ToString("N")[..12];
         string sourceTable = "dbax_array_portability_source_" + suffix;
         string destinationTable = "dbax_array_portability_destination_" + suffix;
         await using var postgreSqlConnection = new NpgsqlConnection(postgreSqlConnectionString!);
@@ -1310,6 +1310,63 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         {
             await TryExecuteAsync(connection, DropTableSql(provider, destinationTable));
             await TryExecuteAsync(connection, DropTableSql(provider, sourceTable));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlClearDestination_RejectsLaterNullAutoIncrementValuesWithoutAdvancingGenerator()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated provider database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_autonull_s_" + suffix;
+        string destinationTable = "dbax_autonull_d_" + suffix;
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE `{sourceTable}` (id bigint NULL, payload varchar(50) NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE `{destinationTable}` (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, payload varchar(50) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(connection, $"INSERT INTO `{sourceTable}` VALUES (1, 'a-safe'), (NULL, 'b-new')");
+            await ExecuteAsync(connection, $"INSERT INTO `{destinationTable}` (id, payload) VALUES (99, 'preserved')");
+
+            string generatorStateSql =
+                $"SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{destinationTable}'";
+            string? before = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
+            var source = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!, new[] { "payload" });
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "payload" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("auto-increment advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(before, Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql)));
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT CONCAT(id, ':', payload) FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{sourceTable}`");
         }
     }
 

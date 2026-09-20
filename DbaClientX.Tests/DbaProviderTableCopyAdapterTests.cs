@@ -506,6 +506,42 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("auto-increment advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(null, false, true)]
+    [InlineData(0L, false, true)]
+    [InlineData(0L, true, false)]
+    [InlineData(42L, false, false)]
+    public void MySqlSchemaPreflight_RejectsValuesThatInvokeAutoIncrement(
+        long? value,
+        bool noAutoValueOnZero,
+        bool shouldReject)
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Id", typeof(long));
+        page.Rows.Add(value.HasValue ? value.Value : DBNull.Value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint") { IsIdentity = true }
+        };
+
+        Exception? exception = Record.Exception(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorValues(
+                "app.rows",
+                page,
+                columns,
+                noAutoValueOnZero));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("auto-increment advances are not rolled back", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+    }
+
     [Fact]
     public void MySqlCheckpointStorage_RequiresSelectedDatabase()
     {

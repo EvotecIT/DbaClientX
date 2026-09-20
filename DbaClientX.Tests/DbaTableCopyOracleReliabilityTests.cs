@@ -441,6 +441,49 @@ public sealed class DbaTableCopyOracleReliabilityTests
         OracleTableCopyAdapter.ValidateProjectedIdentityColumns("APP.ROWS", new[] { "ID" }, columns);
     }
 
+    [Fact]
+    public void SchemaPreflight_RejectsNullGeneratedByDefaultOnNullIdentityValues()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("ID", typeof(long));
+        page.Rows.Add(DBNull.Value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("APP", "ROWS", "ID", "NUMBER")
+            {
+                IsIdentity = true,
+                IdentityGeneration = "BY DEFAULT ON NULL"
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidateRollbackSafeGeneratorValues("APP.ROWS", page, columns));
+
+        Assert.Contains("backing sequence is not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("BY DEFAULT ON NULL", 42L)]
+    [InlineData("BY DEFAULT", null)]
+    public void SchemaPreflight_AllowsOracleIdentityValuesThatDoNotInvokeGeneration(
+        string generation,
+        long? value)
+    {
+        using var page = new DataTable();
+        page.Columns.Add("ID", typeof(long));
+        page.Rows.Add(value.HasValue ? value.Value : DBNull.Value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("APP", "ROWS", "ID", "NUMBER")
+            {
+                IsIdentity = true,
+                IdentityGeneration = generation
+            }
+        };
+
+        OracleTableCopyAdapter.ValidateRollbackSafeGeneratorValues("APP.ROWS", page, columns);
+    }
+
     [Theory]
     [InlineData(true, null)]
     [InlineData(false, "APP.ROWS_SEQ.NEXTVAL")]
