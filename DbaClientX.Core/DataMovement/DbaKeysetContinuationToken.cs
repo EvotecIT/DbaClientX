@@ -43,6 +43,21 @@ internal static class DbaKeysetContinuationToken
                     case float number: writer.Write((byte)10); writer.Write(number); break;
                     case double number: writer.Write((byte)11); writer.Write(number); break;
                     case DbaYearMonthInterval interval: writer.Write((byte)15); writer.Write(interval.TotalMonths); break;
+                    case System.Net.IPAddress address:
+                        writer.Write((byte)16);
+                        WriteBytes(writer, address.GetAddressBytes());
+                        writer.Write(address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? address.ScopeId : 0L);
+                        break;
+                    case System.Net.NetworkInformation.PhysicalAddress address:
+                        writer.Write((byte)17);
+                        WriteBytes(writer, address.GetAddressBytes());
+                        break;
+                    case DbaIpNetwork network:
+                        writer.Write((byte)18);
+                        WriteBytes(writer, network.Address.GetAddressBytes());
+                        writer.Write(network.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? network.Address.ScopeId : 0L);
+                        writer.Write(network.PrefixLength);
+                        break;
 #if NET6_0_OR_GREATER
                     case DateOnly date: writer.Write((byte)13); writer.Write(date.DayNumber); break;
                     case TimeOnly time: writer.Write((byte)14); writer.Write(time.Ticks); break;
@@ -86,6 +101,11 @@ internal static class DbaKeysetContinuationToken
                     11 => reader.ReadDouble(),
                     12 => reader.ReadUInt64(),
                     15 => new DbaYearMonthInterval(reader.ReadInt64()),
+                    16 => ReadIpAddress(reader),
+                    17 => new System.Net.NetworkInformation.PhysicalAddress(ReadBytes(reader, reader.ReadInt32())),
+                    18 => new DbaIpNetwork(
+                        ReadIpAddress(reader),
+                        reader.ReadInt32()),
 #if NET6_0_OR_GREATER
                     13 => DateOnly.FromDayNumber(reader.ReadInt32()),
                     14 => new TimeOnly(reader.ReadInt64()),
@@ -108,6 +128,23 @@ internal static class DbaKeysetContinuationToken
         byte[] result = reader.ReadBytes(length);
         if (result.Length != length) throw new EndOfStreamException();
         return result;
+    }
+
+    private static void WriteBytes(BinaryWriter writer, byte[] bytes)
+    {
+        writer.Write(bytes.Length);
+        writer.Write(bytes);
+    }
+
+    private static System.Net.IPAddress ReadIpAddress(BinaryReader reader)
+    {
+        byte[] bytes = ReadBytes(reader, reader.ReadInt32());
+        long scopeId = reader.ReadInt64();
+        if (bytes.Length is not (4 or 16) || (bytes.Length == 4 && scopeId != 0))
+            throw new FormatException("Invalid IP address in continuation token.");
+        return bytes.Length == 16
+            ? new System.Net.IPAddress(bytes, scopeId)
+            : new System.Net.IPAddress(bytes);
     }
 
     private static string GetBinding(DbaTableCopyDefinition definition)

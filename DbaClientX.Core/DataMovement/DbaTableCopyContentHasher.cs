@@ -75,6 +75,17 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             case Guid guid: WriteBinary(guid.ToByteArray()); break;
             case TimeSpan duration: _writer.Write((byte)6); _writer.Write(duration.Ticks); break;
             case DbaYearMonthInterval interval: _writer.Write((byte)8); _writer.Write(interval.TotalMonths); break;
+            case System.Net.IPAddress address:
+                WriteIpAddress(9, address);
+                break;
+            case System.Net.NetworkInformation.PhysicalAddress address:
+                WriteNetworkValue(10, address.GetAddressBytes());
+                break;
+            case DbaIpNetwork network:
+                _writer.Write((byte)11);
+                _writer.Write(network.PrefixLength);
+                WriteIpAddressBytes(network.Address);
+                break;
 #if NET6_0_OR_GREATER
             // Match provider representations: PostgreSQL date/time values use DateOnly/TimeOnly,
             // while other providers commonly materialize the same values as DateTime/TimeSpan.
@@ -96,6 +107,27 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
         _writer.Write((byte)3);
         _writer.Write(value.Length);
         _writer.Write(value);
+    }
+
+    private void WriteNetworkValue(byte tag, byte[] value)
+    {
+        _writer.Write(tag);
+        _writer.Write(value.Length);
+        _writer.Write(value);
+    }
+
+    private void WriteIpAddress(byte tag, System.Net.IPAddress address)
+    {
+        _writer.Write(tag);
+        WriteIpAddressBytes(address);
+    }
+
+    private void WriteIpAddressBytes(System.Net.IPAddress address)
+    {
+        byte[] bytes = address.GetAddressBytes();
+        _writer.Write(bytes.Length);
+        _writer.Write(bytes);
+        _writer.Write(address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? address.ScopeId : 0L);
     }
 
     public void Dispose()

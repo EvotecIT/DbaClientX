@@ -58,6 +58,54 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task MySqlCheckpointStorage_RejectsMissingSelectedDatabaseBeforeChangingQualifiedDestination()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        var configured = new MySqlConnectionStringBuilder(connectionString!);
+        Assert.False(string.IsNullOrWhiteSpace(configured.Database));
+        string database = configured.Database;
+        var table = "dbax_no_database_" + Guid.NewGuid().ToString("N");
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE `{table}` (id BIGINT NOT NULL PRIMARY KEY, payload TEXT NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(connection, $"INSERT INTO `{table}` VALUES (1, 'preserve')");
+
+            configured.Database = string.Empty;
+            var destination = CreateAdapter(DbaTableCopyProvider.MySql, configured.ConnectionString);
+            var definition = new DbaTableCopyDefinition("unused", $"`{database}`.`{table}`", new[] { "id" });
+            var checkpoint = new DbaTableCopyCheckpoint
+            {
+                CopyId = "no-database-" + table,
+                DefinitionFingerprint = new string('1', 64),
+                SourceRows = 1,
+                SourceContentHash = new string('2', 64),
+                CopiedRows = 0,
+                CopiedContentHash = new string('3', 64),
+                Completed = false
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                destination.InitializeCheckpointAsync(definition, checkpoint, clearDestination: true));
+
+            Assert.Contains("selected database", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(
+                connection,
+                $"SELECT COUNT(*) FROM `{table}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{table}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlConsistentRead_RejectsNontransactionalSourceBeforeCopyingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
@@ -411,6 +459,58 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         finally
         {
             await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{table}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlVerifiedCopy_NormalizesNetworkValues()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var sourceTable = "dbax_network_source_" + suffix;
+        var destinationTable = "dbax_network_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (id bigint NOT NULL PRIMARY KEY, address inet NOT NULL, subnet cidr NOT NULL, mac macaddr NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, address inet NOT NULL, subnet cidr NOT NULL, mac macaddr NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, '192.0.2.42', '198.51.100.0/24', '00:11:22:aa:bb:cc'), (2, '2001:db8::42', '2001:db8::/48', '00:11:22:aa:bb:dd')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { PageSize = 1, VerifyContent = true });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(
+                connection,
+                $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
         }
     }
 

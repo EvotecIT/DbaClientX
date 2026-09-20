@@ -15,6 +15,17 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         => new MySqlConnection(ConnectionString);
 
     /// <inheritdoc />
+    protected override void ValidateCheckpointStorage(DbConnection connection)
+        => ValidateCheckpointDatabase(((MySqlConnection)connection).Database);
+
+    internal static void ValidateCheckpointDatabase(string? database)
+    {
+        if (!string.IsNullOrWhiteSpace(database)) return;
+        throw new InvalidOperationException(
+            "Atomic MySQL checkpoints require a selected database in the connection string. Database-qualified destination names do not select checkpoint storage.");
+    }
+
+    /// <inheritdoc />
     protected override async Task ValidateCheckpointSchemaAsync(
         DbConnection connection,
         CancellationToken cancellationToken)

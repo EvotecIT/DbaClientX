@@ -66,16 +66,37 @@ public sealed partial class OracleTableCopyAdapter
         }
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((OracleCommand)state!).Cancel(), command);
         using OracleDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+        Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
+            ? ordinal => ValidateBoundedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal))
+            : null;
         return await DbaTableCopyPageReader.ReadAsync(
             reader,
             maxBytes,
-            fieldPayloadBytes: null,
+            fieldPayloadBytes,
             readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
+            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal)),
             cancellationToken).ConfigureAwait(false);
     }
 
     internal static object NormalizeProviderValue(object value)
-        => value switch
+    {
+        if (value is OracleBlob blob)
+        {
+            try { return blob.IsNull ? DBNull.Value : blob.Value; }
+            finally { blob.Dispose(); }
+        }
+        if (value is OracleClob clob)
+        {
+            try { return clob.IsNull ? DBNull.Value : clob.Value; }
+            finally { clob.Dispose(); }
+        }
+        if (value is OracleXmlType xml)
+        {
+            try { return xml.IsNull ? DBNull.Value : xml.Value; }
+            finally { xml.Dispose(); }
+        }
+
+        return value switch
         {
             OracleIntervalYM interval => interval.IsNull
                 ? DBNull.Value
@@ -99,6 +120,30 @@ public sealed partial class OracleTableCopyAdapter
                 : NormalizeTimestamp(timestamp),
             _ => value
         };
+    }
+
+    internal static Type GetNormalizedFieldType(Type providerType)
+    {
+        if (providerType == typeof(OracleIntervalYM)) return typeof(DbaYearMonthInterval);
+        if (providerType == typeof(OracleIntervalDS)) return typeof(TimeSpan);
+        if (providerType == typeof(OracleBinary) || providerType == typeof(OracleBlob)) return typeof(byte[]);
+        if (providerType == typeof(OracleBoolean)) return typeof(bool);
+        if (providerType == typeof(OracleDecimal)) return typeof(decimal);
+        if (providerType == typeof(OracleDate) || providerType == typeof(OracleTimeStamp)) return typeof(DateTime);
+        if (providerType == typeof(OracleTimeStampLTZ) || providerType == typeof(OracleTimeStampTZ)) return typeof(DateTimeOffset);
+        if (providerType == typeof(OracleString) || providerType == typeof(OracleClob) || providerType == typeof(OracleXmlType)) return typeof(string);
+        return providerType;
+    }
+
+    internal static long? ValidateBoundedFieldType(Type providerType, string dataTypeName)
+    {
+        if (providerType == typeof(OracleBlob) || providerType == typeof(OracleClob) || providerType == typeof(OracleXmlType))
+        {
+            throw new NotSupportedException(
+                $"Bounded Oracle table-copy pages do not materialize provider-native type '{dataTypeName}' ({providerType.FullName}). Project it to text or binary, or omit MaxPageBytes.");
+        }
+        return null;
+    }
 
     private static DateTimeOffset NormalizeTimestamp(OracleTimeStampTZ timestamp)
         => new(DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified), timestamp.GetTimeZoneOffset());

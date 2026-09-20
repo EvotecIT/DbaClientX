@@ -1,4 +1,10 @@
 using System.Data;
+#if NET8_0_OR_GREATER
+using System.Diagnostics.CodeAnalysis;
+#endif
+#if NET472
+using NpgsqlTypes;
+#endif
 
 namespace DBAClientX.DataMovement;
 
@@ -39,7 +45,21 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             .Cast<DataColumn>()
             .Select(static column => NormalizeColumnName(column.ColumnName))
             .ToArray();
-        if (page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).SequenceEqual(normalizedNames, StringComparer.Ordinal))
+        var networkColumns = page.Columns.Cast<DataColumn>()
+            .Select(static column => column.DataType == typeof(DbaIpNetwork))
+            .ToArray();
+        foreach (DataRow row in page.Rows)
+        {
+            for (var index = 0; index < page.Columns.Count; index++)
+            {
+                if (row[index] is DbaIpNetwork) networkColumns[index] = true;
+            }
+        }
+        bool normalizeNames = !page.Columns.Cast<DataColumn>()
+            .Select(static column => column.ColumnName)
+            .SequenceEqual(normalizedNames, StringComparer.Ordinal);
+        bool normalizeNetworks = networkColumns.Any(static value => value);
+        if (!normalizeNames && !normalizeNetworks)
         {
             return page;
         }
@@ -52,13 +72,73 @@ public static class DbaPostgreSqlBulkCopyNormalizer
             throw new InvalidOperationException($"PostgreSQL bulk copy column normalization would create duplicate destination column '{duplicates.Key}'.");
         }
 
-        var normalized = page.Copy();
-        for (var i = 0; i < normalized.Columns.Count; i++)
+        if (!normalizeNetworks)
         {
-            normalized.Columns[i].ColumnName = normalizedNames[i];
+            var renamed = page.Copy();
+            for (var index = 0; index < renamed.Columns.Count; index++)
+                renamed.Columns[index].ColumnName = normalizedNames[index];
+            return renamed;
         }
 
+        foreach (DataRow row in page.Rows)
+        {
+            for (var index = 0; index < page.Columns.Count; index++)
+            {
+                object value = row[index];
+                if (!networkColumns[index] || value == DBNull.Value || value is DbaIpNetwork || IsProviderNetwork(value))
+                    continue;
+                throw new InvalidOperationException(
+                    $"PostgreSQL network column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+            }
+        }
+
+        var normalized = new DataTable { CaseSensitive = page.CaseSensitive };
+        for (var index = 0; index < page.Columns.Count; index++)
+        {
+            normalized.Columns.Add(
+                normalizedNames[index],
+                networkColumns[index] ? GetProviderNetworkType() : page.Columns[index].DataType);
+        }
+        foreach (DataRow row in page.Rows)
+        {
+            object?[] values = row.ItemArray;
+            for (var index = 0; index < values.Length; index++)
+            {
+                if (values[index] is DbaIpNetwork network) values[index] = CreateProviderNetwork(network);
+            }
+            normalized.Rows.Add(values);
+        }
         return normalized;
+    }
+
+#if NET8_0_OR_GREATER
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
+    private static Type GetProviderNetworkType()
+    {
+#if NET472
+        return typeof(NpgsqlCidr);
+#else
+        return typeof(System.Net.IPNetwork);
+#endif
+    }
+
+    private static bool IsProviderNetwork(object value)
+    {
+#if NET472
+        return value is NpgsqlCidr;
+#else
+        return value is System.Net.IPNetwork;
+#endif
+    }
+
+    private static object CreateProviderNetwork(DbaIpNetwork network)
+    {
+#if NET472
+        return new NpgsqlCidr(network.Address, checked((byte)network.PrefixLength));
+#else
+        return new System.Net.IPNetwork(network.Address, network.PrefixLength);
+#endif
     }
 
     private static string NormalizeColumnName(string columnName)

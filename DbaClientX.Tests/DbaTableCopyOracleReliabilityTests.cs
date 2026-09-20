@@ -109,10 +109,36 @@ public sealed class DbaTableCopyOracleReliabilityTests
             reader,
             maxBytes: 4096,
             fieldPayloadBytes: null,
-            readFieldValue: ordinal => OracleTableCopyAdapter.NormalizeProviderValue(reader.GetValue(ordinal)));
+            readFieldValue: ordinal => OracleTableCopyAdapter.NormalizeProviderValue(reader.GetValue(ordinal)),
+            normalizedFieldType: ordinal => OracleTableCopyAdapter.GetNormalizedFieldType(reader.GetFieldType(ordinal)));
 
         Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
-        Assert.Equal(typeof(object), page.Columns["Period"]!.DataType);
+        Assert.Equal(typeof(DbaYearMonthInterval), page.Columns["Period"]!.DataType);
+    }
+
+    [Theory]
+    [InlineData(typeof(OracleIntervalYM), typeof(DbaYearMonthInterval))]
+    [InlineData(typeof(OracleIntervalDS), typeof(TimeSpan))]
+    [InlineData(typeof(OracleBinary), typeof(byte[]))]
+    [InlineData(typeof(OracleBlob), typeof(byte[]))]
+    [InlineData(typeof(OracleClob), typeof(string))]
+    [InlineData(typeof(OracleXmlType), typeof(string))]
+    [InlineData(typeof(OracleTimeStampTZ), typeof(DateTimeOffset))]
+    public void ProviderSchemas_UseNormalizedManagedTypes(Type providerType, Type expected)
+    {
+        Assert.Equal(expected, OracleTableCopyAdapter.GetNormalizedFieldType(providerType));
+    }
+
+    [Theory]
+    [InlineData(typeof(OracleBlob), "BLOB")]
+    [InlineData(typeof(OracleClob), "CLOB")]
+    [InlineData(typeof(OracleXmlType), "XMLTYPE")]
+    public void BoundedPages_RejectProviderNativeLargeValuesBeforeMaterialization(Type providerType, string dataTypeName)
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.ValidateBoundedFieldType(providerType, dataTypeName));
+
+        Assert.Contains("Project it to text or binary", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

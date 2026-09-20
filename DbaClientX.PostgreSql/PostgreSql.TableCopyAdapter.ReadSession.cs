@@ -1,6 +1,9 @@
 using System.Data;
 using DBAClientX.DataMovement;
 using Npgsql;
+#if NET472
+using NpgsqlTypes;
+#endif
 
 namespace DBAClientX;
 
@@ -58,7 +61,7 @@ public sealed partial class PostgreSqlTableCopyAdapter
             ? new NpgsqlCommand(query, connection) { CommandTimeout = CommandTimeout }
             : CreateReadCommand(query);
         foreach (KeyValuePair<string, object?> parameter in parameters)
-            command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
+            command.Parameters.AddWithValue(parameter.Key, GetPageParameterValue(parameter.Value));
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((NpgsqlCommand)state!).Cancel(), command);
         using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
@@ -68,8 +71,39 @@ public sealed partial class PostgreSqlTableCopyAdapter
             reader,
             maxBytes,
             fieldPayloadBytes,
-            readFieldValue: null,
+            readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
+            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static object NormalizeProviderValue(object value)
+    {
+#if NET472
+        if (value is NpgsqlCidr cidr) return new DbaIpNetwork(cidr.Address, cidr.Netmask);
+#else
+        if (value is System.Net.IPNetwork network) return new DbaIpNetwork(network.BaseAddress, network.PrefixLength);
+#endif
+        return value;
+    }
+
+    internal static Type GetNormalizedFieldType(Type providerType)
+    {
+#if NET472
+        if (providerType == typeof(NpgsqlCidr)) return typeof(DbaIpNetwork);
+#else
+        if (providerType == typeof(System.Net.IPNetwork)) return typeof(DbaIpNetwork);
+#endif
+        return providerType;
+    }
+
+    internal static object GetPageParameterValue(object? value)
+    {
+        if (value is not DbaIpNetwork network) return value ?? DBNull.Value;
+#if NET472
+        return new NpgsqlCidr(network.Address, checked((byte)network.PrefixLength));
+#else
+        return new System.Net.IPNetwork(network.Address, network.PrefixLength);
+#endif
     }
 
     private static long? ValidateBoundedFieldType(NpgsqlDataReader reader, int ordinal)
@@ -85,6 +119,11 @@ public sealed partial class PostgreSqlTableCopyAdapter
         }
 #if NET6_0_OR_GREATER
         if (type == typeof(DateOnly) || type == typeof(TimeOnly)) return null;
+#endif
+#if NET472
+        if (type == typeof(NpgsqlCidr)) return null;
+#else
+        if (type == typeof(System.Net.IPNetwork)) return null;
 #endif
         throw new NotSupportedException(
             $"Bounded PostgreSQL table-copy pages do not materialize variable-size native type '{reader.GetDataTypeName(ordinal)}' ({type.FullName}). Project it to text or binary, or omit MaxPageBytes.");

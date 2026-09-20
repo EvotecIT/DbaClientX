@@ -109,6 +109,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
 
     private async Task EnsureCheckpointSchemaAsync(DbConnection connection, CancellationToken cancellationToken)
     {
+        ValidateCheckpointStorage(connection);
         string fields = Provider switch
         {
             DbaTableCopyProvider.SqlServer => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId nvarchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken nvarchar(max) NULL, CopiedContentHash varchar(64) NOT NULL, Completed bit NOT NULL",
@@ -187,6 +188,11 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     /// <summary>Validates provider-specific checkpoint storage requirements after the schema exists.</summary>
     protected virtual Task ValidateCheckpointSchemaAsync(DbConnection connection, CancellationToken cancellationToken)
         => Task.CompletedTask;
+
+    /// <summary>Validates that the opened connection can own provider checkpoint storage.</summary>
+    protected virtual void ValidateCheckpointStorage(DbConnection connection)
+    {
+    }
 
     /// <summary>Applies provider-specific type metadata to a checkpoint parameter.</summary>
     protected virtual void ConfigureCheckpointParameter(DbParameter parameter, string name, object? value)

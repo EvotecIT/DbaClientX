@@ -19,6 +19,7 @@ public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterB
         bool treatMissingTablesAsEmpty = false)
         : base(DbaTableCopyProvider.MySql, connectionString, defaultOrderByColumns, allowUnordered, treatMissingTablesAsEmpty)
     {
+        ValidateTableCopyConnectionOptions(ConnectionString);
     }
 
     /// <summary>
@@ -51,6 +52,14 @@ public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterB
                 bulkCopyTimeout: options.BulkCopyTimeout,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal static void ValidateTableCopyConnectionOptions(string connectionString)
+    {
+        if (!new MySqlConnectionStringBuilder(connectionString).AllowZeroDateTime) return;
+        throw new ArgumentException(
+            "MySQL table copies do not support AllowZeroDateTime=true because zero-component DATE and DATETIME values are not portable. Disable AllowZeroDateTime or project those columns to an explicit text representation.",
+            nameof(connectionString));
     }
 
     /// <inheritdoc />

@@ -1,4 +1,6 @@
 using System.Data;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
@@ -103,6 +105,37 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void KeysetContinuationToken_RoundTripsNetworkValues()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Address", "Network", "Mac" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Address", typeof(IPAddress));
+        table.Columns.Add("Network", typeof(DbaIpNetwork));
+        table.Columns.Add("Mac", typeof(PhysicalAddress));
+        var expectedAddress = IPAddress.Parse("2001:db8::42");
+        var expectedNetwork = new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24);
+        var expectedMac = PhysicalAddress.Parse("001122AABBCC");
+        DataRow row = table.Rows.Add(expectedAddress, expectedNetwork, expectedMac);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expectedAddress, Assert.IsType<IPAddress>(values[0]));
+        Assert.Equal(expectedNetwork, Assert.IsType<DbaIpNetwork>(values[1]));
+        Assert.Equal(expectedMac, Assert.IsType<PhysicalAddress>(values[2]));
+    }
+
+    [Fact]
     public void ContentHasher_AcceptsYearMonthIntervals()
     {
         using var first = new DataTable();
@@ -112,6 +145,43 @@ public class DbaProviderTableCopyAdapterBaseTests
         using var second = first.Copy();
 
         Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(second, "Period"));
+    }
+
+    [Fact]
+    public void ContentHasher_AcceptsNetworkValues()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Address", typeof(IPAddress));
+        first.Columns.Add("Network", typeof(DbaIpNetwork));
+        first.Columns.Add("Mac", typeof(PhysicalAddress));
+        first.Rows.Add(
+            IPAddress.Parse("192.0.2.42"),
+            new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24),
+            PhysicalAddress.Parse("001122AABBCC"));
+
+        using var second = first.Copy();
+
+        Assert.Equal(
+            ComputeContentHash(first, "Address", "Network", "Mac"),
+            ComputeContentHash(second, "Address", "Network", "Mac"));
+    }
+
+    [Fact]
+    public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading()
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new MySqlTableCopyAdapter(
+            "Server=localhost;Database=test;User ID=test;Password=test;AllowZeroDateTime=true"));
+
+        Assert.Contains("AllowZeroDateTime", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MySqlCheckpointStorage_RequiresSelectedDatabase()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            MySqlTableCopyAdapter.ValidateCheckpointDatabase(string.Empty));
+
+        Assert.Contains("selected database", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -930,6 +1000,23 @@ public class DbaProviderTableCopyAdapterBaseTests
 
         Assert.Equal(new[] { "displayname", "CreatedUtc", "Created At" }, normalized.Columns.Cast<DataColumn>().Select(static column => column.ColumnName));
         Assert.Equal("DisplayName", page.Columns[0].ColumnName);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRehydratesProviderNeutralNetworkValues()
+    {
+        using var page = new DataTable("Networks");
+        page.Columns.Add("Subnet", typeof(DbaIpNetwork));
+        var expected = new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Networks");
+
+        Assert.Equal(typeof(System.Net.IPNetwork), normalized.Columns[0].DataType);
+        var providerValue = Assert.IsType<System.Net.IPNetwork>(normalized.Rows[0][0]);
+        Assert.Equal(expected.Address, providerValue.BaseAddress);
+        Assert.Equal(expected.PrefixLength, providerValue.PrefixLength);
+        Assert.Equal(expected, Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(providerValue)));
     }
 
     [Fact]
