@@ -23,6 +23,6 @@ public sealed class DbaProviderTableCopyAdapterOptions
     /// <summary>Timeout in seconds for source pages, counts, and checkpoint operations. Zero disables the timeout.</summary>
     public int CommandTimeout { get; set; } = 600;
 
-    /// <summary>Optional SQL Server source transaction spanning all migration reads.</summary>
+    /// <summary>Optional provider-owned source transaction spanning all migration reads.</summary>
     public DbaTableCopyReadConsistency ReadConsistency { get; set; }
 }

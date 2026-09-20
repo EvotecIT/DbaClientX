@@ -12,8 +12,8 @@ public enum DbaTableCopyReadConsistency
 {
     /// <summary>The caller supplies an immutable snapshot or otherwise guarantees a stable source.</summary>
     CallerManaged,
-    /// <summary>Uses SQL Server snapshot isolation; ALLOW_SNAPSHOT_ISOLATION must already be enabled.</summary>
+    /// <summary>Uses the provider's transaction-stable snapshot. SQL Server requires ALLOW_SNAPSHOT_ISOLATION.</summary>
     Snapshot,
-    /// <summary>Holds serializable source read locks. Suitable for an offline source; blocks concurrent writers until copying finishes.</summary>
+    /// <summary>Uses serializable isolation. Locking and conflict behavior follow the selected provider.</summary>
     Serializable
 }

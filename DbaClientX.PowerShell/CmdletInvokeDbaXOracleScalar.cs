@@ -123,7 +123,7 @@ public sealed class CmdletInvokeDbaXOracleScalar : AsyncPSCmdlet {
                     break;
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXOracleScalar - Error executing Oracle: {ex.Message}");
+            WriteWarning($"Invoke-DbaXOracleScalar - Error executing Oracle: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

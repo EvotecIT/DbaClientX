@@ -142,7 +142,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
                 }
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXSQLite - Error querying SQLite: {ex.Message}");
+            WriteWarning($"Invoke-DbaXSQLite - Error querying SQLite: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

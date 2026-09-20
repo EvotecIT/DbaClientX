@@ -27,7 +27,9 @@ public class SqlServerTests
         {
             await sqlServer.QueryAsync("invalid", "master", true, "SELECT 1");
         });
-        Assert.Contains("SELECT 1", ex.Message);
+        Assert.DoesNotContain("SELECT 1", ex.Message);
+        Assert.NotNull(ex.QueryFingerprint);
+        Assert.Equal(64, ex.QueryFingerprint!.Length);
     }
 
     private class PingSqlServer : DBAClientX.SqlServer

@@ -27,7 +27,9 @@ public class MySqlTests
         {
             await mySql.QueryAsync("invalid", "mysql", "user", "pass", "SELECT 1");
         });
-        Assert.Contains("SELECT 1", ex.Message);
+        Assert.DoesNotContain("SELECT 1", ex.Message);
+        Assert.NotNull(ex.QueryFingerprint);
+        Assert.Equal(64, ex.QueryFingerprint!.Length);
     }
 
     private class PingMySql : DBAClientX.MySql

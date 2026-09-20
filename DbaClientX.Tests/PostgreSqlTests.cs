@@ -28,7 +28,9 @@ public class PostgreSqlTests
         {
             await pg.QueryAsync("invalid", "postgres", "user", "pass", "SELECT 1");
         });
-        Assert.Contains("SELECT 1", ex.Message);
+        Assert.DoesNotContain("SELECT 1", ex.Message);
+        Assert.NotNull(ex.QueryFingerprint);
+        Assert.Equal(64, ex.QueryFingerprint!.Length);
     }
 
     private class PingPostgreSql : DBAClientX.PostgreSql
@@ -558,7 +560,9 @@ public class PostgreSqlTests
         var exception = await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(() =>
             pg.QueryAsync(connectionString, "SELECT 1"));
 
-        Assert.Contains("SELECT 1", exception.Message);
+        Assert.DoesNotContain("SELECT 1", exception.Message);
+        Assert.NotNull(exception.QueryFingerprint);
+        Assert.Equal(64, exception.QueryFingerprint!.Length);
         Assert.IsNotType<ArgumentException>(exception.InnerException);
     }
 

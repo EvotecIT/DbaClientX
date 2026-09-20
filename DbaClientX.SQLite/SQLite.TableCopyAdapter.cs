@@ -8,7 +8,7 @@ namespace DBAClientX;
 /// <summary>
 /// SQLite source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
 {
     /// <summary>
     /// Creates a SQLite table-copy adapter.
@@ -37,6 +37,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
             throw new ArgumentException("Options must target SQLite.", nameof(options));
         }
         CommandTimeout = options.CommandTimeout;
+        ReadConsistency = options.ReadConsistency;
     }
 
     /// <inheritdoc />
@@ -55,9 +56,16 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteConnection? owned = _readConnection == null
+            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            : null;
+        SqliteConnection connection = _readConnection ?? owned!;
+        if (owned != null)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
         using var command = connection.CreateCommand();
+        command.Transaction = _readTransaction;
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -66,9 +74,16 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteConnection? owned = _readConnection == null
+            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            : null;
+        SqliteConnection connection = _readConnection ?? owned!;
+        if (owned != null)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
         using var command = connection.CreateCommand();
+        command.Transaction = _readTransaction;
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
         using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -103,6 +118,14 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
 
         return builder.ConnectionString;
     }
+
+    /// <inheritdoc />
+    protected override bool IsMissingTableExceptionCore(Exception exception)
+        => exception is SqliteException sqliteException &&
+           IsMissingTableError(sqliteException.SqliteErrorCode, sqliteException.Message);
+
+    internal static bool IsMissingTableError(int errorCode, string message)
+        => errorCode == 1 && message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
 
     private static bool HasConnectionStringKey(string connectionString, string key)
     {

@@ -30,6 +30,12 @@ public sealed class FabricClientOptions
     /// <summary>Gets or sets the maximum number of pages followed by one collection request.</summary>
     public int MaxPaginationPages { get; set; } = 10_000;
 
+    /// <summary>Gets or sets the maximum number of items accumulated by one all-pages request.</summary>
+    public int MaxPaginationItems { get; set; } = 1_000_000;
+
+    /// <summary>Gets or sets the maximum response body size accepted for one HTTP response.</summary>
+    public long MaxResponseContentBytes { get; set; } = 64L * 1024L * 1024L;
+
     /// <summary>Gets or sets the minimum exponential retry delay.</summary>
     public TimeSpan MinimumRetryDelay { get; set; } = TimeSpan.FromSeconds(1);
 
@@ -65,6 +71,16 @@ public sealed class FabricClientOptions
         if (MaxPaginationPages <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(MaxPaginationPages));
+        }
+
+        if (MaxPaginationItems <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxPaginationItems));
+        }
+
+        if (MaxResponseContentBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxResponseContentBytes));
         }
 
         if (MinimumRetryDelay < TimeSpan.Zero || MaximumRetryDelay < MinimumRetryDelay)

@@ -9,16 +9,50 @@ namespace DbaClientX.Tests;
 public class DbaDataReaderTests
 {
     [Fact]
-    public void SqlServerAsyncReaderApis_ReturnOwnedReaderType()
+    public void ProviderAsyncReaderApis_ReturnOwnedReaderType()
     {
-        var methods = typeof(DBAClientX.SqlServer)
-            .GetMethods()
-            .Where(method => method.Name == nameof(DBAClientX.SqlServer.QueryReaderAsync))
-            .ToArray();
+        var providerMethods = new[]
+        {
+            (typeof(DBAClientX.SqlServer), nameof(DBAClientX.SqlServer.QueryReaderAsync)),
+            (typeof(DBAClientX.PostgreSql), nameof(DBAClientX.PostgreSql.QueryReaderAsync)),
+            (typeof(DBAClientX.MySql), nameof(DBAClientX.MySql.QueryReaderAsync)),
+            (typeof(DBAClientX.Oracle), nameof(DBAClientX.Oracle.QueryReaderAsync)),
+            (typeof(DBAClientX.SQLite), nameof(DBAClientX.SQLite.QueryReaderAsync))
+        };
 
-        Assert.NotEmpty(methods);
-        Assert.All(methods, method =>
-            Assert.Equal(typeof(Task<DBAClientX.DbaDataReader>), method.ReturnType));
+        foreach (var (providerType, methodName) in providerMethods)
+        {
+            var methods = providerType.GetMethods().Where(method => method.Name == methodName).ToArray();
+            Assert.NotEmpty(methods);
+            Assert.All(methods, method => Assert.Equal(typeof(Task<DBAClientX.DbaDataReader>), method.ReturnType));
+        }
+    }
+
+    [Fact]
+    public async Task SQLiteQueryReaderAsync_StreamsParametersAndOwnsResources()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "dbax-reader-" + Guid.NewGuid().ToString("N") + ".sqlite");
+        try
+        {
+            using var sqlite = new DBAClientX.SQLite();
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE Rows (Id INTEGER PRIMARY KEY, Payload TEXT NOT NULL); INSERT INTO Rows VALUES (1, 'one'), (2, 'two');");
+
+            await using var reader = await sqlite.QueryReaderAsync(
+                path,
+                "SELECT Id, Payload FROM Rows WHERE Id >= @id ORDER BY Id",
+                new Dictionary<string, object?> { ["@id"] = 2 });
+
+            Assert.True(await reader.ReadAsync(CancellationToken.None));
+            Assert.Equal(2L, reader.GetInt64(0));
+            Assert.Equal("two", reader.GetString(1));
+            Assert.False(await reader.ReadAsync(CancellationToken.None));
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + "-wal");
+            File.Delete(path + "-shm");
+        }
     }
 
     [Fact]

@@ -186,7 +186,7 @@ public sealed class CmdletInvokeDbaXMySql : AsyncPSCmdlet {
                 }
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXMySql - Error querying MySql: {ex.Message}");
+            WriteWarning($"Invoke-DbaXMySql - Error querying MySql: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

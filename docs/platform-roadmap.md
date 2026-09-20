@@ -20,7 +20,7 @@ This file is the open product backlog for database and table-shaped data access 
 ## Schema and data movement
 
 - [ ] Add a provider-neutral schema snapshot, comparison, and migration-plan product for tables, columns, keys, indexes, foreign keys, sequences or identities, and supported constraints. Generate ordered create/alter/drop plans with provider diagnostics, destructive-change authorization, dry-run output, and idempotency; do not turn it into a domain migration framework.
-- [ ] Extend the SQLite/SQL Server atomic table-copy checkpoint contract to other providers, including explicit checkpoint inspection and abandonment tools. Preserve page atomicity and never infer that an interrupted batch committed.
+- [ ] Add explicit checkpoint inspection and abandonment tools over the shared relational checkpoint contract. Preserve page atomicity and never infer that an interrupted batch committed.
 - [ ] Add bounded incremental-copy contracts only after each provider has a stable ordering or change-token strategy. Keep database-native CDC, temporal-table, log-reading, and replication integrations in optional provider packages and expose their provenance and retention assumptions in the plan.
 - [ ] Extend full-content table-copy checksums with configurable sampling, duplicate and missing-key reports, and post-copy constraint evidence across providers. Keep verification bounded in memory.
 - [ ] Add a first-class mapping plan for renames, exclusions, defaults, computed values, safe conversions, and caller transformations that can be serialized, reviewed, fingerprinted, and reused by .NET and PowerShell without embedding executable code in the manifest.
@@ -35,7 +35,7 @@ This file is the open product backlog for database and table-shaped data access 
 
 ## Optional analytical and interchange packages
 
-- [ ] Evaluate Apache Arrow and Parquet as optional tabular interchange packages over the shared streaming, mapping, and type-report contracts. Keep their dependencies out of provider packages, measure row-group and batch memory, preserve logical-type diagnostics, and require provider-to-columnar plus columnar-to-provider round trips before publication.
+- [ ] Evaluate Parquet integration over the OfficeIMO.Data.Arrow owner and the shared forward-only reader contract. Keep Arrow and Parquet dependencies out of database-provider packages, measure row-group and batch memory, preserve logical-type diagnostics, and require provider-to-columnar plus columnar-to-provider round trips before publication.
 - [ ] Evaluate DuckDB as the first embedded analytical provider candidate. Admit it only if it implements the same capability profile, parameter and transaction contracts, metadata surface, table-copy participation, packaging, native-library lifecycle, and cross-platform evidence as existing providers.
 - [ ] Define an admission checklist before adding ODBC, Firebird, Snowflake, Databricks SQL, BigQuery, or another provider: maintained driver, caller-owned authentication, safe parameterization, typed capability profile, live evidence, package weight, supported targets, and a real consumer. Generic ODBC must expose negotiated capabilities and may not claim guarantees the driver cannot prove.
 - [ ] Keep document-shaped JSON/XML/YAML parsing in OfficeIMO and control-plane SDKs in their service owners. MongoDB, Redis, queues, object storage, workspace administration, and report deployment do not enter DbaClientX.Core merely because they can contain rows.

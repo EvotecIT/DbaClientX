@@ -91,14 +91,18 @@ internal static class TestClients
         StaticTokenProvider? tokenProvider = null,
         Uri? baseAddress = null,
         Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
-        int maxRetries = 3)
+        int maxRetries = 3,
+        int maxPaginationItems = 1_000_000,
+        long maxResponseContentBytes = 64L * 1024L * 1024L)
     {
         var options = new FabricClientOptions(
             new HttpClient(handler, disposeHandler: false),
             tokenProvider ?? new StaticTokenProvider())
         {
             BaseAddress = baseAddress ?? FabricClientOptions.DefaultBaseAddress,
-            MaxRetryAttempts = maxRetries
+            MaxRetryAttempts = maxRetries,
+            MaxPaginationItems = maxPaginationItems,
+            MaxResponseContentBytes = maxResponseContentBytes
         };
         if (delayAsync != null)
         {

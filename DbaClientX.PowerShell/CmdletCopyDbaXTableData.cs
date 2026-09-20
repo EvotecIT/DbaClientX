@@ -287,7 +287,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
         catch (Exception ex)
         {
-            WriteWarning($"Copy-DbaXTableData - Error copying table data: {ex.Message}");
+            WriteWarning($"Copy-DbaXTableData - Error copying table data: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (_errorAction == ActionPreference.Stop)
             {
                 throw;

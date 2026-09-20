@@ -1,12 +1,13 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using MySqlConnector;
 
 namespace DBAClientX;
 
 /// <summary>
 /// MySQL source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
 {
     /// <summary>
     /// Creates a MySQL table-copy adapter.
@@ -34,12 +35,14 @@ public sealed class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
         {
             throw new ArgumentException("Options must target MySQL.", nameof(options));
         }
+        CommandTimeout = options.CommandTimeout;
+        ReadConsistency = options.ReadConsistency;
     }
 
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        using var mySql = new MySql();
+        using var mySql = new MySql { CommandTimeout = CommandTimeout };
         await mySql.BulkInsertAsync(
                 ConnectionString,
                 page,
@@ -66,14 +69,23 @@ public sealed class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var mySql = new MySql();
+        if (_readConnection != null)
+        {
+            await using MySqlCommand command = CreateReadCommand(query);
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        using var mySql = new MySql { CommandTimeout = CommandTimeout };
         return await mySql.ExecuteScalarAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var mySql = new MySql { ReturnType = ReturnType.DataTable };
+        if (_readConnection != null)
+        {
+            return await ExecuteMySqlPageAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+        }
+        using var mySql = new MySql { ReturnType = ReturnType.DataTable, CommandTimeout = CommandTimeout };
         var result = await mySql.QueryAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result as DataTable
             ?? throw new InvalidOperationException("MySQL did not return a DataTable.");
@@ -82,7 +94,14 @@ public sealed class MySqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var mySql = new MySql();
+        using var mySql = new MySql { CommandTimeout = CommandTimeout };
         await mySql.ExecuteNonQueryAsync(ResolveMySqlRegularOperationConnectionString(), query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    protected override bool IsMissingTableExceptionCore(Exception exception)
+        => exception is MySqlException mySqlException && IsMissingTableErrorCode(mySqlException.ErrorCode);
+
+    internal static bool IsMissingTableErrorCode(MySqlErrorCode errorCode)
+        => errorCode == MySqlErrorCode.NoSuchTable;
 }

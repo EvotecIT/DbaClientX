@@ -24,57 +24,44 @@ public partial class SQLite
         string sourceDatabase,
         string destinationDatabase,
         int? busyTimeoutMs = null)
+        => BackupDatabase(sourceDatabase, destinationDatabase, overwriteDestination: false, busyTimeoutMs);
+
+    /// <summary>
+    /// Copies a SQLite database into a destination database using SQLite's online backup API.
+    /// </summary>
+    /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
+    /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
+    /// <param name="overwriteDestination">Whether an existing destination may be atomically replaced.</param>
+    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds applied to both connections.</param>
+    /// <remarks>
+    /// The source database is opened read-only. The destination is created when it does not exist and is replaced
+    /// atomically only when <paramref name="overwriteDestination"/> is true.
+    /// </remarks>
+    public virtual void BackupDatabase(
+        string sourceDatabase,
+        string destinationDatabase,
+        bool overwriteDestination,
+        int? busyTimeoutMs = null)
     {
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
         EnsureNoActiveTransaction();
-
-        var destinationDirectory = Path.GetDirectoryName(destinationDatabase);
-        if (!string.IsNullOrWhiteSpace(destinationDirectory))
+        if (busyTimeoutMs < 0)
         {
-            Directory.CreateDirectory(destinationDirectory);
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
         }
 
-        try
+        var options = new SqliteBackupOptions
         {
-            using var source = new SqliteConnection(BuildOperationalConnectionString(sourceDatabase, readOnly: true));
-            source.Open();
-            ApplyBusyTimeout(source, busyTimeoutMs);
-
-            using var destination = new SqliteConnection(BuildConnectionString(destinationDatabase, readOnly: false, busyTimeoutMs: null));
-            destination.Open();
-            ApplyBusyTimeout(destination, busyTimeoutMs);
-
-            source.BackupDatabase(destination);
-        }
-        catch (SqliteException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (IOException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (ArgumentException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (NotSupportedException ex)
-        {
-            throw CreateBackupException(ex);
-        }
+            OverwriteDestination = overwriteDestination,
+            BusyRetryTimeout = busyTimeoutMs.HasValue
+                ? TimeSpan.FromMilliseconds(busyTimeoutMs.Value)
+                : TimeSpan.FromSeconds(30)
+        };
+        BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
+            .GetAwaiter()
+            .GetResult();
     }
-
-    private static DbaQueryExecutionException CreateBackupException(Exception exception) =>
-        new("Failed to back up SQLite database.", "SQLite online backup", exception);
 
     /// <summary>
     /// Executes <c>PRAGMA wal_checkpoint(...)</c> using the supplied checkpoint mode.

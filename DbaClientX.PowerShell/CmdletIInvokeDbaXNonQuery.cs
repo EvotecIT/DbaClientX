@@ -130,7 +130,7 @@ public sealed class CmdletIInvokeDbaXNonQuery : PSCmdlet {
             var affected = sqlServer.ExecuteNonQuery(connectionString, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {ex.Message}");
+            WriteWarning($"Invoke-DbaXNonQuery - Error querying SqlServer: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

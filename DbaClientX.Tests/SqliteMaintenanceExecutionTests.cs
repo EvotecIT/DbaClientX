@@ -6,6 +6,61 @@ namespace DbaClientX.Tests;
 public sealed class SqliteMaintenanceExecutionTests
 {
     [Fact]
+    public async Task BackupDatabase_ExistingDestinationRequiresExplicitOverwrite()
+    {
+        string source = CreateDatabase(rowCount: 2);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            using var sqlite = new SQLite();
+
+            Assert.Throws<IOException>(() => sqlite.BackupDatabase(source, destination));
+            Assert.Equal(1, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabase_ExplicitOverwriteAtomicallyReplacesDestination()
+    {
+        string source = CreateDatabase(rowCount: 2);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            using var sqlite = new SQLite();
+
+            sqlite.BackupDatabase(source, destination, overwriteDestination: true);
+
+            Assert.Equal(2, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public void BackupDatabase_RejectsSameSourceAndDestination()
+    {
+        string source = CreateDatabase();
+        try
+        {
+            using var sqlite = new SQLite();
+
+            Assert.Throws<ArgumentException>(() => sqlite.BackupDatabase(source, source, overwriteDestination: true));
+        }
+        finally
+        {
+            Cleanup(source);
+        }
+    }
+
+    [Fact]
     public async Task CheckIntegrityAsync_HealthyDatabase_ReturnsHealthyResult()
     {
         string database = CreateDatabase();

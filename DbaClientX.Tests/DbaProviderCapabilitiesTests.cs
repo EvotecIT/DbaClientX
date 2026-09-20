@@ -33,6 +33,18 @@ public sealed class DbaProviderCapabilitiesTests
         Assert.True(capabilities.HasFlag(DbaProviderCapability.Metadata));
         Assert.True(capabilities.HasFlag(DbaProviderCapability.TableCopy));
         Assert.True(capabilities.HasFlag(DbaProviderCapability.Transaction));
+        Assert.True(capabilities.HasFlag(DbaProviderCapability.KeysetPagination));
+        Assert.True(capabilities.HasFlag(DbaProviderCapability.BoundedTableCopyPages));
+        Assert.True(capabilities.HasFlag(DbaProviderCapability.ConsistentTableCopyRead));
+        Assert.True(capabilities.HasFlag(DbaProviderCapability.ContentVerifiedTableCopy));
+        Assert.True(capabilities.HasFlag(DbaProviderCapability.AtomicTableCopyCheckpoints));
+        Assert.Equal(
+            provider != DbaTableCopyProvider.Oracle && provider != DbaTableCopyProvider.SQLite,
+            capabilities.HasFlag(DbaProviderCapability.NativeAsyncBulkInsert));
         Assert.Equal(supportsStoredProcedures, capabilities.HasFlag(DbaProviderCapability.StoredProcedure));
     }
+
+    [Fact]
+    public void UnknownProvider_ThrowsArgumentOutOfRangeException()
+        => Assert.Throws<ArgumentOutOfRangeException>(() => DbaProviderCapabilities.GetProfile((DbaTableCopyProvider)999));
 }

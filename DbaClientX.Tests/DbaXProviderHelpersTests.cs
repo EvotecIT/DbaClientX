@@ -9,6 +9,39 @@ namespace DbaClientX.Tests;
 public class DbaXProviderHelpersTests
 {
     [Theory]
+    [InlineData(DbaXProvider.SqlServer, "Server=.;Database=app;Encrypt=True")]
+    [InlineData(DbaXProvider.PostgreSql, "Host=localhost;Database=app;Username=user;Password=p;SslMode=Require")]
+    [InlineData(DbaXProvider.MySql, "Server=localhost;Database=app;User ID=user;Password=p;SslMode=Required")]
+    [InlineData(DbaXProvider.Oracle, "Data Source=localhost/service;User Id=user;Password=p")]
+    [InlineData(DbaXProvider.SQLite, "Data Source=app.db")]
+    public void TryParseConnectionString_AcceptsProviderKeywords(DbaXProvider provider, string connectionString)
+    {
+        var parsed = DbaXProviderHelpers.TryParseConnectionString(provider, connectionString, out var error);
+
+        Assert.True(parsed);
+        Assert.Null(error);
+    }
+
+    [Theory]
+    [InlineData(DbaXProvider.SqlServer)]
+    [InlineData(DbaXProvider.PostgreSql)]
+    [InlineData(DbaXProvider.MySql)]
+    [InlineData(DbaXProvider.Oracle)]
+    [InlineData(DbaXProvider.SQLite)]
+    public void TryParseConnectionString_RejectsUnknownProviderKeywordsWithoutEchoingValues(DbaXProvider provider)
+    {
+        const string secret = "do-not-echo-this";
+        var parsed = DbaXProviderHelpers.TryParseConnectionString(
+            provider,
+            $"DefinitelyInvalid={secret}",
+            out var error);
+
+        Assert.False(parsed);
+        Assert.NotNull(error);
+        Assert.DoesNotContain(secret, error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(@"Data Source=C:\data\app.db", @"C:\data\app.db")]
     [InlineData(@"Filename=C:\data\app.db", @"C:\data\app.db")]
     [InlineData(@"C:\data\app.db", @"C:\data\app.db")]

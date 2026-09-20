@@ -257,13 +257,17 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         $result.ConnectionStringValid | Should -BeFalse
     }
 
-    It 'reports provider preflight ping failures as detailed connection results' {
+    It 'rejects provider-invalid connection strings before ping' {
         $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Data Source=:memory:;DefinitelyInvalid=true' -Detailed
 
-        $result.ConnectionStringValid | Should -BeTrue
-        $result.PingAttempted | Should -BeTrue
+        $result.ShapeValid | Should -BeTrue
+        $result.PolicyValid | Should -BeTrue
+        $result.ProviderParsed | Should -BeFalse
+        $result.ConnectionStringValid | Should -BeFalse
+        $result.PingAttempted | Should -BeFalse
         $result.PingSucceeded | Should -BeFalse
-        $result.PingError | Should -Not -BeNullOrEmpty
+        $result.ValidationMessage | Should -Not -BeNullOrEmpty
+        $result.PingError | Should -BeNullOrEmpty
     }
 
     It 'validates SQLite connection input for full-connection streaming' -Skip:($PSVersionTable.PSEdition -ne 'Core') {

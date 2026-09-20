@@ -352,7 +352,7 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
                 }
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXQuery - Error querying SqlServer: {ex.Message}");
+            WriteWarning($"Invoke-DbaXQuery - Error querying SqlServer: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

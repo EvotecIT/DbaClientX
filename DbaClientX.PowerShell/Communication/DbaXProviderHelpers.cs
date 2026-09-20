@@ -101,6 +101,33 @@ internal static class DbaXProviderHelpers
             _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
         };
 
+    internal static bool TryParseConnectionString(
+        DbaXProvider provider,
+        string connectionString,
+        out string? error)
+    {
+        try
+        {
+            _ = provider switch
+            {
+                DbaXProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString).ConnectionString,
+                DbaXProvider.PostgreSql => new Npgsql.NpgsqlConnectionStringBuilder(connectionString).ConnectionString,
+                DbaXProvider.MySql => new MySqlConnector.MySqlConnectionStringBuilder(connectionString).ConnectionString,
+                DbaXProvider.Oracle => new global::Oracle.ManagedDataAccess.Client.OracleConnectionStringBuilder(connectionString).ConnectionString,
+                DbaXProvider.SQLite => new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString).ConnectionString,
+                _ => throw new PSArgumentException($"Provider '{provider}' is not supported.", nameof(provider))
+            };
+
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or FormatException or NotSupportedException or DbException)
+        {
+            error = "The connection string contains a keyword or value that is not valid for the selected provider.";
+            return false;
+        }
+    }
+
     internal static IReadOnlyList<DbaTableInfo> GetTables(DbaXProvider provider, string connectionString, string? schema, bool includeViews)
         => provider switch
         {

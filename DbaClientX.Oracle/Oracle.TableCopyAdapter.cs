@@ -1,12 +1,13 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using Oracle.ManagedDataAccess.Client;
 
 namespace DBAClientX;
 
 /// <summary>
 /// Oracle source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class OracleTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
 {
     /// <summary>
     /// Creates an Oracle table-copy adapter.
@@ -34,12 +35,14 @@ public sealed class OracleTableCopyAdapter : DbaProviderTableCopyAdapterBase
         {
             throw new ArgumentException("Options must target Oracle.", nameof(options));
         }
+        CommandTimeout = options.CommandTimeout;
+        ReadConsistency = options.ReadConsistency;
     }
 
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        using var oracle = new Oracle();
+        using var oracle = new Oracle { CommandTimeout = CommandTimeout };
         await oracle.BulkInsertAsync(
                 ConnectionString,
                 page,
@@ -53,14 +56,23 @@ public sealed class OracleTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var oracle = new Oracle();
+        if (_readConnection != null)
+        {
+            using OracleCommand command = CreateReadCommand(query);
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        using var oracle = new Oracle { CommandTimeout = CommandTimeout };
         return await oracle.ExecuteScalarAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var oracle = new Oracle { ReturnType = ReturnType.DataTable };
+        if (_readConnection != null)
+        {
+            return await ExecuteOraclePageAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+        }
+        using var oracle = new Oracle { ReturnType = ReturnType.DataTable, CommandTimeout = CommandTimeout };
         var result = await oracle.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result as DataTable
             ?? throw new InvalidOperationException("Oracle did not return a DataTable.");
@@ -69,7 +81,13 @@ public sealed class OracleTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var oracle = new Oracle();
+        using var oracle = new Oracle { CommandTimeout = CommandTimeout };
         await oracle.ExecuteNonQueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    protected override bool IsMissingTableExceptionCore(Exception exception)
+        => exception is OracleException oracleException && IsMissingTableErrorNumber(oracleException.Number);
+
+    internal static bool IsMissingTableErrorNumber(int number) => number == 942;
 }

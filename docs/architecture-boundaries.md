@@ -13,6 +13,7 @@ The implementation begins as several independently packable projects in the DbaC
 | Power BI semantic models, reports, and refresh workflows | FabricClientX.PowerBI |
 | OfficeIMO CSV to Warehouse and refresh integration | FabricClientX.OfficeIMO |
 | Office document and report-artifact modeling | OfficeIMO |
+| Bounded Apache Arrow batches and managed/C stream export from `DbDataReader` | OfficeIMO.Data.Arrow |
 | DbaClientX PowerShell parameter binding and output projection | DbaClientX.PowerShell and the DbaClientX module |
 | FabricClientX PowerShell parameter binding and output projection | FabricClientX.PowerShell and the FabricClientX module |
 | Product-specific collection, schema, and orchestration | Consuming products |
@@ -25,6 +26,7 @@ The implementation begins as several independently packable projects in the DbaC
 - Fabric Warehouse data access remains a SQL data-plane capability and must not depend on Fabric REST clients.
 - Optional integration packages may depend on both families, but neither family should depend on an integration package.
 - OfficeIMO integrations map artifacts to typed FabricClientX requests; they must not reimplement authentication, retries, pagination, or long-running-operation handling.
+- DbaClientX providers expose owned forward-only `DbDataReader` instances. OfficeIMO.Data.Arrow owns Arrow batch construction and managed/C stream export; provider packages do not reference Apache.Arrow.
 - PowerShell cmdlets bind parameters and project progress/results; they must not own service workflows.
 
 ## When a new provider belongs in DbaClientX

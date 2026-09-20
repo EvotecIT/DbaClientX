@@ -18,7 +18,7 @@ public sealed record DbaTableCopyDefinition(
     DbaTableCopySourceOptions? SourceOptions = null)
 {
     /// <summary>
-    /// Uses the last ordered key instead of an offset for SQLite and SQL Server reads.
+    /// Uses the last ordered key instead of an offset for relational-provider reads.
     /// OrderByColumns must identify a unique, non-null key in the source, in ascending order.
     /// </summary>
     public bool UseKeysetPagination { get; init; }

@@ -38,8 +38,8 @@ public sealed class DbaTableCopyOptions
     public bool KeepIdentity { get; init; }
 
     /// <summary>
-    /// Optional stable copy identifier. SQLite and SQL Server destinations commit a durable checkpoint atomically
-    /// with each page. Use a new identifier for a new copy and retain it for an explicit resume.
+    /// Optional stable copy identifier. Relational destinations commit a durable checkpoint atomically with each
+    /// page. Use a new identifier for a new copy and retain it for an explicit resume.
     /// </summary>
     public string? CheckpointId { get; init; }
 

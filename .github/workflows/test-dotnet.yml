@@ -70,3 +70,107 @@ jobs:
         with:
           files: '**/coverage.cobertura.xml'
           fail_ci_if_error: false
+
+  live-provider-contracts:
+    name: PostgreSQL and MySQL live contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: dbax
+          POSTGRES_PASSWORD: dbax-test-password
+          POSTGRES_DB: dbax
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dbax -d dbax"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_USER: dbax
+          MYSQL_PASSWORD: dbax-test-password
+          MYSQL_DATABASE: dbax
+          MYSQL_ROOT_PASSWORD: dbax-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u dbax --password=dbax-test-password"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+
+      - name: Enable MySQL local-infile for bulk-copy contracts
+        run: >-
+          docker exec ${{ job.services.mysql.id }}
+          mysql -uroot --password=dbax-root-password
+          -e "SET GLOBAL local_infile=ON;"
+
+      - name: Restore dependencies
+        run: dotnet restore DbaClientX.Tests/DbaClientX.Tests.csproj
+
+      - name: Run live provider reliability contracts
+        run: >-
+          dotnet test DbaClientX.Tests/DbaClientX.Tests.csproj
+          --configuration ${{ env.BUILD_CONFIGURATION }}
+          --framework net10.0
+          --filter Category=LiveProvider
+          --verbosity normal
+        env:
+          DBACLIENTX_POSTGRESQL_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=dbax;Username=dbax;Password=dbax-test-password;SSL Mode=Disable
+          DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=None;AllowLoadLocalInfile=true
+
+  package-contracts:
+    name: NuGet API compatibility
+    # Provider projects include their complete legacy framework surface only on Windows.
+    # Run package compatibility where the produced package matches the published shape.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.x
+            10.x
+
+      - name: Restore dependencies and published baselines
+        run: dotnet restore DbaClientX.sln
+
+      - name: Pack and validate public DbaClientX APIs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $projects = @(
+            'DbaClientX.Core/DbaClientX.Core.csproj'
+            'DbaClientX.SqlServer/DbaClientX.SqlServer.csproj'
+            'DbaClientX.PostgreSql/DbaClientX.PostgreSql.csproj'
+            'DbaClientX.MySql/DbaClientX.MySql.csproj'
+            'DbaClientX.SQLite/DbaClientX.SQLite.csproj'
+            'DbaClientX.Oracle/DbaClientX.Oracle.csproj'
+            'DbaClientX.AzureTables/DbaClientX.AzureTables.csproj'
+          )
+          foreach ($project in $projects) {
+            dotnet pack $project `
+              --configuration '${{ env.BUILD_CONFIGURATION }}' `
+              --output artifacts/package-validation `
+              --no-restore
+            if ($LASTEXITCODE -ne 0) {
+              throw "Package validation failed for $project."
+            }
+          }

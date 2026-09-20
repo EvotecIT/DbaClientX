@@ -115,7 +115,7 @@ public sealed class CmdletInvokeDbaXMySqlScalar : AsyncPSCmdlet {
                     break;
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXMySqlScalar - Error executing MySql: {ex.Message}");
+            WriteWarning($"Invoke-DbaXMySqlScalar - Error executing MySql: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }

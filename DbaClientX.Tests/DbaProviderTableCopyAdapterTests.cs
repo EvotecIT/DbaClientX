@@ -9,6 +9,58 @@ namespace DbaClientX.Tests;
 public class DbaProviderTableCopyAdapterBaseTests
 {
     [Fact]
+    public async Task SQLiteSnapshotReadSession_ExcludesRowsCommittedAfterFirstPage()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "PRAGMA journal_mode=WAL;");
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, Payload TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows VALUES (1, 'One'), (2, 'Two');");
+            }
+
+            var source = new SQLiteTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = sourcePath,
+                DefaultOrderByColumns = new[] { "Id" },
+                ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+            });
+            var definition = new DbaTableCopyDefinition(
+                "SourceRows",
+                "DestinationRows",
+                new[] { "Id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            using var session = await source.OpenReadSessionAsync();
+            using var first = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, null, 1));
+
+            await using (var writer = new SqliteConnection(SQLite.BuildConnectionString(sourcePath)))
+            {
+                await writer.OpenAsync();
+                await using var command = writer.CreateCommand();
+                command.CommandText = "INSERT INTO SourceRows VALUES (3, 'Three');";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using var second = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, first.ContinuationToken, 1));
+            using var third = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, second.ContinuationToken, 1));
+
+            Assert.Equal(1L, first.Data.Rows[0].Field<long>("Id"));
+            Assert.Equal(2L, second.Data.Rows[0].Field<long>("Id"));
+            Assert.Empty(third.Data.Rows.Cast<DataRow>());
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+        }
+    }
+
+    [Fact]
     public async Task CopyAsync_CopiesRowsBetweenSQLiteConnectionStrings()
     {
         var sourcePath = CreateTempDatabasePath();
@@ -733,21 +785,54 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("duplicate destination column 'displayname'", exception.Message);
     }
 
-    [Theory]
-    [InlineData("relation \"missing\" does not exist", true)]
-    [InlineData("schema \"missing_schema\" does not exist", true)]
-    [InlineData("no such table: MissingRows", true)]
-    [InlineData("invalid object name 'dbo.MissingRows'.", true)]
-    [InlineData("function lower(integer) does not exist", false)]
-    [InlineData("column \"BadKey\" does not exist", false)]
-    [InlineData("no such column: BadKey", false)]
-    [InlineData("Unknown column 'BadKey' in 'field list'", false)]
-    [InlineData("Invalid column name 'BadKey'.", false)]
-    public void MissingTableDetection_DoesNotTreatMissingColumnsAsMissingTables(string message, bool expected)
+    [Fact]
+    public void MissingTableDetection_UsesProviderErrorCodes()
     {
-        var actual = InvokeIsMissingTableException(new InvalidOperationException(message));
+        Assert.True(SqlServerTableCopyAdapter.IsMissingTableErrorNumber(208));
+        Assert.False(SqlServerTableCopyAdapter.IsMissingTableErrorNumber(207));
+        Assert.True(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("42P01"));
+        Assert.True(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("3F000"));
+        Assert.False(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("42703"));
+        Assert.True(MySqlTableCopyAdapter.IsMissingTableErrorCode(MySqlConnector.MySqlErrorCode.NoSuchTable));
+        Assert.False(MySqlTableCopyAdapter.IsMissingTableErrorCode(MySqlConnector.MySqlErrorCode.BadFieldError));
+        Assert.True(OracleTableCopyAdapter.IsMissingTableErrorNumber(942));
+        Assert.False(OracleTableCopyAdapter.IsMissingTableErrorNumber(904));
+        Assert.True(SQLiteTableCopyAdapter.IsMissingTableError(1, "SQLite Error 1: 'no such table: MissingRows'."));
+        Assert.False(SQLiteTableCopyAdapter.IsMissingTableError(1, "SQLite Error 1: 'no such column: BadKey'."));
+    }
 
-        Assert.Equal(expected, actual);
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void ProviderOptions_PropagateCommandTimeout(DbaTableCopyProvider provider)
+    {
+        var adapter = CreateAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = GetTestConnectionString(provider),
+            CommandTimeout = 41
+        });
+
+        Assert.Equal(41, adapter.CommandTimeout);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void ProviderOptions_RejectNegativeCommandTimeout(DbaTableCopyProvider provider)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = GetTestConnectionString(provider),
+            CommandTimeout = -1
+        }));
     }
 
     [Fact]
@@ -973,14 +1058,6 @@ public class DbaProviderTableCopyAdapterBaseTests
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }
 
-    private static bool InvokeIsMissingTableException(Exception exception)
-    {
-        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("IsMissingTableException", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "IsMissingTableException");
-
-        return (bool)method.Invoke(null, new object?[] { exception })!;
-    }
-
     private static DbaProviderTableCopyRunner CreateRunner()
         => new(CreateAdapter, CreateAdapter);
 
@@ -1011,6 +1088,17 @@ public class DbaProviderTableCopyAdapterBaseTests
             _ => throw new NotSupportedException($"Provider '{provider}' is not supported.")
         };
 
+    private static string GetTestConnectionString(DbaTableCopyProvider provider)
+        => provider switch
+        {
+            DbaTableCopyProvider.SqlServer => "Server=.;Database=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            DbaTableCopyProvider.PostgreSql => "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require",
+            DbaTableCopyProvider.MySql => "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True",
+            DbaTableCopyProvider.Oracle => "Data Source=localhost/service;User Id=u;Password=p",
+            DbaTableCopyProvider.SQLite => "Data Source=:memory:",
+            _ => throw new ArgumentOutOfRangeException(nameof(provider))
+        };
+
     private static void CreateHistoryTables(SQLite sqlite, string path)
     {
         sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResults (ResultId INTEGER NOT NULL PRIMARY KEY, ProbeName TEXT NOT NULL, IsMaintenance INTEGER NOT NULL);");
@@ -1019,9 +1107,13 @@ public class DbaProviderTableCopyAdapterBaseTests
 
     private static void DeleteIfExists(string path)
     {
-        if (File.Exists(path))
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm", "-journal" })
         {
-            File.Delete(path);
+            var candidate = path + suffix;
+            if (File.Exists(candidate))
+            {
+                File.Delete(candidate);
+            }
         }
     }
 

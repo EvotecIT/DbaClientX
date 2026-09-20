@@ -34,5 +34,23 @@ public enum DbaProviderCapability
     TableCopy = 1 << 7,
 
     /// <summary>Provider exposes transaction helpers.</summary>
-    Transaction = 1 << 8
+    Transaction = 1 << 8,
+
+    /// <summary>Provider table-copy reads support stable keyset continuation.</summary>
+    KeysetPagination = 1 << 13,
+
+    /// <summary>Provider table-copy reads can enforce a bounded in-memory page payload.</summary>
+    BoundedTableCopyPages = 1 << 14,
+
+    /// <summary>Provider can keep copy source reads in one transaction-stable session.</summary>
+    ConsistentTableCopyRead = 1 << 15,
+
+    /// <summary>Provider can participate in content-hashed copy verification.</summary>
+    ContentVerifiedTableCopy = 1 << 16,
+
+    /// <summary>Provider can atomically commit destination pages with restart checkpoints.</summary>
+    AtomicTableCopyCheckpoints = 1 << 17,
+
+    /// <summary>Provider bulk writes use native asynchronous I/O rather than a worker-thread wrapper.</summary>
+    NativeAsyncBulkInsert = 1 << 18
 }

@@ -158,7 +158,7 @@ internal static class PowerShellHelpers
         var message = DbaConnectionFactory.ToUserMessage(result);
         if (errorAction == ActionPreference.Stop)
         {
-            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), result.Code.ToString(), ErrorCategory.InvalidArgument, connectionString));
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), result.Code.ToString(), ErrorCategory.InvalidArgument, providerAlias));
         }
         else
         {
@@ -190,7 +190,7 @@ internal static class PowerShellHelpers
             "Set one of these options before using Write-DbaXTableData with -Provider MySql.";
         if (errorAction == ActionPreference.Stop)
         {
-            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), "MySqlLocalInfileRequired", ErrorCategory.InvalidArgument, connectionString));
+            throwTerminatingError(new ErrorRecord(new PSArgumentException(message), "MySqlLocalInfileRequired", ErrorCategory.InvalidArgument, "MySql"));
         }
         else
         {
@@ -216,6 +216,14 @@ internal static class PowerShellHelpers
         {
             return false;
         }
+    }
+
+    internal static string GetSafeErrorMessage(Exception exception)
+    {
+        if (exception == null) throw new ArgumentNullException(nameof(exception));
+        return exception is DbaQueryExecutionException queryException
+            ? queryException.Message
+            : "The database operation failed. Inspect the exception type and operation identifier for details.";
     }
 
     internal static void RejectFullConnectionTransactionSwitch(SwitchParameter useTransaction, string cmdletName)

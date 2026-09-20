@@ -64,6 +64,7 @@ public class PowerShellHelpersTests
         Assert.NotNull(exception.ErrorRecord);
         Assert.Equal(DbaConnectionFactory.ConnectionValidationErrorCode.MissingConnectionString.ToString(), exception.ErrorRecord.FullyQualifiedErrorId);
         Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
+        Assert.Equal("sqlserver", exception.ErrorRecord.TargetObject);
         Assert.Same(terminatingError, exception.ErrorRecord);
     }
 
@@ -146,7 +147,19 @@ public class PowerShellHelpersTests
 
         Assert.Equal("MySqlLocalInfileRequired", exception.ErrorRecord.FullyQualifiedErrorId);
         Assert.Equal(ErrorCategory.InvalidArgument, exception.ErrorRecord.CategoryInfo.Category);
+        Assert.Equal("MySql", exception.ErrorRecord.TargetObject);
+        Assert.DoesNotContain("Password", exception.ErrorRecord.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Same(terminatingError, exception.ErrorRecord);
+    }
+
+    [Fact]
+    public void GetSafeErrorMessage_DoesNotExposeArbitraryProviderMessages()
+    {
+        var exception = new InvalidOperationException("Password=super-secret");
+
+        string message = PowerShellHelpers.GetSafeErrorMessage(exception);
+
+        Assert.DoesNotContain("super-secret", message, StringComparison.Ordinal);
     }
 
     [Fact]

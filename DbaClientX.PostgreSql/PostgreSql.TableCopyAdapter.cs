@@ -1,12 +1,13 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using Npgsql;
 
 namespace DBAClientX;
 
 /// <summary>
 /// PostgreSQL source and destination adapter for <see cref="DbaTableCopyEngine"/>.
 /// </summary>
-public sealed class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
+public sealed partial class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase, IDbaTableCopyReadSession
 {
     /// <summary>
     /// Creates a PostgreSQL table-copy adapter.
@@ -34,12 +35,14 @@ public sealed class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
         {
             throw new ArgumentException("Options must target PostgreSQL.", nameof(options));
         }
+        CommandTimeout = options.CommandTimeout;
+        ReadConsistency = options.ReadConsistency;
     }
 
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        using var postgreSql = new PostgreSql();
+        using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
         var bulkPage = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, definition.DestinationName);
         using var bulkPageToDispose = ReferenceEquals(bulkPage, page) ? null : bulkPage;
         await postgreSql.BulkInsertAsync(
@@ -65,14 +68,23 @@ public sealed class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var postgreSql = new PostgreSql();
+        if (_readConnection != null)
+        {
+            using NpgsqlCommand command = CreateReadCommand(query);
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        }
+        using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
         return await postgreSql.ExecuteScalarAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var postgreSql = new PostgreSql { ReturnType = ReturnType.DataTable };
+        if (_readConnection != null)
+        {
+            return await ExecutePostgreSqlPageAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+        }
+        using var postgreSql = new PostgreSql { ReturnType = ReturnType.DataTable, CommandTimeout = CommandTimeout };
         var result = await postgreSql.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result as DataTable
             ?? throw new InvalidOperationException("PostgreSQL did not return a DataTable.");
@@ -81,7 +93,14 @@ public sealed class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAdapterBase
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var postgreSql = new PostgreSql();
+        using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
         await postgreSql.ExecuteNonQueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    protected override bool IsMissingTableExceptionCore(Exception exception)
+        => exception is PostgresException postgresException && IsMissingTableSqlState(postgresException.SqlState);
+
+    internal static bool IsMissingTableSqlState(string sqlState)
+        => sqlState is PostgresErrorCodes.UndefinedTable or PostgresErrorCodes.InvalidSchemaName;
 }
