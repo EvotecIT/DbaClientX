@@ -137,7 +137,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     {
         using var page = new DataTable();
         page.Columns.Add("Id", typeof(long));
-        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        page.Columns.Add("Period", typeof(object));
         page.Rows.Add(1L, new DbaYearMonthInterval(27));
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
@@ -145,6 +145,20 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(typeof(OracleIntervalYM), normalized.Columns["Period"]!.DataType);
         Assert.Equal(27L, Assert.IsType<OracleIntervalYM>(normalized.Rows[0]["Period"]).Value);
         Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
+    }
+
+    [Fact]
+    public void BulkPages_RejectMixedYearMonthIntervalColumns()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Period", typeof(object));
+        page.Rows.Add(new DbaYearMonthInterval(27));
+        page.Rows.Add("not an interval");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.NormalizeBulkPage(page));
+
+        Assert.Contains("incompatible value", exception.Message);
     }
 
     [Theory]

@@ -57,29 +57,40 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
 
     internal static DataTable? NormalizeBulkPage(DataTable page)
     {
-        bool requiresNormalization = page.Columns.Cast<DataColumn>()
-            .Any(static column => column.DataType == typeof(DbaYearMonthInterval));
-        if (!requiresNormalization)
+        var intervalColumns = page.Columns.Cast<DataColumn>()
+            .Select(static column => column.DataType == typeof(DbaYearMonthInterval))
+            .ToArray();
+        bool requiresNormalization = intervalColumns.Any(static interval => interval);
+        foreach (DataRow row in page.Rows)
         {
-            foreach (DataRow row in page.Rows)
+            for (var index = 0; index < page.Columns.Count; index++)
             {
-                for (var index = 0; index < page.Columns.Count; index++)
-                {
-                    if (row[index] is not DbaYearMonthInterval) continue;
-                    requiresNormalization = true;
-                    break;
-                }
-                if (requiresNormalization) break;
+                if (row[index] is not DbaYearMonthInterval) continue;
+                intervalColumns[index] = true;
+                requiresNormalization = true;
             }
         }
         if (!requiresNormalization) return null;
 
-        var normalized = new DataTable { CaseSensitive = page.CaseSensitive };
-        foreach (DataColumn column in page.Columns)
+        foreach (DataRow row in page.Rows)
         {
+            for (var index = 0; index < page.Columns.Count; index++)
+            {
+                object value = row[index];
+                if (!intervalColumns[index] || value == DBNull.Value || value is DbaYearMonthInterval or OracleIntervalYM)
+                    continue;
+                throw new InvalidOperationException(
+                    $"Oracle year-to-month interval column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
+            }
+        }
+
+        var normalized = new DataTable { CaseSensitive = page.CaseSensitive };
+        for (var index = 0; index < page.Columns.Count; index++)
+        {
+            DataColumn column = page.Columns[index];
             normalized.Columns.Add(
                 column.ColumnName,
-                column.DataType == typeof(DbaYearMonthInterval) ? typeof(OracleIntervalYM) : column.DataType);
+                intervalColumns[index] ? typeof(OracleIntervalYM) : column.DataType);
         }
         foreach (DataRow row in page.Rows)
         {
