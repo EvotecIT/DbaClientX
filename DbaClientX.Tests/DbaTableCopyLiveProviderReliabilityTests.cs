@@ -163,6 +163,52 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlArrays_RejectCrossProviderCopyBeforeWriting()
+    {
+        var postgreSqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        var mySqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(postgreSqlConnectionString) || string.IsNullOrWhiteSpace(mySqlConnectionString),
+            "Set both PostgreSQL and MySQL live-provider connection strings.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_array_portability_source_" + suffix;
+        string destinationTable = "dbax_array_portability_destination_" + suffix;
+        await using var postgreSqlConnection = new NpgsqlConnection(postgreSqlConnectionString!);
+        await using var mySqlConnection = new MySqlConnection(mySqlConnectionString!);
+        await postgreSqlConnection.OpenAsync();
+        await mySqlConnection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(postgreSqlConnection, $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, values INTEGER[] NOT NULL)");
+            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{sourceTable}\" VALUES (1, ARRAY[1,2,3])");
+            await ExecuteAsync(mySqlConnection, $"CREATE TABLE `{destinationTable}` (id BIGINT NOT NULL PRIMARY KEY, values_json TEXT NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, '[99]')");
+
+            var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
+            var destination = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var definition = new DbaTableCopyDefinition(
+                sourceTable,
+                destinationTable,
+                new[] { "id" },
+                ColumnMappings: new Dictionary<string, string> { ["values"] = "values_json" });
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(source, destination, new[] { definition }));
+
+            Assert.Contains("provider-specific type", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT COUNT(*) FROM `{destinationTable}`")));
+            Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(mySqlConnection, $"SELECT id FROM `{destinationTable}`")));
+        }
+        finally
+        {
+            await TryExecuteAsync(mySqlConnection, $"DROP TABLE IF EXISTS `{destinationTable}`");
+            await TryExecuteAsync(postgreSqlConnection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlBulkCopy_WritesProviderNeutralYearMonthIntervalsLosslessly()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");

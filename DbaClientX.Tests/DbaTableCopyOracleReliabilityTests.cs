@@ -32,6 +32,14 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void DestinationCompatibility_RejectsOracleFloatForCrossProviderCopies()
+    {
+        Assert.False(OracleTableCopyAdapter.IsPortableOracleNumeric("FLOAT", 126, null));
+        Assert.True(OracleTableCopyAdapter.IsPortableOracleNumeric("NUMBER", 28, 0));
+        Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DestinationCompatibility_AllowsExplicitStringProjectionForOversizedOracleNumbers()
     {
         var definition = new DbaTableCopyDefinition(
@@ -197,6 +205,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         Assert.Equal(12.5m, Assert.IsType<decimal>(normalized));
         Assert.Equal(typeof(object), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal), "NUMBER"));
+        Assert.Equal(typeof(object), OracleTableCopyAdapter.GetNormalizedFieldType(typeof(OracleDecimal), "FLOAT(126)"));
     }
 
     [Fact]

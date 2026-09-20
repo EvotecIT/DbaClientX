@@ -153,6 +153,7 @@ public sealed partial class OracleTableCopyAdapter
     {
         string normalized = dataTypeName.Trim().ToUpperInvariant();
         return normalized.StartsWith("NUMBER", StringComparison.Ordinal) ||
+               normalized.StartsWith("FLOAT", StringComparison.Ordinal) ||
                normalized.StartsWith("DECIMAL", StringComparison.Ordinal) ||
                normalized.StartsWith("NUMERIC", StringComparison.Ordinal) ||
                normalized == "INTEGER" ||

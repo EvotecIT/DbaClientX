@@ -186,13 +186,13 @@ If initial destination clearing is interrupted, resume refuses nonempty tables t
 
 Content verification compares row counts and a SHA-256 multiset checksum over the copied columns. It normalizes numeric widths and booleans, preserves exact strings, nulls, binary values, and `datetimeoffset` offsets, and tolerates different provider sort orders. It does not verify excluded columns, triggers, permissions, or schema equivalence. Preflight rejects missing copied columns, generated columns in the write projection, and required destination columns without a supplied value or default. SQL Server verified writes preserve nulls and check constraints.
 
-MySQL `DECIMAL` and Oracle `NUMBER` values beyond `System.Decimal` precision are carried losslessly through content hashes and continuation tokens to MySQL or Oracle destinations. Copies to other providers reject such source declarations before writing unless the column is excluded or explicitly converted to `String`. PostgreSQL table copy fails before writing when a `numeric` declaration can exceed `System.Decimal`; project that column to text or apply an explicit provider-neutral conversion.
+MySQL `DECIMAL` and Oracle `NUMBER`/`FLOAT` values beyond `System.Decimal` precision are carried losslessly through content hashes and continuation tokens to MySQL or Oracle destinations. Copies to other providers reject such source declarations before writing unless the column is excluded or explicitly converted to `String`. PostgreSQL table copy fails before writing when a `numeric` declaration can exceed `System.Decimal`; project that column to text or apply an explicit provider-neutral conversion.
 
 Oracle bulk and transactional writes apply the same provider-neutral conversions for GUID/RAW, date/time, interval, unsigned, and arbitrary-precision numeric values.
 
 PostgreSQL bulk writes preserve Oracle `INTERVAL YEAR TO MONTH` values as native month-based intervals instead of approximating them as fixed-duration `TimeSpan` values.
 
-PostgreSQL geometric, range/multirange, text-search, bit-string, and other provider-native values remain lossless when the destination is PostgreSQL. Copies to other providers reject those declarations before writing unless the column is excluded or explicitly converted to `String`.
+PostgreSQL arrays, geometric, range/multirange, text-search, bit-string, and other provider-native values remain lossless when the destination is PostgreSQL. Copies to other providers reject those declarations before writing unless the column is excluded or explicitly converted to `String`.
 
 With `ClearDestination`, PostgreSQL, MySQL, and Oracle validate every projected source page against the real destination before committed destination rows are removed. Related definitions share one rollback-only transaction: destinations are cleared in reverse definition order and projected rows are validated in forward order, matching the real dependency-safe copy. This extra preflight pass catches cross-page uniqueness and destination-constraint failures without retaining all projected pages in memory. Because sequence, auto-increment, and trigger side effects are not reliably reversible, preflight rejects projections that omit a generator-backed destination column and destinations with enabled insert or delete triggers; project explicit values, remove the triggers for the migration, or copy without `ClearDestination`.
 
@@ -210,7 +210,7 @@ Implicit destination keys follow the actual source column names and the same map
 
 ### Stream database rows into OfficeIMO.Data.Arrow
 
-Each relational provider exposes `QueryReaderAsync`, which returns an owned, forward-only `DbaDataReader`. Disposing it closes the provider reader, command, and any connection DbaClientX opened. Provider failures raised later by `Read`, `ReadAsync`, `NextResult`, or asynchronous field access are normalized to the same sanitized exception and caller-cancellation contract used while opening the reader. This is the integration boundary for bounded consumers; DbaClientX provider packages intentionally do not depend on Apache.Arrow.
+Each relational provider exposes `QueryReaderAsync`, which returns an owned, forward-only `DbaDataReader`. Disposing it closes the provider reader, command, and any connection DbaClientX opened. Provider failures raised later by synchronous or asynchronous row navigation and field access are normalized to the same sanitized exception and caller-cancellation contract used while opening the reader. This is the integration boundary for bounded consumers; DbaClientX provider packages intentionally do not depend on Apache.Arrow.
 
 ```csharp
 using DBAClientX;

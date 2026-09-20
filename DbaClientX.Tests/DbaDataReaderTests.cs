@@ -262,6 +262,36 @@ public class DbaDataReaderTests
         Assert.Equal("safe cancellation", exception.Message);
     }
 
+    [Fact]
+    public void SynchronousFieldReads_NormalizeDeferredProviderFailures()
+    {
+        const string rawMessage = "server=secret;password=hidden";
+
+        using var bytesReader = CreateNormalizingReader(rawMessage);
+        var bytesException = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() =>
+            bytesReader.GetBytes(0, 0, null, 0, 0));
+
+        using var valueReader = CreateNormalizingReader(rawMessage);
+        var valueException = Assert.Throws<DBAClientX.DbaQueryExecutionException>(() =>
+            valueReader.GetFieldValue<int>(0));
+
+        Assert.DoesNotContain(rawMessage, bytesException.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(rawMessage, valueException.ToString(), StringComparison.Ordinal);
+    }
+
+    private static DBAClientX.DbaDataReader CreateNormalizingReader(string rawMessage)
+        => new(
+            new ThrowingDataReader(new InvalidOperationException(rawMessage), throwOnFieldAccess: true),
+            command: null,
+            connection: null,
+            ownsConnection: false,
+            disposeConnection: null,
+            afterReaderDisposed: null,
+            disposeConnectionAsync: null,
+            afterReaderDisposedAsync: null,
+            consumptionExceptionFactory: (exception, _) =>
+                new DBAClientX.DbaQueryExecutionException("Deferred field read failed.", "SELECT sensitive", exception));
+
     private sealed class DisposableCommand : IDisposable, IAsyncDisposable
     {
         public int DisposeCount { get; private set; }
@@ -281,8 +311,13 @@ public class DbaDataReaderTests
     {
         private readonly DataTableReader _inner = new DataTable().CreateDataReader();
         private readonly Exception _exception;
+        private readonly bool _throwOnFieldAccess;
 
-        public ThrowingDataReader(Exception exception) => _exception = exception;
+        public ThrowingDataReader(Exception exception, bool throwOnFieldAccess = false)
+        {
+            _exception = exception;
+            _throwOnFieldAccess = throwOnFieldAccess;
+        }
 
         public override int FieldCount => _inner.FieldCount;
         public override bool HasRows => _inner.HasRows;
@@ -298,13 +333,16 @@ public class DbaDataReaderTests
         public override string GetName(int ordinal) => _inner.GetName(ordinal);
         public override string GetDataTypeName(int ordinal) => _inner.GetDataTypeName(ordinal);
         public override Type GetFieldType(int ordinal) => _inner.GetFieldType(ordinal);
-        public override object GetValue(int ordinal) => _inner.GetValue(ordinal);
+        public override object GetValue(int ordinal)
+            => _throwOnFieldAccess ? throw _exception : _inner.GetValue(ordinal);
         public override int GetValues(object[] values) => _inner.GetValues(values);
         public override int GetOrdinal(string name) => _inner.GetOrdinal(name);
         public override bool GetBoolean(int ordinal) => _inner.GetBoolean(ordinal);
         public override byte GetByte(int ordinal) => _inner.GetByte(ordinal);
         public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
-            => _inner.GetBytes(ordinal, dataOffset, buffer, bufferOffset, length);
+            => _throwOnFieldAccess
+                ? throw _exception
+                : _inner.GetBytes(ordinal, dataOffset, buffer, bufferOffset, length);
         public override char GetChar(int ordinal) => _inner.GetChar(ordinal);
         public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
             => _inner.GetChars(ordinal, dataOffset, buffer, bufferOffset, length);

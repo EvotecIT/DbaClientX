@@ -65,6 +65,7 @@ public class DbaProviderTableCopyAdapterBaseTests
     [InlineData("int8multirange", "m", null, null, true)]
     [InlineData("_point", "b", "point", "b", true)]
     [InlineData("_int8range", "b", "int8range", "r", true)]
+    [InlineData("_int4", "b", "int4", "b", true)]
     [InlineData("tsvector", "b", null, null, true)]
     [InlineData("custom_composite", "c", null, null, true)]
     [InlineData("inet", "b", null, null, false)]

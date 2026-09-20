@@ -81,8 +81,7 @@ ORDER BY attribute.attnum";
         string typeKind,
         string? elementTypeName,
         string? elementTypeKind)
-        => IsProviderSpecificPostgreSqlScalar(typeName, typeKind) ||
-           (elementTypeName != null && IsProviderSpecificPostgreSqlScalar(elementTypeName, elementTypeKind));
+        => elementTypeName != null || IsProviderSpecificPostgreSqlScalar(typeName, typeKind);
 
     private static bool IsProviderSpecificPostgreSqlScalar(string typeName, string? typeKind)
         => typeKind is "r" or "m" or "c" || ProviderSpecificTypeNames.Contains(typeName);
