@@ -92,10 +92,10 @@ public sealed class CmdletInvokeDbaXMySqlNonQuery : PSCmdlet {
                 : mySql.ExecuteNonQuery(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXMySqlNonQuery - Error executing MySql: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXMySqlNonQuery", Database));
         }
     }
 }

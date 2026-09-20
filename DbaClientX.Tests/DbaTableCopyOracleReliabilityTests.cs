@@ -20,6 +20,19 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Equal(expected, OracleTableCopyAdapter.GetPageParameterType(dataType));
     }
 
+    [Theory]
+    [InlineData(typeof(string), "CLOB", OracleDbType.Clob)]
+    [InlineData(typeof(string), "NCLOB", OracleDbType.NClob)]
+    [InlineData(typeof(byte[]), "BLOB", OracleDbType.Blob)]
+    [InlineData(typeof(byte[]), "RAW", OracleDbType.Raw)]
+    public void CheckpointPageParameters_UseDestinationLobMetadata(
+        Type sourceType,
+        string destinationType,
+        OracleDbType expected)
+    {
+        Assert.Equal(expected, OracleTableCopyAdapter.GetPageParameterType(sourceType, destinationType));
+    }
+
     [Fact]
     public void CheckpointContinuationToken_IsBoundAsClob()
     {

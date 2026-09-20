@@ -90,10 +90,10 @@ public sealed class CmdletInvokeDbaXOracleNonQuery : PSCmdlet {
                 : oracle.ExecuteNonQuery(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXOracleNonQuery - Error executing Oracle: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXOracleNonQuery", Database));
         }
     }
 }

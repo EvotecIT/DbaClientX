@@ -9,6 +9,23 @@ namespace DbaClientX.Tests;
 public class DbaProviderTableCopyAdapterBaseTests
 {
     [Fact]
+    public async Task MySqlConsistentReadSession_RequiresDefinitionsForEngineValidation()
+    {
+        var source = new MySqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.MySql,
+            ConnectionString = "Server=localhost;Database=test;User ID=test;Password=test;",
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            source.OpenReadSessionAsync());
+
+        Assert.Contains("definitions", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsAssignableFrom<IDbaTableCopyDefinitionReadSession>(source);
+    }
+
+    [Fact]
     public void KeysetContinuationToken_RoundTripsUnsignedBigIntWithoutNarrowing()
     {
         var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(

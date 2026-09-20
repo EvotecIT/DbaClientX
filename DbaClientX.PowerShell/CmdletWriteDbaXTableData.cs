@@ -203,11 +203,12 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
         }
         catch (Exception ex)
         {
-            WriteWarning($"Write-DbaXTableData - Error writing table data: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (_errorAction == ActionPreference.Stop)
             {
                 throw;
             }
+
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "WriteDbaXTableData", DestinationTable));
         }
     }
 

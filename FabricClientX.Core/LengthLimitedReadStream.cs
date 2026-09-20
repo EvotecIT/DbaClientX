@@ -1,5 +1,13 @@
 namespace FabricClientX;
 
+internal sealed class ResponseContentTooLargeException : InvalidOperationException
+{
+    internal ResponseContentTooLargeException()
+        : base("The service response exceeded the configured content-size limit.")
+    {
+    }
+}
+
 internal sealed class LengthLimitedReadStream : Stream
 {
     private readonly Stream _inner;
@@ -93,8 +101,7 @@ internal sealed class LengthLimitedReadStream : Stream
         _bytesRead += count;
         if (_bytesRead > _maximumBytes)
         {
-            throw new InvalidOperationException(
-                "The service response exceeded the configured content-size limit.");
+            throw new ResponseContentTooLargeException();
         }
     }
 }

@@ -174,10 +174,29 @@ public sealed class FabricHttpClientTests
         handler.Enqueue(HttpStatusCode.OK, """{"value":[{"id":"1234567890"}]}""");
         var client = TestClients.Create(handler, maxResponseContentBytes: 12);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             client.GetAsync<FabricPage<TestItem>>("items"));
 
         Assert.Contains("content-size limit", exception.Message);
+    }
+
+    [Fact]
+    public async Task OversizedError_PreservesStatusAndRequestIdWithoutRetainingBody()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.Forbidden,
+            "oversized service error body",
+            response => response.Headers.Add("x-ms-request-id", "request-oversized"));
+        var client = TestClients.Create(handler, maxResponseContentBytes: 8);
+
+        var exception = await Assert.ThrowsAsync<FabricApiException>(() =>
+            client.GetAsync<object>("workspaces"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.Equal("request-oversized", exception.RequestId);
+        Assert.Null(exception.ErrorCode);
+        Assert.DoesNotContain("oversized service error body", exception.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

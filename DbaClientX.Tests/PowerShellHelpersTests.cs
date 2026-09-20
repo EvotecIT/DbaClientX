@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Management.Automation;
+using DBAClientX;
+using DBAClientX.DataMovement;
 using DBAClientX.Invoker;
 using DBAClientX.PowerShell;
 
@@ -160,6 +162,45 @@ public class PowerShellHelpersTests
         string message = PowerShellHelpers.GetSafeErrorMessage(exception);
 
         Assert.DoesNotContain("super-secret", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateSafeErrorRecord_PreservesKnownLibraryMessageAndErrorType()
+    {
+        var exception = new DbaClientXException("The destination checkpoint changed.");
+
+        ErrorRecord record = PowerShellHelpers.CreateSafeErrorRecord(
+            exception,
+            "CopyDbaXTableData",
+            "destination");
+
+        Assert.Equal("The destination checkpoint changed.", record.Exception.Message);
+        Assert.Equal("CopyDbaXTableData.DbaClientXException", record.FullyQualifiedErrorId);
+        Assert.Equal(ErrorCategory.InvalidOperation, record.CategoryInfo.Category);
+        Assert.Equal("destination", record.TargetObject);
+    }
+
+    [Fact]
+    public void CreateSafeErrorRecord_RedactsUnknownProviderMessageButKeepsType()
+    {
+        var exception = new Exception("Password=super-secret");
+
+        ErrorRecord record = PowerShellHelpers.CreateSafeErrorRecord(exception, "InvokeDbaXQuery");
+
+        Assert.DoesNotContain("super-secret", record.ToString(), StringComparison.Ordinal);
+        Assert.Contains(nameof(Exception), record.FullyQualifiedErrorId, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateSafeErrorRecord_PreservesActionableCoreValidationMessage()
+    {
+        var definition = new DbaTableCopyDefinition(string.Empty, "destination");
+        var exception = Assert.Throws<ArgumentException>(definition.Validate);
+
+        ErrorRecord record = PowerShellHelpers.CreateSafeErrorRecord(exception, "CopyDbaXTableData");
+
+        Assert.Contains("Source name", record.Exception.Message, StringComparison.Ordinal);
+        Assert.Equal(ErrorCategory.InvalidArgument, record.CategoryInfo.Category);
     }
 
     [Fact]

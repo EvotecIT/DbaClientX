@@ -197,10 +197,10 @@ public sealed class CmdletInvokeDbaXPostgreSql : AsyncPSCmdlet {
                 }
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXPostgreSql - Error querying PostgreSql: {PowerShellHelpers.GetSafeErrorMessage(ex)}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXPostgreSql", Database));
         }
     }
 

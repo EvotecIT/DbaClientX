@@ -92,9 +92,82 @@ public sealed partial class OracleTableCopyAdapter
         };
     }
 
+    internal static OracleDbType GetPageParameterType(Type dataType, string destinationDataType)
+        => destinationDataType.ToUpperInvariant() switch
+        {
+            "BLOB" => OracleDbType.Blob,
+            "CLOB" => OracleDbType.Clob,
+            "NCLOB" => OracleDbType.NClob,
+            "LONG" => OracleDbType.Long,
+            "LONG RAW" => OracleDbType.LongRaw,
+            _ => GetPageParameterType(dataType)
+        };
+
     internal static object GetPageParameterValue(object value)
         => value is ulong unsigned ? Convert.ToDecimal(unsigned)
             : value;
+
+    private async Task<OracleDbType[]> ResolveDestinationParameterTypesAsync(
+        OracleConnection connection,
+        OracleTransaction transaction,
+        DbaTableCopyDefinition definition,
+        IReadOnlyList<DataColumn> columns,
+        CancellationToken cancellationToken)
+    {
+        var rawSegments = DbaIdentifierPath.SplitSegments(definition.DestinationName, DbaTableCopyProvider.Oracle);
+        if (rawSegments.Count is < 1 or > 2)
+        {
+            throw new ArgumentException(
+                "Oracle checkpoint destinations require a table name with an optional owner.",
+                nameof(definition));
+        }
+
+        string Normalize(string segment) => DbaIdentifierPath.IsDelimitedSegment(segment)
+            ? DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.Oracle)
+            : segment.ToUpperInvariant();
+
+        var owner = rawSegments.Count == 2 ? Normalize(rawSegments[0]) : null;
+        var table = Normalize(rawSegments[rawSegments.Count - 1]);
+        using var metadata = new OracleCommand(
+            "SELECT COLUMN_NAME, DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')) AND TABLE_NAME = :table",
+            connection)
+        {
+            Transaction = transaction,
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        metadata.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, (object?)owner ?? DBNull.Value, ParameterDirection.Input));
+        metadata.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
+
+        var destinationTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        using OracleDataReader reader = await metadata.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            destinationTypes[reader.GetString(0)] = reader.GetString(1);
+        }
+
+        var result = new OracleDbType[columns.Count];
+        for (var index = 0; index < columns.Count; index++)
+        {
+            DataColumn column = columns[index];
+            if (!destinationTypes.TryGetValue(column.ColumnName, out var destinationType))
+            {
+                var match = destinationTypes.FirstOrDefault(pair =>
+                    string.Equals(pair.Key, column.ColumnName, StringComparison.OrdinalIgnoreCase));
+                destinationType = match.Value;
+            }
+
+            if (destinationType == null)
+            {
+                throw new InvalidOperationException(
+                    $"Oracle destination column '{column.ColumnName}' could not be resolved for checkpointed binding.");
+            }
+
+            result[index] = GetPageParameterType(column.DataType, destinationType);
+        }
+
+        return result;
+    }
 
     /// <inheritdoc />
     protected override async Task<string> ResolveCheckpointTableIdentityAsync(
@@ -147,6 +220,12 @@ public sealed partial class OracleTableCopyAdapter
         }
 
         var columns = page.Columns.Cast<DataColumn>().ToArray();
+        var parameterTypes = await ResolveDestinationParameterTypesAsync(
+            (OracleConnection)connection,
+            (OracleTransaction)transaction,
+            definition,
+            columns,
+            cancellationToken).ConfigureAwait(false);
         var parameterNames = columns.Select((_, index) => ":p" + index).ToArray();
         using var command = new OracleCommand(
             $"INSERT INTO {QuotePath(definition.DestinationName)} ({string.Join(", ", columns.Select(column => QuotePath(column.ColumnName)))}) VALUES ({string.Join(", ", parameterNames)})",
@@ -161,7 +240,7 @@ public sealed partial class OracleTableCopyAdapter
             command.Parameters.Add(new OracleParameter
             {
                 ParameterName = "p" + index,
-                OracleDbType = GetPageParameterType(columns[index].DataType),
+                OracleDbType = parameterTypes[index],
                 Value = DBNull.Value
             });
         }

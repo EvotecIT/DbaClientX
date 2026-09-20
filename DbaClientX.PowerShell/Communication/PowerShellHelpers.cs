@@ -221,9 +221,38 @@ internal static class PowerShellHelpers
     internal static string GetSafeErrorMessage(Exception exception)
     {
         if (exception == null) throw new ArgumentNullException(nameof(exception));
-        return exception is DbaQueryExecutionException queryException
-            ? queryException.Message
-            : "The database operation failed. Inspect the exception type and operation identifier for details.";
+        return IsTrustedLibraryException(exception)
+            ? exception.Message
+            : $"The database operation failed with {exception.GetType().Name}.";
+    }
+
+    private static bool IsTrustedLibraryException(Exception exception)
+        => exception is DbaClientXException ||
+           (exception is ArgumentException or InvalidOperationException or NotSupportedException &&
+            IsDbaClientXAssembly(exception.TargetSite?.DeclaringType?.Assembly.GetName().Name));
+
+    private static bool IsDbaClientXAssembly(string? assemblyName)
+        => string.Equals(assemblyName, "DbaClientX.Core", StringComparison.OrdinalIgnoreCase) ||
+           assemblyName?.StartsWith("DbaClientX.", StringComparison.OrdinalIgnoreCase) == true;
+
+    internal static ErrorRecord CreateSafeErrorRecord(Exception exception, string errorId, object? target = null)
+    {
+        if (exception == null) throw new ArgumentNullException(nameof(exception));
+        if (string.IsNullOrWhiteSpace(errorId)) throw new ArgumentException("Error identifier cannot be empty.", nameof(errorId));
+
+        var category = exception switch
+        {
+            ArgumentException => ErrorCategory.InvalidArgument,
+            NotSupportedException => ErrorCategory.NotImplemented,
+            InvalidOperationException or DbaClientXException => ErrorCategory.InvalidOperation,
+            _ => ErrorCategory.NotSpecified
+        };
+        var safeException = new DbaClientXException(GetSafeErrorMessage(exception));
+        return new ErrorRecord(
+            safeException,
+            errorId + "." + exception.GetType().Name,
+            category,
+            target);
     }
 
     internal static void RejectFullConnectionTransactionSwitch(SwitchParameter useTransaction, string cmdletName)

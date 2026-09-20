@@ -418,6 +418,10 @@ public sealed class FabricHttpClient
             {
                 // Raw response content is intentionally not retained.
             }
+            catch (ResponseContentTooLargeException)
+            {
+                // Preserve the HTTP error contract without retaining an oversized response body.
+            }
         }
 
         return new FabricApiException(
@@ -452,8 +456,7 @@ public sealed class FabricHttpClient
         if (content.Headers.ContentLength is { } length &&
             length > _options.MaxResponseContentBytes)
         {
-            throw new InvalidOperationException(
-                "The service response exceeded the configured content-size limit.");
+            throw new ResponseContentTooLargeException();
         }
 
         var stream = await ReadContentStreamAsync(content, cancellationToken).ConfigureAwait(false);
