@@ -170,6 +170,18 @@ public class ProviderMetadataQueryTests
         Assert.Contains("bool_and(tg.tgenabled <> 'D') AS is_enabled", foreignKeys);
     }
 
+    [Fact]
+    public void PostgreSqlTableCopyPreflight_ExcludesForeignTables()
+    {
+        string checkpoint = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlCheckpointDestinationIdentityQuery;
+        string schema = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlSchemaPreflightDestinationQuery;
+
+        Assert.Contains("relkind IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relkind IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("'f'", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("'f'", schema, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string GetQuery<T>(string fieldName)
     {
         FieldInfo? field = typeof(T).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Static);

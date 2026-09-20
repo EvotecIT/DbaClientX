@@ -427,7 +427,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                         PageSize = 1
                     }));
 
-            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("cannot be resolved to a PostgreSQL table", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(
                 "99:preserve",
                 Convert.ToString(await ExecuteScalarAsync(
@@ -606,6 +606,55 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             await ExecuteAsync(
                 connection,
                 $"INSERT INTO \"{sourceTable}\" VALUES (1, ARRAY[1,2,3]), (2, ARRAY[4,5,6])");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { PageSize = 1, VerifyContent = true });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2, result.CopiedRows);
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlVerifiedCopy_HashesRangeAndMultirangeValues()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var sourceTable = "dbax_range_source_" + suffix;
+        var destinationTable = "dbax_range_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (id bigint NOT NULL PRIMARY KEY, span int4range NOT NULL, spans int4multirange NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, span int4range NOT NULL, spans int4multirange NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, '[1,5)'::int4range, '{{[1,5),[10,20)}}'::int4multirange), (2, 'empty'::int4range, '{{[30,40)}}'::int4multirange)");
 
             var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
             var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);

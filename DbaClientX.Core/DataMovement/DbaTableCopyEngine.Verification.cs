@@ -47,7 +47,11 @@ public sealed partial class DbaTableCopyEngine
                     await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
             }
             columns ??= transformed.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray();
-            hasher.Add(transformed, columns, cancellationToken);
+            hasher.Add(
+                transformed,
+                columns,
+                cancellationToken,
+                source as IDbaTableCopyContentValueNormalizer);
             rows = checked(rows + transformed.Rows.Count);
             options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, rows, counted, transformed.Rows.Count) { Phase = phase });
             if (transformed.Rows.Count == 0 || token == null) break;

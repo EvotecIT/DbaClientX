@@ -136,10 +136,7 @@ public partial class SQLite
         cancellationToken.ThrowIfCancellationRequested();
         string sourcePath = Path.GetFullPath(sourceDatabase);
         string destinationPath = Path.GetFullPath(destinationDatabase);
-        StringComparison pathComparison = Path.DirectorySeparatorChar == '\\'
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        if (string.Equals(sourcePath, destinationPath, pathComparison))
+        if (AreSameBackupPath(sourcePath, destinationPath))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
         }
@@ -292,6 +289,40 @@ public partial class SQLite
                 TryDeleteBackupDestination(workingPath);
             }
         }
+    }
+
+    internal static bool AreSameBackupPath(string sourcePath, string destinationPath)
+    {
+        if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
+        if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Case-only names can be separate files on a case-sensitive filesystem. If the destination
+        // does not resolve, it is safe to create it. If it resolves, inspect the directory entries:
+        // a case-insensitive filesystem exposes only one exact spelling for both aliases.
+        if (!File.Exists(sourcePath) || !File.Exists(destinationPath)) return false;
+        string? sourceDirectory = Path.GetDirectoryName(sourcePath);
+        string? destinationDirectory = Path.GetDirectoryName(destinationPath);
+        if (sourceDirectory == null || destinationDirectory == null ||
+            !string.Equals(sourceDirectory, destinationDirectory, StringComparison.Ordinal))
+        {
+            // Different case-only directory paths are ambiguous without platform-specific file IDs.
+            // Fail closed instead of allowing a backup to overwrite its source.
+            return true;
+        }
+
+        string sourceName = Path.GetFileName(sourcePath);
+        string destinationName = Path.GetFileName(destinationPath);
+        bool exactSource = false;
+        bool exactDestination = false;
+        foreach (string entry in Directory.EnumerateFiles(sourceDirectory))
+        {
+            string name = Path.GetFileName(entry);
+            exactSource |= string.Equals(name, sourceName, StringComparison.Ordinal);
+            exactDestination |= string.Equals(name, destinationName, StringComparison.Ordinal);
+            if (exactSource && exactDestination) return false;
+        }
+
+        return true;
     }
 
     private static Task<T> RunDedicatedMaintenanceAsync<T>(Func<T> operation, CancellationToken cancellationToken)

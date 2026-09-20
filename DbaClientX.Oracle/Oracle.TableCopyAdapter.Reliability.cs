@@ -9,6 +9,17 @@ namespace DBAClientX;
 
 public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
 {
+    internal const string OracleDurableDestinationTableQuery =
+        "SELECT 1 FROM ALL_TABLES WHERE OWNER = :owner AND TABLE_NAME = :table AND TEMPORARY = 'N'";
+
+    internal const string OracleCheckpointDestinationIdentityQuery = @"SELECT obj.OWNER || ':' || obj.OBJECT_ID
+FROM ALL_OBJECTS obj
+JOIN ALL_TABLES tab ON tab.OWNER = obj.OWNER AND tab.TABLE_NAME = obj.OBJECT_NAME
+WHERE obj.OBJECT_TYPE = 'TABLE'
+  AND obj.OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'))
+  AND obj.OBJECT_NAME = :table
+  AND tab.TEMPORARY = 'N'";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -288,6 +299,21 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         }
 
         string table = Normalize(rawSegments[rawSegments.Count - 1]);
+        using (var durableTable = new OracleCommand(OracleDurableDestinationTableQuery, connection)
+        {
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        })
+        {
+            durableTable.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, owner, ParameterDirection.Input));
+            durableTable.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
+            if (await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
+            {
+                throw new InvalidOperationException(
+                    $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for schema preflight.");
+            }
+        }
+
         using var oracle = new Oracle { CommandTimeout = CommandTimeout };
         IReadOnlyList<DbaColumnInfo> destinationColumns = await oracle.GetTableCopyColumnsAsync(
             connection,
@@ -339,7 +365,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         var owner = rawSegments.Count == 2 ? Normalize(rawSegments[0]) : null;
         var table = Normalize(rawSegments[rawSegments.Count - 1]);
         using var command = new OracleCommand(
-            "SELECT OWNER || ':' || OBJECT_ID FROM ALL_OBJECTS WHERE OBJECT_TYPE = 'TABLE' AND OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')) AND OBJECT_NAME = :table",
+            OracleCheckpointDestinationIdentityQuery,
             (OracleConnection)connection)
         {
             Transaction = (OracleTransaction?)transaction,

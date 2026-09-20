@@ -27,7 +27,11 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
 
     internal string Hash => BitConverter.ToString(_sum).Replace("-", "").ToLowerInvariant();
 
-    internal void Add(DataTable table, IReadOnlyList<string> columns, CancellationToken cancellationToken)
+    internal void Add(
+        DataTable table,
+        IReadOnlyList<string> columns,
+        CancellationToken cancellationToken,
+        IDbaTableCopyContentValueNormalizer? valueNormalizer = null)
     {
         var ordered = columns.OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
             .Select(name => (Column: table.Columns[name] ?? throw new InvalidOperationException($"Copied column '{name}' is missing from the verification result."), Name: name.ToUpperInvariant()))
@@ -40,7 +44,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             foreach (var column in ordered)
             {
                 _writer.Write(column.Name);
-                WriteValue(row[column.Column]);
+                WriteValue(row[column.Column], valueNormalizer);
             }
             _writer.Flush();
             byte[] rowHash = _sha.ComputeHash(_buffer.GetBuffer(), 0, checked((int)_buffer.Length));
@@ -54,8 +58,11 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
         }
     }
 
-    private void WriteValue(object value)
+    private void WriteValue(object value, IDbaTableCopyContentValueNormalizer? valueNormalizer)
     {
+        if (value is not null and not DBNull && valueNormalizer != null)
+            value = valueNormalizer.NormalizeContentValue(value) ?? DBNull.Value;
+
         switch (value)
         {
             case null or DBNull: _writer.Write((byte)0); break;
@@ -87,7 +94,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
                 WriteIpAddressBytes(network.Address);
                 break;
             case Array array:
-                WriteArray(array, depth: 0);
+                WriteArray(array, depth: 0, valueNormalizer);
                 break;
 #if NET6_0_OR_GREATER
             // Match provider representations: PostgreSQL date/time values use DateOnly/TimeOnly,
@@ -133,7 +140,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
         _writer.Write(address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? address.ScopeId : 0L);
     }
 
-    private void WriteArray(Array array, int depth)
+    private void WriteArray(Array array, int depth, IDbaTableCopyContentValueNormalizer? valueNormalizer)
     {
         if (depth >= 64)
             throw new NotSupportedException("Content verification does not support arrays nested more than 64 levels.");
@@ -146,8 +153,8 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
         }
         foreach (object? value in array)
         {
-            if (value is Array nested) WriteArray(nested, depth + 1);
-            else WriteValue(value ?? DBNull.Value);
+            if (value is Array nested) WriteArray(nested, depth + 1, valueNormalizer);
+            else WriteValue(value ?? DBNull.Value, valueNormalizer);
         }
     }
 

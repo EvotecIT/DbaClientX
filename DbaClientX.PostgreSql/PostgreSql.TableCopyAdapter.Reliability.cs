@@ -7,6 +7,18 @@ namespace DBAClientX;
 
 public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
 {
+    internal const string PostgreSqlCheckpointDestinationIdentityQuery = @"SELECT current_database() || ':' || cls.oid::text
+FROM pg_catalog.pg_class AS cls
+WHERE cls.oid = to_regclass(@name)
+  AND cls.relkind IN ('r', 'p')";
+
+    internal const string PostgreSqlSchemaPreflightDestinationQuery = @"
+SELECT ns.nspname, cls.relname
+FROM pg_catalog.pg_class AS cls
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
+WHERE cls.oid = to_regclass(@name)
+  AND cls.relkind IN ('r', 'p')";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -29,10 +41,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
         }
 
         using var command = new NpgsqlCommand(
-            @"SELECT current_database() || ':' || cls.oid::text
-FROM pg_catalog.pg_class AS cls
-WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p', 'f')",
+            PostgreSqlCheckpointDestinationIdentityQuery,
             (NpgsqlConnection)connection,
             (NpgsqlTransaction?)transaction)
         {
@@ -63,12 +72,7 @@ WHERE cls.oid = to_regclass(@name)
 
         await using var connection = new NpgsqlConnection(ConnectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        using var resolve = new NpgsqlCommand(@"
-SELECT ns.nspname, cls.relname
-FROM pg_catalog.pg_class AS cls
-JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
-WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p', 'f')", connection)
+        using var resolve = new NpgsqlCommand(PostgreSqlSchemaPreflightDestinationQuery, connection)
         {
             CommandTimeout = CommandTimeout
         };

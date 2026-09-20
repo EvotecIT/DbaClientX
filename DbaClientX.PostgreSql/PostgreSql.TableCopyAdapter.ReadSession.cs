@@ -1,13 +1,11 @@
 using System.Data;
 using DBAClientX.DataMovement;
 using Npgsql;
-#if NET472
 using NpgsqlTypes;
-#endif
 
 namespace DBAClientX;
 
-public sealed partial class PostgreSqlTableCopyAdapter
+public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentValueNormalizer
 {
     private NpgsqlConnection? _readConnection;
     private NpgsqlTransaction? _readTransaction;
@@ -84,6 +82,37 @@ public sealed partial class PostgreSqlTableCopyAdapter
         if (value is System.Net.IPNetwork network) return new DbaIpNetwork(network.BaseAddress, network.PrefixLength);
 #endif
         return value;
+    }
+
+    /// <inheritdoc />
+    public object? NormalizeContentValue(object value)
+    {
+        return value switch
+        {
+            NpgsqlRange<int> range => NormalizeRange(range),
+            NpgsqlRange<long> range => NormalizeRange(range),
+            NpgsqlRange<decimal> range => NormalizeRange(range),
+            NpgsqlRange<DateTime> range => NormalizeRange(range),
+#if NET6_0_OR_GREATER
+            NpgsqlRange<DateOnly> range => NormalizeRange(range),
+#endif
+            _ => value
+        };
+    }
+
+    private static object?[] NormalizeRange<T>(NpgsqlRange<T> range)
+    {
+        return new object?[]
+        {
+            "PostgreSQL range",
+            range.IsEmpty,
+            range.LowerBoundInfinite,
+            range.UpperBoundInfinite,
+            range.LowerBoundIsInclusive,
+            range.UpperBoundIsInclusive,
+            range.LowerBoundInfinite ? DBNull.Value : range.LowerBound,
+            range.UpperBoundInfinite ? DBNull.Value : range.UpperBound
+        };
     }
 
     internal static Type GetNormalizedFieldType(Type providerType)

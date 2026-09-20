@@ -5,6 +5,7 @@ using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
 using Microsoft.Data.Sqlite;
+using NpgsqlTypes;
 
 namespace DbaClientX.Tests;
 
@@ -179,6 +180,30 @@ public class DbaProviderTableCopyAdapterBaseTests
 
         Assert.Equal(ComputeContentHash(first, "Values"), ComputeContentHash(same, "Values"));
         Assert.NotEqual(ComputeContentHash(first, "Values"), ComputeContentHash(changed, "Values"));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesPostgreSqlRangesAndMultiranges()
+    {
+        var normalizer = new PostgreSqlTableCopyAdapter(
+            "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require");
+        var firstRange = new NpgsqlRange<int>(1, lowerBoundIsInclusive: true, 5, upperBoundIsInclusive: false);
+        var changedRange = new NpgsqlRange<int>(1, lowerBoundIsInclusive: true, 6, upperBoundIsInclusive: false);
+        using var first = new DataTable();
+        first.Columns.Add("Range", typeof(NpgsqlRange<int>));
+        first.Columns.Add("Multirange", typeof(NpgsqlRange<int>[]));
+        first.Rows.Add(firstRange, new[] { firstRange, NpgsqlRange<int>.Empty });
+
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(changedRange, new[] { firstRange, NpgsqlRange<int>.Empty });
+
+        Assert.Equal(
+            ComputeContentHash(first, normalizer, "Range", "Multirange"),
+            ComputeContentHash(same, normalizer, "Range", "Multirange"));
+        Assert.NotEqual(
+            ComputeContentHash(first, normalizer, "Range", "Multirange"),
+            ComputeContentHash(changed, normalizer, "Range", "Multirange"));
     }
 
     [Fact]
@@ -1400,6 +1425,12 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     private static string ComputeContentHash(DataTable table, params string[] columns)
+        => ComputeContentHash(table, valueNormalizer: null, columns);
+
+    private static string ComputeContentHash(
+        DataTable table,
+        IDbaTableCopyContentValueNormalizer? valueNormalizer,
+        params string[] columns)
     {
         var hasherType = typeof(DbaTableCopyDefinition).Assembly.GetType(
             "DBAClientX.DataMovement.DbaTableCopyContentHasher",
@@ -1414,7 +1445,7 @@ public class DbaProviderTableCopyAdapterBaseTests
             ?? throw new MissingMethodException(hasherType.FullName, "Add");
         var hash = hasherType.GetProperty("Hash", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingMemberException(hasherType.FullName, "Hash");
-        add.Invoke(hasher, new object[] { table, columns, CancellationToken.None });
+        add.Invoke(hasher, new object?[] { table, columns, CancellationToken.None, valueNormalizer });
         return Assert.IsType<string>(hash.GetValue(hasher));
     }
 

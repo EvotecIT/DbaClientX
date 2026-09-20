@@ -9,6 +9,14 @@ namespace DbaClientX.Tests;
 
 public sealed class DbaTableCopyOracleReliabilityTests
 {
+    [Fact]
+    public void CheckpointAndSchemaPreflight_ExcludeTemporaryDestinations()
+    {
+        Assert.Contains("TEMPORARY = 'N'", OracleTableCopyAdapter.OracleDurableDestinationTableQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TEMPORARY = 'N'", OracleTableCopyAdapter.OracleCheckpointDestinationIdentityQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("JOIN ALL_TABLES", OracleTableCopyAdapter.OracleCheckpointDestinationIdentityQuery, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(typeof(byte[]), OracleDbType.Raw)]
     [InlineData(typeof(string), OracleDbType.Varchar2)]

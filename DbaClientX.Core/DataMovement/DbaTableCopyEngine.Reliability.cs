@@ -107,7 +107,11 @@ public sealed partial class DbaTableCopyEngine
                 throw new InvalidOperationException($"Source ended or stopped advancing before all rows of '{plan.Definition.DisplayName}' were copied.");
             DataTable transformed = DbaTableCopyPageTransformer.Transform(page.Data, plan.Definition);
             using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
-            hasher.Add(transformed, plan.Source.Columns, cancellationToken);
+            hasher.Add(
+                transformed,
+                plan.Source.Columns,
+                cancellationToken,
+                source as IDbaTableCopyContentValueNormalizer);
             var next = current with
             {
                 CopiedRows = checked(current.CopiedRows + transformed.Rows.Count),
