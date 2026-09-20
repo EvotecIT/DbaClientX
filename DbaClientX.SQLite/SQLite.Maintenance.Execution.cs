@@ -184,7 +184,11 @@ public partial class SQLite
                 if (backup == null || backup.IsInvalid)
                 {
                     string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                    throw new DbaQueryExecutionException("Failed to initialize SQLite online backup.", "SQLite online backup", new InvalidOperationException(message));
+                    int initializationCode = raw.sqlite3_errcode(destination.Handle);
+                    throw CreateBackupProviderException(
+                        "Failed to initialize SQLite online backup.",
+                        new InvalidOperationException(message),
+                        initializationCode);
                 }
 
                 int resultCode = raw.SQLITE_OK;
@@ -210,10 +214,10 @@ public partial class SQLite
                         if (resultCode != raw.SQLITE_OK && resultCode != raw.SQLITE_BUSY && resultCode != raw.SQLITE_LOCKED)
                         {
                             string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                            throw new DbaQueryExecutionException(
+                            throw CreateBackupProviderException(
                                 $"SQLite online backup failed with result code {resultCode}.",
-                                "SQLite online backup",
-                                new InvalidOperationException(message));
+                                new InvalidOperationException(message),
+                                resultCode);
                         }
 
                         bool isBusy = resultCode == raw.SQLITE_BUSY || resultCode == raw.SQLITE_LOCKED;
@@ -251,10 +255,10 @@ public partial class SQLite
                     if (backupFailure == null && resultCode == raw.SQLITE_DONE && finishCode != raw.SQLITE_OK)
                     {
                         string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                        throw new DbaQueryExecutionException(
+                        throw CreateBackupProviderException(
                             $"SQLite online backup finalization failed with result code {finishCode}.",
-                            "SQLite online backup",
-                            new InvalidOperationException(message));
+                            new InvalidOperationException(message),
+                            finishCode);
                     }
                 }
             }
@@ -324,6 +328,18 @@ public partial class SQLite
 
         return true;
     }
+
+    private static DbaQueryExecutionException CreateBackupProviderException(
+        string message,
+        Exception exception,
+        int providerErrorCode)
+        => new(
+            message,
+            "SQLite online backup",
+            exception,
+            providerErrorCode,
+            providerSqlState: null,
+            providerErrorKind: DbaProviderErrorKind.Unknown);
 
     private static Task<T> RunDedicatedMaintenanceAsync<T>(Func<T> operation, CancellationToken cancellationToken)
     {

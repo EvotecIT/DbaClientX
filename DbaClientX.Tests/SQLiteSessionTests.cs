@@ -92,6 +92,38 @@ public class SQLiteSessionTests
     }
 
     [Fact]
+    public void SessionBusyFailureRetainsNativeCodeForExternalRetryClassification()
+    {
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var locker = new SQLite { BusyTimeoutMs = 1 };
+            locker.ExecuteNonQuery(path, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL);");
+            locker.BeginTransaction(path);
+            locker.ExecuteNonQuery(path, "INSERT INTO items (name) VALUES ('locked');", useTransaction: true);
+
+            using var sqlite = new SQLite
+            {
+                BusyTimeoutMs = 1,
+                CommandTimeout = 1,
+                MaxRetryAttempts = 1
+            };
+            using SQLiteSession session = sqlite.OpenSession(path);
+
+            var exception = Assert.Throws<DbaQueryExecutionException>(() =>
+                session.ExecuteNonQuery("INSERT INTO items (name) VALUES ('blocked');"));
+
+            Assert.True(exception.ProviderErrorCode is 5 or 6);
+            Assert.True(SqliteTransientRetry.IsTransient(exception));
+            locker.Rollback();
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public async Task QueryAsync_AppliesConfiguredBusyTimeout()
     {
         string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));

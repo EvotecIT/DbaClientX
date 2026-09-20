@@ -51,6 +51,17 @@ public partial class SQLite
             throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout must be positive when specified.");
         }
 
+        string sourcePath = Path.GetFullPath(sourceDatabase);
+        string destinationPath = Path.GetFullPath(destinationDatabase);
+        if (AreSameBackupPath(sourcePath, destinationPath))
+        {
+            throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
+        }
+        if (File.Exists(sourcePath) && !overwriteDestination && File.Exists(destinationPath))
+        {
+            throw new IOException($"SQLite backup destination already exists: {destinationPath}");
+        }
+
         var options = new SqliteBackupOptions
         {
             OverwriteDestination = overwriteDestination
@@ -59,9 +70,25 @@ public partial class SQLite
         {
             options.BusyRetryTimeout = TimeSpan.FromMilliseconds(busyTimeoutMs.Value);
         }
-        BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
-            .GetAwaiter()
-            .GetResult();
+        try
+        {
+            BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (DbaQueryExecutionException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is SqliteException or IOException or UnauthorizedAccessException or
+            InvalidOperationException or NotSupportedException or TimeoutException)
+        {
+            throw CreateQueryExecutionException(
+                "Failed to back up SQLite database.",
+                "SQLite online backup",
+                exception);
+        }
     }
 
     /// <summary>
@@ -195,7 +222,7 @@ public partial class SQLite
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute SQLite maintenance command.", pragma, ex);
+            throw CreateQueryExecutionException("Failed to execute SQLite maintenance command.", pragma, ex);
         }
     }
 

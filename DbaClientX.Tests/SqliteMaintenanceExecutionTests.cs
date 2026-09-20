@@ -45,6 +45,32 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public void BackupDatabase_OperationalFailureUsesSanitizedLegacyExceptionContract()
+    {
+        string source = CreateDatabase(rowCount: 1);
+        string blockingFile = Path.Combine(Path.GetTempPath(), $"dbaclientx-backup-parent-{Guid.NewGuid():N}");
+        string destination = Path.Combine(blockingFile, "backup.sqlite");
+        File.WriteAllText(blockingFile, "not a directory");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            var exception = Assert.Throws<DbaQueryExecutionException>(() =>
+                sqlite.BackupDatabase(source, destination));
+
+            Assert.Contains("Failed to back up SQLite database", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(typeof(IOException).FullName, exception.ProviderExceptionType);
+            Assert.DoesNotContain(blockingFile, exception.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            Cleanup(blockingFile);
+        }
+    }
+
+    [Fact]
     public void BackupDatabase_RejectsSameSourceAndDestination()
     {
         string source = CreateDatabase();

@@ -260,7 +260,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
-    public async Task PostgreSqlNumericNaN_RejectsCopyBeforeWritingAnyPage()
+    public async Task PostgreSqlNumericArrayNaN_RejectsCopyBeforeWritingAnyPage()
     {
         string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
         Assert.SkipWhen(
@@ -276,12 +276,14 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         {
             await ExecuteAsync(
                 connection,
-                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, amount NUMERIC(10,2) NOT NULL)");
-            await ExecuteAsync(connection, $"INSERT INTO \"{sourceTable}\" VALUES (1, 1.25), (2, 'NaN')");
+                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, amounts NUMERIC(10,2)[] NOT NULL)");
             await ExecuteAsync(
                 connection,
-                $"CREATE TABLE \"{destinationTable}\" (id BIGINT NOT NULL PRIMARY KEY, amount NUMERIC(10,2) NOT NULL)");
-            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 99.00)");
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, ARRAY[1.25::NUMERIC(10,2)]), (2, ARRAY['NaN'::NUMERIC])");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id BIGINT NOT NULL PRIMARY KEY, amounts NUMERIC(10,2)[] NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, ARRAY[99.00::NUMERIC(10,2)])");
 
             var source = new PostgreSqlTableCopyAdapter(connectionString!, new[] { "id" });
             var destination = new PostgreSqlTableCopyAdapter(connectionString!);
@@ -295,6 +297,55 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                     new DbaTableCopyOptions { PageSize = 1 }));
 
             Assert.Contains("numeric NaN", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
+            Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT id FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlOversizedNumericArray_RejectsCopyBeforeWritingAnyPage()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_numeric_array_source_" + suffix;
+        string destinationTable = "dbax_numeric_array_dest_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, amounts NUMERIC(100,0)[] NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, ARRAY[1::NUMERIC(100,0)]), (2, ARRAY[1234567890123456789012345678901234567890::NUMERIC(100,0)])");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id BIGINT NOT NULL PRIMARY KEY, amounts NUMERIC(100,0)[] NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, ARRAY[99::NUMERIC(100,0)])");
+
+            var source = new PostgreSqlTableCopyAdapter(connectionString!, new[] { "id" });
+            var destination = new PostgreSqlTableCopyAdapter(connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { PageSize = 1 }));
+
+            Assert.Contains("System.Decimal precision", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
             Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT id FROM \"{destinationTable}\"")));
         }

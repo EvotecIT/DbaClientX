@@ -10,7 +10,8 @@ SELECT attribute.attname,
        value_type.typname,
        value_type.typtype::text,
        element_type.typname,
-       element_type.typtype::text
+       element_type.typtype::text,
+       pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)
 FROM pg_catalog.pg_attribute AS attribute
 JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
 JOIN pg_catalog.pg_type AS value_type ON value_type.oid = attribute.atttypid
@@ -65,6 +66,7 @@ ORDER BY attribute.attnum";
                     string typeKind = reader.GetString(2);
                     string? elementTypeName = reader.IsDBNull(3) ? null : reader.GetString(3);
                     string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
+                    string formattedType = reader.GetString(5);
                     bool isArray = elementTypeName != null;
                     if ((IsPostgreSqlInfinityCapableType(typeName) ||
                          (elementTypeName != null && IsPostgreSqlInfinityCapableType(elementTypeName))) &&
@@ -76,6 +78,7 @@ ORDER BY attribute.attnum";
                          string.Equals(elementTypeName, "numeric", StringComparison.Ordinal)) &&
                         !IsPortableProviderProjection(definition, column, allowStringConversion: false))
                     {
+                        if (isArray) ValidateNumericArrayShape(column, formattedType);
                         numericColumns.Add((column, isArray));
                     }
 
@@ -99,7 +102,7 @@ ORDER BY attribute.attnum";
                 definition.SourceName,
                 infinityColumns,
                 cancellationToken).ConfigureAwait(false);
-            await ValidateNoNumericNaNAsync(
+            await ValidateNoNumericSpecialValuesAsync(
                 connection,
                 definition.SourceName,
                 numericColumns,
@@ -152,7 +155,46 @@ ORDER BY attribute.attnum";
         }
     }
 
-    private async Task ValidateNoNumericNaNAsync(
+    internal static void ValidateNumericArrayShape(string columnName, string formattedType)
+    {
+        const string suffix = "[]";
+        string normalized = formattedType.Trim().ToLowerInvariant();
+        if (!normalized.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException(
+                $"PostgreSQL table-copy column '{columnName}' reports unsupported numeric array declaration '{formattedType}'.");
+        }
+
+        string elementDeclaration = normalized.Substring(0, normalized.Length - suffix.Length);
+        if (elementDeclaration == "numeric" || elementDeclaration == "decimal")
+        {
+            ValidateNumericShape(columnName, precision: null, scale: null);
+            return;
+        }
+
+        int openParenthesis = elementDeclaration.IndexOf('(');
+        int closeParenthesis = elementDeclaration.LastIndexOf(')');
+        if (openParenthesis <= 0 || closeParenthesis != elementDeclaration.Length - 1)
+        {
+            throw new NotSupportedException(
+                $"PostgreSQL table-copy column '{columnName}' reports unsupported numeric array declaration '{formattedType}'.");
+        }
+
+        string[] parts = elementDeclaration.Substring(openParenthesis + 1, closeParenthesis - openParenthesis - 1)
+            .Split(',');
+        int scale = 0;
+        if (parts.Length is < 1 or > 2 ||
+            !int.TryParse(parts[0].Trim(), out int precision) ||
+            (parts.Length == 2 && !int.TryParse(parts[1].Trim(), out scale)))
+        {
+            throw new NotSupportedException(
+                $"PostgreSQL table-copy column '{columnName}' reports unsupported numeric array declaration '{formattedType}'.");
+        }
+
+        ValidateNumericShape(columnName, precision, scale);
+    }
+
+    private async Task ValidateNoNumericSpecialValuesAsync(
         NpgsqlConnection connection,
         string sourceName,
         IReadOnlyList<(string Column, bool IsArray)> columns,
@@ -166,8 +208,8 @@ ORDER BY attribute.attnum";
             {
                 string identifier = QuoteExactPostgreSqlIdentifier(column.Column);
                 return column.IsArray
-                    ? $"EXISTS (SELECT 1 FROM unnest({identifier}) AS dbax_value WHERE dbax_value = 'NaN')"
-                    : $"{identifier} = 'NaN'";
+                    ? $"EXISTS (SELECT 1 FROM unnest({identifier}) AS dbax_value WHERE dbax_value::text IN ('NaN', 'Infinity', '-Infinity'))"
+                    : $"{identifier}::text IN ('NaN', 'Infinity', '-Infinity')";
             }));
         using var command = new NpgsqlCommand(
             $"SELECT EXISTS (SELECT 1 FROM {QuotePath(sourceName)} WHERE {predicates})",
@@ -179,8 +221,8 @@ ORDER BY attribute.attnum";
         if (Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)))
         {
             throw new NotSupportedException(
-                $"PostgreSQL source '{sourceName}' contains numeric NaN values that cannot be represented losslessly by table-copy CLR decimal values. " +
-                "Exclude the affected column or filter out NaN before copying.");
+                $"PostgreSQL source '{sourceName}' contains numeric NaN or infinity values that cannot be represented losslessly by table-copy CLR decimal values. " +
+                "Exclude the affected column or filter out the special values before copying.");
         }
     }
 

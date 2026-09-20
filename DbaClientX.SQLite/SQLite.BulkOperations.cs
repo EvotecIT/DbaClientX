@@ -86,7 +86,7 @@ public partial class SQLite
                 transaction?.Rollback();
             }
 
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
         finally
         {

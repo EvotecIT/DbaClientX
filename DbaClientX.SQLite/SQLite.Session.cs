@@ -25,10 +25,13 @@ public partial class SQLite
             (connection, _, _) = ResolveConnection(connectionString, useTransaction: false);
             return new SQLiteSession(this, connection);
         }
-        catch
+        catch (Exception exception)
         {
             connection?.Dispose();
-            throw;
+            throw CreateQueryExecutionException(
+                "Failed to open SQLite session.",
+                "SQLite session",
+                exception);
         }
     }
 
@@ -45,7 +48,7 @@ public partial class SQLite
         }
         catch (SqliteException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute non-query.", query, ex);
         }
     }
 
@@ -62,7 +65,7 @@ public partial class SQLite
         }
         catch (SqliteException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
     }
 
@@ -105,7 +108,7 @@ public partial class SQLite
         }
         catch (SqliteException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute mapped query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute mapped query.", query, ex);
         }
     }
 

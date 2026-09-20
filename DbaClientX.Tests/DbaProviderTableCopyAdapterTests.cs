@@ -105,6 +105,7 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "period"));
         Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("format_type(attribute.atttypid, attribute.atttypmod)", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -554,6 +555,27 @@ public class DbaProviderTableCopyAdapterBaseTests
 
         Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Project it to text", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("numeric(28,0)[]")]
+    [InlineData("numeric(2,-3)[]")]
+    [InlineData("decimal(28,28)[]")]
+    public void PostgreSqlNumericArrayShape_AcceptsDecimalSafeElements(string formattedType)
+    {
+        PostgreSqlTableCopyAdapter.ValidateNumericArrayShape("Amounts", formattedType);
+    }
+
+    [Theory]
+    [InlineData("numeric[]")]
+    [InlineData("numeric(100)[]")]
+    [InlineData("numeric(28,-1)[]")]
+    public void PostgreSqlNumericArrayShape_RejectsPotentiallyOversizedElements(string formattedType)
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateNumericArrayShape("Amounts", formattedType));
+
+        Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
