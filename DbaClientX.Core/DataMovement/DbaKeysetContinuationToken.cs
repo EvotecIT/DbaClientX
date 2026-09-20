@@ -10,13 +10,22 @@ internal static class DbaKeysetContinuationToken
     private const int MaximumTokenLength = 131072;
 
     internal static string Encode(DbaTableCopyDefinition definition, DataRow row)
+        => EncodeFromResultColumns(definition, row, definition.OrderByColumns!);
+
+    internal static string EncodeFromResultColumns(
+        DbaTableCopyDefinition definition,
+        DataRow row,
+        IReadOnlyList<string> resultColumns)
     {
+        if (resultColumns.Count != definition.OrderByColumns!.Count)
+            throw new ArgumentException("Keyset result columns must match the ordered key shape.", nameof(resultColumns));
         using var stream = new MemoryStream();
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
             writer.Write(GetBinding(definition));
-            foreach (string column in definition.OrderByColumns!)
+            for (var index = 0; index < resultColumns.Count; index++)
             {
+                string column = resultColumns[index];
                 object value = row[column];
                 switch (value)
                 {
@@ -37,7 +46,8 @@ internal static class DbaKeysetContinuationToken
                     case DateOnly date: writer.Write((byte)13); writer.Write(date.DayNumber); break;
                     case TimeOnly time: writer.Write((byte)14); writer.Write(time.Ticks); break;
 #endif
-                    default: throw new InvalidOperationException($"Keyset column '{column}' must have a supported, non-null key value.");
+                    default: throw new InvalidOperationException(
+                        $"Keyset column '{definition.OrderByColumns[index]}' must have a supported, non-null key value.");
                 }
             }
         }

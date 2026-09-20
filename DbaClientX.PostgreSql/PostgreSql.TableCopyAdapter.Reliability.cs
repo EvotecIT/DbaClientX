@@ -5,7 +5,7 @@ using Npgsql;
 
 namespace DBAClientX;
 
-public sealed partial class PostgreSqlTableCopyAdapter
+public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
 {
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
@@ -39,6 +39,65 @@ public sealed partial class PostgreSqlTableCopyAdapter
         var identity = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return identity as string ?? throw new InvalidOperationException(
             $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to a PostgreSQL table.");
+    }
+
+    /// <inheritdoc />
+    public async Task ValidateSchemaAsync(
+        DbaTableCopyDefinition definition,
+        DataTable page,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
+            definition.DestinationName,
+            DbaTableCopyProvider.PostgreSql);
+        if (rawSegments.Count is < 1 or > 2)
+        {
+            throw new ArgumentException(
+                "PostgreSQL table-copy destinations support table or schema.table names.",
+                nameof(definition));
+        }
+
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using var resolve = new NpgsqlCommand(@"
+SELECT ns.nspname, cls.relname
+FROM pg_catalog.pg_class AS cls
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
+WHERE cls.oid = to_regclass(@name)", connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        resolve.Parameters.AddWithValue("@name", QuotePath(definition.DestinationName));
+        string schema;
+        string table;
+        using (NpgsqlDataReader reader = await resolve.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(
+                    $"PostgreSQL destination '{definition.DestinationName}' could not be resolved for schema preflight.");
+            }
+
+            schema = reader.GetString(0);
+            table = reader.GetString(1);
+        }
+
+        using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
+        var columns = await postgreSql.GetTableCopyColumnsAsync(
+            connection,
+            schema,
+            table,
+            cancellationToken).ConfigureAwait(false);
+        DataTable normalizedPage = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, definition.DestinationName);
+        using var normalizedPageToDispose = ReferenceEquals(normalizedPage, page) ? null : normalizedPage;
+        DbaTableCopySchemaValidator.Validate(
+            definition.DestinationName,
+            normalizedPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+            columns,
+            static name => name,
+            requirePreservedIdentity: false,
+            keepIdentity: true);
     }
 
     /// <inheritdoc />

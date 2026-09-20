@@ -5,7 +5,7 @@ using MySqlConnector;
 
 namespace DBAClientX;
 
-public sealed partial class MySqlTableCopyAdapter
+public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination
 {
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
@@ -76,6 +76,49 @@ public sealed partial class MySqlTableCopyAdapter
         }
 
         return identity;
+    }
+
+    /// <inheritdoc />
+    public async Task ValidateSchemaAsync(
+        DbaTableCopyDefinition definition,
+        DataTable page,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        string[] segments = DbaIdentifierPath.SplitSegments(
+                definition.DestinationName,
+                DbaTableCopyProvider.MySql)
+            .Select(segment => DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.MySql))
+            .ToArray();
+        if (segments.Length is < 1 or > 2)
+        {
+            throw new ArgumentException(
+                "MySQL table-copy destinations support table or database.table names.",
+                nameof(definition));
+        }
+
+        await using var connection = new MySqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        string database = segments.Length == 2 ? segments[0] : connection.Database;
+        if (string.IsNullOrWhiteSpace(database))
+        {
+            throw new InvalidOperationException(
+                $"MySQL destination '{definition.DestinationName}' requires a selected database or a database-qualified table name for schema validation.");
+        }
+
+        using var mySql = new MySql { CommandTimeout = CommandTimeout };
+        var columns = await mySql.GetTableCopyColumnsAsync(
+            connection,
+            database,
+            segments[segments.Length - 1],
+            cancellationToken).ConfigureAwait(false);
+        DbaTableCopySchemaValidator.Validate(
+            definition.DestinationName,
+            page.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+            columns,
+            static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
+            requirePreservedIdentity: false,
+            keepIdentity: true);
     }
 
     /// <inheritdoc />

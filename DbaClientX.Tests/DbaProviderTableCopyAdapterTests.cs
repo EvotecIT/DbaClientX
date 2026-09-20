@@ -77,6 +77,54 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(expectedTime, Assert.IsType<TimeOnly>(values[1]));
     }
 
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "\"UserId\"", "UserId")]
+    [InlineData(DbaTableCopyProvider.Oracle, "\"User\"", "User")]
+    public void KeysetResultColumns_ResolveDelimitedIdentifiers(
+        DbaTableCopyProvider provider,
+        string orderedColumn,
+        string resultColumn)
+    {
+        using var table = new DataTable();
+        table.Columns.Add(resultColumn, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { orderedColumn }, "SourceRows" }));
+
+        Assert.Equal(resultColumn, Assert.Single(resolved));
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "ID", "ID", "id", "id")]
+    [InlineData(DbaTableCopyProvider.Oracle, "id", "id", "ID", "ID")]
+    public void KeysetResultColumns_ApplyProviderFoldingBeforeExactLookup(
+        DbaTableCopyProvider provider,
+        string orderedColumn,
+        string firstResultColumn,
+        string secondResultColumn,
+        string expected)
+    {
+        using var table = new DataTable();
+        table.CaseSensitive = true;
+        table.Columns.Add(firstResultColumn, typeof(long));
+        table.Columns.Add(secondResultColumn, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { orderedColumn }, "SourceRows" }));
+
+        Assert.Equal(expected, Assert.Single(resolved));
+    }
+
     [Fact]
     public void ContentHasher_NormalizesPostgreSqlDateAndTimeRepresentations()
     {

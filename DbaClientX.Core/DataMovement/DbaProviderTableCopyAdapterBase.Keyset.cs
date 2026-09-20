@@ -40,15 +40,18 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         try
         {
             if (rankColumn != null && table.Columns.Contains(rankColumn)) table.Columns.Remove(rankColumn);
-            foreach (string column in request.Definition.OrderByColumns!)
-            {
-                bool exists = Provider == DbaTableCopyProvider.SQLite
-                    ? table.Columns.Cast<DataColumn>().Any(actual => DbaIdentifierPath.NormalizeSqliteIdentifier(actual.ColumnName) == DbaIdentifierPath.NormalizeSqliteIdentifier(column))
-                    : table.Columns.Contains(column);
-                if (!exists) throw new InvalidOperationException($"Paging column '{column}' does not exist in table '{request.Definition.SourceName}'.");
-            }
+            IReadOnlyList<string> resultColumns = ResolveKeysetResultColumns(
+                Provider,
+                table.Columns,
+                request.Definition.OrderByColumns!,
+                request.Definition.SourceName);
             table.TableName = request.Definition.DestinationName;
-            string? nextToken = table.Rows.Count == 0 ? null : DbaKeysetContinuationToken.Encode(request.Definition, table.Rows[table.Rows.Count - 1]);
+            string? nextToken = table.Rows.Count == 0
+                ? null
+                : DbaKeysetContinuationToken.EncodeFromResultColumns(
+                    request.Definition,
+                    table.Rows[table.Rows.Count - 1],
+                    resultColumns);
             if (nextToken != null && string.Equals(nextToken, request.ContinuationToken, StringComparison.Ordinal))
                 throw new InvalidOperationException("The source key did not advance. Use a unique, non-null ascending key.");
             return new DbaTableCopyPage(table, nextToken);
@@ -58,6 +61,53 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             table.Dispose();
             throw;
         }
+    }
+
+    internal static IReadOnlyList<string> ResolveKeysetResultColumns(
+        DbaTableCopyProvider provider,
+        DataColumnCollection resultColumns,
+        IReadOnlyList<string> orderByColumns,
+        string sourceName)
+    {
+        var resolved = new string[orderByColumns.Count];
+        for (var index = 0; index < orderByColumns.Count; index++)
+        {
+            string planned = orderByColumns[index];
+            bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
+            string physical = DbaIdentifierPath.UnquoteSegment(planned, provider);
+            if (!delimited)
+            {
+                physical = provider switch
+                {
+                    DbaTableCopyProvider.PostgreSql => physical.ToLowerInvariant(),
+                    DbaTableCopyProvider.Oracle => physical.ToUpperInvariant(),
+                    _ => physical
+                };
+            }
+
+            DataColumn? result = resultColumns.Cast<DataColumn>()
+                .FirstOrDefault(column => string.Equals(column.ColumnName, physical, StringComparison.Ordinal));
+            if (result == null && provider == DbaTableCopyProvider.SQLite)
+            {
+                string normalized = DbaIdentifierPath.NormalizeSqliteIdentifier(physical);
+                result = resultColumns.Cast<DataColumn>().FirstOrDefault(column =>
+                    DbaIdentifierPath.NormalizeSqliteIdentifier(column.ColumnName) == normalized);
+            }
+            if (result == null && provider is not DbaTableCopyProvider.PostgreSql and not DbaTableCopyProvider.Oracle &&
+                resultColumns.Contains(physical))
+            {
+                result = resultColumns[physical];
+            }
+            if (result == null)
+            {
+                throw new InvalidOperationException(
+                    $"Paging column '{planned}' does not exist in table '{sourceName}'.");
+            }
+
+            resolved[index] = result.ColumnName;
+        }
+
+        return resolved;
     }
 
     private string BuildKeysetPredicate(IReadOnlyList<string> columns, object[]? values, IDictionary<string, object?> parameters)

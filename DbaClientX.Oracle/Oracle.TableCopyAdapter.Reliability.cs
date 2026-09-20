@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using Oracle.ManagedDataAccess.Client;
 using Oracle.ManagedDataAccess.Types;
 
@@ -121,6 +122,9 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         if (normalized.StartsWith("INTERVAL YEAR", StringComparison.Ordinal)) return OracleDbType.IntervalYM;
         return normalized switch
         {
+            "NUMBER" or "DECIMAL" or "NUMERIC" or "INTEGER" or "SMALLINT" => OracleDbType.Decimal,
+            "FLOAT" or "BINARY_DOUBLE" => OracleDbType.Double,
+            "BINARY_FLOAT" => OracleDbType.Single,
             "DATE" => OracleDbType.Date,
             "RAW" => OracleDbType.Raw,
             "BLOB" => OracleDbType.Blob,
@@ -133,7 +137,11 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
     }
 
     internal static object GetPageParameterValue(object value)
+        => GetPageParameterValue(value, parameterType: null);
+
+    internal static object GetPageParameterValue(object value, OracleDbType? parameterType)
     {
+        if (value is bool boolean && parameterType == OracleDbType.Decimal) return boolean ? 1m : 0m;
         if (value is ulong unsigned) return Convert.ToDecimal(unsigned);
         if (value is Guid guid) return guid.ToByteArray();
 #if NET6_0_OR_GREATER
@@ -141,6 +149,49 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         if (value is TimeOnly time) return time.ToTimeSpan();
 #endif
         return value;
+    }
+
+    internal static string ResolveDestinationDataType(
+        IReadOnlyDictionary<string, string> destinationTypes,
+        string columnName)
+    {
+        bool delimited = DbaIdentifierPath.IsDelimitedSegment(columnName);
+        string physicalName = DbaIdentifierPath.UnquoteSegment(columnName, DbaTableCopyProvider.Oracle);
+        if (destinationTypes.TryGetValue(physicalName, out string? destinationType))
+        {
+            return destinationType;
+        }
+
+        if (!delimited)
+        {
+            var match = destinationTypes.FirstOrDefault(pair =>
+                string.Equals(pair.Key, physicalName, StringComparison.OrdinalIgnoreCase));
+            if (match.Value != null)
+            {
+                return match.Value;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Oracle destination column '{columnName}' could not be resolved for checkpointed binding.");
+    }
+
+    internal static void ValidateProjectedIdentityColumns(
+        string tableName,
+        IReadOnlyCollection<string> projectedColumns,
+        IReadOnlyList<DbaColumnInfo> destinationColumns)
+    {
+        var columns = destinationColumns.ToDictionary(column => column.Name, StringComparer.Ordinal);
+        foreach (string name in projectedColumns)
+        {
+            if (columns.TryGetValue(name, out DbaColumnInfo? column) &&
+                column.IsIdentity == true &&
+                string.Equals(column.IdentityGeneration, "ALWAYS", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Oracle destination identity column '{tableName}.{column.Name}' is GENERATED ALWAYS and cannot accept copied values. Exclude it from the projection or use a BY DEFAULT identity.");
+            }
+        }
     }
 
     private async Task<OracleDbType[]> ResolveDestinationParameterTypesAsync(
@@ -186,19 +237,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         for (var index = 0; index < columns.Count; index++)
         {
             DataColumn column = columns[index];
-            if (!destinationTypes.TryGetValue(column.ColumnName, out var destinationType))
-            {
-                var match = destinationTypes.FirstOrDefault(pair =>
-                    string.Equals(pair.Key, column.ColumnName, StringComparison.OrdinalIgnoreCase));
-                destinationType = match.Value;
-            }
-
-            if (destinationType == null)
-            {
-                throw new InvalidOperationException(
-                    $"Oracle destination column '{column.ColumnName}' could not be resolved for checkpointed binding.");
-            }
-
+            string destinationType = ResolveDestinationDataType(destinationTypes, column.ColumnName);
             result[index] = GetPageParameterType(column.DataType, destinationType);
         }
 
@@ -214,6 +253,60 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
     {
         using var connection = new OracleConnection(ConnectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
+            definition.DestinationName,
+            DbaTableCopyProvider.Oracle);
+        if (rawSegments.Count is < 1 or > 2)
+        {
+            throw new ArgumentException(
+                "Oracle table-copy destinations support table or owner.table names.",
+                nameof(definition));
+        }
+        string Normalize(string segment) => DbaIdentifierPath.IsDelimitedSegment(segment)
+            ? DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.Oracle)
+            : segment.ToUpperInvariant();
+        string owner;
+        if (rawSegments.Count == 2)
+        {
+            owner = Normalize(rawSegments[0]);
+        }
+        else
+        {
+            using var currentSchema = new OracleCommand(
+                "SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual",
+                connection)
+            {
+                CommandTimeout = CommandTimeout
+            };
+            owner = Convert.ToString(await currentSchema.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) ?? "";
+            if (string.IsNullOrWhiteSpace(owner))
+            {
+                throw new InvalidOperationException("Oracle current schema could not be resolved for destination preflight.");
+            }
+        }
+
+        string table = Normalize(rawSegments[rawSegments.Count - 1]);
+        using var oracle = new Oracle { CommandTimeout = CommandTimeout };
+        IReadOnlyList<DbaColumnInfo> destinationColumns = await oracle.GetTableCopyColumnsAsync(
+            connection,
+            owner,
+            table,
+            cancellationToken).ConfigureAwait(false);
+        string[] projectedColumns = page.Columns.Cast<DataColumn>().Select(column =>
+            DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
+                ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
+                : column.ColumnName.ToUpperInvariant()).ToArray();
+        DbaTableCopySchemaValidator.Validate(
+            definition.DestinationName,
+            projectedColumns,
+            destinationColumns,
+            static name => name,
+            requirePreservedIdentity: false,
+            keepIdentity: true);
+        ValidateProjectedIdentityColumns(
+            definition.DestinationName,
+            projectedColumns,
+            destinationColumns);
         await ResolveDestinationParameterTypesAsync(
             connection,
             null,
@@ -306,7 +399,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                 var value = row[index];
                 command.Parameters[index].Value = value == DBNull.Value
                     ? DBNull.Value
-                    : GetPageParameterValue(value);
+                    : GetPageParameterValue(value, parameterTypes[index]);
             }
 
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

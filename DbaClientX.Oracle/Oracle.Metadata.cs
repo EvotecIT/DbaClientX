@@ -56,7 +56,7 @@ SELECT
     CASE WHEN identity_column = 'YES' THEN 1 ELSE 0 END AS is_identity,
     CASE WHEN identity_column = 'YES' THEN 'IDENTITY' ELSE NULL END AS identity_generation,
     NULL AS generated_expression,
-    NULL AS generated_kind
+    CASE WHEN virtual_column = 'YES' THEN 'VIRTUAL' ELSE NULL END AS generated_kind
 FROM all_tab_columns
 WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR table_name = :tableNameExact OR table_name = UPPER(:tableNameNormalized))

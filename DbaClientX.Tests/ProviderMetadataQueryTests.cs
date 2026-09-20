@@ -53,6 +53,15 @@ public class ProviderMetadataQueryTests
             Assert.Contains("generated_expression", query);
             Assert.Contains("generated_kind", query);
         }
+
+        string oracleColumns = GetQuery<DBAClientX.Oracle>("OracleColumnsQuery");
+        Assert.Contains("virtual_column", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("data_default AS default_expression", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("THEN data_default", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("data_default ELSE", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("all_tab_identity_cols", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("owner = :owner", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("table_name = :table", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

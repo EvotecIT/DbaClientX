@@ -1,4 +1,5 @@
 using DBAClientX;
+using DBAClientX.Metadata;
 using Oracle.ManagedDataAccess.Client;
 
 namespace DbaClientX.Tests;
@@ -28,6 +29,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [InlineData(typeof(DateOnly), "DATE", OracleDbType.Date)]
     [InlineData(typeof(DateOnly), "TIMESTAMP(6)", OracleDbType.TimeStamp)]
     [InlineData(typeof(TimeOnly), "INTERVAL DAY(2) TO SECOND(6)", OracleDbType.IntervalDS)]
+    [InlineData(typeof(bool), "NUMBER", OracleDbType.Decimal)]
     public void CheckpointPageParameters_UseDestinationLobMetadata(
         Type sourceType,
         string destinationType,
@@ -79,6 +81,96 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         Assert.Equal(date.ToDateTime(TimeOnly.MinValue), OracleTableCopyAdapter.GetPageParameterValue(date));
         Assert.Equal(time.ToTimeSpan(), OracleTableCopyAdapter.GetPageParameterValue(time));
+    }
+
+    [Theory]
+    [InlineData(true, "1")]
+    [InlineData(false, "0")]
+    public void CheckpointPageValues_ConvertBooleansForNumericDestinations(bool value, string expected)
+    {
+        object converted = OracleTableCopyAdapter.GetPageParameterValue(value, OracleDbType.Decimal);
+
+        Assert.Equal(decimal.Parse(expected), Assert.IsType<decimal>(converted));
+    }
+
+    [Fact]
+    public void CheckpointDestinationMetadata_ResolvesDelimitedPhysicalColumnNames()
+    {
+        var destinationTypes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["User"] = "VARCHAR2"
+        };
+
+        Assert.Equal(
+            "VARCHAR2",
+            OracleTableCopyAdapter.ResolveDestinationDataType(destinationTypes, "\"User\""));
+        Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ResolveDestinationDataType(destinationTypes, "\"USER\""));
+    }
+
+    [Fact]
+    public void SchemaPreflight_RejectsGeneratedAlwaysIdentity()
+    {
+        var columns = new[]
+        {
+            new DBAClientX.Metadata.DbaColumnInfo("APP", "ROWS", "ID", "NUMBER")
+            {
+                IsIdentity = true,
+                IdentityGeneration = "ALWAYS"
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidateProjectedIdentityColumns("APP.ROWS", new[] { "ID" }, columns));
+
+        Assert.Contains("GENERATED ALWAYS", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("BY DEFAULT")]
+    [InlineData("BY DEFAULT ON NULL")]
+    public void SchemaPreflight_AllowsGeneratedByDefaultIdentity(string generation)
+    {
+        var columns = new[]
+        {
+            new DBAClientX.Metadata.DbaColumnInfo("APP", "ROWS", "ID", "NUMBER")
+            {
+                IsIdentity = true,
+                IdentityGeneration = generation
+            }
+        };
+
+        OracleTableCopyAdapter.ValidateProjectedIdentityColumns("APP.ROWS", new[] { "ID" }, columns);
+    }
+
+    [Fact]
+    public void TableCopyMetadata_UsesExactPhysicalOwnerAndTableOnly()
+    {
+        using var command = new OracleCommand();
+
+        DBAClientX.Oracle.AddExactTableCopyMetadataParameters(command.Parameters, "App", "Rows");
+
+        Assert.Equal("App", command.Parameters["schemaNameExact"].Value);
+        Assert.True(command.Parameters["schemaNameNormalized"].Value is null or DBNull);
+        Assert.Equal("Rows", command.Parameters["tableNameExact"].Value);
+        Assert.True(command.Parameters["tableNameNormalized"].Value is null or DBNull);
+    }
+
+    [Fact]
+    public void TableCopyMetadata_EnrichesIdentityGenerationByExactColumnName()
+    {
+        var columns = new List<DbaColumnInfo>
+        {
+            new("App", "Rows", "Id", "NUMBER") { IsIdentity = true, IdentityGeneration = "IDENTITY" },
+            new("App", "Rows", "ID", "NUMBER") { IsIdentity = true, IdentityGeneration = "IDENTITY" }
+        };
+
+        DBAClientX.Oracle.ApplyIdentityGenerations(
+            columns,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["Id"] = "ALWAYS" });
+
+        Assert.Equal("ALWAYS", columns[0].IdentityGeneration);
+        Assert.Equal("IDENTITY", columns[1].IdentityGeneration);
     }
 
     [Fact]
