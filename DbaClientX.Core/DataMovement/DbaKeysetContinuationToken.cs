@@ -42,6 +42,7 @@ internal static class DbaKeysetContinuationToken
                     case TimeSpan time: writer.Write((byte)9); writer.Write(time.Ticks); break;
                     case float number: writer.Write((byte)10); writer.Write(number); break;
                     case double number: writer.Write((byte)11); writer.Write(number); break;
+                    case DbaYearMonthInterval interval: writer.Write((byte)15); writer.Write(interval.TotalMonths); break;
 #if NET6_0_OR_GREATER
                     case DateOnly date: writer.Write((byte)13); writer.Write(date.DayNumber); break;
                     case TimeOnly time: writer.Write((byte)14); writer.Write(time.Ticks); break;
@@ -84,6 +85,7 @@ internal static class DbaKeysetContinuationToken
                     10 => reader.ReadSingle(),
                     11 => reader.ReadDouble(),
                     12 => reader.ReadUInt64(),
+                    15 => new DbaYearMonthInterval(reader.ReadInt64()),
 #if NET6_0_OR_GREATER
                     13 => DateOnly.FromDayNumber(reader.ReadInt32()),
                     14 => new TimeOnly(reader.ReadInt64()),

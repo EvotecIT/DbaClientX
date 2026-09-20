@@ -74,6 +74,7 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
             case DateTimeOffset date: _writer.Write((byte)4); _writer.Write(date.UtcTicks); break;
             case Guid guid: WriteBinary(guid.ToByteArray()); break;
             case TimeSpan duration: _writer.Write((byte)6); _writer.Write(duration.Ticks); break;
+            case DbaYearMonthInterval interval: _writer.Write((byte)8); _writer.Write(interval.TotalMonths); break;
 #if NET6_0_OR_GREATER
             // Match provider representations: PostgreSQL date/time values use DateOnly/TimeOnly,
             // while other providers commonly materialize the same values as DateTime/TimeSpan.

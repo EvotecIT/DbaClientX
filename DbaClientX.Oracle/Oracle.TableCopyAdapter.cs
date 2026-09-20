@@ -1,6 +1,7 @@
 using System.Data;
 using DBAClientX.DataMovement;
 using Oracle.ManagedDataAccess.Client;
+using Oracle.ManagedDataAccess.Types;
 
 namespace DBAClientX;
 
@@ -43,14 +44,54 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
         using var oracle = new Oracle { CommandTimeout = CommandTimeout };
+        using DataTable? normalizedPage = NormalizeBulkPage(page);
         await oracle.BulkInsertAsync(
                 ConnectionString,
-                page,
+                normalizedPage ?? page,
                 NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
                 batchSize: options.BatchSize,
                 bulkCopyTimeout: options.BulkCopyTimeout,
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    internal static DataTable? NormalizeBulkPage(DataTable page)
+    {
+        bool requiresNormalization = page.Columns.Cast<DataColumn>()
+            .Any(static column => column.DataType == typeof(DbaYearMonthInterval));
+        if (!requiresNormalization)
+        {
+            foreach (DataRow row in page.Rows)
+            {
+                for (var index = 0; index < page.Columns.Count; index++)
+                {
+                    if (row[index] is not DbaYearMonthInterval) continue;
+                    requiresNormalization = true;
+                    break;
+                }
+                if (requiresNormalization) break;
+            }
+        }
+        if (!requiresNormalization) return null;
+
+        var normalized = new DataTable { CaseSensitive = page.CaseSensitive };
+        foreach (DataColumn column in page.Columns)
+        {
+            normalized.Columns.Add(
+                column.ColumnName,
+                column.DataType == typeof(DbaYearMonthInterval) ? typeof(OracleIntervalYM) : column.DataType);
+        }
+        foreach (DataRow row in page.Rows)
+        {
+            object?[] values = row.ItemArray;
+            for (var index = 0; index < values.Length; index++)
+            {
+                if (values[index] is DbaYearMonthInterval interval)
+                    values[index] = new OracleIntervalYM(interval.TotalMonths);
+            }
+            normalized.Rows.Add(values);
+        }
+        return normalized;
     }
 
     /// <inheritdoc />

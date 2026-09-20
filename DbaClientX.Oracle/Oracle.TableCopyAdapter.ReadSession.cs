@@ -1,6 +1,7 @@
 using System.Data;
 using DBAClientX.DataMovement;
 using Oracle.ManagedDataAccess.Client;
+using Oracle.ManagedDataAccess.Types;
 
 namespace DBAClientX;
 
@@ -58,12 +59,49 @@ public sealed partial class OracleTableCopyAdapter
         foreach (KeyValuePair<string, object?> parameter in parameters)
         {
             string name = parameter.Key.TrimStart(':', '@');
-            command.Parameters.Add(new OracleParameter(name, parameter.Value ?? DBNull.Value));
+            object value = parameter.Value == null
+                ? DBNull.Value
+                : GetPageParameterValue(parameter.Value);
+            command.Parameters.Add(new OracleParameter(name, value));
         }
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((OracleCommand)state!).Cancel(), command);
         using OracleDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false);
+        return await DbaTableCopyPageReader.ReadAsync(
+            reader,
+            maxBytes,
+            fieldPayloadBytes: null,
+            readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
+            cancellationToken).ConfigureAwait(false);
     }
+
+    internal static object NormalizeProviderValue(object value)
+        => value switch
+        {
+            OracleIntervalYM interval => interval.IsNull
+                ? DBNull.Value
+                : new DbaYearMonthInterval(interval.Value),
+            OracleIntervalDS interval => interval.IsNull ? DBNull.Value : interval.Value,
+            OracleBinary binary => binary.IsNull ? DBNull.Value : binary.Value,
+            OracleBoolean boolean => boolean.IsNull ? DBNull.Value : boolean.Value,
+            OracleDecimal number => number.IsNull ? DBNull.Value : number.Value,
+            OracleDate date => date.IsNull
+                ? DBNull.Value
+                : DateTime.SpecifyKind(date.Value, DateTimeKind.Unspecified),
+            OracleString text => text.IsNull ? DBNull.Value : text.Value,
+            OracleTimeStamp timestamp => timestamp.IsNull
+                ? DBNull.Value
+                : DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified),
+            OracleTimeStampLTZ timestamp => timestamp.IsNull
+                ? DBNull.Value
+                : NormalizeTimestamp(timestamp.ToUniversalTime()),
+            OracleTimeStampTZ timestamp => timestamp.IsNull
+                ? DBNull.Value
+                : NormalizeTimestamp(timestamp),
+            _ => value
+        };
+
+    private static DateTimeOffset NormalizeTimestamp(OracleTimeStampTZ timestamp)
+        => new(DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Unspecified), timestamp.GetTimeZoneOffset());
 
     private void CloseReadSession()
     {

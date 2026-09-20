@@ -1,6 +1,9 @@
+using System.Data;
 using DBAClientX;
+using DBAClientX.DataMovement;
 using DBAClientX.Metadata;
 using Oracle.ManagedDataAccess.Client;
+using Oracle.ManagedDataAccess.Types;
 
 namespace DbaClientX.Tests;
 
@@ -81,6 +84,67 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         Assert.Equal(date.ToDateTime(TimeOnly.MinValue), OracleTableCopyAdapter.GetPageParameterValue(date));
         Assert.Equal(time.ToTimeSpan(), OracleTableCopyAdapter.GetPageParameterValue(time));
+    }
+
+    [Fact]
+    public void ProviderValues_NormalizeYearMonthIntervalsWithoutLosingSemantics()
+    {
+        object normalized = OracleTableCopyAdapter.NormalizeProviderValue(new OracleIntervalYM(-27L));
+
+        Assert.Equal(new DbaYearMonthInterval(-27), Assert.IsType<DbaYearMonthInterval>(normalized));
+        var rebound = Assert.IsType<OracleIntervalYM>(OracleTableCopyAdapter.GetPageParameterValue(normalized));
+        Assert.Equal(-27L, rebound.Value);
+        Assert.Equal(OracleDbType.IntervalYM, OracleTableCopyAdapter.GetPageParameterType(normalized.GetType()));
+    }
+
+    [Fact]
+    public async Task BoundedPages_NormalizeYearMonthIntervalsBeforeMaterialization()
+    {
+        using var source = new DataTable();
+        source.Columns.Add("Period", typeof(OracleIntervalYM));
+        source.Rows.Add(new OracleIntervalYM(27L));
+        using DataTableReader reader = source.CreateDataReader();
+
+        using DataTable page = await DbaTableCopyPageReader.ReadAsync(
+            reader,
+            maxBytes: 4096,
+            fieldPayloadBytes: null,
+            readFieldValue: ordinal => OracleTableCopyAdapter.NormalizeProviderValue(reader.GetValue(ordinal)));
+
+        Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
+        Assert.Equal(typeof(object), page.Columns["Period"]!.DataType);
+    }
+
+    [Fact]
+    public void ProviderValues_NormalizeSupportedOracleScalarTypes()
+    {
+        var timestamp = new DateTime(2026, 9, 20, 12, 34, 56, DateTimeKind.Unspecified);
+
+        Assert.Equal(TimeSpan.FromHours(27), OracleTableCopyAdapter.NormalizeProviderValue(new OracleIntervalDS(TimeSpan.FromHours(27))));
+        Assert.Equal(new byte[] { 1, 2, 3 }, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBinary(new byte[] { 1, 2, 3 })));
+        Assert.Equal(true, OracleTableCopyAdapter.NormalizeProviderValue(new OracleBoolean(true)));
+        Assert.Equal(12.5m, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDecimal(12.5m)));
+        Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleDate(timestamp)));
+        Assert.Equal("value", OracleTableCopyAdapter.NormalizeProviderValue(new OracleString("value")));
+        Assert.Equal(timestamp, OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStamp(timestamp)));
+        Assert.Equal(
+            new DateTimeOffset(timestamp, TimeSpan.FromHours(2)),
+            OracleTableCopyAdapter.NormalizeProviderValue(new OracleTimeStampTZ(timestamp, "+02:00")));
+    }
+
+    [Fact]
+    public void BulkPages_RehydrateYearMonthIntervalsForOracle()
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Id", typeof(long));
+        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        page.Rows.Add(1L, new DbaYearMonthInterval(27));
+
+        using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
+
+        Assert.Equal(typeof(OracleIntervalYM), normalized.Columns["Period"]!.DataType);
+        Assert.Equal(27L, Assert.IsType<OracleIntervalYM>(normalized.Rows[0]["Period"]).Value);
+        Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
     }
 
     [Theory]

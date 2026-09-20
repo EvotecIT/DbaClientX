@@ -57,6 +57,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         if (dataType == typeof(char[])) return OracleDbType.Varchar2;
         if (dataType == typeof(Guid)) return OracleDbType.Raw;
         if (dataType == typeof(TimeSpan)) return OracleDbType.IntervalDS;
+        if (dataType == typeof(DbaYearMonthInterval)) return OracleDbType.IntervalYM;
         if (dataType == typeof(DateTimeOffset)) return OracleDbType.TimeStampTZ;
         if (dataType == typeof(OracleBinary)) return OracleDbType.Raw;
         if (dataType == typeof(OracleBlob)) return OracleDbType.Blob;
@@ -141,6 +142,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
 
     internal static object GetPageParameterValue(object value, OracleDbType? parameterType)
     {
+        if (value is DbaYearMonthInterval interval) return new OracleIntervalYM(interval.TotalMonths);
         if (value is bool boolean && parameterType == OracleDbType.Decimal) return boolean ? 1m : 0m;
         if (value is ulong unsigned) return Convert.ToDecimal(unsigned);
         if (value is Guid guid) return guid.ToByteArray();

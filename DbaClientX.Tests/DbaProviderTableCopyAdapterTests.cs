@@ -77,6 +77,43 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(expectedTime, Assert.IsType<TimeOnly>(values[1]));
     }
 
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsYearMonthIntervals()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Period" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        var expected = new DbaYearMonthInterval(-27);
+        DataRow row = table.Rows.Add(expected);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaYearMonthInterval>(Assert.Single(values)));
+    }
+
+    [Fact]
+    public void ContentHasher_AcceptsYearMonthIntervals()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        first.Rows.Add(new DbaYearMonthInterval(27));
+
+        using var second = first.Copy();
+
+        Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(second, "Period"));
+    }
+
     [Theory]
     [InlineData(DbaTableCopyProvider.PostgreSql, "\"UserId\"", "UserId")]
     [InlineData(DbaTableCopyProvider.Oracle, "\"User\"", "User")]
