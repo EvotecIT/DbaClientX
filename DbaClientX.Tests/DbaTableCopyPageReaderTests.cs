@@ -56,6 +56,26 @@ public sealed class DbaTableCopyPageReaderTests
         Assert.Equal(DateTimeKind.Utc, page.Rows[0].Field<DateTime>("Instant").Kind);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(4096L)]
+    public async Task ReadAsync_PreservesUtcDateTimeKindAfterLeadingNull(long? maxBytes)
+    {
+        using var source = new DataTable();
+        DataColumn column = source.Columns.Add("Instant", typeof(DateTime));
+        column.DateTimeMode = DataSetDateTime.Utc;
+        source.Rows.Add(DBNull.Value);
+        source.Rows.Add(new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc));
+        using DataTableReader reader = source.CreateDataReader();
+
+        using DataTable page = await DbaTableCopyPageReader.ReadAsync(reader, maxBytes);
+
+        Assert.Equal(2, page.Rows.Count);
+        Assert.Equal(DBNull.Value, page.Rows[0]["Instant"]);
+        Assert.Equal(DataSetDateTime.Utc, page.Columns["Instant"]!.DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, page.Rows[1].Field<DateTime>("Instant").Kind);
+    }
+
     private sealed class VirtualLargeValueReader(bool text, int length, int rows = 1) : DbDataReader
     {
         private int _row;

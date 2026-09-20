@@ -36,6 +36,11 @@ public static class DbaTableCopyPageReader
                 }
                 table.Columns.Add(name, reader.GetFieldType(column));
             }
+            var dateTimeModesEstablished = table.Columns.Cast<DataColumn>()
+                .Select(static column => column.DataType != typeof(DateTime))
+                .ToArray();
+            int unresolvedDateTimeModes = dateTimeModesEstablished.Count(static established => !established);
+            var pendingRows = new Queue<object[]>();
             long bytes = 0;
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -61,13 +66,22 @@ public static class DbaTableCopyPageReader
                 }
                 catch (PagePayloadExceededException)
                 {
-                    if (table.Rows.Count > 0) break;
+                    if (table.Rows.Count > 0 || pendingRows.Count > 0) break;
                     throw new InvalidOperationException($"A source row exceeds the configured page payload limit of {maxBytes!.Value} bytes. Increase MaxPageBytes to copy this row without truncation.");
                 }
-                PreserveValueTypes(table, values);
-                table.Rows.Add(values);
+                unresolvedDateTimeModes -= PreserveValueTypes(table, values, dateTimeModesEstablished);
+                if (unresolvedDateTimeModes > 0)
+                {
+                    pendingRows.Enqueue(values);
+                }
+                else
+                {
+                    while (pendingRows.Count > 0) table.Rows.Add(pendingRows.Dequeue());
+                    table.Rows.Add(values);
+                }
                 bytes += rowBytes;
             }
+            while (pendingRows.Count > 0) table.Rows.Add(pendingRows.Dequeue());
             return table;
         }
         catch
@@ -77,13 +91,14 @@ public static class DbaTableCopyPageReader
         }
     }
 
-    private static void PreserveValueTypes(DataTable table, object[] values)
+    private static int PreserveValueTypes(DataTable table, object[] values, bool[] dateTimeModesEstablished)
     {
+        int newlyEstablishedDateTimeModes = 0;
         for (int ordinal = 0; ordinal < values.Length; ordinal++)
         {
             object value = values[ordinal];
             DataColumn column = table.Columns[ordinal];
-            if (table.Rows.Count == 0 && column.DataType == typeof(DateTime) && value is DateTime dateTime)
+            if (!dateTimeModesEstablished[ordinal] && column.DataType == typeof(DateTime) && value is DateTime dateTime)
             {
                 column.DateTimeMode = dateTime.Kind switch
                 {
@@ -91,6 +106,8 @@ public static class DbaTableCopyPageReader
                     DateTimeKind.Local => DataSetDateTime.Local,
                     _ => DataSetDateTime.Unspecified
                 };
+                dateTimeModesEstablished[ordinal] = true;
+                newlyEstablishedDateTimeModes++;
             }
             if (value == null || value is DBNull || column.DataType == typeof(object) || column.DataType == value.GetType()) continue;
             // SQLite and variant columns can change storage type per row. DataRow otherwise
@@ -101,7 +118,13 @@ public static class DbaTableCopyPageReader
             table.Columns.Remove(column);
             replacement.ColumnName = name;
             replacement.SetOrdinal(ordinal);
+            if (!dateTimeModesEstablished[ordinal])
+            {
+                dateTimeModesEstablished[ordinal] = true;
+                newlyEstablishedDateTimeModes++;
+            }
         }
+        return newlyEstablishedDateTimeModes;
     }
 
     private static long ReadBoundedRow(DbDataReader reader, object[] values, long budget, Func<int, long?>? fieldPayloadBytes, Func<int, object>? readFieldValue, CancellationToken cancellationToken)
