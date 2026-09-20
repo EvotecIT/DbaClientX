@@ -86,7 +86,11 @@ public sealed partial class MySqlTableCopyAdapter
             }
 
             await using var command = CreateReadCommand(
-                "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table");
+                @"SELECT ENGINE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+  AND ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))");
             command.Parameters.AddWithValue("@database", database);
             command.Parameters.AddWithValue("@table", table);
             var engine = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));

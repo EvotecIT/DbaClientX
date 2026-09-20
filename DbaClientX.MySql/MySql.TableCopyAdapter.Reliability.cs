@@ -32,7 +32,10 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         CancellationToken cancellationToken)
     {
         await using var command = new MySqlCommand(
-            "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'DbaClientX_TableCopyCheckpoints'",
+            @"SELECT ENGINE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'DbaClientX_TableCopyCheckpoints')
+   OR (@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY DATABASE() AND BINARY TABLE_NAME = BINARY 'DbaClientX_TableCopyCheckpoints')",
             (MySqlConnection)connection)
         {
             CommandTimeout = CommandTimeout
@@ -69,7 +72,11 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
 
         var database = segments.Length == 2 ? segments[0] : ((MySqlConnection)connection).Database;
         await using var command = new MySqlCommand(
-            "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
+            @"SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+  AND ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))",
             (MySqlConnection)connection,
             (MySqlTransaction?)transaction)
         {
@@ -297,7 +304,11 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         CancellationToken cancellationToken)
     {
         await using var command = new MySqlCommand(
-            "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
+            @"SELECT ENGINE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+  AND ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))",
             connection)
         {
             CommandTimeout = CommandTimeout

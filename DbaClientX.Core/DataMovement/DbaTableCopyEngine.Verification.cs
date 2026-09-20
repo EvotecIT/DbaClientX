@@ -17,7 +17,7 @@ public sealed partial class DbaTableCopyEngine
         { UseKeysetPagination = true };
     }
 
-    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null)
+    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, bool deferSchemaPreflight = false)
     {
         long? counted = await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
         if (!counted.HasValue) throw new InvalidOperationException($"Cannot verify '{definition.DisplayName}' without an exact row count.");
@@ -46,7 +46,7 @@ public sealed partial class DbaTableCopyEngine
                 if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
                 {
                     ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
-                    if (options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                    if (!deferSchemaPreflight && options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
                     {
                         if (schemaSession == null)
                         {
@@ -59,7 +59,7 @@ public sealed partial class DbaTableCopyEngine
                             await schemaSession.ValidatePageAsync(transformed, cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    else if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+                    else if (!deferSchemaPreflight && pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
                     {
                         await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
                     }

@@ -19,6 +19,10 @@ public sealed partial class DbaTableCopyEngine
         if (definitions.Any(static definition => !definition.UseKeysetPagination))
             throw new ArgumentException("Content-verified and resumable copies require keyset pagination for every table.");
 
+        var batchPreflightDestination = options.ClearDestination && definitions.Count > 1
+            ? destination as IDbaTableCopySchemaPreflightBatchSessionDestination
+            : null;
+
         var plans = new List<VerifiedTablePlan>();
         var destinationIdentities = new HashSet<string>(StringComparer.Ordinal);
         using var emptyHasher = new DbaTableCopyContentHasher();
@@ -31,7 +35,15 @@ public sealed partial class DbaTableCopyEngine
                 if (!destinationIdentities.Add(identity))
                     throw new InvalidOperationException($"Multiple definitions target destination table '{definition.DestinationName}'. Each verified destination must be unique.");
             }
-            ContentProof proof = await ReadContentProofAsync(source, definition, options, null, DbaTableCopyPhase.ValidateSource, cancellationToken, destination).ConfigureAwait(false);
+            ContentProof proof = await ReadContentProofAsync(
+                source,
+                definition,
+                options,
+                null,
+                DbaTableCopyPhase.ValidateSource,
+                cancellationToken,
+                destination,
+                deferSchemaPreflight: batchPreflightDestination != null).ConfigureAwait(false);
             DbaTableCopyDefinition destinationDefinition = CreateDestinationReadDefinition(definition, proof);
             string fingerprint = DbaTableCopyRunManifest.ComputeDefinitionFingerprint(new[] { definition }, new DbaTableCopyOptions { KeepIdentity = options.KeepIdentity });
             var initial = new DbaTableCopyCheckpoint
@@ -69,6 +81,18 @@ public sealed partial class DbaTableCopyEngine
                     1, cancellationToken).ConfigureAwait(false);
             }
             plans.Add(plan);
+        }
+
+        if (batchPreflightDestination != null)
+        {
+            await PreflightVerifiedSourceTablesAsync(
+                source,
+                batchPreflightDestination,
+                destination as IDbaTableCopyPagePreflightDestination,
+                definitions,
+                plans.Select(static plan => plan.Source.Rows).ToArray(),
+                options,
+                cancellationToken).ConfigureAwait(false);
         }
         // A process can stop during preflight, before the first checkpoint is initialized.
         // Resume may initialize missing checkpoints only after proving those destinations empty above.

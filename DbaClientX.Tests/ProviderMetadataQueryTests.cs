@@ -117,6 +117,9 @@ public class ProviderMetadataQueryTests
         Assert.Contains("EXPRESSION AS expression", indexesWithExpressionsAndVisibility);
         Assert.Contains("CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible", indexesWithExpressionsAndVisibility);
         Assert.Contains("CASE WHEN ROUTINE_TYPE = 'FUNCTION' THEN NULLIF(DTD_IDENTIFIER, '') ELSE NULL END AS data_type", routines);
+        Assert.Contains("@@lower_case_table_names", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("BINARY TABLE_SCHEMA = BINARY @schema", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("BINARY TABLE_NAME = BINARY @table", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
     }
 
     [Fact]

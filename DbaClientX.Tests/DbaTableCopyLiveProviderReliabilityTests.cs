@@ -9,6 +9,115 @@ namespace DbaClientX.Tests;
 
 public sealed class DbaTableCopyLiveProviderReliabilityTests
 {
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "DBACLIENTX_POSTGRESQL_TEST_CONNECTION", false)]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "DBACLIENTX_POSTGRESQL_TEST_CONNECTION", true)]
+    [InlineData(DbaTableCopyProvider.MySql, "DBACLIENTX_MYSQL_TEST_CONNECTION", false)]
+    [InlineData(DbaTableCopyProvider.MySql, "DBACLIENTX_MYSQL_TEST_CONNECTION", true)]
+    [Trait("Category", "LiveProvider")]
+    public async Task ClearDestination_PreflightsRelatedTablesInOneTransaction(
+        DbaTableCopyProvider provider,
+        string environmentVariable,
+        bool verifyContent)
+    {
+        var connectionString = Environment.GetEnvironmentVariable(environmentVariable);
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            $"Set {environmentVariable} to an isolated provider database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceParent = "dbax_sp_" + suffix;
+        string sourceChild = "dbax_sc_" + suffix;
+        string destinationParent = "dbax_dp_" + suffix;
+        string destinationChild = "dbax_dc_" + suffix;
+        await using DbConnection connection = CreateConnection(provider, connectionString!);
+        await connection.OpenAsync();
+        string Quote(string name) => provider == DbaTableCopyProvider.PostgreSql ? $"\"{name}\"" : $"`{name}`";
+        string engine = provider == DbaTableCopyProvider.MySql ? " ENGINE=InnoDB" : string.Empty;
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE {Quote(sourceParent)} (id BIGINT NOT NULL PRIMARY KEY, payload TEXT NOT NULL){engine}");
+            await ExecuteAsync(connection, $"CREATE TABLE {Quote(sourceChild)} (id BIGINT NOT NULL PRIMARY KEY, parent_id BIGINT NOT NULL, payload TEXT NOT NULL){engine}");
+            await ExecuteAsync(connection, $"CREATE TABLE {Quote(destinationParent)} (id BIGINT NOT NULL PRIMARY KEY, payload TEXT NOT NULL){engine}");
+            await ExecuteAsync(connection, $"CREATE TABLE {Quote(destinationChild)} (id BIGINT NOT NULL PRIMARY KEY, parent_id BIGINT NOT NULL, payload TEXT NOT NULL, CONSTRAINT {Quote("fk_" + suffix)} FOREIGN KEY (parent_id) REFERENCES {Quote(destinationParent)} (id)){engine}");
+            await ExecuteAsync(connection, $"INSERT INTO {Quote(sourceParent)} VALUES (1, 'first parent'), (2, 'new parent')");
+            await ExecuteAsync(connection, $"INSERT INTO {Quote(sourceChild)} VALUES (20, 2, 'new child')");
+            await ExecuteAsync(connection, $"INSERT INTO {Quote(destinationParent)} VALUES (1, 'old parent')");
+            await ExecuteAsync(connection, $"INSERT INTO {Quote(destinationChild)} VALUES (10, 1, 'old child')");
+
+            var source = CreateAdapter(provider, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(provider, connectionString!);
+            var definitions = new[]
+            {
+                new DbaTableCopyDefinition(sourceParent, destinationParent, new[] { "id" }) { UseKeysetPagination = true },
+                new DbaTableCopyDefinition(sourceChild, destinationChild, new[] { "id" }) { UseKeysetPagination = true }
+            };
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                definitions,
+                new DbaTableCopyOptions
+                {
+                    ClearDestination = true,
+                    VerifyContent = verifyContent,
+                    PageSize = 1
+                });
+
+            Assert.Equal(3, result.CopiedRows);
+            Assert.True(result.Verified);
+            Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT id FROM {Quote(destinationParent)}")));
+            Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT parent_id FROM {Quote(destinationChild)}")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, DropTableSql(provider, destinationChild));
+            await TryExecuteAsync(connection, DropTableSql(provider, destinationParent));
+            await TryExecuteAsync(connection, DropTableSql(provider, sourceChild));
+            await TryExecuteAsync(connection, DropTableSql(provider, sourceParent));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlCheckpointIdentity_DistinguishesCaseOnlyTablesOnCaseSensitiveServers()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_MYSQL_TEST_CONNECTION to an isolated MySQL database.");
+
+        await using var connection = new MySqlConnection(connectionString!);
+        await connection.OpenAsync();
+        int lowerCaseTableNames = Convert.ToInt32(await ExecuteScalarAsync(connection, "SELECT @@lower_case_table_names"));
+        Assert.SkipWhen(lowerCaseTableNames != 0, "This contract requires a case-sensitive MySQL table-name server.");
+
+        string lower = "dbaxcase_" + Guid.NewGuid().ToString("N").Substring(0, 12);
+        string upper = lower.ToUpperInvariant();
+        string suffix = Guid.NewGuid().ToString("N");
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE `{lower}` (id BIGINT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+            await ExecuteAsync(connection, $"CREATE TABLE `{upper}` (id BIGINT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+            var adapter = new MySqlTableCopyAdapter(connectionString!);
+            var lowerDefinition = new DbaTableCopyDefinition("unused", lower);
+            var upperDefinition = new DbaTableCopyDefinition("unused", upper);
+            var lowerCheckpoint = CreateInitialCheckpoint("case-lower-" + suffix);
+            var upperCheckpoint = CreateInitialCheckpoint("case-upper-" + suffix);
+
+            await adapter.InitializeCheckpointAsync(lowerDefinition, lowerCheckpoint, clearDestination: false);
+            await adapter.InitializeCheckpointAsync(upperDefinition, upperCheckpoint, clearDestination: false);
+
+            Assert.Equal(lowerCheckpoint, await adapter.ReadCheckpointAsync(lowerDefinition));
+            Assert.Equal(upperCheckpoint, await adapter.ReadCheckpointAsync(upperDefinition));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.MySql, suffix));
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{upper}`");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS `{lower}`");
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlBulkCopy_WritesProviderNeutralYearMonthIntervalsLosslessly()
@@ -1566,6 +1675,18 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         Assert.Equal(0L, Convert.ToInt64(await ExecuteScalarAsync(connection, CountSql(provider, table))));
         Assert.Equal(checkpoint, await destination.ReadCheckpointAsync(definition));
     }
+
+    private static DbaTableCopyCheckpoint CreateInitialCheckpoint(string copyId)
+        => new()
+        {
+            CopyId = copyId,
+            DefinitionFingerprint = new string('1', 64),
+            SourceRows = 0,
+            SourceContentHash = new string('2', 64),
+            CopiedRows = 0,
+            CopiedContentHash = new string('3', 64),
+            Completed = false
+        };
 
     private static DbaProviderTableCopyAdapterBase CreateAdapter(
         DbaTableCopyProvider provider,

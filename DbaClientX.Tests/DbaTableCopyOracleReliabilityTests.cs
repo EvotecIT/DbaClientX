@@ -10,6 +10,45 @@ namespace DbaClientX.Tests;
 
 public sealed class DbaTableCopyOracleReliabilityTests
 {
+    [Theory]
+    [InlineData(28, 0, true)]
+    [InlineData(28, 28, true)]
+    [InlineData(29, 0, false)]
+    [InlineData(28, -1, false)]
+    [InlineData(10, 29, false)]
+    public void DestinationCompatibility_ClassifiesPortableOracleNumberShapes(
+        int precision,
+        int scale,
+        bool expected)
+    {
+        Assert.Equal(expected, OracleTableCopyAdapter.IsPortableOracleNumber(precision, scale));
+    }
+
+    [Fact]
+    public void DestinationCompatibility_RejectsUnconstrainedOracleNumbers()
+    {
+        Assert.False(OracleTableCopyAdapter.IsPortableOracleNumber(null, null));
+        Assert.False(OracleTableCopyAdapter.IsPortableOracleNumber(10, null));
+    }
+
+    [Fact]
+    public void DestinationCompatibility_AllowsExplicitStringProjectionForOversizedOracleNumbers()
+    {
+        var definition = new DbaTableCopyDefinition(
+            "SOURCE_ROWS",
+            "DESTINATION_ROWS",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal)
+            {
+                ["LARGE_NUMBER"] = DbaTableCopyColumnType.String
+            });
+
+        Assert.True(OracleTableCopyAdapter.IsPortableNumericProjection(definition, "LARGE_NUMBER"));
+        Assert.False(OracleTableCopyAdapter.IsPortableNumericProjection(definition, "OTHER_NUMBER"));
+        Assert.Contains("DATA_PRECISION", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("OWNER = :owner", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("TABLE_NAME = :table", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void CheckpointAndSchemaPreflight_ExcludeTemporaryDestinations()
     {

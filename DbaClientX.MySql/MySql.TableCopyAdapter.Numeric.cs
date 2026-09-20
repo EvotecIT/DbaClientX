@@ -35,7 +35,11 @@ public sealed partial class MySqlTableCopyAdapter
             string database = segments.Length == 2 ? segments[0] : connection.Database;
             string table = segments[segments.Length - 1];
             await using var command = new MySqlCommand(
-                "SELECT COLUMN_NAME, NUMERIC_PRECISION FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @database AND TABLE_NAME = @table AND DATA_TYPE IN ('decimal', 'numeric')",
+                @"SELECT COLUMN_NAME, NUMERIC_PRECISION
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))
+  AND DATA_TYPE IN ('decimal', 'numeric')",
                 connection,
                 _readTransaction)
             {
