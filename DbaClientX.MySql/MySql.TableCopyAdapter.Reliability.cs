@@ -37,6 +37,11 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             CommandTimeout = CommandTimeout
         };
         var engine = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        ValidateCheckpointStorageEngine(engine);
+    }
+
+    internal static void ValidateCheckpointStorageEngine(string? engine)
+    {
         if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
@@ -130,123 +135,91 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
             requirePreservedIdentity: false,
             keepIdentity: true);
-        await ValidateDestinationTypesAsync(connection, definition, page, cancellationToken).ConfigureAwait(false);
+        await ValidateDestinationWriteAsync(
+            connection,
+            definition,
+            page,
+            options,
+            database,
+            segments[segments.Length - 1],
+            cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ValidateDestinationTypesAsync(
+    private async Task ValidateDestinationWriteAsync(
         MySqlConnection connection,
         DbaTableCopyDefinition definition,
         DataTable page,
+        DbaTableCopyOptions options,
+        string database,
+        string table,
         CancellationToken cancellationToken)
     {
-        using DataTable sample = CreateTypeValidationSample(page, definition.DestinationName);
-        string temporaryTable = "dbaclientx_preflight_" + Guid.NewGuid().ToString("N");
-        string quotedTemporaryTable = QuotePath(temporaryTable);
-        string projectedColumns = string.Join(", ", page.Columns.Cast<DataColumn>()
-            .Select(static column => QuoteExactMySqlIdentifier(column.ColumnName)));
-        string destinationTable = QuotePath(definition.DestinationName);
+        if (page.Rows.Count == 0) return;
 
+        await EnsureTransactionalPreflightDestinationAsync(
+            connection,
+            definition.DestinationName,
+            database,
+            table,
+            cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        using MySqlTransaction transaction = connection.BeginTransaction();
         try
         {
-            await using (var create = new MySqlCommand(
-                $"CREATE TEMPORARY TABLE {quotedTemporaryTable} AS SELECT {projectedColumns} FROM {destinationTable} WHERE 1 = 0",
-                connection)
+            if (options.ClearDestination)
             {
-                CommandTimeout = CommandTimeout
-            })
-            {
-                await create.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                await using var clear = new MySqlCommand(
+                    $"DELETE FROM {QuotePath(definition.DestinationName)}",
+                    connection,
+                    transaction)
+                {
+                    CommandTimeout = CommandTimeout
+                };
+                await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            using MySqlTransaction transaction = connection.BeginTransaction();
-            try
-            {
-                using var mySql = new MySql { CommandTimeout = CommandTimeout };
-                await mySql.WriteTableCopyRowsAsync(
-                    connection,
-                    transaction,
-                    sample,
-                    quotedTemporaryTable,
-                    batchSize: null,
-                    bulkCopyTimeout: CommandTimeout,
-                    cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                transaction.Rollback();
-            }
+            await WriteTransactionalPageAsync(
+                connection,
+                transaction,
+                definition,
+                page,
+                options,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new InvalidOperationException(
-                $"MySQL destination '{definition.DestinationName}' rejected the projected CLR values during schema preflight. No destination rows were changed.",
+                $"MySQL destination '{definition.DestinationName}' rejected the projected values or constraints during schema preflight. No destination rows were changed.",
                 exception);
         }
         finally
         {
-            await using var drop = new MySqlCommand(
-                $"DROP TEMPORARY TABLE IF EXISTS {quotedTemporaryTable}",
-                connection)
-            {
-                CommandTimeout = CommandTimeout
-            };
-            await drop.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+            transaction.Rollback();
         }
     }
 
-    private static DataTable CreateTypeValidationSample(DataTable page, string destinationName)
+    private async Task EnsureTransactionalPreflightDestinationAsync(
+        MySqlConnection connection,
+        string destinationName,
+        string database,
+        string table,
+        CancellationToken cancellationToken)
     {
-        var sample = page.Clone();
-        var values = new object[page.Columns.Count];
-        for (var index = 0; index < page.Columns.Count; index++)
+        await using var command = new MySqlCommand(
+            "SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA = @database AND TABLE_NAME = @table",
+            connection)
         {
-            DataColumn column = page.Columns[index];
-            object? value = page.Rows.Cast<DataRow>()
-                .Select(row => row[index])
-                .FirstOrDefault(static candidate => candidate is not null and not DBNull);
-            values[index] = value ?? CreateRepresentativeValue(column.DataType, destinationName, column.ColumnName);
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@database", database);
+        command.Parameters.AddWithValue("@table", table);
+        string? engine = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+        if (!string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"MySQL destination '{destinationName}' must use InnoDB so schema preflight writes can be rolled back; found '{engine ?? "unknown"}'.");
         }
-        sample.Rows.Add(values);
-        return sample;
-    }
-
-    private static object CreateRepresentativeValue(Type dataType, string destinationName, string columnName)
-    {
-        if (dataType == typeof(string)) return string.Empty;
-        if (dataType == typeof(byte[])) return Array.Empty<byte>();
-        if (dataType == typeof(char[])) return Array.Empty<char>();
-        if (dataType == typeof(bool)) return false;
-        if (dataType == typeof(byte)) return (byte)0;
-        if (dataType == typeof(sbyte)) return (sbyte)0;
-        if (dataType == typeof(short)) return (short)0;
-        if (dataType == typeof(ushort)) return (ushort)0;
-        if (dataType == typeof(int)) return 0;
-        if (dataType == typeof(uint)) return 0U;
-        if (dataType == typeof(long)) return 0L;
-        if (dataType == typeof(ulong)) return 0UL;
-        if (dataType == typeof(float)) return 0F;
-        if (dataType == typeof(double)) return 0D;
-        if (dataType == typeof(decimal)) return 0M;
-        if (dataType == typeof(char)) return '\0';
-        if (dataType == typeof(DateTime)) return new DateTime(1970, 1, 1);
-        if (dataType == typeof(TimeSpan)) return TimeSpan.Zero;
-        if (dataType == typeof(Guid)) return Guid.Empty;
-        if (dataType == typeof(DateTimeOffset)) return new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero);
-#if NET6_0_OR_GREATER
-        if (dataType == typeof(DateOnly)) return new DateOnly(1970, 1, 1);
-        if (dataType == typeof(TimeOnly)) return TimeOnly.MinValue;
-#endif
-        throw new InvalidOperationException(
-            $"MySQL destination '{destinationName}' cannot safely preflight null-only column '{columnName}' with CLR type '{dataType.FullName}'. Declare an explicit column conversion.");
-    }
-
-    private static string QuoteExactMySqlIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-            throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifier));
-        if (identifier.IndexOfAny(new[] { ';', '\r', '\n', '\0' }) >= 0)
-            throw new ArgumentException($"Identifier '{identifier}' contains unsupported characters.", nameof(identifier));
-        return "`" + identifier.Replace("`", "``") + "`";
     }
 
     /// <inheritdoc />

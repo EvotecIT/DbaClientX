@@ -79,6 +79,14 @@ public sealed class DbaProviderTableCopyRunner
             return;
         }
 
+        if (request.Source.Provider == DbaTableCopyProvider.SQLite &&
+            request.Source.ReadConsistency is DbaTableCopyReadConsistency.Snapshot or DbaTableCopyReadConsistency.Serializable)
+        {
+            throw new InvalidOperationException(
+                "SQLite Snapshot and Serializable read sessions cannot copy into the same database through a separate destination connection. " +
+                "Use CallerManaged consistency, or copy to a different SQLite database.");
+        }
+
         if (request.Options?.ClearDestination == true)
         {
             ValidateClearDestinationDoesNotRemoveSources(request);

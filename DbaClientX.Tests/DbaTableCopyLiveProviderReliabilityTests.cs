@@ -538,6 +538,137 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         }
     }
 
+    [Theory]
+    [Trait("Category", "LiveProvider")]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    public async Task CheckpointedCopy_PreflightsActualDestinationConstraintsBeforeClearingRows(
+        DbaTableCopyProvider provider)
+    {
+        string environmentVariable = provider == DbaTableCopyProvider.PostgreSql
+            ? "DBACLIENTX_POSTGRESQL_TEST_CONNECTION"
+            : "DBACLIENTX_MYSQL_TEST_CONNECTION";
+        string? connectionString = Environment.GetEnvironmentVariable(environmentVariable);
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            $"Set {environmentVariable} to an isolated provider database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string destinationTable = "dbax_constraints_" + suffix;
+        string sqlitePath = Path.Combine(Path.GetTempPath(), $"dbax-{provider}-constraints-{suffix}.sqlite");
+        await using DbConnection connection = CreateConnection(provider, connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            string createSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, constrained_value bigint NOT NULL CHECK (constrained_value > 0))"
+                : $"CREATE TABLE `{destinationTable}` (id bigint NOT NULL PRIMARY KEY, constrained_value bigint NOT NULL CHECK (constrained_value > 0)) ENGINE=InnoDB";
+            await ExecuteAsync(connection, createSql);
+            await ExecuteAsync(
+                connection,
+                provider == DbaTableCopyProvider.PostgreSql
+                    ? $"INSERT INTO \"{destinationTable}\" VALUES (99, 7)"
+                    : $"INSERT INTO `{destinationTable}` VALUES (99, 7)");
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(
+                    sqlitePath,
+                    "CREATE TABLE SourceRows (id INTEGER NOT NULL PRIMARY KEY, constrained_value INTEGER NOT NULL)");
+                sqlite.ExecuteNonQuery(sqlitePath, "INSERT INTO SourceRows VALUES (1, 1), (2, -1)");
+            }
+
+            var source = new SQLiteTableCopyAdapter(sqlitePath, new[] { "id" });
+            var destination = CreateAdapter(provider, connectionString!);
+            var definition = new DbaTableCopyDefinition("SourceRows", destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions
+                    {
+                        CheckpointId = "constraints-" + suffix,
+                        ClearDestination = true,
+                        PageSize = 2
+                    }));
+
+            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            string preservedValueSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"SELECT id || ':' || constrained_value FROM \"{destinationTable}\""
+                : $"SELECT CONCAT(id, ':', constrained_value) FROM `{destinationTable}`";
+            Assert.Equal("99:7", Convert.ToString(await ExecuteScalarAsync(connection, preservedValueSql)));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, DropTableSql(provider, destinationTable));
+            await TryExecuteAsync(connection, DeleteCheckpointSql(provider, suffix));
+            File.Delete(sqlitePath);
+            File.Delete(sqlitePath + "-wal");
+            File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCheckpointStorage_RejectsUnloggedTableBeforeClearingRows()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string schema = "dbax_checkpoint_" + suffix;
+        string destinationTable = "destination_rows";
+        var builder = new NpgsqlConnectionStringBuilder(connectionString!) { SearchPath = schema };
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE SCHEMA \"{schema}\"");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{schema}\".\"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, payload text NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{schema}\".\"{destinationTable}\" VALUES (99, 'preserve')");
+            await ExecuteAsync(
+                connection,
+                $"CREATE UNLOGGED TABLE \"{schema}\".\"DbaClientX_TableCopyCheckpoints\" (id integer)");
+
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, builder.ConnectionString);
+            var definition = new DbaTableCopyDefinition("SourceRows", destinationTable, new[] { "id" });
+            var checkpoint = new DbaTableCopyCheckpoint
+            {
+                CopyId = "checkpoint-storage-" + suffix,
+                DefinitionFingerprint = new string('1', 64),
+                SourceRows = 1,
+                SourceContentHash = new string('2', 64),
+                CopiedRows = 0,
+                CopiedContentHash = new string('3', 64),
+                Completed = false
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                destination.InitializeCheckpointAsync(definition, checkpoint, clearDestination: true));
+
+            Assert.Contains("permanent logged table", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserve",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || payload FROM \"{schema}\".\"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP SCHEMA IF EXISTS \"{schema}\" CASCADE");
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlCheckpointedCopy_RejectsViewBeforeClearingUnderlyingRows()

@@ -174,6 +174,7 @@ public class ProviderMetadataQueryTests
     public void PostgreSqlTableCopyPreflight_ExcludesForeignTables()
     {
         string checkpoint = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlCheckpointDestinationIdentityQuery;
+        string checkpointStorage = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlCheckpointStorageDurabilityQuery;
         string schema = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlSchemaPreflightDestinationQuery;
 
         Assert.Contains("relkind IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
@@ -182,6 +183,45 @@ public class ProviderMetadataQueryTests
         Assert.Contains("relpersistence = 'p'", schema, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", checkpoint, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence", checkpointStorage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relkind IN ('r', 'p')", checkpointStorage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("u")]
+    [InlineData("t")]
+    public void PostgreSqlCheckpointStorage_RejectsNonPermanentTables(string? persistence)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DBAClientX.PostgreSqlTableCopyAdapter.ValidateCheckpointStorageDurability(persistence));
+
+        Assert.Contains("permanent logged table", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PostgreSqlCheckpointStorage_AcceptsPermanentLoggedTable()
+    {
+        DBAClientX.PostgreSqlTableCopyAdapter.ValidateCheckpointStorageDurability("p");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("MyISAM")]
+    public void MySqlCheckpointStorage_RejectsNonTransactionalEngines(string? engine)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DBAClientX.MySqlTableCopyAdapter.ValidateCheckpointStorageEngine(engine));
+
+        Assert.Contains("InnoDB", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MySqlCheckpointStorage_AcceptsInnoDb()
+    {
+        DBAClientX.MySqlTableCopyAdapter.ValidateCheckpointStorageEngine("InnoDB");
     }
 
     private static string GetQuery<T>(string fieldName)
