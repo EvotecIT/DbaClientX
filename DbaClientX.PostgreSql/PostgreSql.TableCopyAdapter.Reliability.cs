@@ -27,6 +27,14 @@ FROM pg_catalog.pg_class AS cls
 WHERE cls.oid = to_regclass(@name)
   AND cls.relkind IN ('r', 'p')";
 
+    internal const string PostgreSqlRollbackUnsafeTriggerQuery = @"SELECT 1
+FROM pg_catalog.pg_trigger
+WHERE tgrelid = to_regclass(@name)
+  AND NOT tgisinternal
+  AND tgenabled <> 'D'
+  AND ((tgtype & 4) <> 0 OR (tgtype & 8) <> 0)
+LIMIT 1";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -161,6 +169,10 @@ WHERE cls.oid = to_regclass(@name)
                     definition.DestinationName,
                     normalizedPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
                     columns);
+                await ValidateRollbackSafeTriggersAsync(
+                    connection,
+                    definition.DestinationName,
+                    cancellationToken).ConfigureAwait(false);
             }
             var session = new PostgreSqlSchemaPreflightSession(
                 this,
@@ -202,6 +214,24 @@ WHERE cls.oid = to_regclass(@name)
             $"PostgreSQL destination '{tableName}' omits generator-backed column '{generator.Name}'. " +
             "ClearDestination cannot safely preflight this projection because sequence advances are not rolled back. " +
             "Project an explicit value for the column or copy without ClearDestination.");
+    }
+
+    private async Task ValidateRollbackSafeTriggersAsync(
+        NpgsqlConnection connection,
+        string destinationName,
+        CancellationToken cancellationToken)
+    {
+        using var command = new NpgsqlCommand(PostgreSqlRollbackUnsafeTriggerQuery, connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@name", QuotePath(destinationName));
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null) return;
+
+        throw new InvalidOperationException(
+            $"PostgreSQL destination '{destinationName}' has an enabled INSERT or DELETE trigger. " +
+            "ClearDestination cannot safely preflight trigger side effects because sequence advances and external actions are not rolled back. " +
+            "Disable or remove the trigger for the copy, or copy without ClearDestination.");
     }
 
     private sealed class PostgreSqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

@@ -23,6 +23,14 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
     internal const string OracleCheckpointStorageDurabilityQuery =
         "SELECT TEMPORARY FROM ALL_TABLES WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND TABLE_NAME = 'DbaX_TableCopyCheckpoints'";
 
+    internal const string OracleRollbackUnsafeTriggerQuery = @"SELECT 1
+FROM ALL_TRIGGERS
+WHERE TABLE_OWNER = :owner
+  AND TABLE_NAME = :table
+  AND STATUS = 'ENABLED'
+  AND (INSTR(UPPER(TRIGGERING_EVENT), 'INSERT') > 0 OR INSTR(UPPER(TRIGGERING_EVENT), 'DELETE') > 0)
+  AND ROWNUM = 1";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -397,6 +405,12 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
                     definition.DestinationName,
                     projectedColumns,
                     destinationColumns);
+                await ValidateRollbackSafeTriggersAsync(
+                    connection,
+                    owner,
+                    table,
+                    definition.DestinationName,
+                    cancellationToken).ConfigureAwait(false);
             }
             var session = new OracleSchemaPreflightSession(
                 this,
@@ -438,6 +452,28 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
             $"Oracle destination '{tableName}' omits sequence-backed column '{generator.Name}'. " +
             "ClearDestination cannot safely preflight this projection because sequence advances are not rolled back. " +
             "Project an explicit value for the column or copy without ClearDestination.");
+    }
+
+    private async Task ValidateRollbackSafeTriggersAsync(
+        OracleConnection connection,
+        string owner,
+        string table,
+        string destinationName,
+        CancellationToken cancellationToken)
+    {
+        using var command = new OracleCommand(OracleRollbackUnsafeTriggerQuery, connection)
+        {
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
+        command.Parameters.Add("table", OracleDbType.Varchar2).Value = table;
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null) return;
+
+        throw new InvalidOperationException(
+            $"Oracle destination '{destinationName}' has an enabled INSERT or DELETE trigger. " +
+            "ClearDestination cannot safely preflight trigger side effects because sequence advances and external actions are not rolled back. " +
+            "Disable or remove the trigger for the copy, or copy without ClearDestination.");
     }
 
     private sealed class OracleSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

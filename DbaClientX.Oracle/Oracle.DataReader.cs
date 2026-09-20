@@ -46,7 +46,10 @@ public partial class Oracle
                 dispose,
                 resource => DisposeConnection((OracleConnection)resource),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeConnectionAsync((OracleConnection)resource));
+                resource => DisposeConnectionAsync((OracleConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {

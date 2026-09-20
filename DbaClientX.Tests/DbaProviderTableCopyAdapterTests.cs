@@ -514,6 +514,21 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("selected database", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void RollbackOnlyPreflight_RejectsProviderTriggersThatCanEscapeRollback()
+    {
+        string postgreSql = PostgreSqlTableCopyAdapter.PostgreSqlRollbackUnsafeTriggerQuery;
+        Assert.Contains("pg_trigger", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT tgisinternal", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tgtype & 4", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tgtype & 8", postgreSql, StringComparison.OrdinalIgnoreCase);
+
+        string mySql = MySqlTableCopyAdapter.MySqlRollbackUnsafeTriggerQuery;
+        Assert.Contains("INFORMATION_SCHEMA.TRIGGERS", mySql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("EVENT_MANIPULATION IN ('INSERT', 'DELETE')", mySql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY EVENT_OBJECT_TABLE = BINARY @table", mySql, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(DbaTableCopyProvider.PostgreSql, "\"UserId\"", "UserId")]
     [InlineData(DbaTableCopyProvider.Oracle, "\"User\"", "User")]
@@ -560,6 +575,29 @@ public class DbaProviderTableCopyAdapterBaseTests
             new object[] { provider, table.Columns, new[] { orderedColumn }, "SourceRows" }));
 
         Assert.Equal(expected, Assert.Single(resolved));
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "event-id")]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "select")]
+    [InlineData(DbaTableCopyProvider.Oracle, "event-id")]
+    [InlineData(DbaTableCopyProvider.Oracle, "select")]
+    public void KeysetResultColumns_PreserveAutomaticallyDelimitedPhysicalSpelling(
+        DbaTableCopyProvider provider,
+        string columnName)
+    {
+        using var table = new DataTable { CaseSensitive = true };
+        table.Columns.Add(columnName, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { columnName }, "SourceRows" }));
+
+        Assert.Equal(columnName, Assert.Single(resolved));
     }
 
     [Fact]

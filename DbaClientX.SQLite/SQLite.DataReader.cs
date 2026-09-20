@@ -79,7 +79,10 @@ public partial class SQLite
                 dispose,
                 resource => resource.Dispose(),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeSQLiteConnectionAsync((SqliteConnection)resource));
+                resource => DisposeSQLiteConnectionAsync((SqliteConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {

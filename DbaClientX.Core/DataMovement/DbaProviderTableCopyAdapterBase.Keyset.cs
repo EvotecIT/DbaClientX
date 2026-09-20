@@ -75,7 +75,8 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             string planned = orderByColumns[index];
             bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
             string physical = DbaIdentifierPath.UnquoteSegment(planned, provider);
-            if (!delimited)
+            bool emittedDelimited = delimited || DbaIdentifierPath.IsAutomaticallyDelimitedSegment(physical, provider);
+            if (!emittedDelimited)
             {
                 physical = provider switch
                 {

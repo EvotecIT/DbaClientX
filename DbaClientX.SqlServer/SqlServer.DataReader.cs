@@ -68,7 +68,10 @@ public partial class SqlServer
                 dispose,
                 resource => DisposeConnection((SqlConnection)resource),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeConnectionAsync((SqlConnection)resource));
+                resource => DisposeConnectionAsync((SqlConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {
@@ -142,7 +145,10 @@ public partial class SqlServer
                 dispose,
                 resource => DisposeConnection((SqlConnection)resource),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeConnectionAsync((SqlConnection)resource));
+                resource => DisposeConnectionAsync((SqlConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {

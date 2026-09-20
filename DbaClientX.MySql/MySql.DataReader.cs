@@ -45,7 +45,10 @@ public partial class MySql
                 dispose,
                 resource => DisposeConnection((MySqlConnection)resource),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeConnectionAsync((MySqlConnection)resource));
+                resource => DisposeConnectionAsync((MySqlConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {

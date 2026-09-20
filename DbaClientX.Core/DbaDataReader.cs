@@ -26,6 +26,7 @@ public sealed class DbaDataReader : DbDataReader
     private readonly Func<DbConnection, ValueTask>? _disposeConnectionAsync;
     private readonly Action? _afterReaderDisposed;
     private readonly Func<ValueTask>? _afterReaderDisposedAsync;
+    private readonly Func<Exception, CancellationToken, Exception>? _consumptionExceptionFactory;
     private int _disposeState;
 
     /// <summary>Initializes a reader lease around an already-open provider reader.</summary>
@@ -46,6 +47,39 @@ public sealed class DbaDataReader : DbDataReader
         Action? afterReaderDisposed = null,
         Func<DbConnection, ValueTask>? disposeConnectionAsync = null,
         Func<ValueTask>? afterReaderDisposedAsync = null)
+        : this(
+            reader,
+            command,
+            connection,
+            ownsConnection,
+            disposeConnection,
+            afterReaderDisposed,
+            disposeConnectionAsync,
+            afterReaderDisposedAsync,
+            consumptionExceptionFactory: null)
+    {
+    }
+
+    /// <summary>Initializes a reader lease that also normalizes provider failures raised while rows are consumed.</summary>
+    /// <param name="reader">Provider reader that supplies the rows.</param>
+    /// <param name="command">Optional command owned by this lease.</param>
+    /// <param name="connection">Optional connection associated with the reader.</param>
+    /// <param name="ownsConnection">Whether this lease must dispose <paramref name="connection"/>.</param>
+    /// <param name="disposeConnection">Optional provider-specific synchronous connection disposer.</param>
+    /// <param name="afterReaderDisposed">Optional synchronous callback invoked after the reader closes and before the command is disposed.</param>
+    /// <param name="disposeConnectionAsync">Optional provider-specific asynchronous connection disposer.</param>
+    /// <param name="afterReaderDisposedAsync">Optional asynchronous callback invoked after the reader closes and before the command is disposed.</param>
+    /// <param name="consumptionExceptionFactory">Maps deferred provider failures to the library's sanitized public exception contract.</param>
+    public DbaDataReader(
+        IDataReader reader,
+        IDisposable? command,
+        DbConnection? connection,
+        bool ownsConnection,
+        Action<DbConnection>? disposeConnection,
+        Action? afterReaderDisposed,
+        Func<DbConnection, ValueTask>? disposeConnectionAsync,
+        Func<ValueTask>? afterReaderDisposedAsync,
+        Func<Exception, CancellationToken, Exception>? consumptionExceptionFactory)
     {
         _reader = reader ?? throw new ArgumentNullException(nameof(reader));
         _dbReader = reader as DbDataReader;
@@ -56,6 +90,7 @@ public sealed class DbaDataReader : DbDataReader
         _afterReaderDisposed = afterReaderDisposed;
         _disposeConnectionAsync = disposeConnectionAsync;
         _afterReaderDisposedAsync = afterReaderDisposedAsync;
+        _consumptionExceptionFactory = consumptionExceptionFactory;
     }
 
     /// <inheritdoc />
@@ -90,10 +125,10 @@ public sealed class DbaDataReader : DbDataReader
     public override DataTable? GetSchemaTable() => _reader.GetSchemaTable();
 
     /// <inheritdoc />
-    public override bool NextResult() => _reader.NextResult();
+    public override bool NextResult() => ExecuteConsumptionOperation(_reader.NextResult, CancellationToken.None);
 
     /// <inheritdoc />
-    public override bool Read() => _reader.Read();
+    public override bool Read() => ExecuteConsumptionOperation(_reader.Read, CancellationToken.None);
 
     /// <inheritdoc />
     public override bool GetBoolean(int ordinal) => _reader.GetBoolean(ordinal);
@@ -187,19 +222,51 @@ public sealed class DbaDataReader : DbDataReader
 
     /// <inheritdoc />
     public override Task<bool> ReadAsync(CancellationToken cancellationToken)
-        => _dbReader?.ReadAsync(cancellationToken) ?? base.ReadAsync(cancellationToken);
+        => ExecuteConsumptionOperationAsync(
+            () => _dbReader?.ReadAsync(cancellationToken) ?? base.ReadAsync(cancellationToken),
+            cancellationToken);
 
     /// <inheritdoc />
     public override Task<bool> NextResultAsync(CancellationToken cancellationToken)
-        => _dbReader?.NextResultAsync(cancellationToken) ?? base.NextResultAsync(cancellationToken);
+        => ExecuteConsumptionOperationAsync(
+            () => _dbReader?.NextResultAsync(cancellationToken) ?? base.NextResultAsync(cancellationToken),
+            cancellationToken);
 
     /// <inheritdoc />
     public override Task<bool> IsDBNullAsync(int ordinal, CancellationToken cancellationToken)
-        => _dbReader?.IsDBNullAsync(ordinal, cancellationToken) ?? base.IsDBNullAsync(ordinal, cancellationToken);
+        => ExecuteConsumptionOperationAsync(
+            () => _dbReader?.IsDBNullAsync(ordinal, cancellationToken) ?? base.IsDBNullAsync(ordinal, cancellationToken),
+            cancellationToken);
 
     /// <inheritdoc />
     public override Task<T> GetFieldValueAsync<T>(int ordinal, CancellationToken cancellationToken)
-        => _dbReader?.GetFieldValueAsync<T>(ordinal, cancellationToken) ?? base.GetFieldValueAsync<T>(ordinal, cancellationToken);
+        => ExecuteConsumptionOperationAsync(
+            () => _dbReader?.GetFieldValueAsync<T>(ordinal, cancellationToken) ?? base.GetFieldValueAsync<T>(ordinal, cancellationToken),
+            cancellationToken);
+
+    private T ExecuteConsumptionOperation<T>(Func<T> operation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return operation();
+        }
+        catch (Exception exception) when (_consumptionExceptionFactory != null)
+        {
+            throw _consumptionExceptionFactory(exception, cancellationToken);
+        }
+    }
+
+    private async Task<T> ExecuteConsumptionOperationAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        catch (Exception exception) when (_consumptionExceptionFactory != null)
+        {
+            throw _consumptionExceptionFactory(exception, cancellationToken);
+        }
+    }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

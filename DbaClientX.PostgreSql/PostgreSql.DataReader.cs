@@ -46,7 +46,10 @@ public partial class PostgreSql
                 dispose,
                 resource => DisposeConnection((NpgsqlConnection)resource),
                 () => UpdateOutputParameters(command, parameters),
-                resource => DisposeConnectionAsync((NpgsqlConnection)resource));
+                resource => DisposeConnectionAsync((NpgsqlConnection)resource),
+                afterReaderDisposedAsync: null,
+                consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
+                    "Failed while consuming query reader.", query, exception, token));
         }
         catch (Exception ex)
         {

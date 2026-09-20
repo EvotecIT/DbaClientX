@@ -42,6 +42,15 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 }
 
                 string table = segments[segments.Length - 1];
+                if (options.ClearDestination)
+                {
+                    await ValidateRollbackSafeTriggersAsync(
+                        connection,
+                        database,
+                        table,
+                        definition.DestinationName,
+                        cancellationToken).ConfigureAwait(false);
+                }
                 DataTable? firstPage = firstPages[index];
                 if (firstPage != null)
                 {

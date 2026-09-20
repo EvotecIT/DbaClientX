@@ -457,6 +457,20 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void SchemaPreflight_RejectsEnabledInsertOrDeleteTriggersBeforeExecutingRollbackOnlyDml()
+    {
+        string query = OracleTableCopyAdapter.OracleRollbackUnsafeTriggerQuery;
+
+        Assert.Contains("ALL_TRIGGERS", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("STATUS = 'ENABLED'", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TRIGGERING_EVENT", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'INSERT'", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("'DELETE'", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TABLE_OWNER = :owner", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TABLE_NAME = :table", query, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TableCopyMetadata_UsesExactPhysicalOwnerAndTableOnly()
     {
         using var command = new OracleCommand();

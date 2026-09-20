@@ -8,6 +8,13 @@ namespace DBAClientX;
 
 public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
+    internal const string MySqlRollbackUnsafeTriggerQuery = @"SELECT 1
+FROM INFORMATION_SCHEMA.TRIGGERS
+WHERE ((@@lower_case_table_names = 0 AND BINARY TRIGGER_SCHEMA = BINARY @database AND BINARY EVENT_OBJECT_TABLE = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TRIGGER_SCHEMA = @database AND EVENT_OBJECT_TABLE = @table))
+  AND EVENT_MANIPULATION IN ('INSERT', 'DELETE')
+LIMIT 1";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -165,6 +172,12 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                     definition.DestinationName,
                     firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
                     columns);
+                await ValidateRollbackSafeTriggersAsync(
+                    connection,
+                    database,
+                    segments[segments.Length - 1],
+                    definition.DestinationName,
+                    cancellationToken).ConfigureAwait(false);
             }
             await EnsureTransactionalPreflightDestinationAsync(
                 connection,
@@ -214,6 +227,27 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             $"MySQL destination '{tableName}' omits auto-increment column '{generator.Name}'. " +
             "ClearDestination cannot safely preflight this projection because auto-increment advances are not rolled back. " +
             "Project an explicit value for the column or copy without ClearDestination.");
+    }
+
+    private async Task ValidateRollbackSafeTriggersAsync(
+        MySqlConnection connection,
+        string database,
+        string table,
+        string destinationName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new MySqlCommand(MySqlRollbackUnsafeTriggerQuery, connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@database", database);
+        command.Parameters.AddWithValue("@table", table);
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null) return;
+
+        throw new InvalidOperationException(
+            $"MySQL destination '{destinationName}' has an INSERT or DELETE trigger. " +
+            "ClearDestination cannot safely preflight trigger side effects because generated values and external actions may not be rolled back. " +
+            "Remove the trigger for the copy, or copy without ClearDestination.");
     }
 
     private sealed class MySqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

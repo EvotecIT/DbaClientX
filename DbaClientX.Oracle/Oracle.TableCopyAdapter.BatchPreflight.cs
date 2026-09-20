@@ -75,6 +75,15 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                 }
 
                 DataTable? firstPage = firstPages[index];
+                if (options.ClearDestination)
+                {
+                    await ValidateRollbackSafeTriggersAsync(
+                        connection,
+                        owner,
+                        table,
+                        definition.DestinationName,
+                        cancellationToken).ConfigureAwait(false);
+                }
                 if (firstPage == null) continue;
                 var columns = await oracle.GetTableCopyColumnsAsync(connection, owner, table, cancellationToken).ConfigureAwait(false);
                 string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>

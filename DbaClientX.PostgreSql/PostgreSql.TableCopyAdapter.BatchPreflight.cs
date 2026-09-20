@@ -51,6 +51,13 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
                 }
 
                 DataTable? firstPage = firstPages[index];
+                if (options.ClearDestination)
+                {
+                    await ValidateRollbackSafeTriggersAsync(
+                        connection,
+                        definition.DestinationName,
+                        cancellationToken).ConfigureAwait(false);
+                }
                 if (firstPage == null) continue;
                 var columns = await postgreSql.GetTableCopyColumnsAsync(connection, schema, table, cancellationToken).ConfigureAwait(false);
                 DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(firstPage, definition.DestinationName);
