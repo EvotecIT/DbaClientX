@@ -124,7 +124,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <remarks>
     /// Some ADO.NET providers report a canceled command as a provider exception instead of
     /// <see cref="OperationCanceledException"/>. Once the caller's token is canceled, normalize that provider-specific
-    /// failure back to the standard cancellation contract and retain the original exception as diagnostic context.
+    /// failure back to the standard cancellation contract and retain only sanitized provider context.
     /// </remarks>
     protected Exception CreateQueryExecutionOrCancellationException(
         string message,
@@ -140,13 +140,13 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
         return new DbaQueryExecutionException(message, commandText, exception);
     }
 
-    /// <summary>Creates a standard caller-cancellation exception while retaining the provider failure.</summary>
+    /// <summary>Creates a standard caller-cancellation exception while retaining only sanitized provider context.</summary>
     protected static OperationCanceledException CreateCallerCancellationException(
         Exception exception,
         CancellationToken cancellationToken)
         => new(
             "The database operation was canceled by the caller.",
-            exception,
+            DbaQueryExecutionException.CreateSanitizedProviderException(exception),
             cancellationToken);
 
     /// <summary>Awaits an ADO.NET operation and normalizes provider-specific cancellation failures.</summary>

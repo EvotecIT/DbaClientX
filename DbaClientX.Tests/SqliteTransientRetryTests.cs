@@ -87,7 +87,8 @@ public class SqliteTransientRetryTests {
                     throw new DbaQueryExecutionException(
                         "Temporary SQLite I/O failure.",
                         "SELECT 1;",
-                        new SqliteException("disk I/O error", 10));
+                        new SqliteException("disk I/O error", 10),
+                        providerErrorCode: 10);
                 }
 
                 return "ok";

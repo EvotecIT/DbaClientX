@@ -180,6 +180,38 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlConsistentRead_ToleratesMissingSourceWithoutAbortingTransaction()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var source = new PostgreSqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.PostgreSql,
+            ConnectionString = connectionString!,
+            DefaultOrderByColumns = new[] { "id" },
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot,
+            TreatMissingTablesAsEmpty = true
+        });
+        var definition = new DbaTableCopyDefinition(
+            "dbax_missing_" + Guid.NewGuid().ToString("N"),
+            "unused",
+            new[] { "id" })
+        {
+            UseKeysetPagination = true
+        };
+
+        using var session = await source.OpenReadSessionAsync(new[] { definition });
+        using var page = await source.ReadPageAsync(new(definition, null, 1));
+
+        Assert.Empty(page.Data.Rows.Cast<DataRow>());
+        Assert.Null(page.ContinuationToken);
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlCheckpointedCopy_UsesMappedNamesWhenPhysicalColumnOrderDiffers()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
@@ -570,6 +602,56 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             File.Delete(sqlitePath);
             File.Delete(sqlitePath + "-wal");
             File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCheckpointedCopy_RejectsUnloggedDestinationBeforeClearingRows()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        var suffix = Guid.NewGuid().ToString("N");
+        var destinationTable = "dbax_unlogged_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE UNLOGGED TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, payload text NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserve')");
+
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition("unused", destinationTable, new[] { "id" });
+            var checkpoint = new DbaTableCopyCheckpoint
+            {
+                CopyId = "unlogged-" + suffix,
+                DefinitionFingerprint = new string('1', 64),
+                SourceRows = 1,
+                SourceContentHash = new string('2', 64),
+                CopiedRows = 0,
+                CopiedContentHash = new string('3', 64),
+                Completed = false
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                destination.InitializeCheckpointAsync(definition, checkpoint, clearDestination: true));
+
+            Assert.Contains("cannot be resolved to a PostgreSQL table", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserve",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || payload FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.PostgreSql, suffix));
         }
     }
 

@@ -178,6 +178,8 @@ public class ProviderMetadataQueryTests
 
         Assert.Contains("relkind IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("relkind IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence = 'p'", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence = 'p'", schema, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", checkpoint, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", schema, StringComparison.OrdinalIgnoreCase);
     }

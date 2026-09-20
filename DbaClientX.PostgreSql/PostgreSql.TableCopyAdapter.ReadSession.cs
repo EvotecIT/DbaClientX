@@ -72,6 +72,10 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
 
             // Access the relation first so PostgreSQL retains an ACCESS SHARE lock through the
             // transaction and closes the validation/use race with concurrent DDL.
+            const string sourceProbeSavepoint = "dbaclientx_source_probe";
+            await ExecuteReadSessionCommandAsync(
+                $"SAVEPOINT {sourceProbeSavepoint}",
+                cancellationToken).ConfigureAwait(false);
             using (NpgsqlCommand metadataLock = CreateReadCommand(
                 $"SELECT 1 FROM {QuotePath(definition.SourceName)} LIMIT 0"))
             {
@@ -81,9 +85,18 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
                 }
                 catch (Exception exception) when (TreatMissingTablesAsEmpty && IsMissingTableException(exception))
                 {
+                    await ExecuteReadSessionCommandAsync(
+                        $"ROLLBACK TO SAVEPOINT {sourceProbeSavepoint}",
+                        cancellationToken).ConfigureAwait(false);
+                    await ExecuteReadSessionCommandAsync(
+                        $"RELEASE SAVEPOINT {sourceProbeSavepoint}",
+                        cancellationToken).ConfigureAwait(false);
                     continue;
                 }
             }
+            await ExecuteReadSessionCommandAsync(
+                $"RELEASE SAVEPOINT {sourceProbeSavepoint}",
+                cancellationToken).ConfigureAwait(false);
 
             using NpgsqlCommand command = CreateReadCommand(@"
 SELECT cls.oid::text, cls.relkind::text
@@ -118,6 +131,12 @@ WHERE cls.oid = to_regclass(@name)");
         {
             CommandTimeout = CommandTimeout
         };
+
+    private async Task ExecuteReadSessionCommandAsync(string query, CancellationToken cancellationToken)
+    {
+        using NpgsqlCommand command = CreateReadCommand(query);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     protected override Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)

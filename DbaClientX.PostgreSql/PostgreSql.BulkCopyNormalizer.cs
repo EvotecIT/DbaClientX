@@ -105,9 +105,15 @@ public static class DbaPostgreSqlBulkCopyNormalizer
         var normalized = new DataTable { CaseSensitive = page.CaseSensitive };
         for (var index = 0; index < page.Columns.Count; index++)
         {
-            normalized.Columns.Add(
+            DataColumn sourceColumn = page.Columns[index];
+            DataColumn destinationColumn = normalized.Columns.Add(
                 normalizedNames[index],
-                networkColumns[index] ? GetProviderNetworkType() : page.Columns[index].DataType);
+                networkColumns[index] ? GetProviderNetworkType() : sourceColumn.DataType);
+            destinationColumn.AllowDBNull = sourceColumn.AllowDBNull;
+            if (destinationColumn.DataType == typeof(DateTime))
+                destinationColumn.DateTimeMode = sourceColumn.DateTimeMode;
+            if (destinationColumn.DataType == typeof(string))
+                destinationColumn.MaxLength = sourceColumn.MaxLength;
         }
         foreach (DataRow row in page.Rows)
         {

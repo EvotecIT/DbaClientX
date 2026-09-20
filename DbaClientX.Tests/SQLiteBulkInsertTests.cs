@@ -163,7 +163,8 @@ public class SQLiteBulkInsertTests
                 sqlite.BulkInsertAsync(path, table, "Dest", batchSize: 1, cancellationToken: cancellation.Token));
 
             Assert.Equal(cancellation.Token, exception.CancellationToken);
-            Assert.Same(providerException, exception.InnerException);
+            Assert.IsType<DBAClientX.DbaClientXException>(exception.InnerException);
+            Assert.NotSame(providerException, exception.InnerException);
             Assert.True(sqlite.RollbackCalled);
             Assert.False(sqlite.RollbackCancellationToken.CanBeCanceled);
 

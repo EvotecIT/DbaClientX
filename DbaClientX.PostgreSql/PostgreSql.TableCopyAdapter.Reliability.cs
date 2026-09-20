@@ -11,14 +11,16 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
     internal const string PostgreSqlCheckpointDestinationIdentityQuery = @"SELECT current_database() || ':' || cls.oid::text
 FROM pg_catalog.pg_class AS cls
 WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p')";
+  AND cls.relkind IN ('r', 'p')
+  AND cls.relpersistence = 'p'";
 
     internal const string PostgreSqlSchemaPreflightDestinationQuery = @"
 SELECT ns.nspname, cls.relname
 FROM pg_catalog.pg_class AS cls
 JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
 WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p')";
+  AND cls.relkind IN ('r', 'p')
+  AND cls.relpersistence = 'p'";
 
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;

@@ -45,7 +45,8 @@ public class SQLiteCancellationNormalizationTests
                     cancellationToken: cancellation.Token));
 
             Assert.Equal(cancellation.Token, exception.CancellationToken);
-            Assert.Same(providerException, exception.InnerException);
+            Assert.IsType<DBAClientX.DbaClientXException>(exception.InnerException);
+            Assert.NotSame(providerException, exception.InnerException);
         }
         finally
         {
@@ -74,7 +75,9 @@ public class SQLiteCancellationNormalizationTests
                     },
                     cancellationToken: cancellation.Token));
 
-            Assert.Same(mapperException, exception.InnerException);
+            Assert.IsType<InvalidOperationException>(exception.InnerException);
+            Assert.NotSame(mapperException, exception.InnerException);
+            Assert.Equal(typeof(InvalidOperationException).FullName, exception.ProviderExceptionType);
         }
         finally
         {
@@ -105,8 +108,10 @@ public class SQLiteCancellationNormalizationTests
                     },
                     cancellationToken: callerCancellation.Token));
 
-            Assert.Same(mapperException, exception.InnerException);
-            Assert.Equal(mapperCancellation.Token, mapperException.CancellationToken);
+            var sanitized = Assert.IsType<OperationCanceledException>(exception.InnerException);
+            Assert.NotSame(mapperException, sanitized);
+            Assert.Equal(mapperCancellation.Token, sanitized.CancellationToken);
+            Assert.Equal(typeof(OperationCanceledException).FullName, exception.ProviderExceptionType);
         }
         finally
         {

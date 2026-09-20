@@ -1174,6 +1174,23 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void BulkPage_PostgreSqlPreservesUtcDateTimeModeWhenRehydratingNetworkValues()
+    {
+        using var page = new DataTable("Networks");
+        page.Columns.Add("Subnet", typeof(DbaIpNetwork));
+        DataColumn occurredAt = page.Columns.Add("OccurredAt", typeof(DateTime));
+        occurredAt.DateTimeMode = DataSetDateTime.Utc;
+        DateTime expected = new(2026, 9, 20, 12, 30, 0, DateTimeKind.Utc);
+        page.Rows.Add(new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24), expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Networks");
+
+        Assert.Equal(DataSetDateTime.Utc, normalized.Columns[1].DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(normalized.Rows[0][1]).Kind);
+        Assert.Equal(expected, normalized.Rows[0][1]);
+    }
+
+    [Fact]
     public void BulkPage_PostgreSqlNormalizesDateTimeOffsetValuesToUtc()
     {
         using var page = new DataTable("Events");
