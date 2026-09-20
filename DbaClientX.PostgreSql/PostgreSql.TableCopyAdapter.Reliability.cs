@@ -155,6 +155,13 @@ WHERE cls.oid = to_regclass(@name)
                 static name => name,
                 requirePreservedIdentity: false,
                 keepIdentity: true);
+            if (options.ClearDestination)
+            {
+                ValidateRollbackSafeGeneratorProjection(
+                    definition.DestinationName,
+                    normalizedPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+                    columns);
+            }
             var session = new PostgreSqlSchemaPreflightSession(
                 this,
                 connection,
@@ -177,6 +184,24 @@ WHERE cls.oid = to_regclass(@name)
             connection.Dispose();
             throw;
         }
+    }
+
+    internal static void ValidateRollbackSafeGeneratorProjection(
+        string tableName,
+        IReadOnlyCollection<string> projectedColumns,
+        IReadOnlyList<DbaColumnInfo> destinationColumns)
+    {
+        var supplied = new HashSet<string>(projectedColumns, StringComparer.Ordinal);
+        DbaColumnInfo? generator = destinationColumns.FirstOrDefault(column =>
+            !supplied.Contains(column.Name) &&
+            (column.IsIdentity == true ||
+             column.DefaultExpression?.IndexOf("nextval", StringComparison.OrdinalIgnoreCase) >= 0));
+        if (generator == null) return;
+
+        throw new InvalidOperationException(
+            $"PostgreSQL destination '{tableName}' omits generator-backed column '{generator.Name}'. " +
+            "ClearDestination cannot safely preflight this projection because sequence advances are not rolled back. " +
+            "Project an explicit value for the column or copy without ClearDestination.");
     }
 
     private sealed class PostgreSqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

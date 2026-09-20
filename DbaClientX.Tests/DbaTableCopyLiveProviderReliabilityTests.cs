@@ -1009,6 +1009,78 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         }
     }
 
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [Trait("Category", "LiveProvider")]
+    public async Task ClearDestination_RejectsOmittedGeneratorsWithoutAdvancingThem(DbaTableCopyProvider provider)
+    {
+        string environmentVariable = provider == DbaTableCopyProvider.PostgreSql
+            ? "DBACLIENTX_POSTGRESQL_TEST_CONNECTION"
+            : "DBACLIENTX_MYSQL_TEST_CONNECTION";
+        string? connectionString = Environment.GetEnvironmentVariable(environmentVariable);
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            $"Set {environmentVariable} to an isolated provider database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_gs_" + suffix;
+        string destinationTable = "dbax_gd_" + suffix;
+        await using DbConnection connection = CreateConnection(provider, connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            string createSource = provider == DbaTableCopyProvider.PostgreSql
+                ? $"CREATE TABLE \"{sourceTable}\" (payload text NOT NULL PRIMARY KEY)"
+                : $"CREATE TABLE `{sourceTable}` (payload varchar(50) NOT NULL PRIMARY KEY) ENGINE=InnoDB";
+            string createDestination = provider == DbaTableCopyProvider.PostgreSql
+                ? $"CREATE TABLE \"{destinationTable}\" (id bigserial NOT NULL PRIMARY KEY, payload text NOT NULL)"
+                : $"CREATE TABLE `{destinationTable}` (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, payload varchar(50) NOT NULL) ENGINE=InnoDB";
+            await ExecuteAsync(connection, createSource);
+            await ExecuteAsync(connection, createDestination);
+            await ExecuteAsync(
+                connection,
+                provider == DbaTableCopyProvider.PostgreSql
+                    ? $"INSERT INTO \"{sourceTable}\" VALUES ('new')"
+                    : $"INSERT INTO `{sourceTable}` VALUES ('new')");
+            await ExecuteAsync(
+                connection,
+                provider == DbaTableCopyProvider.PostgreSql
+                    ? $"INSERT INTO \"{destinationTable}\" (id, payload) VALUES (99, 'preserved')"
+                    : $"INSERT INTO `{destinationTable}` (id, payload) VALUES (99, 'preserved')");
+
+            string generatorStateSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"SELECT last_value::text || ':' || is_called::text FROM \"{destinationTable}_id_seq\""
+                : $"SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{destinationTable}'";
+            string? before = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
+            var source = CreateAdapter(provider, connectionString!, new[] { "payload" });
+            var destination = CreateAdapter(provider, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "payload" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(before, Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql)));
+            string preservedSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"SELECT id || ':' || payload FROM \"{destinationTable}\""
+                : $"SELECT CONCAT(id, ':', payload) FROM `{destinationTable}`";
+            Assert.Equal("99:preserved", Convert.ToString(await ExecuteScalarAsync(connection, preservedSql)));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, DropTableSql(provider, destinationTable));
+            await TryExecuteAsync(connection, DropTableSql(provider, sourceTable));
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlKeysetRead_RoundTripsDateAndTimeKeys()

@@ -391,6 +391,13 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
                 definition.DestinationName,
                 projectedColumns,
                 destinationColumns);
+            if (options.ClearDestination)
+            {
+                ValidateRollbackSafeGeneratorProjection(
+                    definition.DestinationName,
+                    projectedColumns,
+                    destinationColumns);
+            }
             var session = new OracleSchemaPreflightSession(
                 this,
                 connection,
@@ -413,6 +420,24 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
             connection.Dispose();
             throw;
         }
+    }
+
+    internal static void ValidateRollbackSafeGeneratorProjection(
+        string tableName,
+        IReadOnlyCollection<string> projectedColumns,
+        IReadOnlyList<DbaColumnInfo> destinationColumns)
+    {
+        var supplied = new HashSet<string>(projectedColumns, StringComparer.Ordinal);
+        DbaColumnInfo? generator = destinationColumns.FirstOrDefault(column =>
+            !supplied.Contains(column.Name) &&
+            (column.IsIdentity == true ||
+             column.DefaultExpression?.IndexOf("NEXTVAL", StringComparison.OrdinalIgnoreCase) >= 0));
+        if (generator == null) return;
+
+        throw new InvalidOperationException(
+            $"Oracle destination '{tableName}' omits sequence-backed column '{generator.Name}'. " +
+            "ClearDestination cannot safely preflight this projection because sequence advances are not rolled back. " +
+            "Project an explicit value for the column or copy without ClearDestination.");
     }
 
     private sealed class OracleSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

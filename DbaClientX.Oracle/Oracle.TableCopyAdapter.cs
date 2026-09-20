@@ -58,30 +58,19 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
     internal static DataTable? NormalizeBulkPage(DataTable page)
     {
         var normalizedColumnTypes = page.Columns.Cast<DataColumn>()
-            .Select(static column => column.DataType == typeof(DbaYearMonthInterval)
-                ? typeof(OracleIntervalYM)
-                : column.DataType == typeof(DbaArbitraryDecimal)
-                    ? typeof(OracleDecimal)
-                    : null)
+            .Select(static column => GetBulkNormalizedType(column.DataType))
             .ToArray();
         bool requiresNormalization = normalizedColumnTypes.Any(static type => type != null);
         foreach (DataRow row in page.Rows)
         {
             for (var index = 0; index < page.Columns.Count; index++)
             {
-                if (row[index] is DbaYearMonthInterval)
+                Type? valueType = GetBulkNormalizedValueType(
+                    row[index],
+                    page.Columns[index].DataType == typeof(object));
+                if (valueType != null)
                 {
-                    normalizedColumnTypes[index] = typeof(OracleIntervalYM);
-                    requiresNormalization = true;
-                }
-                else if (row[index] is DbaArbitraryDecimal)
-                {
-                    normalizedColumnTypes[index] = typeof(OracleDecimal);
-                    requiresNormalization = true;
-                }
-                else if (page.Columns[index].DataType == typeof(object) && IsNumericValue(row[index]))
-                {
-                    normalizedColumnTypes[index] = typeof(OracleDecimal);
+                    normalizedColumnTypes[index] ??= valueType;
                     requiresNormalization = true;
                 }
             }
@@ -95,10 +84,7 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                 object value = row[index];
                 Type? normalizedType = normalizedColumnTypes[index];
                 if (normalizedType == null || value == DBNull.Value) continue;
-                bool compatible = normalizedType == typeof(OracleIntervalYM)
-                    ? value is DbaYearMonthInterval or OracleIntervalYM
-                    : value is DbaArbitraryDecimal or OracleDecimal || IsNumericValue(value);
-                if (!compatible)
+                if (!IsCompatibleBulkValue(normalizedType, value))
                     throw new InvalidOperationException(
                         $"Oracle normalized column '{page.Columns[index].ColumnName}' contains an incompatible value of type '{value.GetType().FullName}'.");
             }
@@ -112,6 +98,16 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                 normalized.Columns.Add(column.ColumnName, typeof(OracleIntervalYM));
             else if (normalizedColumnTypes[index] == typeof(OracleDecimal))
                 normalized.Columns.Add(column.ColumnName, typeof(OracleDecimal));
+            else if (normalizedColumnTypes[index] == typeof(byte[]))
+                normalized.Columns.Add(column.ColumnName, typeof(byte[]));
+            else if (normalizedColumnTypes[index] == typeof(decimal))
+                normalized.Columns.Add(column.ColumnName, typeof(decimal));
+#if NET6_0_OR_GREATER
+            else if (normalizedColumnTypes[index] == typeof(DateTime))
+                normalized.Columns.Add(column.ColumnName, typeof(DateTime));
+            else if (normalizedColumnTypes[index] == typeof(TimeSpan))
+                normalized.Columns.Add(column.ColumnName, typeof(TimeSpan));
+#endif
             else
                 normalized.Columns.Add(column.ColumnName, column.DataType);
         }
@@ -124,6 +120,16 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
                     values[index] = new OracleIntervalYM(interval.TotalMonths);
                 else if (values[index] is DbaArbitraryDecimal number)
                     values[index] = new OracleDecimal(number.CanonicalValue);
+                else if (values[index] is Guid guid)
+                    values[index] = guid.ToByteArray();
+                else if (values[index] is ulong unsigned)
+                    values[index] = Convert.ToDecimal(unsigned);
+#if NET6_0_OR_GREATER
+                else if (values[index] is DateOnly date)
+                    values[index] = date.ToDateTime(TimeOnly.MinValue);
+                else if (values[index] is TimeOnly time)
+                    values[index] = time.ToTimeSpan();
+#endif
                 else if (normalizedColumnTypes[index] == typeof(OracleDecimal) &&
                          values[index] is object numeric &&
                          IsNumericValue(numeric))
@@ -132,6 +138,45 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
             normalized.Rows.Add(values);
         }
         return normalized;
+    }
+
+    private static Type? GetBulkNormalizedType(Type dataType)
+    {
+        if (dataType == typeof(DbaYearMonthInterval)) return typeof(OracleIntervalYM);
+        if (dataType == typeof(DbaArbitraryDecimal)) return typeof(OracleDecimal);
+        if (dataType == typeof(Guid)) return typeof(byte[]);
+        if (dataType == typeof(ulong)) return typeof(decimal);
+#if NET6_0_OR_GREATER
+        if (dataType == typeof(DateOnly)) return typeof(DateTime);
+        if (dataType == typeof(TimeOnly)) return typeof(TimeSpan);
+#endif
+        return null;
+    }
+
+    private static Type? GetBulkNormalizedValueType(object value, bool normalizeProviderNeutralNumeric)
+    {
+        if (value is DbaYearMonthInterval) return typeof(OracleIntervalYM);
+        if (value is DbaArbitraryDecimal) return typeof(OracleDecimal);
+        if (value is Guid) return typeof(byte[]);
+#if NET6_0_OR_GREATER
+        if (value is DateOnly) return typeof(DateTime);
+        if (value is TimeOnly) return typeof(TimeSpan);
+#endif
+        return normalizeProviderNeutralNumeric && IsNumericValue(value) ? typeof(OracleDecimal) : null;
+    }
+
+    private static bool IsCompatibleBulkValue(Type normalizedType, object value)
+    {
+        if (normalizedType == typeof(OracleIntervalYM)) return value is DbaYearMonthInterval or OracleIntervalYM;
+        if (normalizedType == typeof(OracleDecimal))
+            return value is DbaArbitraryDecimal or OracleDecimal || IsNumericValue(value);
+        if (normalizedType == typeof(byte[])) return value is Guid or byte[];
+        if (normalizedType == typeof(decimal)) return value is ulong or decimal;
+#if NET6_0_OR_GREATER
+        if (normalizedType == typeof(DateTime)) return value is DateOnly or DateTime;
+        if (normalizedType == typeof(TimeSpan)) return value is TimeOnly or TimeSpan;
+#endif
+        return false;
     }
 
     /// <inheritdoc />

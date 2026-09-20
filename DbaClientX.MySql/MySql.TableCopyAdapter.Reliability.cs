@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using MySqlConnector;
 
 namespace DBAClientX;
@@ -151,6 +152,13 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 static name => DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant(),
                 requirePreservedIdentity: false,
                 keepIdentity: true);
+            if (options.ClearDestination)
+            {
+                ValidateRollbackSafeGeneratorProjection(
+                    definition.DestinationName,
+                    firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
+                    columns);
+            }
             await EnsureTransactionalPreflightDestinationAsync(
                 connection,
                 definition.DestinationName,
@@ -179,6 +187,26 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             connection.Dispose();
             throw;
         }
+    }
+
+    internal static void ValidateRollbackSafeGeneratorProjection(
+        string tableName,
+        IReadOnlyCollection<string> projectedColumns,
+        IReadOnlyList<DbaColumnInfo> destinationColumns)
+    {
+        var supplied = new HashSet<string>(
+            projectedColumns.Select(name =>
+                DbaIdentifierPath.UnquoteSegment(name, DbaTableCopyProvider.MySql).ToUpperInvariant()),
+            StringComparer.Ordinal);
+        DbaColumnInfo? generator = destinationColumns.FirstOrDefault(column =>
+            !supplied.Contains(DbaIdentifierPath.UnquoteSegment(column.Name, DbaTableCopyProvider.MySql).ToUpperInvariant()) &&
+            column.IsIdentity == true);
+        if (generator == null) return;
+
+        throw new InvalidOperationException(
+            $"MySQL destination '{tableName}' omits auto-increment column '{generator.Name}'. " +
+            "ClearDestination cannot safely preflight this projection because auto-increment advances are not rolled back. " +
+            "Project an explicit value for the column or copy without ClearDestination.");
     }
 
     private sealed class MySqlSchemaPreflightSession : IDbaTableCopySchemaPreflightSession

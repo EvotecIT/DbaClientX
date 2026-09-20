@@ -4,6 +4,7 @@ using System.Net.NetworkInformation;
 using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using Microsoft.Data.Sqlite;
 using MySqlConnector;
 using NpgsqlTypes;
@@ -404,6 +405,45 @@ public class DbaProviderTableCopyAdapterBaseTests
 
         Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Project it to text", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PostgreSqlSchemaPreflight_RejectsOmittedSequenceDefaults()
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("public", "rows", "id", "integer")
+            {
+                DefaultExpression = "nextval('rows_id_seq'::regclass)"
+            },
+            new DbaColumnInfo("public", "rows", "value", "text")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "public.rows",
+                new[] { "value" },
+                columns));
+
+        Assert.Contains("sequence advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MySqlSchemaPreflight_RejectsOmittedAutoIncrementColumns()
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint unsigned") { IsIdentity = true },
+            new DbaColumnInfo("app", "rows", "Value", "varchar(50)")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "app.rows",
+                new[] { "Value" },
+                columns));
+
+        Assert.Contains("auto-increment advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

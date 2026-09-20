@@ -280,6 +280,29 @@ public sealed class DbaTableCopyOracleReliabilityTests
     }
 
     [Fact]
+    public void BulkPages_ApplyTransactionalGuidAndTemporalConversions()
+    {
+        Guid identifier = Guid.NewGuid();
+        var date = new DateOnly(2026, 9, 20);
+        var time = new TimeOnly(18, 30, 15);
+        using var page = new DataTable();
+        page.Columns.Add("Identifier", typeof(Guid));
+        page.Columns.Add("BusinessDate", typeof(DateOnly));
+        page.Columns.Add("BusinessTime", typeof(TimeOnly));
+        page.Columns.Add("UnsignedValue", typeof(ulong));
+        page.Rows.Add(identifier, date, time, ulong.MaxValue);
+
+        using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
+
+        Assert.Equal(typeof(byte[]), normalized.Columns["Identifier"]!.DataType);
+        Assert.Equal(identifier.ToByteArray(), Assert.IsType<byte[]>(normalized.Rows[0]["Identifier"]));
+        Assert.Equal(date.ToDateTime(TimeOnly.MinValue), Assert.IsType<DateTime>(normalized.Rows[0]["BusinessDate"]));
+        Assert.Equal(time.ToTimeSpan(), Assert.IsType<TimeSpan>(normalized.Rows[0]["BusinessTime"]));
+        Assert.Equal(Convert.ToDecimal(ulong.MaxValue), Assert.IsType<decimal>(normalized.Rows[0]["UnsignedValue"]));
+        Assert.Equal(identifier, page.Rows[0]["Identifier"]);
+    }
+
+    [Fact]
     public void BulkPages_RejectMixedYearMonthIntervalColumns()
     {
         using var page = new DataTable();
@@ -351,6 +374,30 @@ public sealed class DbaTableCopyOracleReliabilityTests
         };
 
         OracleTableCopyAdapter.ValidateProjectedIdentityColumns("APP.ROWS", new[] { "ID" }, columns);
+    }
+
+    [Theory]
+    [InlineData(true, null)]
+    [InlineData(false, "APP.ROWS_SEQ.NEXTVAL")]
+    public void SchemaPreflight_RejectsOmittedSequenceBackedColumns(bool isIdentity, string? defaultExpression)
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("APP", "ROWS", "ID", "NUMBER")
+            {
+                IsIdentity = isIdentity,
+                DefaultExpression = defaultExpression
+            },
+            new DbaColumnInfo("APP", "ROWS", "VALUE", "VARCHAR2")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            OracleTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "APP.ROWS",
+                new[] { "VALUE" },
+                columns));
+
+        Assert.Contains("sequence advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
