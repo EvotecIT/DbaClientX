@@ -650,6 +650,27 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void PostgreSqlExcludedColumns_AreNotMaterializedUnlessRequiredForPaging()
+    {
+        var excluded = new DbaTableCopyDefinition(
+            "SourceRows",
+            "DestinationRows",
+            new[] { "id" },
+            ExcludedColumns: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "amount" })
+        {
+            UseKeysetPagination = true
+        };
+        var excludedKey = excluded with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "id" }
+        };
+
+        Assert.False(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "amount"));
+        Assert.True(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "id"));
+        Assert.True(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excludedKey, "id"));
+    }
+
+    [Fact]
     public void PostgreSqlSchemaPreflight_RejectsOmittedSequenceDefaults()
     {
         var columns = new[]

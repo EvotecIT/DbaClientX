@@ -82,7 +82,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : DbaProviderTableCopyAda
     {
         if (_readConnection != null)
         {
-            return await ExecutePostgreSqlPageAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+            return await ExecutePostgreSqlPageAsync(null, query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
         }
         using var postgreSql = new PostgreSql { ReturnType = ReturnType.DataTable, CommandTimeout = CommandTimeout };
         var result = await postgreSql.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);

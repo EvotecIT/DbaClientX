@@ -10,7 +10,25 @@ SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
   AND TABLE_NAME = :table
-  AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%' OR DATA_TYPE LIKE 'INTERVAL YEAR%')";
+  AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE', 'DATE', 'BINARY_FLOAT', 'BINARY_DOUBLE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%' OR DATA_TYPE LIKE 'INTERVAL YEAR%')";
+
+    internal const string OracleCompatibilityObjectQuery = @"SELECT 1
+FROM ALL_OBJECTS
+WHERE OWNER = :owner
+  AND OBJECT_NAME = :name
+  AND OBJECT_TYPE IN ('TABLE', 'VIEW', 'MATERIALIZED VIEW')
+  AND ROWNUM = 1";
+
+    internal const string OracleCompatibilitySynonymQuery = @"SELECT OWNER, TABLE_OWNER, TABLE_NAME, DB_LINK
+FROM (
+    SELECT OWNER, TABLE_OWNER, TABLE_NAME, DB_LINK,
+           CASE WHEN OWNER = :owner THEN 0 ELSE 1 END AS OWNER_PRIORITY
+    FROM ALL_SYNONYMS
+    WHERE SYNONYM_NAME = :name
+      AND (OWNER = :owner OR (:include_public = 1 AND OWNER = 'PUBLIC'))
+    ORDER BY OWNER_PRIORITY
+)
+WHERE ROWNUM = 1";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -61,7 +79,15 @@ WHERE OWNER = :owner
             }
 
             string table = Normalize(segments[segments.Count - 1]);
+            (owner, table) = await ResolveCompatibilitySourceAsync(
+                connection,
+                owner,
+                table,
+                includePublic: segments.Count == 1,
+                cancellationToken).ConfigureAwait(false);
             var regionColumns = new List<string>();
+            var bcDateColumns = new List<string>();
+            var binaryFloatColumns = new List<string>();
             using var command = new OracleCommand(OracleTableCopyNumericColumnsQuery, connection)
             {
                 Transaction = _readTransaction,
@@ -107,6 +133,23 @@ WHERE OWNER = :owner
                         continue;
                     }
 
+                    if (string.Equals(dataType, "DATE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!excluded) bcDateColumns.Add(column);
+                        continue;
+                    }
+
+                    if (IsOracleBinaryFloat(dataType))
+                    {
+                        if (!excluded &&
+                            destinationProvider is not (DbaTableCopyProvider.Oracle or DbaTableCopyProvider.PostgreSql) &&
+                            !IsPortableNumericProjection(definition, column))
+                        {
+                            binaryFloatColumns.Add(column);
+                        }
+                        continue;
+                    }
+
                     if (destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.MySql) continue;
                     if (IsPortableOracleNumeric(dataType, precision, scale) || IsPortableNumericProjection(definition, column)) continue;
 
@@ -126,7 +169,78 @@ WHERE OWNER = :owner
                 definition.SourceName,
                 regionColumns,
                 cancellationToken).ConfigureAwait(false);
+            await ValidateNoBcDatesAsync(
+                connection,
+                definition.SourceName,
+                bcDateColumns,
+                cancellationToken).ConfigureAwait(false);
+            await ValidateNoBinaryFloatSpecialValuesAsync(
+                connection,
+                definition.SourceName,
+                binaryFloatColumns,
+                destinationProvider,
+                cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private async Task<(string Owner, string Table)> ResolveCompatibilitySourceAsync(
+        OracleConnection connection,
+        string owner,
+        string table,
+        bool includePublic,
+        CancellationToken cancellationToken)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        for (var depth = 0; depth < 32; depth++)
+        {
+            if (!visited.Add(owner + "\0" + table))
+            {
+                throw new InvalidOperationException(
+                    $"Oracle source synonym resolution for '{owner}.{table}' contains a cycle.");
+            }
+
+            using (var exists = new OracleCommand(OracleCompatibilityObjectQuery, connection)
+            {
+                Transaction = _readTransaction,
+                BindByName = true,
+                CommandTimeout = CommandTimeout
+            })
+            {
+                exists.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
+                exists.Parameters.Add("name", OracleDbType.Varchar2).Value = table;
+                if (await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) != null)
+                    return (owner, table);
+            }
+
+            using var synonym = new OracleCommand(OracleCompatibilitySynonymQuery, connection)
+            {
+                Transaction = _readTransaction,
+                BindByName = true,
+                CommandTimeout = CommandTimeout
+            };
+            synonym.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
+            synonym.Parameters.Add("name", OracleDbType.Varchar2).Value = table;
+            synonym.Parameters.Add("include_public", OracleDbType.Int32).Value = includePublic ? 1 : 0;
+            using OracleDataReader reader = await synonym.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return (owner, table);
+
+            string synonymOwner = reader.GetString(0);
+            string targetOwner = reader.GetString(1);
+            string targetTable = reader.GetString(2);
+            string? databaseLink = reader.IsDBNull(3) ? null : reader.GetString(3);
+            if (!string.IsNullOrWhiteSpace(databaseLink))
+            {
+                throw new NotSupportedException(
+                    $"Oracle source synonym '{synonymOwner}.{table}' resolves through database link '{databaseLink}', whose remote column metadata cannot be validated before table-copy writes. Use a local view with explicit portable projections.");
+            }
+
+            owner = targetOwner;
+            table = targetTable;
+            includePublic = false;
+        }
+
+        throw new InvalidOperationException(
+            "Oracle source synonym resolution exceeded the supported depth of 32 aliases.");
     }
 
     internal static void ValidateOracleBFileProjection(string sourceName, string columnName, bool excluded)
@@ -174,6 +288,10 @@ WHERE OWNER = :owner
 
     private static bool IsOracleYearMonthInterval(string dataType)
         => dataType.StartsWith("INTERVAL YEAR", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsOracleBinaryFloat(string dataType)
+        => string.Equals(dataType, "BINARY_FLOAT", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(dataType, "BINARY_DOUBLE", StringComparison.OrdinalIgnoreCase);
 
     internal static void ValidateOracleYearMonthProjection(
         string sourceName,
@@ -266,6 +384,66 @@ WHERE OWNER = :owner
             throw new NotSupportedException(
                 $"Oracle source '{sourceName}' contains TIMESTAMP WITH TIME ZONE values backed by named regions, which cannot be represented losslessly by table-copy CLR DateTimeOffset values. " +
                 "Exclude the affected column or project it to a fixed-offset or lossless text representation before copying.");
+        }
+    }
+
+    private async Task ValidateNoBcDatesAsync(
+        OracleConnection connection,
+        string sourceName,
+        IReadOnlyList<string> columns,
+        CancellationToken cancellationToken)
+    {
+        if (columns.Count == 0) return;
+
+        string predicates = string.Join(
+            " OR ",
+            columns.Select(static column =>
+                $"TO_CHAR({QuoteExactOracleIdentifier(column)}, 'BC', 'NLS_DATE_LANGUAGE=English') = 'BC'"));
+        using var command = new OracleCommand(
+            $"SELECT 1 FROM {QuotePath(sourceName)} WHERE ({predicates}) AND ROWNUM = 1",
+            connection)
+        {
+            Transaction = _readTransaction,
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) != null)
+        {
+            throw new NotSupportedException(
+                $"Oracle source '{sourceName}' contains BC DATE values that cannot be represented by CLR DateTime values. " +
+                "Exclude the affected column or project it to a lossless text representation before copying.");
+        }
+    }
+
+    private async Task ValidateNoBinaryFloatSpecialValuesAsync(
+        OracleConnection connection,
+        string sourceName,
+        IReadOnlyList<string> columns,
+        DbaTableCopyProvider destinationProvider,
+        CancellationToken cancellationToken)
+    {
+        if (columns.Count == 0) return;
+
+        string predicates = string.Join(
+            " OR ",
+            columns.Select(static column =>
+            {
+                string identifier = QuoteExactOracleIdentifier(column);
+                return $"({identifier} IS NAN OR {identifier} IS INFINITE)";
+            }));
+        using var command = new OracleCommand(
+            $"SELECT 1 FROM {QuotePath(sourceName)} WHERE ({predicates}) AND ROWNUM = 1",
+            connection)
+        {
+            Transaction = _readTransaction,
+            BindByName = true,
+            CommandTimeout = CommandTimeout
+        };
+        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) != null)
+        {
+            throw new NotSupportedException(
+                $"Oracle source '{sourceName}' contains binary floating-point NaN or infinity values that cannot be copied losslessly to {destinationProvider}. " +
+                "Exclude the affected column, convert it explicitly to String, or copy it to Oracle or PostgreSQL.");
         }
     }
 

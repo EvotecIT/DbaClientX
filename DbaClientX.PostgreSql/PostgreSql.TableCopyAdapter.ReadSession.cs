@@ -179,9 +179,35 @@ FROM root";
 
     /// <inheritdoc />
     protected override Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
-        => ExecutePostgreSqlPageAsync(query, parameters, maxBytes, cancellationToken);
+        => ExecutePostgreSqlPageAsync(null, query, parameters, maxBytes, cancellationToken);
 
-    private async Task<DataTable> ExecutePostgreSqlPageAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteKeysetPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        IReadOnlyDictionary<string, object?> parameters,
+        long? maxBytes,
+        CancellationToken cancellationToken)
+        => ExecutePostgreSqlPageAsync(definition, query, parameters, maxBytes, cancellationToken);
+
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteTableCopyPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        CancellationToken cancellationToken)
+        => ExecutePostgreSqlPageAsync(
+            definition,
+            query,
+            new Dictionary<string, object?>(),
+            maxBytes: null,
+            cancellationToken);
+
+    private async Task<DataTable> ExecutePostgreSqlPageAsync(
+        DbaTableCopyDefinition? definition,
+        string query,
+        IReadOnlyDictionary<string, object?> parameters,
+        long? maxBytes,
+        CancellationToken cancellationToken)
     {
         using NpgsqlConnection? owned = _readConnection == null ? new NpgsqlConnection(ConnectionString) : null;
         NpgsqlConnection connection = _readConnection ?? owned!;
@@ -193,31 +219,40 @@ FROM root";
             command.Parameters.AddWithValue(parameter.Key, GetPageParameterValue(parameter.Value));
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((NpgsqlCommand)state!).Cancel(), command);
         using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
-        ValidateNumericColumns(reader);
+        bool[] materializeColumns = Enumerable.Range(0, reader.FieldCount)
+            .Select(ordinal => definition == null || ShouldMaterializeSourceColumn(definition, reader.GetName(ordinal)))
+            .ToArray();
+        ValidateNumericColumns(reader, materializeColumns);
         bool[] intervalColumns = Enumerable.Range(0, reader.FieldCount)
-            .Select(ordinal => string.Equals(reader.GetDataTypeName(ordinal), "interval", StringComparison.OrdinalIgnoreCase))
+            .Select(ordinal => materializeColumns[ordinal] &&
+                string.Equals(reader.GetDataTypeName(ordinal), "interval", StringComparison.OrdinalIgnoreCase))
             .ToArray();
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
-            ? ordinal => ValidateBoundedFieldType(reader, ordinal)
+            ? ordinal => materializeColumns[ordinal] ? ValidateBoundedFieldType(reader, ordinal) : 0
             : null;
         return await DbaTableCopyPageReader.ReadAsync(
             reader,
             maxBytes,
             fieldPayloadBytes,
-            readFieldValue: ordinal => intervalColumns[ordinal]
-                ? NormalizeInterval(reader.GetFieldValue<NpgsqlInterval>(ordinal))
-                : NormalizeProviderValue(reader.GetValue(ordinal)),
-            normalizedFieldType: ordinal => intervalColumns[ordinal]
-                ? typeof(DbaCalendarInterval)
-                : GetNormalizedFieldType(reader.GetFieldType(ordinal)),
+            readFieldValue: ordinal => materializeColumns[ordinal]
+                ? intervalColumns[ordinal]
+                    ? NormalizeInterval(reader.GetFieldValue<NpgsqlInterval>(ordinal))
+                    : NormalizeProviderValue(reader.GetValue(ordinal))
+                : DBNull.Value,
+            normalizedFieldType: ordinal => materializeColumns[ordinal]
+                ? intervalColumns[ordinal]
+                    ? typeof(DbaCalendarInterval)
+                    : GetNormalizedFieldType(reader.GetFieldType(ordinal))
+                : typeof(object),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    private static void ValidateNumericColumns(NpgsqlDataReader reader)
+    private static void ValidateNumericColumns(NpgsqlDataReader reader, IReadOnlyList<bool> materializeColumns)
     {
         var schema = reader.GetColumnSchema();
         for (var ordinal = 0; ordinal < reader.FieldCount; ordinal++)
         {
+            if (!materializeColumns[ordinal]) continue;
             if (!IsPostgreSqlNumeric(reader.GetDataTypeName(ordinal))) continue;
             ValidateNumericShape(
                 reader.GetName(ordinal),

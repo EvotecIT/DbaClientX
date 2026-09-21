@@ -301,17 +301,16 @@ LIMIT 1";
         internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_options.ClearDestination)
+            if (!_options.ClearDestination) return;
+
+            using var clear = new NpgsqlCommand(
+                $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
+                _connection,
+                _transaction)
             {
-                using var clear = new NpgsqlCommand(
-                    $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
-                    _connection,
-                    _transaction)
-                {
-                    CommandTimeout = _owner.CommandTimeout
-                };
-                await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            }
+                CommandTimeout = _owner.CommandTimeout
+            };
+            await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
             await ValidatePageCoreAsync(page, cancellationToken).ConfigureAwait(false);
         }

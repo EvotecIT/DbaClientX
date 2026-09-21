@@ -36,10 +36,30 @@ public sealed class DbaTableCopyOracleReliabilityTests
     {
         Assert.False(OracleTableCopyAdapter.IsPortableOracleNumeric("FLOAT", 126, null));
         Assert.True(OracleTableCopyAdapter.IsPortableOracleNumeric("NUMBER", 28, 0));
-        Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("'BINARY_FLOAT'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("'BINARY_DOUBLE'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'TIMESTAMP%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'INTERVAL DAY%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'INTERVAL YEAR%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DestinationCompatibility_ResolvesLocalAndPublicOracleSynonymsBeforeMetadataLookup()
+    {
+        Assert.Contains("ALL_OBJECTS", OracleTableCopyAdapter.OracleCompatibilityObjectQuery, StringComparison.Ordinal);
+        Assert.Contains("ALL_SYNONYMS", OracleTableCopyAdapter.OracleCompatibilitySynonymQuery, StringComparison.Ordinal);
+        Assert.Contains("OWNER = :owner", OracleTableCopyAdapter.OracleCompatibilitySynonymQuery, StringComparison.Ordinal);
+        Assert.Contains("OWNER = 'PUBLIC'", OracleTableCopyAdapter.OracleCompatibilitySynonymQuery, StringComparison.Ordinal);
+        Assert.Contains("DB_LINK", OracleTableCopyAdapter.OracleCompatibilitySynonymQuery, StringComparison.Ordinal);
+        Assert.Contains("OWNER_PRIORITY", OracleTableCopyAdapter.OracleCompatibilitySynonymQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DestinationCompatibility_InspectsOracleDateAndBinaryFloatingPointColumns()
+    {
+        Assert.Contains("'DATE'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("'BINARY_FLOAT'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("'BINARY_DOUBLE'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Theory]

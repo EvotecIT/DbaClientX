@@ -534,21 +534,20 @@ WHERE TABLE_OWNER = :owner
         internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_options.ClearDestination)
+            if (!_options.ClearDestination) return;
+
+            ValidateRollbackSafeGeneratorValues(
+                _definition.DestinationName,
+                page,
+                _destinationColumns);
+            using var clear = new OracleCommand(
+                $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
+                _connection)
             {
-                ValidateRollbackSafeGeneratorValues(
-                    _definition.DestinationName,
-                    page,
-                    _destinationColumns);
-                using var clear = new OracleCommand(
-                    $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
-                    _connection)
-                {
-                    Transaction = _transaction,
-                    CommandTimeout = _owner.CommandTimeout
-                };
-                await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            }
+                Transaction = _transaction,
+                CommandTimeout = _owner.CommandTimeout
+            };
+            await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
             await ValidatePageAsync(page, cancellationToken).ConfigureAwait(false);
         }

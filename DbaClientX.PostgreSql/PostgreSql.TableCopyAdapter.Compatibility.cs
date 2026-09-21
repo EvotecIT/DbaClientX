@@ -269,4 +269,42 @@ ORDER BY attribute.attnum";
              conversionComparer.Equals(pair.Key, destinationColumn)) &&
             pair.Value == DbaTableCopyColumnType.String);
     }
+
+    internal static bool ShouldMaterializeSourceColumn(
+        DbaTableCopyDefinition definition,
+        string sourceColumn)
+    {
+        if (definition.OrderByColumns != null)
+        {
+            foreach (string planned in definition.OrderByColumns)
+            {
+                bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
+                string physical = DbaIdentifierPath.UnquoteSegment(planned, DbaTableCopyProvider.PostgreSql);
+                bool emittedDelimited = delimited || IsAutomaticallyDelimitedPostgreSqlIdentifier(physical);
+                if (!emittedDelimited) physical = physical.ToLowerInvariant();
+                if (string.Equals(physical, sourceColumn, StringComparison.Ordinal)) return true;
+            }
+        }
+
+        IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
+            ? mappingDictionary.Comparer
+            : StringComparer.Ordinal;
+        string destinationColumn = definition.ColumnMappings?
+            .FirstOrDefault(pair => mappingComparer.Equals(pair.Key, sourceColumn)).Value
+            ?? sourceColumn;
+        IEqualityComparer<string> excludedComparer = definition.ExcludedColumns is HashSet<string> excludedSet
+            ? excludedSet.Comparer
+            : StringComparer.Ordinal;
+        return definition.ExcludedColumns?.Any(name =>
+            excludedComparer.Equals(name, sourceColumn) ||
+            excludedComparer.Equals(name, destinationColumn)) != true;
+    }
+
+    private static bool IsAutomaticallyDelimitedPostgreSqlIdentifier(string value)
+    {
+        if (DbaIdentifierPath.IsReservedIdentifier(value, DbaTableCopyProvider.PostgreSql)) return true;
+        if (value.Length == 0 || !(value[0] is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_')) return true;
+        return value.Skip(1).Any(static character =>
+            !(character is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_' or >= '0' and <= '9' or '$'));
+    }
 }

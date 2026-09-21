@@ -418,6 +418,59 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlExcludedOversizedNumeric_IsNotMaterialized()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_excluded_numeric_" + suffix;
+        string sqlitePath = Path.Combine(Path.GetTempPath(), "dbax-excluded-numeric-" + suffix + ".sqlite");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, amount NUMERIC(100,0) NOT NULL, payload TEXT NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, 1234567890123456789012345678901234567890, 'copied')");
+            using (var sqlite = new SQLite())
+                sqlite.ExecuteNonQuery(sqlitePath, "CREATE TABLE DestinationRows (id INTEGER NOT NULL PRIMARY KEY, payload TEXT NOT NULL)");
+
+            var source = new PostgreSqlTableCopyAdapter(connectionString!, new[] { "id" });
+            var destination = new SQLiteTableCopyAdapter(sqlitePath);
+            var definition = new DbaTableCopyDefinition(
+                sourceTable,
+                "DestinationRows",
+                new[] { "id" },
+                ExcludedColumns: new HashSet<string>(StringComparer.Ordinal) { "amount" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { PageSize = 1 });
+
+            Assert.Equal(1, result.CopiedRows);
+            using var verification = new SQLite();
+            Assert.Equal("1:copied", Convert.ToString(verification.ExecuteScalar(sqlitePath, "SELECT id || ':' || payload FROM DestinationRows")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+            if (File.Exists(sqlitePath)) File.Delete(sqlitePath);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlBulkCopy_WritesProviderNeutralYearMonthIntervalsLosslessly()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
@@ -1676,7 +1729,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                     new[] { definition },
                     CancellationToken.None));
 
-            Assert.Contains("not portable to SQLite", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("28-digit numeric range supported by SQLite", exception.Message, StringComparison.Ordinal);
             Assert.Contains("convert it explicitly to String", exception.Message, StringComparison.Ordinal);
         }
         finally
@@ -1847,6 +1900,77 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 ? $"SELECT id || ':' || payload FROM \"{destinationTable}\""
                 : $"SELECT CONCAT(id, ':', payload) FROM `{destinationTable}`";
             Assert.Equal("99:preserved", Convert.ToString(await ExecuteScalarAsync(connection, preservedSql)));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, DropTableSql(provider, destinationTable));
+            await TryExecuteAsync(connection, DropTableSql(provider, sourceTable));
+        }
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [Trait("Category", "LiveProvider")]
+    public async Task VerifiedCopy_DoesNotPreflightWriteRollbackUnsafeGenerators(DbaTableCopyProvider provider)
+    {
+        string environmentVariable = provider == DbaTableCopyProvider.PostgreSql
+            ? "DBACLIENTX_POSTGRESQL_TEST_CONNECTION"
+            : "DBACLIENTX_MYSQL_TEST_CONNECTION";
+        string? connectionString = Environment.GetEnvironmentVariable(environmentVariable);
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            $"Set {environmentVariable} to an isolated provider database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_vgs_" + suffix;
+        string destinationTable = "dbax_vgd_" + suffix;
+        await using DbConnection connection = CreateConnection(provider, connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            string createSource = provider == DbaTableCopyProvider.PostgreSql
+                ? $"CREATE TABLE \"{sourceTable}\" (payload text NOT NULL PRIMARY KEY)"
+                : $"CREATE TABLE `{sourceTable}` (payload varchar(50) NOT NULL PRIMARY KEY) ENGINE=InnoDB";
+            string createDestination = provider == DbaTableCopyProvider.PostgreSql
+                ? $"CREATE TABLE \"{destinationTable}\" (id bigserial NOT NULL PRIMARY KEY, payload text NOT NULL)"
+                : $"CREATE TABLE `{destinationTable}` (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, payload varchar(50) NOT NULL) ENGINE=InnoDB";
+            await ExecuteAsync(connection, createSource);
+            await ExecuteAsync(connection, createDestination);
+            await ExecuteAsync(
+                connection,
+                provider == DbaTableCopyProvider.PostgreSql
+                    ? $"INSERT INTO \"{sourceTable}\" VALUES ('new')"
+                    : $"INSERT INTO `{sourceTable}` VALUES ('new')");
+
+            string generatorStateSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"SELECT last_value::text || ':' || is_called::text FROM \"{destinationTable}_id_seq\""
+                : $"SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{destinationTable}'";
+            string? before = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
+            var source = CreateAdapter(provider, connectionString!, new[] { "payload" });
+            var destination = CreateAdapter(provider, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "payload" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { VerifyContent = true, PageSize = 1 });
+
+            Assert.True(result.Verified);
+            Assert.Equal(1, result.CopiedRows);
+            string copiedSql = provider == DbaTableCopyProvider.PostgreSql
+                ? $"SELECT id || ':' || payload FROM \"{destinationTable}\""
+                : $"SELECT CONCAT(id, ':', payload) FROM `{destinationTable}`";
+            Assert.Equal("1:new", Convert.ToString(await ExecuteScalarAsync(connection, copiedSql)));
+            string? after = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
+            Assert.NotEqual(before, after);
+            Assert.Equal(
+                provider == DbaTableCopyProvider.PostgreSql ? "1:true" : "2",
+                after?.ToLowerInvariant());
         }
         finally
         {
