@@ -370,6 +370,47 @@ public class DbaDataReaderTests
         Assert.False(factoryCalled);
     }
 
+    [Fact]
+    public async Task DeferredMemoryStreamReadAsync_PreservesCallerCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var expected = new OperationCanceledException("caller canceled", cancellation.Token);
+        bool factoryCalled = false;
+        using var reader = CreateDeferredValueReader(
+            new ThrowingStream(expected),
+            TextReader.Null,
+            (exception, token) =>
+            {
+                factoryCalled = true;
+                return new OperationCanceledException("safe cancellation", exception, token);
+            });
+        await using Stream stream = reader.GetStream(0);
+
+        OperationCanceledException exception = await Assert.ThrowsAsync<OperationCanceledException>(
+            async () => await stream.ReadExactlyAsync(new Memory<byte>(new byte[1]), cancellation.Token));
+
+        Assert.Same(expected, exception);
+        Assert.False(factoryCalled);
+    }
+
+    [Fact]
+    public async Task DeferredMemoryStreamReadAsync_NormalizesProviderCancellation()
+    {
+        var expected = new OperationCanceledException("provider canceled");
+        using var reader = CreateDeferredValueReader(
+            new ThrowingStream(expected),
+            TextReader.Null,
+            (exception, token) => new OperationCanceledException("safe cancellation", exception, token));
+        await using Stream stream = reader.GetStream(0);
+
+        OperationCanceledException exception = await Assert.ThrowsAsync<OperationCanceledException>(
+            async () => await stream.ReadExactlyAsync(new Memory<byte>(new byte[1]), CancellationToken.None));
+
+        Assert.Equal("safe cancellation", exception.Message);
+        Assert.Same(expected, exception.InnerException);
+    }
+
     private static DBAClientX.DbaDataReader CreateNormalizingReader(string rawMessage)
         => new(
             new ThrowingDataReader(new TestProviderException(rawMessage), throwOnFieldAccess: true),

@@ -108,7 +108,7 @@ public sealed partial class DbaDataReader
             {
                 return await operation().ConfigureAwait(false);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, cancellationToken))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }

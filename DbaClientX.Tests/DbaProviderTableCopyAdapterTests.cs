@@ -70,6 +70,8 @@ public class DbaProviderTableCopyAdapterBaseTests
     [InlineData("_int4", "b", "int4", "b", true)]
     [InlineData("tsvector", "b", null, null, true)]
     [InlineData("custom_composite", "c", null, null, true)]
+    [InlineData("custom_enum", "e", null, null, true)]
+    [InlineData("_custom_enum", "b", "custom_enum", "e", true)]
     [InlineData("inet", "b", null, null, true)]
     [InlineData("cidr", "b", null, null, true)]
     [InlineData("macaddr", "b", null, null, true)]
@@ -108,6 +110,18 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("format_type(attribute.atttypid, attribute.atttypmod)", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("e", null, true)]
+    [InlineData("b", "e", true)]
+    [InlineData("b", "b", false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesUnmappedEnums(
+        string typeKind,
+        string? elementTypeKind,
+        bool expected)
+    {
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.IsPostgreSqlEnum(typeKind, elementTypeKind));
     }
 
     [Theory]

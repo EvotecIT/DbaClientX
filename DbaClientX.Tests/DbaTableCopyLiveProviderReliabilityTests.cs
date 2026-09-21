@@ -212,6 +212,66 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlUnmappedEnums_RejectBeforeClearingRows(bool isArray)
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string enumType = "dbax_enum_" + suffix;
+        string sourceTable = "dbax_enum_source_" + suffix;
+        string destinationTable = "dbax_enum_dest_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TYPE \"{enumType}\" AS ENUM ('ready', 'done')");
+            string sourceType = $"\"{enumType}\"" + (isArray ? "[]" : string.Empty);
+            string sourceValue = isArray
+                ? $"ARRAY['ready'::\"{enumType}\"]"
+                : $"'ready'::\"{enumType}\"";
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (id BIGINT NOT NULL PRIMARY KEY, state {sourceType} NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{sourceTable}\" VALUES (1, {sourceValue})");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id BIGINT NOT NULL PRIMARY KEY, state TEXT NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+
+            var source = new PostgreSqlTableCopyAdapter(connectionString!, new[] { "id" });
+            var destination = new PostgreSqlTableCopyAdapter(connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true }));
+
+            Assert.Contains(isArray ? "enum array" : "an enum", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("explicit Npgsql enum mapping", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || state FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+            await TryExecuteAsync(connection, $"DROP TYPE IF EXISTS \"{enumType}\"");
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlInfinitySentinels_RejectCrossProviderCopyBeforeWriting()

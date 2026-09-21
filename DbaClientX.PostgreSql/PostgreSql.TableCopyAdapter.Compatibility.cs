@@ -68,6 +68,12 @@ ORDER BY attribute.attnum";
                     string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
                     string formattedType = reader.GetString(5);
                     bool isArray = elementTypeName != null;
+                    if (IsPostgreSqlEnum(typeKind, elementTypeKind))
+                    {
+                        throw new NotSupportedException(
+                            $"PostgreSQL source column '{definition.SourceName}.{column}' uses {(isArray ? "an enum array" : "an enum")}, which requires an explicit Npgsql enum mapping before it can be materialized. " +
+                            "DbaClientX table-copy adapters do not accept caller-specific Npgsql mappings, so cast or omit the column in a provider-side source view before copying.");
+                    }
                     if ((IsPostgreSqlInfinityCapableType(typeName) ||
                          (elementTypeName != null && IsPostgreSqlInfinityCapableType(elementTypeName))) &&
                         !IsPortableProviderProjection(definition, column, allowStringConversion: false))
@@ -117,8 +123,11 @@ ORDER BY attribute.attnum";
         string? elementTypeKind)
         => elementTypeName != null || IsProviderSpecificPostgreSqlScalar(typeName, typeKind);
 
+    internal static bool IsPostgreSqlEnum(string? typeKind, string? elementTypeKind)
+        => typeKind == "e" || elementTypeKind == "e";
+
     private static bool IsProviderSpecificPostgreSqlScalar(string typeName, string? typeKind)
-        => typeKind is "r" or "m" or "c" || ProviderSpecificTypeNames.Contains(typeName);
+        => typeKind is "e" or "r" or "m" or "c" || ProviderSpecificTypeNames.Contains(typeName);
 
     internal static bool IsPostgreSqlInfinityCapableType(string typeName)
         => typeName is "date" or "timestamp" or "timestamptz";
