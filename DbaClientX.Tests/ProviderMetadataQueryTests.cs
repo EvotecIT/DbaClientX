@@ -184,6 +184,10 @@ public class ProviderMetadataQueryTests
         Assert.Contains("relkind IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("relpersistence = 'p'", checkpoint, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("relpersistence = 'p'", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("descendant.relkind NOT IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("descendant.relkind NOT IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", checkpoint, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("'f'", schema, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("relpersistence", checkpointStorage, StringComparison.OrdinalIgnoreCase);

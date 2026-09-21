@@ -10,7 +10,7 @@ SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
   AND TABLE_NAME = :table
-  AND (DATA_TYPE IN ('NUMBER', 'FLOAT') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%')";
+  AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%')";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -79,6 +79,11 @@ WHERE OWNER = :owner
                     int? precision = reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2));
                     int? scale = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
                     bool excluded = IsPortableNumericProjection(definition, column, allowStringConversion: false);
+                    if (string.Equals(dataType, "BFILE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ValidateOracleBFileProjection(definition.SourceName, column, excluded);
+                        continue;
+                    }
                     if (IsOracleTimestamp(dataType))
                     {
                         if (!excluded) ValidateOracleTimestampPrecision(column, dataType, scale);
@@ -111,6 +116,14 @@ WHERE OWNER = :owner
                 regionColumns,
                 cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    internal static void ValidateOracleBFileProjection(string sourceName, string columnName, bool excluded)
+    {
+        if (excluded) return;
+        throw new NotSupportedException(
+            $"Oracle source column '{sourceName}.{columnName}' uses BFILE, whose external file locator cannot be materialized or copied losslessly. " +
+            "Exclude the column from the table-copy projection.");
     }
 
     internal static bool IsPortableOracleNumber(int? precision, int? scale)

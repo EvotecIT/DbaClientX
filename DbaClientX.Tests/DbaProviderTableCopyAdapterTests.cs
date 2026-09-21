@@ -532,6 +532,8 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(decimalConversion, "Amount"));
         Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(stringConversion, "Amount"));
         Assert.Contains("COLUMN_TYPE LIKE '%unsigned%'", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("DATA_TYPE = 'bit'", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("NUMERIC_PRECISION > 63", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -670,6 +672,8 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("NOT tgisinternal", postgreSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tgtype & 4", postgreSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tgtype & 8", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relation_tree", postgreSql, StringComparison.OrdinalIgnoreCase);
 
         string mySql = MySqlTableCopyAdapter.MySqlRollbackUnsafeTriggerQuery;
         Assert.Contains("INFORMATION_SCHEMA.TRIGGERS", mySql, StringComparison.OrdinalIgnoreCase);

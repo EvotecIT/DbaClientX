@@ -8,29 +8,70 @@ namespace DBAClientX;
 
 public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
-    internal const string PostgreSqlCheckpointDestinationIdentityQuery = @"SELECT current_database() || ':' || cls.oid::text
-FROM pg_catalog.pg_class AS cls
-WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p')
-  AND cls.relpersistence = 'p'";
+    internal const string PostgreSqlCheckpointDestinationIdentityQuery = @"WITH RECURSIVE relation_tree AS (
+    SELECT cls.oid, cls.relkind, cls.relpersistence
+    FROM pg_catalog.pg_class AS cls
+    WHERE cls.oid = to_regclass(@name)
+    UNION ALL
+    SELECT child.oid, child.relkind, child.relpersistence
+    FROM pg_catalog.pg_inherits AS inheritance
+    JOIN relation_tree AS parent ON parent.oid = inheritance.inhparent
+    JOIN pg_catalog.pg_class AS child ON child.oid = inheritance.inhrelid
+)
+SELECT current_database() || ':' || root.oid::text
+FROM relation_tree AS root
+WHERE root.oid = to_regclass(@name)
+  AND root.relkind IN ('r', 'p')
+  AND root.relpersistence = 'p'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM relation_tree AS descendant
+      WHERE descendant.relkind NOT IN ('r', 'p')
+         OR descendant.relpersistence <> 'p'
+  )";
 
     internal const string PostgreSqlSchemaPreflightDestinationQuery = @"
-SELECT ns.nspname, cls.relname
-FROM pg_catalog.pg_class AS cls
-JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
-WHERE cls.oid = to_regclass(@name)
-  AND cls.relkind IN ('r', 'p')
-  AND cls.relpersistence = 'p'";
+WITH RECURSIVE relation_tree AS (
+    SELECT cls.oid, cls.relkind, cls.relpersistence
+    FROM pg_catalog.pg_class AS cls
+    WHERE cls.oid = to_regclass(@name)
+    UNION ALL
+    SELECT child.oid, child.relkind, child.relpersistence
+    FROM pg_catalog.pg_inherits AS inheritance
+    JOIN relation_tree AS parent ON parent.oid = inheritance.inhparent
+    JOIN pg_catalog.pg_class AS child ON child.oid = inheritance.inhrelid
+)
+SELECT ns.nspname, root.relname
+FROM pg_catalog.pg_class AS root
+JOIN pg_catalog.pg_namespace AS ns ON ns.oid = root.relnamespace
+WHERE root.oid = to_regclass(@name)
+  AND root.relkind IN ('r', 'p')
+  AND root.relpersistence = 'p'
+  AND NOT EXISTS (
+      SELECT 1
+      FROM relation_tree AS descendant
+      WHERE descendant.relkind NOT IN ('r', 'p')
+         OR descendant.relpersistence <> 'p'
+  )";
 
     internal const string PostgreSqlCheckpointStorageDurabilityQuery = @"SELECT cls.relpersistence
 FROM pg_catalog.pg_class AS cls
 WHERE cls.oid = to_regclass(@name)
   AND cls.relkind IN ('r', 'p')";
 
-    internal const string PostgreSqlRollbackUnsafeTriggerQuery = @"SELECT 1
+    internal const string PostgreSqlRollbackUnsafeTriggerQuery = @"WITH RECURSIVE relation_tree AS (
+    SELECT cls.oid
+    FROM pg_catalog.pg_class AS cls
+    WHERE cls.oid = to_regclass(@name)
+    UNION ALL
+    SELECT inheritance.inhrelid
+    FROM pg_catalog.pg_inherits AS inheritance
+    JOIN relation_tree AS parent ON parent.oid = inheritance.inhparent
+)
+SELECT 1
 FROM pg_catalog.pg_trigger
-WHERE tgrelid = to_regclass(@name)
-  AND NOT tgisinternal
+JOIN relation_tree ON relation_tree.oid = tgrelid
+WHERE NOT tgisinternal
   AND tgenabled <> 'D'
   AND ((tgtype & 4) <> 0 OR (tgtype & 8) <> 0)
 LIMIT 1";

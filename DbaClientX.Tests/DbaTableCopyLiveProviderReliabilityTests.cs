@@ -1052,6 +1052,148 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlClearDestination_RejectsTriggersOnLeafPartitionsBeforeClearingRows()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string destinationTable = "dbax_trigger_parent_" + suffix;
+        string partitionTable = "dbax_trigger_leaf_" + suffix;
+        string triggerFunction = "dbax_trigger_fn_" + suffix;
+        string sqlitePath = Path.Combine(Path.GetTempPath(), "dbax-pg-trigger-" + suffix + ".sqlite");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL, payload text NOT NULL) PARTITION BY RANGE (id)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{partitionTable}\" PARTITION OF \"{destinationTable}\" FOR VALUES FROM (0) TO (1000)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE FUNCTION \"{triggerFunction}\"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF TG_OP = 'DELETE' THEN RETURN OLD; END IF; RETURN NEW; END $$");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TRIGGER dbax_leaf_trigger BEFORE INSERT OR DELETE ON \"{partitionTable}\" FOR EACH ROW EXECUTE FUNCTION \"{triggerFunction}\"()");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sqlitePath, "CREATE TABLE SourceRows (id INTEGER NOT NULL PRIMARY KEY, payload TEXT NOT NULL)");
+                sqlite.ExecuteNonQuery(sqlitePath, "INSERT INTO SourceRows VALUES (1, 'new')");
+            }
+
+            var source = new SQLiteTableCopyAdapter(sqlitePath, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition("SourceRows", destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions
+                    {
+                        CheckpointId = "trigger-" + suffix,
+                        ClearDestination = true,
+                        PageSize = 1
+                    }));
+
+            Assert.Contains("enabled INSERT or DELETE trigger", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || payload FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\" CASCADE");
+            await TryExecuteAsync(connection, $"DROP FUNCTION IF EXISTS \"{triggerFunction}\"() CASCADE");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.PostgreSql, suffix));
+            File.Delete(sqlitePath);
+            File.Delete(sqlitePath + "-wal");
+            File.Delete(sqlitePath + "-shm");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlCheckpointedCopy_RejectsPartitionTreesWithForeignLeafTables()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string destinationTable = "dbax_foreign_parent_" + suffix;
+        string localPartition = "dbax_foreign_local_" + suffix;
+        string foreignPartition = "dbax_foreign_leaf_" + suffix;
+        string foreignServer = "dbax_foreign_server_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, "CREATE EXTENSION IF NOT EXISTS postgres_fdw");
+            await ExecuteAsync(
+                connection,
+                $"CREATE SERVER \"{foreignServer}\" FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '127.0.0.1', dbname '{connection.Database}')");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL, payload text NOT NULL) PARTITION BY RANGE (id)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{localPartition}\" PARTITION OF \"{destinationTable}\" FOR VALUES FROM (0) TO (100)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE FOREIGN TABLE \"{foreignPartition}\" (id bigint NOT NULL, payload text NOT NULL, CHECK (id >= 100 AND id < 200)) SERVER \"{foreignServer}\" OPTIONS (schema_name 'public', table_name 'remote_rows')");
+            await ExecuteAsync(
+                connection,
+                $"ALTER TABLE \"{destinationTable}\" ATTACH PARTITION \"{foreignPartition}\" FOR VALUES FROM (100) TO (200)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition("unused", destinationTable, new[] { "id" });
+            var checkpoint = new DbaTableCopyCheckpoint
+            {
+                CopyId = "foreign-tree-" + suffix,
+                DefinitionFingerprint = new string('1', 64),
+                SourceRows = 1,
+                SourceContentHash = new string('2', 64),
+                CopiedRows = 0,
+                CopiedContentHash = new string('3', 64),
+                Completed = false
+            };
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                destination.InitializeCheckpointAsync(definition, checkpoint, clearDestination: true));
+
+            Assert.Contains("cannot be resolved to a PostgreSQL table", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    connection,
+                    $"SELECT id || ':' || payload FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\" CASCADE");
+            await TryExecuteAsync(connection, $"DROP FOREIGN TABLE IF EXISTS \"{foreignPartition}\" CASCADE");
+            await TryExecuteAsync(connection, $"DROP SERVER IF EXISTS \"{foreignServer}\" CASCADE");
+            await TryExecuteAsync(connection, DeleteCheckpointSql(DbaTableCopyProvider.PostgreSql, suffix));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task PostgreSqlCheckpointedCopy_RejectsViewBeforeClearingUnderlyingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
@@ -1240,6 +1382,55 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             Assert.Contains("BIGINT UNSIGNED", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(1L, Convert.ToInt64(await ExecuteScalarAsync(postgreSqlConnection, $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
             Assert.Equal(99L, Convert.ToInt64(await ExecuteScalarAsync(postgreSqlConnection, $"SELECT id FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(postgreSqlConnection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(mySqlConnection, $"DROP TABLE IF EXISTS `{sourceTable}`");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlWideBit_RejectsCrossProviderCopyBeforeWriting()
+    {
+        string? mySqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        string? postgreSqlConnectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(mySqlConnectionString) || string.IsNullOrWhiteSpace(postgreSqlConnectionString),
+            "Set both MySQL and PostgreSQL live-provider connection strings.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_bit_source_" + suffix;
+        string destinationTable = "dbax_bit_destination_" + suffix;
+        await using var mySqlConnection = new MySqlConnection(mySqlConnectionString!);
+        await using var postgreSqlConnection = new NpgsqlConnection(postgreSqlConnectionString!);
+        await mySqlConnection.OpenAsync();
+        await postgreSqlConnection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                mySqlConnection,
+                $"CREATE TABLE `{sourceTable}` (flags BIT(64) NOT NULL, payload VARCHAR(32) NOT NULL) ENGINE=InnoDB");
+            await ExecuteAsync(mySqlConnection, $"INSERT INTO `{sourceTable}` VALUES (0xFFFFFFFFFFFFFFFF, 'source')");
+            await ExecuteAsync(
+                postgreSqlConnection,
+                $"CREATE TABLE \"{destinationTable}\" (flags NUMERIC(20,0) NOT NULL, payload TEXT NOT NULL)");
+            await ExecuteAsync(postgreSqlConnection, $"INSERT INTO \"{destinationTable}\" VALUES (99, 'preserved')");
+
+            var source = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var destination = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable);
+
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(source, destination, new[] { definition }));
+
+            Assert.Contains("BIT(64)", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(
+                "99:preserved",
+                Convert.ToString(await ExecuteScalarAsync(
+                    postgreSqlConnection,
+                    $"SELECT flags || ':' || payload FROM \"{destinationTable}\"")));
         }
         finally
         {

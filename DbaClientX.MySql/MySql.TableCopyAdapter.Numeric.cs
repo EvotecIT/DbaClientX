@@ -11,7 +11,9 @@ public sealed partial class MySqlTableCopyAdapter
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
        OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))
-  AND (DATA_TYPE IN ('decimal', 'numeric') OR (DATA_TYPE = 'bigint' AND COLUMN_TYPE LIKE '%unsigned%'))";
+  AND (DATA_TYPE IN ('decimal', 'numeric')
+       OR (DATA_TYPE = 'bigint' AND COLUMN_TYPE LIKE '%unsigned%')
+       OR (DATA_TYPE = 'bit' AND NUMERIC_PRECISION > 63))";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -64,6 +66,14 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
                 }
 
                 if (IsPortableUnsignedProjection(definition, column)) continue;
+                if (dataType == "bit")
+                {
+                    int precision = reader.GetInt32(2);
+                    throw new NotSupportedException(
+                        $"MySQL source column '{definition.SourceName}.{column}' uses BIT({precision}), which can exceed Int64 and is not portable to {destinationProvider}. " +
+                        "Exclude the column, convert it explicitly to Decimal or String, or copy it to a MySQL or Oracle destination.");
+                }
+
                 throw new NotSupportedException(
                     $"MySQL source column '{definition.SourceName}.{column}' uses BIGINT UNSIGNED, which can exceed Int64 and is not portable to {destinationProvider}. " +
                     "Exclude the column, convert it explicitly to Decimal or String, or copy it to a MySQL or Oracle destination.");

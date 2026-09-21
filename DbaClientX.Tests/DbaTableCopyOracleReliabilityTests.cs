@@ -36,9 +36,31 @@ public sealed class DbaTableCopyOracleReliabilityTests
     {
         Assert.False(OracleTableCopyAdapter.IsPortableOracleNumeric("FLOAT", 126, null));
         Assert.True(OracleTableCopyAdapter.IsPortableOracleNumeric("NUMBER", 28, 0));
-        Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'TIMESTAMP%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'INTERVAL DAY%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DestinationCompatibility_RejectsProjectedOracleBFileColumns()
+    {
+        var converted = new DbaTableCopyDefinition(
+            "SOURCE_ROWS",
+            "DESTINATION_ROWS",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["DOCUMENT"] = DbaTableCopyColumnType.String
+            });
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.ValidateOracleBFileProjection(
+                "SOURCE_ROWS",
+                "DOCUMENT",
+                OracleTableCopyAdapter.IsPortableNumericProjection(converted, "DOCUMENT", allowStringConversion: false)));
+
+        Assert.Contains("BFILE", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("external file locator", exception.Message, StringComparison.OrdinalIgnoreCase);
+        OracleTableCopyAdapter.ValidateOracleBFileProjection("SOURCE_ROWS", "DOCUMENT", excluded: true);
+        Assert.Contains("'BFILE'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Fact]
