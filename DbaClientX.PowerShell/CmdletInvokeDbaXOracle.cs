@@ -149,10 +149,10 @@ public sealed class CmdletInvokeDbaXOracle : AsyncPSCmdlet {
                 }
             }
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXOracle - Error querying Oracle: {ex.Message}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXOracle", Database));
         }
     }
 

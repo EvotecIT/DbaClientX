@@ -14,6 +14,9 @@ public sealed partial class DbaTableCopyEngine
         CancellationToken cancellationToken)
     {
         var results = new DbaTableCopyPreflight?[definitions.Count];
+        var batchDestination = options.ClearDestination && definitions.Count > 1
+            ? destination as IDbaTableCopySchemaPreflightBatchSessionDestination
+            : null;
         try
         {
             for (var index = 0; index < definitions.Count; index++)
@@ -41,7 +44,22 @@ public sealed partial class DbaTableCopyEngine
                     results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 1);
                     if (firstPage.Data.Columns.Count > 0)
                     {
-                        await PreflightTransformAsync(firstPage.Data, definition, destination, options, cancellationToken).ConfigureAwait(false);
+                        if (batchDestination == null && options.ClearDestination && destination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                        {
+                            await PreflightAllSourcePagesAsync(
+                                source,
+                                sessionDestination,
+                                destination as IDbaTableCopyPagePreflightDestination,
+                                definition,
+                                firstPage,
+                                sourceRows,
+                                options,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        else if (batchDestination == null)
+                        {
+                            await PreflightTransformAsync(firstPage.Data, definition, destination, options, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
                 else
@@ -50,12 +68,195 @@ public sealed partial class DbaTableCopyEngine
                 }
             }
 
+            if (batchDestination != null)
+            {
+                await PreflightAllSourceTablesAsync(
+                    source,
+                    batchDestination,
+                    destination as IDbaTableCopyPagePreflightDestination,
+                    definitions,
+                    results,
+                    options,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             return results;
         }
         catch
         {
             DisposePreflightPages(results);
             throw;
+        }
+    }
+
+    private static async Task PreflightAllSourceTablesAsync(
+        IDbaTableCopySource source,
+        IDbaTableCopySchemaPreflightBatchSessionDestination destination,
+        IDbaTableCopyPagePreflightDestination? pagePreflight,
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        IReadOnlyList<DbaTableCopyPreflight?> preflight,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        var transformedFirstPages = new DataTable?[definitions.Count];
+        try
+        {
+            for (var index = 0; index < definitions.Count; index++)
+            {
+                DataTable? page = preflight[index]?.FirstPage?.Data;
+                if (page == null || page.Columns.Count == 0) continue;
+                DataTable transformed = DbaTableCopyPageTransformer.Transform(page, definitions[index]);
+                transformedFirstPages[index] = transformed;
+                ValidateTransformedPage(transformed, definitions[index], pagePreflight);
+            }
+
+            await using IDbaTableCopySchemaPreflightBatchSession session = await destination
+                .OpenSchemaPreflightBatchSessionAsync(definitions, transformedFirstPages, options, cancellationToken)
+                .ConfigureAwait(false);
+
+            for (var index = 0; index < definitions.Count; index++)
+            {
+                DbaTableCopyPreflight? item = preflight[index];
+                DbaTableCopyPage? firstPage = item?.FirstPage;
+                if (firstPage == null) continue;
+
+                if (transformedFirstPages[index] is DataTable transformedFirstPage)
+                    await session.ValidatePageAsync(index, transformedFirstPage, cancellationToken).ConfigureAwait(false);
+
+                long rows = firstPage.Data.Rows.Count;
+                string? token = firstPage.ContinuationToken;
+                var observedTokens = new HashSet<string>(StringComparer.Ordinal);
+                if (token != null) observedTokens.Add(token);
+                while (token != null && (!item!.SourceRows.HasValue || rows < item.SourceRows.Value))
+                {
+                    string requestedToken = token;
+                    using DbaTableCopyPage page = await ReadPageAsync(
+                            source,
+                            new DbaTableCopyPageRequest(
+                                definitions[index],
+                                requestedToken,
+                                GetReadPageSize(options.PageSize, item.SourceRows, rows)) { MaxBytes = options.MaxPageBytes },
+                            pageSequence: 1,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    token = page.ContinuationToken;
+                    ValidateContinuationProgress(requestedToken, token, observedTokens, definitions[index]);
+
+                    DataTable transformed = DbaTableCopyPageTransformer.Transform(page.Data, definitions[index]);
+                    using var transformedToDispose = ReferenceEquals(transformed, page.Data) ? null : transformed;
+                    ValidateTransformedPage(transformed, definitions[index], pagePreflight);
+                    await session.ValidatePageAsync(index, transformed, cancellationToken).ConfigureAwait(false);
+                    rows = checked(rows + page.Data.Rows.Count);
+                    if (page.Data.Rows.Count == 0) break;
+                }
+
+                if (item!.SourceRows.HasValue && rows != item.SourceRows.Value)
+                {
+                    throw new InvalidOperationException(
+                        $"Source contents or continuation changed while preflighting '{definitions[index].DisplayName}'. Expected {item.SourceRows.Value} rows but read {rows}.");
+                }
+            }
+        }
+        finally
+        {
+            for (var index = 0; index < transformedFirstPages.Length; index++)
+            {
+                DataTable? transformed = transformedFirstPages[index];
+                DataTable? sourcePage = preflight[index]?.FirstPage?.Data;
+                if (transformed != null && !ReferenceEquals(transformed, sourcePage)) transformed.Dispose();
+            }
+        }
+    }
+
+    private static async Task PreflightVerifiedSourceTablesAsync(
+        IDbaTableCopySource source,
+        IDbaTableCopySchemaPreflightBatchSessionDestination destination,
+        IDbaTableCopyPagePreflightDestination? pagePreflight,
+        IReadOnlyList<DbaTableCopyDefinition> definitions,
+        IReadOnlyList<long> sourceRows,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        var preflight = new DbaTableCopyPreflight?[definitions.Count];
+        try
+        {
+            for (var index = 0; index < definitions.Count; index++)
+            {
+                int pageSize = sourceRows[index] > 0
+                    ? GetReadPageSize(options.PageSize, sourceRows[index], copied: 0)
+                    : options.PageSize;
+                DbaTableCopyPage firstPage = await ReadPageAsync(
+                        source,
+                        new DbaTableCopyPageRequest(definitions[index], continuationToken: null, pageSize) { MaxBytes = options.MaxPageBytes },
+                        pageSequence: 1,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                preflight[index] = new DbaTableCopyPreflight(sourceRows[index], firstPage, pageCount: 1);
+            }
+
+            await PreflightAllSourceTablesAsync(
+                source,
+                destination,
+                pagePreflight,
+                definitions,
+                preflight,
+                options,
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            DisposePreflightPages(preflight);
+        }
+    }
+
+    private static async Task PreflightAllSourcePagesAsync(
+        IDbaTableCopySource source,
+        IDbaTableCopySchemaPreflightSessionDestination destination,
+        IDbaTableCopyPagePreflightDestination? pagePreflight,
+        DbaTableCopyDefinition definition,
+        DbaTableCopyPage firstPage,
+        long? sourceRows,
+        DbaTableCopyOptions options,
+        CancellationToken cancellationToken)
+    {
+        DataTable transformed = DbaTableCopyPageTransformer.Transform(firstPage.Data, definition);
+        using var transformedToDispose = ReferenceEquals(transformed, firstPage.Data) ? null : transformed;
+        ValidateTransformedPage(transformed, definition, pagePreflight);
+        await using IDbaTableCopySchemaPreflightSession session = await destination
+            .OpenSchemaPreflightSessionAsync(definition, transformed, options, cancellationToken)
+            .ConfigureAwait(false);
+
+        long rows = firstPage.Data.Rows.Count;
+        string? token = firstPage.ContinuationToken;
+        var observedTokens = new HashSet<string>(StringComparer.Ordinal);
+        if (token != null) observedTokens.Add(token);
+        while (token != null && (!sourceRows.HasValue || rows < sourceRows.Value))
+        {
+            string requestedToken = token;
+            using DbaTableCopyPage page = await ReadPageAsync(
+                    source,
+                    new DbaTableCopyPageRequest(
+                        definition,
+                        requestedToken,
+                        GetReadPageSize(options.PageSize, sourceRows, rows)) { MaxBytes = options.MaxPageBytes },
+                    pageSequence: 1,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            token = page.ContinuationToken;
+            ValidateContinuationProgress(requestedToken, token, observedTokens, definition);
+
+            DataTable nextTransformed = DbaTableCopyPageTransformer.Transform(page.Data, definition);
+            using var nextTransformedToDispose = ReferenceEquals(nextTransformed, page.Data) ? null : nextTransformed;
+            ValidateTransformedPage(nextTransformed, definition, pagePreflight);
+            await session.ValidatePageAsync(nextTransformed, cancellationToken).ConfigureAwait(false);
+            rows = checked(rows + page.Data.Rows.Count);
+            if (page.Data.Rows.Count == 0) break;
+        }
+
+        if (sourceRows.HasValue && rows != sourceRows.Value)
+        {
+            throw new InvalidOperationException(
+                $"Source contents or continuation changed while preflighting '{definition.DisplayName}'. Expected {sourceRows.Value} rows but read {rows}.");
         }
     }
 

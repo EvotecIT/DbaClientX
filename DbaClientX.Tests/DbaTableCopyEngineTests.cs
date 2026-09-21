@@ -315,6 +315,52 @@ public class DbaTableCopyEngineTests
         Assert.False(destination.ClearCalled);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CopyAsync_PreflightsEverySourcePageBeforeClear(bool verifyContent)
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new SessionPreflightDestination(rejectedId: 2);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) { UseKeysetPagination = true } },
+            new DbaTableCopyOptions { ClearDestination = true, VerifyContent = verifyContent, PageSize = 1 }));
+
+        Assert.Equal(new[] { 1, 2 }, destination.PreflightIds);
+        Assert.False(destination.ClearCalled);
+    }
+
+    [Fact]
+    public async Task CopyAsync_PreflightsMultipleDefinitionsThroughOneBatchSession()
+    {
+        var source = new MemoryTableCopySource(CreateRows(2));
+        var destination = new BatchSessionPreflightDestination();
+        var definitions = new[]
+        {
+            new DbaTableCopyDefinition("ParentSource", "ParentDestination"),
+            new DbaTableCopyDefinition("ChildSource", "ChildDestination")
+        };
+
+        await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            definitions,
+            new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 });
+
+        Assert.Equal(1, destination.BatchOpenCalls);
+        Assert.Equal(0, destination.SingleOpenCalls);
+        Assert.Equal(
+            new[] { "ParentDestination:1", "ParentDestination:2", "ChildDestination:1", "ChildDestination:2" },
+            destination.PreflightRows);
+        Assert.Equal(new[] { "ChildDestination", "ParentDestination" }, destination.ClearOrder);
+        Assert.Equal(
+            new[] { "ParentDestination", "ParentDestination", "ChildDestination", "ChildDestination" },
+            destination.WriteOrder);
+    }
+
     [Fact]
     public async Task CopyAsync_DisposesFirstPageWhenDestinationPagePreflightFails()
     {
@@ -1321,5 +1367,141 @@ public class DbaTableCopyEngineTests
 
         public bool IsMissingTableException(Exception exception)
             => exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class SessionPreflightDestination : IDbaTableCopyDestination, IDbaTableCopySource, IDbaTableCopySchemaPreflightSessionDestination
+    {
+        private readonly int _rejectedId;
+
+        internal SessionPreflightDestination(int rejectedId) => _rejectedId = rejectedId;
+
+        internal List<int> PreflightIds { get; } = new();
+
+        internal bool ClearCalled { get; private set; }
+
+        public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+            => Task.FromResult<long?>(1);
+
+        public Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Destination readback must not run after failed source preflight.");
+
+        public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+        {
+            ClearCalled = true;
+            return Task.CompletedTask;
+        }
+
+        public Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
+            DbaTableCopyDefinition definition,
+            DataTable firstPage,
+            DbaTableCopyOptions options,
+            CancellationToken cancellationToken)
+        {
+            var session = new Session(this);
+            return session.OpenAsync(firstPage, cancellationToken);
+        }
+
+        private sealed class Session : IDbaTableCopySchemaPreflightSession
+        {
+            private readonly SessionPreflightDestination _owner;
+
+            internal Session(SessionPreflightDestination owner) => _owner = owner;
+
+            internal async Task<IDbaTableCopySchemaPreflightSession> OpenAsync(DataTable page, CancellationToken cancellationToken)
+            {
+                await ValidatePageAsync(page, cancellationToken);
+                return this;
+            }
+
+            public Task ValidatePageAsync(DataTable page, CancellationToken cancellationToken)
+            {
+                foreach (DataRow row in page.Rows)
+                {
+                    int id = Convert.ToInt32(row["Id"], System.Globalization.CultureInfo.InvariantCulture);
+                    _owner.PreflightIds.Add(id);
+                    if (id == _owner._rejectedId) throw new InvalidOperationException("Later source page rejected.");
+                }
+                return Task.CompletedTask;
+            }
+
+            public ValueTask DisposeAsync() => default;
+        }
+    }
+
+    private sealed class BatchSessionPreflightDestination :
+        IDbaTableCopyDestination,
+        IDbaTableCopySchemaPreflightSessionDestination,
+        IDbaTableCopySchemaPreflightBatchSessionDestination
+    {
+        internal int BatchOpenCalls { get; private set; }
+        internal int SingleOpenCalls { get; private set; }
+        internal List<string> PreflightRows { get; } = new();
+        internal List<string> ClearOrder { get; } = new();
+        internal List<string> WriteOrder { get; } = new();
+
+        public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+            => Task.FromResult<long?>(0);
+
+        public Task ClearAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
+        {
+            ClearOrder.Add(definition.DestinationName);
+            return Task.CompletedTask;
+        }
+
+        public Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
+        {
+            WriteOrder.Add(definition.DestinationName);
+            return Task.CompletedTask;
+        }
+
+        public Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(
+            DbaTableCopyDefinition definition,
+            DataTable firstPage,
+            DbaTableCopyOptions options,
+            CancellationToken cancellationToken)
+        {
+            SingleOpenCalls++;
+            throw new InvalidOperationException("Multiple definitions must use coordinated preflight.");
+        }
+
+        public Task<IDbaTableCopySchemaPreflightBatchSession> OpenSchemaPreflightBatchSessionAsync(
+            IReadOnlyList<DbaTableCopyDefinition> definitions,
+            IReadOnlyList<DataTable?> firstPages,
+            DbaTableCopyOptions options,
+            CancellationToken cancellationToken)
+        {
+            BatchOpenCalls++;
+            return Task.FromResult<IDbaTableCopySchemaPreflightBatchSession>(new BatchSession(this, definitions));
+        }
+
+        private sealed class BatchSession : IDbaTableCopySchemaPreflightBatchSession
+        {
+            private readonly BatchSessionPreflightDestination _owner;
+            private readonly IReadOnlyList<DbaTableCopyDefinition> _definitions;
+
+            internal BatchSession(
+                BatchSessionPreflightDestination owner,
+                IReadOnlyList<DbaTableCopyDefinition> definitions)
+            {
+                _owner = owner;
+                _definitions = definitions;
+            }
+
+            public Task ValidatePageAsync(int definitionIndex, DataTable page, CancellationToken cancellationToken)
+            {
+                foreach (DataRow row in page.Rows)
+                {
+                    _owner.PreflightRows.Add(
+                        _definitions[definitionIndex].DestinationName + ":" +
+                        Convert.ToString(row["Id"], System.Globalization.CultureInfo.InvariantCulture));
+                }
+                return Task.CompletedTask;
+            }
+
+            public ValueTask DisposeAsync() => default;
+        }
     }
 }

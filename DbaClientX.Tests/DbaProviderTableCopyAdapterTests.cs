@@ -1,13 +1,1056 @@
 using System.Data;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using DBAClientX;
 using DBAClientX.DataMovement;
+using DBAClientX.Metadata;
 using Microsoft.Data.Sqlite;
+using MySqlConnector;
+using NpgsqlTypes;
 
 namespace DbaClientX.Tests;
 
 public class DbaProviderTableCopyAdapterBaseTests
 {
+    [Fact]
+    public async Task PostgreSqlConsistentReadSession_RequiresDefinitionsForForeignTableValidation()
+    {
+        var source = new PostgreSqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.PostgreSql,
+            ConnectionString = "Host=localhost;Database=test;Username=test;Password=test;SslMode=Require",
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            source.OpenReadSessionAsync());
+
+        Assert.Contains("definitions", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsAssignableFrom<IDbaTableCopyDefinitionReadSession>(source);
+    }
+
+    [Fact]
+    public void PostgreSqlConsistentReadSession_RejectsForeignRelations()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateConsistentSourceRelationKind(
+                "public.remote_rows",
+                "f",
+                containsForeignRelation: true,
+                DbaTableCopyReadConsistency.Snapshot));
+
+        Assert.Contains("foreign source table", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stable remote snapshot", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PostgreSqlConsistentReadSession_RejectsPartitionTreesWithForeignDescendants()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateConsistentSourceRelationKind(
+                "public.partitioned_rows",
+                "p",
+                containsForeignRelation: true,
+                DbaTableCopyReadConsistency.Serializable));
+
+        Assert.Contains("partition tree", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("descendant.relkind = 'f'", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("pg_catalog.pg_rewrite", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("pg_catalog.pg_depend", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("point", "b", null, null, true)]
+    [InlineData("int8range", "r", null, null, true)]
+    [InlineData("int8multirange", "m", null, null, true)]
+    [InlineData("_point", "b", "point", "b", true)]
+    [InlineData("_int8range", "b", "int8range", "r", true)]
+    [InlineData("_int4", "b", "int4", "b", true)]
+    [InlineData("tsvector", "b", null, null, true)]
+    [InlineData("custom_composite", "c", null, null, true)]
+    [InlineData("custom_enum", "e", null, null, true)]
+    [InlineData("_custom_enum", "b", "custom_enum", "e", true)]
+    [InlineData("inet", "b", null, null, true)]
+    [InlineData("cidr", "b", null, null, true)]
+    [InlineData("macaddr", "b", null, null, true)]
+    [InlineData("macaddr8", "b", null, null, true)]
+    [InlineData("int8", "b", null, null, false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesProviderSpecificTypes(
+        string typeName,
+        string typeKind,
+        string? elementTypeName,
+        string? elementTypeKind,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PostgreSqlTableCopyAdapter.IsProviderSpecificPostgreSqlType(
+                typeName,
+                typeKind,
+                elementTypeName,
+                elementTypeKind));
+    }
+
+    [Fact]
+    public void PostgreSqlDestinationCompatibility_AllowsExplicitStringProjection()
+    {
+        var definition = new DbaTableCopyDefinition(
+            "source_rows",
+            "destination_rows",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["shape"] = DbaTableCopyColumnType.String
+            });
+
+        Assert.True(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "SHAPE"));
+        Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "SHAPE", allowStringConversion: false));
+        Assert.False(PostgreSqlTableCopyAdapter.IsPortableProviderProjection(definition, "period"));
+        Assert.Contains("value_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("element_type.typtype", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("format_type(attribute.atttypid, attribute.atttypmod)", PostgreSqlTableCopyAdapter.PostgreSqlProviderSpecificColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("e", null, true)]
+    [InlineData("b", "e", true)]
+    [InlineData("b", "b", false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesUnmappedEnums(
+        string typeKind,
+        string? elementTypeKind,
+        bool expected)
+    {
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.IsPostgreSqlEnum(typeKind, elementTypeKind));
+    }
+
+    [Theory]
+    [InlineData("int8", "b", null, true)]
+    [InlineData("inet", "b", null, true)]
+    [InlineData("interval", "b", null, true)]
+    [InlineData("int4range", "r", null, false)]
+    [InlineData("int4multirange", "m", null, false)]
+    [InlineData("_int4", "b", "int4", false)]
+    [InlineData("point", "b", null, false)]
+    public void PostgreSqlKeysetPaging_ClassifiesContinuationTokenTypes(
+        string typeName,
+        string typeKind,
+        string? elementTypeName,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PostgreSqlTableCopyAdapter.IsSupportedPostgreSqlKeysetType(
+                typeName,
+                typeKind,
+                elementTypeName));
+    }
+
+    [Theory]
+    [InlineData("date", true)]
+    [InlineData("timestamp", true)]
+    [InlineData("timestamptz", true)]
+    [InlineData("time", false)]
+    [InlineData("interval", false)]
+    public void PostgreSqlDestinationCompatibility_ClassifiesInfinityCapableTypes(string typeName, bool expected)
+    {
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.IsPostgreSqlInfinityCapableType(typeName));
+    }
+
+    [Fact]
+    public async Task MySqlConsistentReadSession_RequiresDefinitionsForEngineValidation()
+    {
+        var source = new MySqlTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = DbaTableCopyProvider.MySql,
+            ConnectionString = "Server=localhost;Database=test;User ID=test;Password=test;",
+            ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+        });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            source.OpenReadSessionAsync());
+
+        Assert.Contains("definitions", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsAssignableFrom<IDbaTableCopyDefinitionReadSession>(source);
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsUnsignedBigIntWithoutNarrowing()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(ulong));
+        DataRow row = table.Rows.Add(ulong.MaxValue);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(ulong.MaxValue, Assert.IsType<ulong>(Assert.Single(values)));
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsPostgreSqlDateAndTimeValues()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "EventDate", "EventTime" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("EventDate", typeof(DateOnly));
+        table.Columns.Add("EventTime", typeof(TimeOnly));
+        var expectedDate = new DateOnly(2026, 9, 20);
+        var expectedTime = new TimeOnly(23, 59, 58, 123).Add(TimeSpan.FromTicks(4567));
+        DataRow row = table.Rows.Add(expectedDate, expectedTime);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expectedDate, Assert.IsType<DateOnly>(values[0]));
+        Assert.Equal(expectedTime, Assert.IsType<TimeOnly>(values[1]));
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsYearMonthIntervals()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Period" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        var expected = new DbaYearMonthInterval(-27);
+        DataRow row = table.Rows.Add(expected);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaYearMonthInterval>(Assert.Single(values)));
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsCalendarIntervals()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Period" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Period", typeof(DbaCalendarInterval));
+        var expected = new DbaCalendarInterval(-14, 3, 4_500_001);
+        DataRow row = table.Rows.Add(expected);
+
+        string token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        object[] values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaCalendarInterval>(Assert.Single(values)));
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsArbitraryDecimals()
+    {
+        Type tokenType = typeof(DbaTableCopyEngine).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        MethodInfo encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definition = new DbaTableCopyDefinition("Source", "Destination", new[] { "Amount" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(DbaArbitraryDecimal));
+        var expected = new DbaArbitraryDecimal("1.25e30");
+        table.Rows.Add(expected);
+
+        string token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, table.Rows[0] }));
+        object[] values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaArbitraryDecimal>(Assert.Single(values)));
+    }
+
+    [Fact]
+    public void KeysetContinuationToken_RoundTripsNetworkValues()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Encode");
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(tokenType.FullName, "Decode");
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Address", "Network", "Mac" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Address", typeof(IPAddress));
+        table.Columns.Add("Network", typeof(DbaIpNetwork));
+        table.Columns.Add("Mac", typeof(PhysicalAddress));
+        var expectedAddress = IPAddress.Parse("2001:db8::42");
+        var expectedNetwork = new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24);
+        var expectedMac = PhysicalAddress.Parse("001122AABBCC");
+        DataRow row = table.Rows.Add(expectedAddress, expectedNetwork, expectedMac);
+
+        var token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        var values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expectedAddress, Assert.IsType<IPAddress>(values[0]));
+        Assert.Equal(expectedNetwork, Assert.IsType<DbaIpNetwork>(values[1]));
+        Assert.Equal(expectedMac, Assert.IsType<PhysicalAddress>(values[2]));
+    }
+
+    [Fact]
+    public void ContentHasher_AcceptsYearMonthIntervals()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        first.Rows.Add(new DbaYearMonthInterval(27));
+
+        using var second = first.Copy();
+
+        Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(second, "Period"));
+    }
+
+    [Fact]
+    public void ContentHasher_PreservesCalendarIntervalComponents()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Period", typeof(DbaCalendarInterval));
+        first.Rows.Add(new DbaCalendarInterval(1, 2, 3));
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(new DbaCalendarInterval(1, 3, 3));
+
+        Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(same, "Period"));
+        Assert.NotEqual(ComputeContentHash(first, "Period"), ComputeContentHash(changed, "Period"));
+    }
+
+    [Theory]
+    [InlineData("0012.5000", "12.5")]
+    [InlineData("1.25e30", "1250000000000000000000000000000")]
+    [InlineData("-0.000", "0")]
+    public void ArbitraryDecimal_UsesStableProviderNeutralRepresentation(string input, string expected)
+    {
+        var value = new DbaArbitraryDecimal(input);
+
+        Assert.Equal(expected, value.CanonicalValue);
+        Assert.Equal(value, new DbaArbitraryDecimal(expected));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesArbitraryAndClrDecimals()
+    {
+        using var arbitrary = new DataTable();
+        arbitrary.Columns.Add("Amount", typeof(DbaArbitraryDecimal));
+        arbitrary.Rows.Add(new DbaArbitraryDecimal("12.500"));
+        using var clr = new DataTable();
+        clr.Columns.Add("Amount", typeof(decimal));
+        clr.Rows.Add(12.5m);
+
+        Assert.Equal(ComputeContentHash(clr, "Amount"), ComputeContentHash(arbitrary, "Amount"));
+    }
+
+    [Fact]
+    public void ContentHasher_AcceptsNetworkValues()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Address", typeof(IPAddress));
+        first.Columns.Add("Network", typeof(DbaIpNetwork));
+        first.Columns.Add("Mac", typeof(PhysicalAddress));
+        first.Rows.Add(
+            IPAddress.Parse("192.0.2.42"),
+            new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24),
+            PhysicalAddress.Parse("001122AABBCC"));
+
+        using var second = first.Copy();
+
+        Assert.Equal(
+            ComputeContentHash(first, "Address", "Network", "Mac"),
+            ComputeContentHash(second, "Address", "Network", "Mac"));
+    }
+
+    [Fact]
+    public void ContentHasher_AcceptsPostgreSqlArrayValues()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Values", typeof(int[]));
+        first.Rows.Add(new int[] { 1, 2, 3 });
+
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(new int[] { 1, 2, 4 });
+
+        Assert.Equal(ComputeContentHash(first, "Values"), ComputeContentHash(same, "Values"));
+        Assert.NotEqual(ComputeContentHash(first, "Values"), ComputeContentHash(changed, "Values"));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesPostgreSqlRangesAndMultiranges()
+    {
+        var normalizer = new PostgreSqlTableCopyAdapter(
+            "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require");
+        var firstRange = new NpgsqlRange<int>(1, lowerBoundIsInclusive: true, 5, upperBoundIsInclusive: false);
+        var changedRange = new NpgsqlRange<int>(1, lowerBoundIsInclusive: true, 6, upperBoundIsInclusive: false);
+        using var first = new DataTable();
+        first.Columns.Add("Range", typeof(NpgsqlRange<int>));
+        first.Columns.Add("Multirange", typeof(NpgsqlRange<int>[]));
+        first.Rows.Add(firstRange, new[] { firstRange, NpgsqlRange<int>.Empty });
+
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(changedRange, new[] { firstRange, NpgsqlRange<int>.Empty });
+
+        Assert.Equal(
+            ComputeContentHash(first, normalizer, "Range", "Multirange"),
+            ComputeContentHash(same, normalizer, "Range", "Multirange"));
+        Assert.NotEqual(
+            ComputeContentHash(first, normalizer, "Range", "Multirange"),
+            ComputeContentHash(changed, normalizer, "Range", "Multirange"));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesPostgreSqlGeometricValues()
+    {
+        var normalizer = new PostgreSqlTableCopyAdapter(
+            "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require");
+        var points = new[] { new NpgsqlPoint(1, 2), new NpgsqlPoint(3, 4) };
+        using var first = new DataTable();
+        first.Columns.Add("Point", typeof(NpgsqlPoint));
+        first.Columns.Add("Line", typeof(NpgsqlLine));
+        first.Columns.Add("Segment", typeof(NpgsqlLSeg));
+        first.Columns.Add("Box", typeof(NpgsqlBox));
+        first.Columns.Add("Path", typeof(NpgsqlPath));
+        first.Columns.Add("Polygon", typeof(NpgsqlPolygon));
+        first.Columns.Add("Circle", typeof(NpgsqlCircle));
+        first.Rows.Add(
+            points[0],
+            new NpgsqlLine(1, 2, 3),
+            new NpgsqlLSeg(points[0], points[1]),
+            new NpgsqlBox(points[1], points[0]),
+            new NpgsqlPath(points, open: true),
+            new NpgsqlPolygon(points),
+            new NpgsqlCircle(points[0], 5));
+
+        using var same = first.Copy();
+        using var changed = first.Copy();
+        changed.Rows[0]["Circle"] = new NpgsqlCircle(points[0], 6);
+        string[] columns = { "Point", "Line", "Segment", "Box", "Path", "Polygon", "Circle" };
+
+        Assert.Equal(
+            ComputeContentHash(first, normalizer, columns),
+            ComputeContentHash(same, normalizer, columns));
+        Assert.NotEqual(
+            ComputeContentHash(first, normalizer, columns),
+            ComputeContentHash(changed, normalizer, columns));
+    }
+
+    [Theory]
+    [InlineData("AllowZeroDateTime=true", "AllowZeroDateTime")]
+    [InlineData("ConvertZeroDateTime=true", "ConvertZeroDateTime")]
+    public void MySqlTableCopy_RejectsZeroDateProviderValuesBeforeReading(
+        string option,
+        string expectedOption)
+    {
+        var exception = Assert.Throws<ArgumentException>(() => new MySqlTableCopyAdapter(
+            $"Server=localhost;Database=test;User ID=test;Password=test;{option}"));
+
+        Assert.Contains(expectedOption, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MySqlTableIdentity_IsCollisionFreeForDelimiterCharacters()
+    {
+        string first = MySqlTableCopyAdapter.CreateTableIdentity("a", "b:c");
+        string second = MySqlTableCopyAdapter.CreateTableIdentity("a:b", "c");
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void MySqlArbitraryDecimal_RehydratesBulkAndKeysetValuesLosslessly()
+    {
+        var number = new DbaArbitraryDecimal("1000000000000000000000000000000");
+        using var page = new DataTable();
+        page.Columns.Add("Amount", typeof(object));
+        page.Rows.Add(12.5m);
+        page.Rows.Add(number);
+
+        using DataTable normalized = Assert.IsType<DataTable>(MySqlTableCopyAdapter.NormalizeBulkPage(page));
+        Assert.Equal(12.5m, Assert.IsType<decimal>(normalized.Rows[0][0]));
+        Assert.Equal(number.CanonicalValue, Assert.IsType<string>(normalized.Rows[1][0]));
+        Assert.Equal(typeof(object), MySqlTableCopyAdapter.GetNormalizedFieldType(typeof(decimal), "DECIMAL"));
+
+        using var command = new MySqlCommand();
+        MySqlTableCopyAdapter.AddPageParameter(command, "@amount", number);
+        MySqlParameter parameter = Assert.Single(command.Parameters.Cast<MySqlParameter>());
+        Assert.Equal(MySqlDbType.NewDecimal, parameter.MySqlDbType);
+        Assert.Equal(number.CanonicalValue, parameter.Value);
+    }
+
+    [Fact]
+    public void MySqlArbitraryDecimal_CrossProviderCompatibilityRequiresExclusionOrStringConversion()
+    {
+        var direct = new DbaTableCopyDefinition("Source", "Destination");
+        var excluded = direct with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Amount" }
+        };
+        var converted = direct with
+        {
+            ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Amount"] = "Total" },
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Total"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(direct, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(excluded, "amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(converted, "amount"));
+    }
+
+    [Theory]
+    [InlineData(28, DbaTableCopyProvider.SQLite, true)]
+    [InlineData(29, DbaTableCopyProvider.SQLite, false)]
+    [InlineData(38, DbaTableCopyProvider.Oracle, true)]
+    [InlineData(39, DbaTableCopyProvider.Oracle, false)]
+    [InlineData(65, DbaTableCopyProvider.MySql, true)]
+    public void MySqlDecimalPrecision_RespectsDestinationNumericRange(
+        int precision,
+        DbaTableCopyProvider destinationProvider,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MySqlTableCopyAdapter.IsMySqlDecimalPrecisionPortable(precision, destinationProvider));
+    }
+
+    [Fact]
+    public void MySqlArbitraryDecimalProjection_HonorsConfiguredComparers()
+    {
+        var ordinalMapping = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ColumnMappings: new Dictionary<string, string>(StringComparer.Ordinal) { ["amount"] = "Total" },
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal)
+            {
+                ["Total"] = DbaTableCopyColumnType.String
+            });
+        var ignoreCaseMapping = ordinalMapping with
+        {
+            ColumnMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["amount"] = "Total" }
+        };
+        var ordinalExclusion = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ExcludedColumns: new HashSet<string>(StringComparer.Ordinal) { "amount" });
+        var ignoreCaseExclusion = ordinalExclusion with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "amount" }
+        };
+        var ordinalConversion = new DbaTableCopyDefinition(
+            "Source",
+            "Destination",
+            ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>(StringComparer.Ordinal)
+            {
+                ["amount"] = DbaTableCopyColumnType.String
+            });
+        var ignoreCaseConversion = ordinalConversion with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["amount"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalMapping, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseMapping, "Amount"));
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalExclusion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseExclusion, "Amount"));
+        Assert.False(MySqlTableCopyAdapter.IsPortableDecimalProjection(ordinalConversion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(ignoreCaseConversion, "Amount"));
+    }
+
+    [Fact]
+    public void MySqlUnsignedProjection_RequiresDecimalOrStringConversion()
+    {
+        var direct = new DbaTableCopyDefinition("Source", "Destination");
+        var decimalConversion = direct with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["Amount"] = DbaTableCopyColumnType.Decimal
+            }
+        };
+        var stringConversion = direct with
+        {
+            ColumnTypeConversions = new Dictionary<string, DbaTableCopyColumnType>
+            {
+                ["Amount"] = DbaTableCopyColumnType.String
+            }
+        };
+
+        Assert.False(MySqlTableCopyAdapter.IsPortableUnsignedProjection(direct, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(decimalConversion, "Amount"));
+        Assert.True(MySqlTableCopyAdapter.IsPortableUnsignedProjection(stringConversion, "Amount"));
+        Assert.Contains("COLUMN_TYPE LIKE '%unsigned%'", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("DATA_TYPE = 'bit'", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("NUMERIC_PRECISION > 63", MySqlTableCopyAdapter.MySqlTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(28, 0)]
+    [InlineData(28, 28)]
+    [InlineData(2, -3)]
+    public void PostgreSqlNumericShape_AcceptsDecimalSafeShapes(int precision, int scale)
+    {
+        PostgreSqlTableCopyAdapter.ValidateNumericShape("Amount", precision, scale);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(29, 0)]
+    [InlineData(28, -1)]
+    [InlineData(29, 29)]
+    public void PostgreSqlNumericShape_RejectsPotentiallyOversizedValues(int? precision, int? scale)
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateNumericShape("Amount", precision, scale));
+
+        Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Project it to text", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("numeric(28,0)[]")]
+    [InlineData("numeric(2,-3)[]")]
+    [InlineData("decimal(28,28)[]")]
+    public void PostgreSqlNumericArrayShape_AcceptsDecimalSafeElements(string formattedType)
+    {
+        PostgreSqlTableCopyAdapter.ValidateNumericArrayShape("Amounts", formattedType);
+    }
+
+    [Theory]
+    [InlineData("numeric[]")]
+    [InlineData("numeric(100)[]")]
+    [InlineData("numeric(28,-1)[]")]
+    public void PostgreSqlNumericArrayShape_RejectsPotentiallyOversizedElements(string formattedType)
+    {
+        var exception = Assert.Throws<NotSupportedException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateNumericArrayShape("Amounts", formattedType));
+
+        Assert.Contains("System.Decimal precision", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PostgreSqlExcludedColumns_AreNotMaterializedUnlessRequiredForPaging()
+    {
+        var excluded = new DbaTableCopyDefinition(
+            "SourceRows",
+            "DestinationRows",
+            new[] { "id" },
+            ExcludedColumns: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "amount" })
+        {
+            UseKeysetPagination = true
+        };
+        var excludedKey = excluded with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "id" }
+        };
+
+        Assert.False(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "amount"));
+        Assert.True(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "id"));
+        Assert.True(PostgreSqlTableCopyAdapter.ShouldMaterializeSourceColumn(excludedKey, "id"));
+    }
+
+    [Fact]
+    public void PostgreSqlSchemaPreflight_RejectsOmittedSequenceDefaults()
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("public", "rows", "id", "integer")
+            {
+                DefaultExpression = "nextval('rows_id_seq'::regclass)"
+            },
+            new DbaColumnInfo("public", "rows", "value", "text")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PostgreSqlTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "public.rows",
+                new[] { "value" },
+                columns));
+
+        Assert.Contains("sequence advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void SqlServerSchemaPreflight_RequiresProjectedIdentityValues(
+        bool keepIdentity,
+        bool projectIdentity,
+        bool shouldReject)
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("dbo", "Rows", "Id", "bigint") { IsIdentity = true },
+            new DbaColumnInfo("dbo", "Rows", "Value", "nvarchar(50)")
+        };
+        string[] projected = projectIdentity ? new[] { "Id", "Value" } : new[] { "Value" };
+
+        Exception? exception = Record.Exception(() =>
+            SqlServerTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "dbo.Rows",
+                projected,
+                columns,
+                keepIdentity));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("identity", invalid.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(keepIdentity ? "not rolled back" : "KeepIdentity", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+    }
+
+    [Fact]
+    public void MySqlSchemaPreflight_RejectsOmittedAutoIncrementColumns()
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint unsigned") { IsIdentity = true },
+            new DbaColumnInfo("app", "rows", "Value", "varchar(50)")
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "app.rows",
+                new[] { "Value" },
+                columns));
+
+        Assert.Contains("auto-increment advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null, false, true)]
+    [InlineData(0L, false, true)]
+    [InlineData(0L, true, false)]
+    [InlineData(42L, false, false)]
+    public void MySqlSchemaPreflight_RejectsValuesThatInvokeAutoIncrement(
+        long? value,
+        bool noAutoValueOnZero,
+        bool shouldReject)
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Id", typeof(long));
+        page.Rows.Add(value.HasValue ? value.Value : DBNull.Value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint") { IsIdentity = true }
+        };
+
+        Exception? exception = Record.Exception(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorValues(
+                "app.rows",
+                page,
+                columns,
+                noAutoValueOnZero));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("auto-increment advances are not rolled back", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+    }
+
+    [Theory]
+    [InlineData(99L, false)]
+    [InlineData(100L, true)]
+    [InlineData(150L, true)]
+    public void MySqlSchemaPreflight_RejectsExplicitValuesThatAdvanceAutoIncrement(
+        long value,
+        bool shouldReject)
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Id", typeof(long));
+        page.Rows.Add(value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint") { IsIdentity = true }
+        };
+
+        Exception? exception = Record.Exception(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorValues(
+                "app.rows",
+                page,
+                columns,
+                noAutoValueOnZero: false,
+                nextAutoIncrement: 100m));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("current next value 100", invalid.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("not rolled back", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+
+        Assert.Contains("SELECT AUTO_INCREMENT", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY TABLE_SCHEMA = BINARY @database", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY TABLE_NAME = BINARY @table", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MySqlCheckpointStorage_RequiresSelectedDatabase()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            MySqlTableCopyAdapter.ValidateCheckpointDatabase(string.Empty));
+
+        Assert.Contains("selected database", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RollbackOnlyPreflight_RejectsProviderTriggersThatCanEscapeRollback()
+    {
+        string sqlServer = SqlServerTableCopyAdapter.SqlServerRollbackUnsafeTriggerQuery;
+        Assert.Contains("sys.triggers", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ExecIsInsertTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ExecIsDeleteTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("sys.foreign_keys", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("delete_referential_action = 1", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cascade_targets.depth = 0", sqlServer, StringComparison.OrdinalIgnoreCase);
+
+        string postgreSql = PostgreSqlTableCopyAdapter.PostgreSqlRollbackUnsafeTriggerQuery;
+        Assert.Contains("pg_trigger", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT tgisinternal", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tgtype & 4", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("tgtype & 8", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", postgreSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relation_tree", postgreSql, StringComparison.OrdinalIgnoreCase);
+
+        string mySql = MySqlTableCopyAdapter.MySqlRollbackUnsafeTriggerQuery;
+        Assert.Contains("INFORMATION_SCHEMA.TRIGGERS", mySql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("EVENT_MANIPULATION IN ('INSERT', 'DELETE')", mySql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY EVENT_OBJECT_TABLE = BINARY @table", mySql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "\"UserId\"", "UserId")]
+    [InlineData(DbaTableCopyProvider.Oracle, "\"User\"", "User")]
+    public void KeysetResultColumns_ResolveDelimitedIdentifiers(
+        DbaTableCopyProvider provider,
+        string orderedColumn,
+        string resultColumn)
+    {
+        using var table = new DataTable();
+        table.Columns.Add(resultColumn, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { orderedColumn }, "SourceRows" }));
+
+        Assert.Equal(resultColumn, Assert.Single(resolved));
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "ID", "ID", "id", "id")]
+    [InlineData(DbaTableCopyProvider.Oracle, "id", "id", "ID", "ID")]
+    [InlineData(DbaTableCopyProvider.Oracle, "customer_id", "customer_id", "CUSTOMER_ID", "CUSTOMER_ID")]
+    public void KeysetResultColumns_ApplyProviderFoldingBeforeExactLookup(
+        DbaTableCopyProvider provider,
+        string orderedColumn,
+        string firstResultColumn,
+        string secondResultColumn,
+        string expected)
+    {
+        using var table = new DataTable();
+        table.CaseSensitive = true;
+        table.Columns.Add(firstResultColumn, typeof(long));
+        table.Columns.Add(secondResultColumn, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { orderedColumn }, "SourceRows" }));
+
+        Assert.Equal(expected, Assert.Single(resolved));
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "event-id")]
+    [InlineData(DbaTableCopyProvider.PostgreSql, "select")]
+    [InlineData(DbaTableCopyProvider.Oracle, "event-id")]
+    [InlineData(DbaTableCopyProvider.Oracle, "select")]
+    public void KeysetResultColumns_PreserveAutomaticallyDelimitedPhysicalSpelling(
+        DbaTableCopyProvider provider,
+        string columnName)
+    {
+        using var table = new DataTable { CaseSensitive = true };
+        table.Columns.Add(columnName, typeof(long));
+        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod(
+            "ResolveKeysetResultColumns",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "ResolveKeysetResultColumns");
+
+        var resolved = Assert.IsAssignableFrom<IReadOnlyList<string>>(method.Invoke(
+            null,
+            new object[] { provider, table.Columns, new[] { columnName }, "SourceRows" }));
+
+        Assert.Equal(columnName, Assert.Single(resolved));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesPostgreSqlDateAndTimeRepresentations()
+    {
+        using var postgreSqlTable = new DataTable();
+        postgreSqlTable.Columns.Add("EventDate", typeof(DateOnly));
+        postgreSqlTable.Columns.Add("EventTime", typeof(TimeOnly));
+        postgreSqlTable.Rows.Add(new DateOnly(2026, 9, 20), new TimeOnly(12, 34, 56).Add(TimeSpan.FromTicks(7890)));
+
+        using var conventionalTable = new DataTable();
+        conventionalTable.Columns.Add("EventDate", typeof(DateTime));
+        conventionalTable.Columns.Add("EventTime", typeof(TimeSpan));
+        conventionalTable.Rows.Add(new DateTime(2026, 9, 20), new TimeSpan(0, 12, 34, 56).Add(TimeSpan.FromTicks(7890)));
+
+        Assert.Equal(
+            ComputeContentHash(conventionalTable, "EventDate", "EventTime"),
+            ComputeContentHash(postgreSqlTable, "EventDate", "EventTime"));
+    }
+
+    [Fact]
+    public void ContentHasher_NormalizesProviderGuidAndUtcTimestampRepresentations()
+    {
+        var guid = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+        using var source = new DataTable();
+        source.Columns.Add("Identifier", typeof(Guid));
+        source.Columns.Add("Instant", typeof(DateTimeOffset));
+        source.Rows.Add(guid, new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero));
+
+        using var destination = new DataTable();
+        destination.Columns.Add("Identifier", typeof(byte[]));
+        destination.Columns.Add("Instant", typeof(DateTime));
+        destination.Columns["Instant"]!.DateTimeMode = DataSetDateTime.Utc;
+        destination.Rows.Add(guid.ToByteArray(), new DateTime(2026, 9, 20, 10, 0, 0, DateTimeKind.Utc));
+
+        Assert.Equal(
+            ComputeContentHash(source, "Identifier", "Instant"),
+            ComputeContentHash(destination, "Identifier", "Instant"));
+    }
+
+    [Fact]
+    public void ContentHasher_DistinguishesDateTimeOffsetSourceOffsets()
+    {
+        using var utc = new DataTable();
+        utc.Columns.Add("Instant", typeof(DateTimeOffset));
+        utc.Rows.Add(new DateTimeOffset(2026, 9, 21, 10, 0, 0, TimeSpan.Zero));
+        using var offset = utc.Clone();
+        offset.Rows.Add(new DateTimeOffset(2026, 9, 21, 12, 0, 0, TimeSpan.FromHours(2)));
+
+        Assert.NotEqual(ComputeContentHash(utc, "Instant"), ComputeContentHash(offset, "Instant"));
+    }
+
+    [Fact]
+    public async Task SQLiteSnapshotReadSession_ExcludesRowsCommittedAfterFirstPage()
+    {
+        var sourcePath = CreateTempDatabasePath();
+        try
+        {
+            using (var sqlite = new SQLite())
+            {
+                sqlite.ExecuteNonQuery(sourcePath, "PRAGMA journal_mode=WAL;");
+                sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, Payload TEXT NOT NULL);");
+                sqlite.ExecuteNonQuery(sourcePath, "INSERT INTO SourceRows VALUES (1, 'One'), (2, 'Two');");
+            }
+
+            var source = new SQLiteTableCopyAdapter(new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = sourcePath,
+                DefaultOrderByColumns = new[] { "Id" },
+                ReadConsistency = DbaTableCopyReadConsistency.Snapshot
+            });
+            var definition = new DbaTableCopyDefinition(
+                "SourceRows",
+                "DestinationRows",
+                new[] { "Id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            using var session = await source.OpenReadSessionAsync();
+            using var first = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, null, 1));
+
+            await using (var writer = new SqliteConnection(SQLite.BuildConnectionString(sourcePath)))
+            {
+                await writer.OpenAsync();
+                await using var command = writer.CreateCommand();
+                command.CommandText = "INSERT INTO SourceRows VALUES (3, 'Three');";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using var second = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, first.ContinuationToken, 1));
+            using var third = await source.ReadPageAsync(new DbaTableCopyPageRequest(definition, second.ContinuationToken, 1));
+
+            Assert.Equal(1L, first.Data.Rows[0].Field<long>("Id"));
+            Assert.Equal(2L, second.Data.Rows[0].Field<long>("Id"));
+            Assert.Empty(third.Data.Rows.Cast<DataRow>());
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+        }
+    }
+
     [Fact]
     public async Task CopyAsync_CopiesRowsBetweenSQLiteConnectionStrings()
     {
@@ -689,6 +1732,116 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void BulkPage_PostgreSqlRehydratesProviderNeutralNetworkValues()
+    {
+        using var page = new DataTable("Networks");
+        page.Columns.Add("Subnet", typeof(DbaIpNetwork));
+        var expected = new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Networks");
+
+        Assert.Equal(typeof(NpgsqlInet), normalized.Columns[0].DataType);
+        var providerValue = Assert.IsType<NpgsqlInet>(normalized.Rows[0][0]);
+        Assert.Equal(expected.Address, providerValue.Address);
+        Assert.Equal(expected.PrefixLength, providerValue.Netmask);
+        Assert.Equal(expected, Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(providerValue)));
+
+        var inet = new NpgsqlInet(IPAddress.Parse("192.0.2.42"), 24);
+        Assert.Equal(
+            new DbaIpNetwork(IPAddress.Parse("192.0.2.42"), 24),
+            Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(inet)));
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRehydratesProviderNeutralYearMonthIntervals()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        var expected = new DbaYearMonthInterval(-27);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods");
+
+        Assert.Equal(typeof(NpgsqlTypes.NpgsqlInterval), normalized.Columns[0].DataType);
+        var providerValue = Assert.IsType<NpgsqlTypes.NpgsqlInterval>(normalized.Rows[0][0]);
+        Assert.Equal(expected.TotalMonths, providerValue.Months);
+        Assert.Equal(0, providerValue.Days);
+        Assert.Equal(0, providerValue.Time);
+        Assert.Equal(expected, page.Rows[0][0]);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRoundTripsCalendarIntervalComponents()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaCalendarInterval));
+        var expected = new DbaCalendarInterval(-13, 5, 12_345_678);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods");
+
+        Assert.Equal(typeof(NpgsqlInterval), normalized.Columns[0].DataType);
+        NpgsqlInterval providerValue = Assert.IsType<NpgsqlInterval>(normalized.Rows[0][0]);
+        Assert.Equal(expected.Months, providerValue.Months);
+        Assert.Equal(expected.Days, providerValue.Days);
+        Assert.Equal(expected.Microseconds, providerValue.Time);
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.NormalizeInterval(providerValue));
+        NpgsqlInterval parameter = Assert.IsType<NpgsqlInterval>(PostgreSqlTableCopyAdapter.GetPageParameterValue(expected));
+        Assert.Equal(providerValue, parameter);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRejectsYearMonthIntervalsOutsideProviderRange()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaYearMonthInterval));
+        page.Rows.Add(new DbaYearMonthInterval((long)int.MaxValue + 1));
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods"));
+
+        Assert.Contains("exceeds", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("native interval range", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlPreservesUtcDateTimeModeWhenRehydratingNetworkValues()
+    {
+        using var page = new DataTable("Networks");
+        page.Columns.Add("Subnet", typeof(DbaIpNetwork));
+        DataColumn occurredAt = page.Columns.Add("OccurredAt", typeof(DateTime));
+        occurredAt.DateTimeMode = DataSetDateTime.Utc;
+        DateTime expected = new(2026, 9, 20, 12, 30, 0, DateTimeKind.Utc);
+        page.Rows.Add(new DbaIpNetwork(IPAddress.Parse("198.51.100.0"), 24), expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Networks");
+
+        Assert.Equal(DataSetDateTime.Utc, normalized.Columns[1].DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(normalized.Rows[0][1]).Kind);
+        Assert.Equal(expected, normalized.Rows[0][1]);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlNormalizesDateTimeOffsetValuesToUtc()
+    {
+        using var page = new DataTable("Events");
+        page.Columns.Add("OccurredAt", typeof(DateTimeOffset));
+        page.Columns.Add("DynamicInstant", typeof(object));
+        var sourceInstant = new DateTimeOffset(2026, 9, 20, 12, 30, 0, TimeSpan.FromHours(2));
+        page.Rows.Add(sourceInstant, sourceInstant);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Events");
+
+        var instant = Assert.IsType<DateTimeOffset>(normalized.Rows[0][0]);
+        Assert.Equal(TimeSpan.Zero, instant.Offset);
+        Assert.Equal(new DateTimeOffset(2026, 9, 20, 10, 30, 0, TimeSpan.Zero), instant);
+        Assert.Equal(TimeSpan.Zero, Assert.IsType<DateTimeOffset>(normalized.Rows[0][1]).Offset);
+        Assert.Equal(TimeSpan.FromHours(2), Assert.IsType<DateTimeOffset>(page.Rows[0][0]).Offset);
+        Assert.Equal(TimeSpan.FromHours(2), Assert.IsType<DateTimeOffset>(page.Rows[0][1]).Offset);
+    }
+
+    [Fact]
     public void BulkPage_PostgreSqlFoldsSimpleColumnNamesForQuotedDestinationTable()
     {
         var adapter = CreateAdapter(
@@ -733,21 +1886,75 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("duplicate destination column 'displayname'", exception.Message);
     }
 
-    [Theory]
-    [InlineData("relation \"missing\" does not exist", true)]
-    [InlineData("schema \"missing_schema\" does not exist", true)]
-    [InlineData("no such table: MissingRows", true)]
-    [InlineData("invalid object name 'dbo.MissingRows'.", true)]
-    [InlineData("function lower(integer) does not exist", false)]
-    [InlineData("column \"BadKey\" does not exist", false)]
-    [InlineData("no such column: BadKey", false)]
-    [InlineData("Unknown column 'BadKey' in 'field list'", false)]
-    [InlineData("Invalid column name 'BadKey'.", false)]
-    public void MissingTableDetection_DoesNotTreatMissingColumnsAsMissingTables(string message, bool expected)
+    [Fact]
+    public void MissingTableDetection_UsesProviderErrorCodes()
     {
-        var actual = InvokeIsMissingTableException(new InvalidOperationException(message));
+        Assert.True(SqlServerTableCopyAdapter.IsMissingTableErrorNumber(208));
+        Assert.False(SqlServerTableCopyAdapter.IsMissingTableErrorNumber(207));
+        Assert.True(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("42P01"));
+        Assert.True(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("3F000"));
+        Assert.False(PostgreSqlTableCopyAdapter.IsMissingTableSqlState("42703"));
+        Assert.True(MySqlTableCopyAdapter.IsMissingTableErrorCode(MySqlConnector.MySqlErrorCode.NoSuchTable));
+        Assert.False(MySqlTableCopyAdapter.IsMissingTableErrorCode(MySqlConnector.MySqlErrorCode.BadFieldError));
+        Assert.True(OracleTableCopyAdapter.IsMissingTableErrorNumber(942));
+        Assert.False(OracleTableCopyAdapter.IsMissingTableErrorNumber(904));
+        Assert.True(SQLiteTableCopyAdapter.IsMissingTableError(1, "SQLite Error 1: 'no such table: MissingRows'."));
+        Assert.False(SQLiteTableCopyAdapter.IsMissingTableError(1, "SQLite Error 1: 'no such column: BadKey'."));
+    }
 
-        Assert.Equal(expected, actual);
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void MissingTableDetection_UsesSanitizedProviderClassification(DbaTableCopyProvider provider)
+    {
+        var adapter = CreateAdapter(provider, GetTestConnectionString(provider));
+        var exception = new DbaQueryExecutionException(
+            "Failed to execute query.",
+            "SELECT * FROM MissingRows",
+            new InvalidOperationException("provider-secret"),
+            providerErrorCode: null,
+            providerSqlState: null,
+            providerErrorKind: DbaProviderErrorKind.MissingTable);
+
+        Assert.True(((IDbaTableCopyMissingTableClassifier)adapter).IsMissingTableException(exception));
+        Assert.DoesNotContain("provider-secret", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void ProviderOptions_PropagateCommandTimeout(DbaTableCopyProvider provider)
+    {
+        var adapter = CreateAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = GetTestConnectionString(provider),
+            CommandTimeout = 41
+        });
+
+        Assert.Equal(41, adapter.CommandTimeout);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.PostgreSql)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.Oracle)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void ProviderOptions_RejectNegativeCommandTimeout(DbaTableCopyProvider provider)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateAdapter(new DbaProviderTableCopyAdapterOptions
+        {
+            Provider = provider,
+            ConnectionString = GetTestConnectionString(provider),
+            CommandTimeout = -1
+        }));
     }
 
     [Fact]
@@ -973,14 +2180,6 @@ public class DbaProviderTableCopyAdapterBaseTests
         return (string)method.Invoke(adapter, new object?[] { destinationTableName })!;
     }
 
-    private static bool InvokeIsMissingTableException(Exception exception)
-    {
-        var method = typeof(DbaProviderTableCopyAdapterBase).GetMethod("IsMissingTableException", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new MissingMethodException(nameof(DbaProviderTableCopyAdapterBase), "IsMissingTableException");
-
-        return (bool)method.Invoke(null, new object?[] { exception })!;
-    }
-
     private static DbaProviderTableCopyRunner CreateRunner()
         => new(CreateAdapter, CreateAdapter);
 
@@ -1011,17 +2210,57 @@ public class DbaProviderTableCopyAdapterBaseTests
             _ => throw new NotSupportedException($"Provider '{provider}' is not supported.")
         };
 
+    private static string GetTestConnectionString(DbaTableCopyProvider provider)
+        => provider switch
+        {
+            DbaTableCopyProvider.SqlServer => "Server=.;Database=tempdb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True",
+            DbaTableCopyProvider.PostgreSql => "Host=localhost;Database=db;Username=u;Password=p;SslMode=Require",
+            DbaTableCopyProvider.MySql => "Server=localhost;Database=db;User ID=u;Password=p;SslMode=Required;AllowLoadLocalInfile=True",
+            DbaTableCopyProvider.Oracle => "Data Source=localhost/service;User Id=u;Password=p",
+            DbaTableCopyProvider.SQLite => "Data Source=:memory:",
+            _ => throw new ArgumentOutOfRangeException(nameof(provider))
+        };
+
     private static void CreateHistoryTables(SQLite sqlite, string path)
     {
         sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResults (ResultId INTEGER NOT NULL PRIMARY KEY, ProbeName TEXT NOT NULL, IsMaintenance INTEGER NOT NULL);");
         sqlite.ExecuteNonQuery(path, "CREATE TABLE ProbeResultMetadata (ResultId INTEGER NOT NULL, MetaKey TEXT NOT NULL, MetaValue TEXT NOT NULL, PRIMARY KEY (ResultId, MetaKey));");
     }
 
+    private static string ComputeContentHash(DataTable table, params string[] columns)
+        => ComputeContentHash(table, valueNormalizer: null, columns);
+
+    private static string ComputeContentHash(
+        DataTable table,
+        IDbaTableCopyContentValueNormalizer? valueNormalizer,
+        params string[] columns)
+    {
+        var hasherType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaTableCopyContentHasher",
+            throwOnError: true)!;
+        using var hasher = (IDisposable)(Activator.CreateInstance(
+            hasherType,
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            args: new object?[] { null },
+            culture: null) ?? throw new InvalidOperationException("Could not create the content hasher."));
+        var add = hasherType.GetMethod("Add", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(hasherType.FullName, "Add");
+        var hash = hasherType.GetProperty("Hash", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMemberException(hasherType.FullName, "Hash");
+        add.Invoke(hasher, new object?[] { table, columns, CancellationToken.None, valueNormalizer });
+        return Assert.IsType<string>(hash.GetValue(hasher));
+    }
+
     private static void DeleteIfExists(string path)
     {
-        if (File.Exists(path))
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm", "-journal" })
         {
-            File.Delete(path);
+            var candidate = path + suffix;
+            if (File.Exists(candidate))
+            {
+                File.Delete(candidate);
+            }
         }
     }
 

@@ -78,7 +78,7 @@ public partial class Oracle
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
         finally
         {
@@ -90,7 +90,8 @@ public partial class Oracle
     }
 
     /// <summary>
-    /// Asynchronously performs a bulk insert into an Oracle table using <see cref="OracleBulkCopy"/>.
+    /// Opens the Oracle connection asynchronously, then performs the bulk write using
+    /// <see cref="OracleBulkCopy"/>'s synchronous driver API.
     /// </summary>
     public virtual async Task BulkInsertAsync(
         string host,
@@ -111,7 +112,9 @@ public partial class Oracle
     }
 
     /// <summary>
-    /// Asynchronously performs a bulk insert into an Oracle table using a full Oracle connection string.
+    /// Opens the Oracle connection asynchronously, then performs the bulk write using the synchronous
+    /// <see cref="OracleBulkCopy"/> API. Cancellation is observed before each write batch; the Oracle
+    /// driver cannot cancel a bulk write that is already in progress.
     /// </summary>
     public virtual async Task BulkInsertAsync(
         string connectionString,
@@ -181,14 +184,15 @@ public partial class Oracle
     protected virtual void WriteToServer(OracleBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
 
     /// <summary>
-    /// Performs the asynchronous write for the supplied <see cref="OracleBulkCopy"/>.
+    /// Performs the driver write without occupying an additional thread-pool worker. OracleBulkCopy
+    /// does not expose asynchronous I/O, so cancellation is checked before entering the blocking write.
     /// </summary>
     protected virtual Task WriteToServerAsync(OracleBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
-        => Task.Run(() =>
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            WriteToServer(bulkCopy, table);
-        }, cancellationToken);
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WriteToServer(bulkCopy, table);
+        return Task.CompletedTask;
+    }
 
     private static void ConfigureBulkCopy(OracleBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
     {

@@ -7,14 +7,32 @@ namespace DBAClientX.DataMovement;
 
 public abstract partial class DbaProviderTableCopyAdapterBase
 {
-    private string CheckpointTable => Provider == DbaTableCopyProvider.SqlServer
-        ? "[dbo].[DbaClientX_TableCopyCheckpoints]" : "\"DbaClientX_TableCopyCheckpoints\"";
+    private int _commandTimeout = 600;
+    private string CheckpointTable => Provider switch
+    {
+        DbaTableCopyProvider.SqlServer => "[dbo].[DbaClientX_TableCopyCheckpoints]",
+        DbaTableCopyProvider.MySql => "`DbaClientX_TableCopyCheckpoints`",
+        DbaTableCopyProvider.Oracle => "\"DbaX_TableCopyCheckpoints\"",
+        _ => "\"DbaClientX_TableCopyCheckpoints\""
+    };
 
     /// <inheritdoc />
     public virtual bool SupportsAtomicCheckpoints => false;
 
     /// <summary>Command timeout for provider reads, verification, and checkpoint commands. Zero disables the timeout.</summary>
-    public int CommandTimeout { get; set; } = 600;
+    public int CommandTimeout
+    {
+        get => _commandTimeout;
+        set
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), "Command timeout cannot be negative.");
+            }
+
+            _commandTimeout = value;
+        }
+    }
 
     /// <summary>Creates a provider connection for atomic checkpoint operations.</summary>
     protected virtual DbConnection CreateCheckpointConnection()
@@ -56,9 +74,9 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             using DbCommand clear = CreateCheckpointCommand(connection, transaction, $"DELETE FROM {QuotePath(definition.DestinationName)}");
             await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
-        using (DbCommand delete = CreateCheckpointCommand(connection, transaction, $"DELETE FROM {CheckpointTable} WHERE TableKey = @tableKey"))
+        using (DbCommand delete = CreateCheckpointCommand(connection, transaction, $"DELETE FROM {CheckpointTable} WHERE TableKey = {ParameterToken("tableKey")}"))
         {
-            AddCheckpointParameter(delete, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
+            AddCheckpointParameter(delete, "tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
             await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await SaveCheckpointAsync(connection, transaction, definition, checkpoint, insert: true, cancellationToken).ConfigureAwait(false);
@@ -77,6 +95,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             throw new ArgumentException("Checkpoint progress does not match the page and existing copy contract.", nameof(next));
         using DbConnection connection = CreateCheckpointConnection();
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await ValidateCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         using DbTransaction transaction = connection.BeginTransaction(IsolationLevel.Serializable);
         DbaTableCopyCheckpoint? stored = await ReadCheckpointCoreAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false);
         if (stored != expected)
@@ -90,22 +109,37 @@ public abstract partial class DbaProviderTableCopyAdapterBase
 
     private async Task EnsureCheckpointSchemaAsync(DbConnection connection, CancellationToken cancellationToken)
     {
-        string fields = Provider == DbaTableCopyProvider.SqlServer
-            ? "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId nvarchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken nvarchar(max) NULL, CopiedContentHash varchar(64) NOT NULL, Completed bit NOT NULL"
-            : "TableKey TEXT NOT NULL PRIMARY KEY, CopyId TEXT NOT NULL, DefinitionFingerprint TEXT NOT NULL, SourceRows INTEGER NOT NULL, SourceContentHash TEXT NOT NULL, CopiedRows INTEGER NOT NULL, ContinuationToken TEXT NULL, CopiedContentHash TEXT NOT NULL, Completed INTEGER NOT NULL";
-        string sql = Provider == DbaTableCopyProvider.SqlServer
-            ? $"IF OBJECT_ID(N'dbo.DbaClientX_TableCopyCheckpoints', N'U') IS NULL CREATE TABLE {CheckpointTable} ({fields})"
-            : $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields})";
+        ValidateCheckpointStorage(connection);
+        string fields = Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId nvarchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken nvarchar(max) NULL, CopiedContentHash varchar(64) NOT NULL, Completed bit NOT NULL",
+            DbaTableCopyProvider.PostgreSql => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId varchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken text NULL, CopiedContentHash varchar(64) NOT NULL, Completed boolean NOT NULL",
+            DbaTableCopyProvider.MySql => "TableKey varchar(64) NOT NULL PRIMARY KEY, CopyId varchar(128) NOT NULL, DefinitionFingerprint varchar(64) NOT NULL, SourceRows bigint NOT NULL, SourceContentHash varchar(64) NOT NULL, CopiedRows bigint NOT NULL, ContinuationToken longtext NULL, CopiedContentHash varchar(64) NOT NULL, Completed tinyint(1) NOT NULL",
+            DbaTableCopyProvider.Oracle => "TableKey varchar2(64 CHAR) NOT NULL PRIMARY KEY, CopyId varchar2(128 CHAR) NOT NULL, DefinitionFingerprint varchar2(64 CHAR) NOT NULL, SourceRows number(19) NOT NULL, SourceContentHash varchar2(64 CHAR) NOT NULL, CopiedRows number(19) NOT NULL, ContinuationToken clob NULL, CopiedContentHash varchar2(64 CHAR) NOT NULL, Completed number(1) NOT NULL",
+            _ => "TableKey TEXT NOT NULL PRIMARY KEY, CopyId TEXT NOT NULL, DefinitionFingerprint TEXT NOT NULL, SourceRows INTEGER NOT NULL, SourceContentHash TEXT NOT NULL, CopiedRows INTEGER NOT NULL, ContinuationToken TEXT NULL, CopiedContentHash TEXT NOT NULL, Completed INTEGER NOT NULL"
+        };
+        string create = $"CREATE TABLE {CheckpointTable} ({fields})";
+        string sql = Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => $"IF OBJECT_ID(N'dbo.DbaClientX_TableCopyCheckpoints', N'U') IS NULL {create}",
+            DbaTableCopyProvider.Oracle => $"BEGIN EXECUTE IMMEDIATE '{create.Replace("'", "''")}'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END;",
+            DbaTableCopyProvider.MySql => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields}) ENGINE=InnoDB",
+            _ => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields})"
+        };
         using DbCommand command = CreateCheckpointCommand(connection, null, sql);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await ValidateCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<DbaTableCopyCheckpoint?> ReadCheckpointCoreAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
     {
         string lockHint = Provider == DbaTableCopyProvider.SqlServer && transaction != null ? " WITH (UPDLOCK, HOLDLOCK)" : "";
+        string lockSuffix = transaction != null && Provider is DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql or DbaTableCopyProvider.Oracle
+            ? " FOR UPDATE"
+            : "";
         using DbCommand command = CreateCheckpointCommand(connection, transaction,
-            $"SELECT CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed FROM {CheckpointTable}{lockHint} WHERE TableKey = @tableKey");
-        AddCheckpointParameter(command, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
+            $"SELECT CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed FROM {CheckpointTable}{lockHint} WHERE TableKey = {ParameterToken("tableKey")}{lockSuffix}");
+        AddCheckpointParameter(command, "tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
         using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return null;
         return new DbaTableCopyCheckpoint
@@ -120,18 +154,18 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     private async Task SaveCheckpointAsync(DbConnection connection, DbTransaction transaction, DbaTableCopyDefinition definition, DbaTableCopyCheckpoint checkpoint, bool insert, CancellationToken cancellationToken)
     {
         string sql = insert
-            ? $"INSERT INTO {CheckpointTable} (TableKey, CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed) VALUES (@tableKey, @copyId, @fingerprint, @sourceRows, @sourceHash, @copiedRows, @token, @copiedHash, @completed)"
-            : $"UPDATE {CheckpointTable} SET CopyId=@copyId, DefinitionFingerprint=@fingerprint, SourceRows=@sourceRows, SourceContentHash=@sourceHash, CopiedRows=@copiedRows, ContinuationToken=@token, CopiedContentHash=@copiedHash, Completed=@completed WHERE TableKey=@tableKey";
+            ? $"INSERT INTO {CheckpointTable} (TableKey, CopyId, DefinitionFingerprint, SourceRows, SourceContentHash, CopiedRows, ContinuationToken, CopiedContentHash, Completed) VALUES ({ParameterToken("tableKey")}, {ParameterToken("copyId")}, {ParameterToken("fingerprint")}, {ParameterToken("sourceRows")}, {ParameterToken("sourceHash")}, {ParameterToken("copiedRows")}, {ParameterToken("token")}, {ParameterToken("copiedHash")}, {ParameterToken("completed")})"
+            : $"UPDATE {CheckpointTable} SET CopyId={ParameterToken("copyId")}, DefinitionFingerprint={ParameterToken("fingerprint")}, SourceRows={ParameterToken("sourceRows")}, SourceContentHash={ParameterToken("sourceHash")}, CopiedRows={ParameterToken("copiedRows")}, ContinuationToken={ParameterToken("token")}, CopiedContentHash={ParameterToken("copiedHash")}, Completed={ParameterToken("completed")} WHERE TableKey={ParameterToken("tableKey")}";
         using DbCommand command = CreateCheckpointCommand(connection, transaction, sql);
-        AddCheckpointParameter(command, "@tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
-        AddCheckpointParameter(command, "@copyId", checkpoint.CopyId);
-        AddCheckpointParameter(command, "@fingerprint", checkpoint.DefinitionFingerprint);
-        AddCheckpointParameter(command, "@sourceRows", checkpoint.SourceRows);
-        AddCheckpointParameter(command, "@sourceHash", checkpoint.SourceContentHash);
-        AddCheckpointParameter(command, "@copiedRows", checkpoint.CopiedRows);
-        AddCheckpointParameter(command, "@token", checkpoint.ContinuationToken);
-        AddCheckpointParameter(command, "@copiedHash", checkpoint.CopiedContentHash);
-        AddCheckpointParameter(command, "@completed", checkpoint.Completed);
+        AddCheckpointParameter(command, "tableKey", await GetCheckpointTableKeyAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false));
+        AddCheckpointParameter(command, "copyId", checkpoint.CopyId);
+        AddCheckpointParameter(command, "fingerprint", checkpoint.DefinitionFingerprint);
+        AddCheckpointParameter(command, "sourceRows", checkpoint.SourceRows);
+        AddCheckpointParameter(command, "sourceHash", checkpoint.SourceContentHash);
+        AddCheckpointParameter(command, "copiedRows", checkpoint.CopiedRows);
+        AddCheckpointParameter(command, "token", checkpoint.ContinuationToken);
+        AddCheckpointParameter(command, "copiedHash", checkpoint.CopiedContentHash);
+        AddCheckpointParameter(command, "completed", Provider == DbaTableCopyProvider.Oracle ? (checkpoint.Completed ? 1 : 0) : checkpoint.Completed);
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
             throw new InvalidOperationException("The destination checkpoint could not be saved.");
     }
@@ -142,13 +176,36 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         command.Transaction = transaction;
         command.CommandText = sql;
         command.CommandTimeout = CommandTimeout;
+        ConfigureCheckpointCommand(command);
         return command;
     }
 
-    private static void AddCheckpointParameter(DbCommand command, string name, object? value)
+    /// <summary>Applies provider-specific command behavior required by checkpoint operations.</summary>
+    protected virtual void ConfigureCheckpointCommand(DbCommand command)
+    {
+    }
+
+    /// <summary>Validates provider-specific checkpoint storage requirements after the schema exists.</summary>
+    protected virtual Task ValidateCheckpointSchemaAsync(DbConnection connection, CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>Validates that the opened connection can own provider checkpoint storage.</summary>
+    protected virtual void ValidateCheckpointStorage(DbConnection connection)
+    {
+    }
+
+    /// <summary>Applies provider-specific type metadata to a checkpoint parameter.</summary>
+    protected virtual void ConfigureCheckpointParameter(DbParameter parameter, string name, object? value)
+    {
+    }
+
+    private string ParameterToken(string name) => Provider == DbaTableCopyProvider.Oracle ? ":" + name : "@" + name;
+
+    private void AddCheckpointParameter(DbCommand command, string name, object? value)
     {
         DbParameter parameter = command.CreateParameter();
-        parameter.ParameterName = name;
+        parameter.ParameterName = Provider == DbaTableCopyProvider.Oracle ? name : "@" + name;
+        ConfigureCheckpointParameter(parameter, name, value);
         parameter.Value = value ?? DBNull.Value;
         command.Parameters.Add(parameter);
     }

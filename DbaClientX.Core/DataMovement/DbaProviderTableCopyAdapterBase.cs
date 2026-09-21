@@ -47,6 +47,9 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     /// <summary>Connection string used by this adapter.</summary>
     protected string ConnectionString { get; }
 
+    /// <summary>Whether missing source tables are represented as empty inputs.</summary>
+    protected bool TreatMissingTablesAsEmpty => _treatMissingTablesAsEmpty;
+
     /// <inheritdoc />
     public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
         => ExecuteCountAsync(definition.SourceName, definition.SourceOptions, treatMissingAsEmpty: true, cancellationToken);
@@ -72,7 +75,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
         DataTable table;
         try
         {
-            table = await ExecuteTableAsync(query, cancellationToken).ConfigureAwait(false);
+            table = await ExecuteTableCopyPageCoreAsync(request.Definition, query, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
         {
@@ -150,6 +153,13 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
 
     /// <summary>Executes a table-returning SQL statement using the concrete provider.</summary>
     protected abstract Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken);
+
+    /// <summary>Executes a table-copy page with its projection definition available to the provider.</summary>
+    protected virtual Task<DataTable> ExecuteTableCopyPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        CancellationToken cancellationToken)
+        => ExecuteTableCoreAsync(query, cancellationToken);
 
     /// <summary>Executes a non-query SQL statement using the concrete provider.</summary>
     protected abstract Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken);
@@ -565,28 +575,18 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     bool IDbaTableCopyMissingTableClassifier.IsMissingTableException(Exception exception)
         => IsMissingTableException(exception);
 
-    private static bool IsMissingTableException(Exception exception)
+    /// <summary>Classifies a provider exception as a missing-table failure.</summary>
+    protected bool IsMissingTableException(Exception exception)
     {
         for (Exception? current = exception; current != null; current = current.InnerException)
         {
-            var message = current.Message;
-            if (message.Contains("no such column", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("unknown column", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("invalid column name", StringComparison.OrdinalIgnoreCase) ||
-                (message.Contains("column", StringComparison.OrdinalIgnoreCase) &&
-                 message.Contains("does not exist", StringComparison.OrdinalIgnoreCase)))
+            if (current is DbaQueryExecutionException queryException &&
+                queryException.ProviderErrorKind == DbaProviderErrorKind.MissingTable)
             {
-                return false;
+                return true;
             }
 
-            if (message.Contains("no such table", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("invalid object name", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("relation", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("schema", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("doesn't exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("table", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("view", StringComparison.OrdinalIgnoreCase) && message.Contains("does not exist", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("table or view does not exist", StringComparison.OrdinalIgnoreCase))
+            if (IsMissingTableExceptionCore(current))
             {
                 return true;
             }
@@ -594,6 +594,9 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
 
         return false;
     }
+
+    /// <summary>Classifies one exception in an exception chain using native provider error information.</summary>
+    protected virtual bool IsMissingTableExceptionCore(Exception exception) => false;
 
     private static bool IsDeduplicationRankColumn(string columnName)
         => columnName.StartsWith(DeduplicationRankColumnPrefix, StringComparison.Ordinal);

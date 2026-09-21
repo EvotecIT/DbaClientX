@@ -1,7 +1,14 @@
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DBAClientX.DataMovement;
+
+/// <summary>Resolves the neutral managed type used to materialize a provider field.</summary>
+/// <param name="ordinal">Zero-based provider field ordinal.</param>
+/// <returns>The managed type stored in the resulting <see cref="DataColumn"/>.</returns>
+[return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+public delegate Type DbaTableCopyFieldTypeResolver(int ordinal);
 
 /// <summary>Materializes one provider page while bounding its estimated row payload in memory.</summary>
 public static class DbaTableCopyPageReader
@@ -21,6 +28,13 @@ public static class DbaTableCopyPageReader
     /// preserve provider values that the standard reader would normalize or truncate.
     /// </summary>
     public static async Task<DataTable> ReadAsync(DbDataReader reader, long? maxBytes, Func<int, long?>? fieldPayloadBytes, Func<int, object>? readFieldValue, CancellationToken cancellationToken = default)
+        => await ReadAsync(reader, maxBytes, fieldPayloadBytes, readFieldValue, normalizedFieldType: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Reads a bounded page and allows a provider to declare the neutral managed type returned by
+    /// <paramref name="readFieldValue"/> when it differs from the provider reader schema.
+    /// </summary>
+    public static async Task<DataTable> ReadAsync(DbDataReader reader, long? maxBytes, Func<int, long?>? fieldPayloadBytes, Func<int, object>? readFieldValue, DbaTableCopyFieldTypeResolver? normalizedFieldType, CancellationToken cancellationToken = default)
     {
         if (reader == null) throw new ArgumentNullException(nameof(reader));
         if (maxBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maxBytes));
@@ -34,8 +48,13 @@ public static class DbaTableCopyPageReader
                 {
                     throw new InvalidOperationException("Table-copy source column names must be nonempty and unique.");
                 }
-                table.Columns.Add(name, reader.GetFieldType(column));
+                table.Columns.Add(name, normalizedFieldType?.Invoke(column) ?? reader.GetFieldType(column));
             }
+            var dateTimeModesEstablished = table.Columns.Cast<DataColumn>()
+                .Select(static column => column.DataType != typeof(DateTime))
+                .ToArray();
+            int unresolvedDateTimeModes = dateTimeModesEstablished.Count(static established => !established);
+            var pendingRows = new Queue<object[]>();
             long bytes = 0;
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -61,13 +80,22 @@ public static class DbaTableCopyPageReader
                 }
                 catch (PagePayloadExceededException)
                 {
-                    if (table.Rows.Count > 0) break;
+                    if (table.Rows.Count > 0 || pendingRows.Count > 0) break;
                     throw new InvalidOperationException($"A source row exceeds the configured page payload limit of {maxBytes!.Value} bytes. Increase MaxPageBytes to copy this row without truncation.");
                 }
-                PreserveValueTypes(table, values);
-                table.Rows.Add(values);
+                unresolvedDateTimeModes -= PreserveValueTypes(table, values, dateTimeModesEstablished);
+                if (unresolvedDateTimeModes > 0)
+                {
+                    pendingRows.Enqueue(values);
+                }
+                else
+                {
+                    while (pendingRows.Count > 0) table.Rows.Add(pendingRows.Dequeue());
+                    table.Rows.Add(values);
+                }
                 bytes += rowBytes;
             }
+            while (pendingRows.Count > 0) table.Rows.Add(pendingRows.Dequeue());
             return table;
         }
         catch
@@ -77,12 +105,24 @@ public static class DbaTableCopyPageReader
         }
     }
 
-    private static void PreserveValueTypes(DataTable table, object[] values)
+    private static int PreserveValueTypes(DataTable table, object[] values, bool[] dateTimeModesEstablished)
     {
+        int newlyEstablishedDateTimeModes = 0;
         for (int ordinal = 0; ordinal < values.Length; ordinal++)
         {
             object value = values[ordinal];
             DataColumn column = table.Columns[ordinal];
+            if (!dateTimeModesEstablished[ordinal] && column.DataType == typeof(DateTime) && value is DateTime dateTime)
+            {
+                column.DateTimeMode = dateTime.Kind switch
+                {
+                    DateTimeKind.Utc => DataSetDateTime.Utc,
+                    DateTimeKind.Local => DataSetDateTime.Local,
+                    _ => DataSetDateTime.Unspecified
+                };
+                dateTimeModesEstablished[ordinal] = true;
+                newlyEstablishedDateTimeModes++;
+            }
             if (value == null || value is DBNull || column.DataType == typeof(object) || column.DataType == value.GetType()) continue;
             // SQLite and variant columns can change storage type per row. DataRow otherwise
             // silently coerces values (for example Double 1.5 into Int64 2) before hashing.
@@ -92,7 +132,13 @@ public static class DbaTableCopyPageReader
             table.Columns.Remove(column);
             replacement.ColumnName = name;
             replacement.SetOrdinal(ordinal);
+            if (!dateTimeModesEstablished[ordinal])
+            {
+                dateTimeModesEstablished[ordinal] = true;
+                newlyEstablishedDateTimeModes++;
+            }
         }
+        return newlyEstablishedDateTimeModes;
     }
 
     private static long ReadBoundedRow(DbDataReader reader, object[] values, long budget, Func<int, long?>? fieldPayloadBytes, Func<int, object>? readFieldValue, CancellationToken cancellationToken)
@@ -182,6 +228,7 @@ public static class DbaTableCopyPageReader
     {
         string text => 24L + text.Length * 2L,
         byte[] binary => 24L + binary.LongLength,
+        DbaArbitraryDecimal number => 24L + number.CanonicalValue.Length * 2L,
         _ => 16L
     };
 

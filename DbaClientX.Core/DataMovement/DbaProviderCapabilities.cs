@@ -22,7 +22,8 @@ public static class DbaProviderCapabilities
 
     /// <summary>Gets the canonical capability profile for a provider.</summary>
     public static DbaProviderCapabilityProfile GetProfile(DbaTableCopyProvider provider)
-        => Profiles.First(profile => profile.Provider == provider);
+        => Profiles.FirstOrDefault(profile => profile.Provider == provider)
+           ?? throw new ArgumentOutOfRangeException(nameof(provider), provider, "Unknown provider.");
 
     /// <summary>Gets the capability flags implemented by a provider.</summary>
     public static DbaProviderCapability Get(DbaTableCopyProvider provider)
@@ -36,7 +37,11 @@ public static class DbaProviderCapabilities
                      DbaProviderCapability.BulkInsert |
                      DbaProviderCapability.Metadata |
                      DbaProviderCapability.TableCopy |
-                     DbaProviderCapability.Transaction;
+                     DbaProviderCapability.Transaction |
+                     DbaProviderCapability.KeysetPagination |
+                     DbaProviderCapability.BoundedTableCopyPages |
+                     DbaProviderCapability.ConsistentTableCopyRead |
+                     DbaProviderCapability.ContentVerifiedTableCopy;
         if (SupportsStreaming)
         {
             common |= DbaProviderCapability.Streaming;
@@ -45,6 +50,14 @@ public static class DbaProviderCapabilities
         var capabilities = provider == DbaTableCopyProvider.SQLite
             ? common
             : common | DbaProviderCapability.StoredProcedure;
+
+        capabilities |= DbaProviderCapability.AtomicTableCopyCheckpoints;
+
+        if (provider != DbaTableCopyProvider.Oracle &&
+            provider != DbaTableCopyProvider.SQLite)
+        {
+            capabilities |= DbaProviderCapability.NativeAsyncBulkInsert;
+        }
 
         return new DbaProviderCapabilityProfile(
             provider,

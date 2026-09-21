@@ -42,7 +42,10 @@ public partial class SQLite
         var dbTypes = ConvertParameterTypes(parameterTypes);
         if (connection == null)
         {
-            throw new DbaQueryExecutionException("Failed to resolve connection for streaming.", query, new InvalidOperationException("The SQLite connection could not be resolved."));
+            throw CreateQueryExecutionException(
+                "Failed to resolve connection for streaming.",
+                query,
+                new InvalidOperationException("The SQLite connection could not be resolved."));
         }
 
         try
@@ -96,7 +99,10 @@ public partial class SQLite
         var dbTypes = ConvertParameterTypes(parameterTypes);
         if (connection == null)
         {
-            throw new DbaQueryExecutionException("Failed to resolve connection for streaming.", query, new InvalidOperationException("The SQLite connection could not be resolved."));
+            throw CreateQueryExecutionException(
+                "Failed to resolve connection for streaming.",
+                query,
+                new InvalidOperationException("The SQLite connection could not be resolved."));
         }
 
         try

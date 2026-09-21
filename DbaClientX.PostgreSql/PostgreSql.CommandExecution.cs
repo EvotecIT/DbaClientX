@@ -69,7 +69,7 @@ public partial class PostgreSql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {
@@ -124,7 +124,7 @@ public partial class PostgreSql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -179,7 +179,7 @@ public partial class PostgreSql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute non-query.", query, ex);
         }
         finally
         {
@@ -299,5 +299,23 @@ public partial class PostgreSql
             TypeCode.DateTime => DbType.DateTime,
             _ => DbType.Object
         };
+    }
+
+    /// <inheritdoc />
+    protected override string? GetProviderSqlState(Exception exception)
+        => FindPostgresException(exception)?.SqlState ?? base.GetProviderSqlState(exception);
+
+    /// <inheritdoc />
+    protected override DbaProviderErrorKind GetProviderErrorKind(Exception exception)
+        => FindPostgresException(exception) is PostgresException postgresException &&
+           PostgreSqlTableCopyAdapter.IsMissingTableSqlState(postgresException.SqlState)
+            ? DbaProviderErrorKind.MissingTable
+            : base.GetProviderErrorKind(exception);
+
+    private static PostgresException? FindPostgresException(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+            if (current is PostgresException postgresException) return postgresException;
+        return null;
     }
 }

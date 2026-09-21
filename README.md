@@ -54,6 +54,7 @@ Use it when you need:
 - parameterized commands and provider-specific parameter type preservation
 - transaction helpers that commit on success and roll back on failure
 - provider-native bulk insert paths for staging tables and direct table writes
+- owned forward-only readers for bounded consumers such as OfficeIMO.Data.Arrow
 - provider-neutral metadata discovery for databases, tables, views, columns, indexes, foreign keys, and routines without SQL Server Management Objects
 - PowerShell cmdlets for quick scripts, scheduled jobs, and data movement
 
@@ -82,6 +83,7 @@ Start with the job you need to finish:
 | Export SQL rows to CSV, compressed CSV, or Excel | `Invoke-DbaXQuery -AsDataReader` or `-ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
 | Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataReader` / `Import-OfficeExcel -AsDataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
 | Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | Pass the reader as a single input object with `, $reader` |
+| Stream database rows into Apache Arrow | Provider `QueryReaderAsync` plus OfficeIMO.Data.Arrow `ReadArrowBatchesAsync` | DbaClientX owns the connection/reader lifetime; OfficeIMO owns Arrow conversion and managed/C stream export |
 
 CSV and Excel round trips use matching DbaClientX, PSWriteOffice, and OfficeIMO
 packages. Use `-PSWriteOfficeModulePath` only when validating a local
@@ -151,11 +153,13 @@ $daily | Write-DbaXAzureTableEntity `
 
 Use `Copy-DbaXAzureTableData` for a streaming account-to-account copy. Row-count verification is enabled by default and performs additional full-table scans; use `-NoVerify` when that cost is not appropriate. `-ClearDestination` is explicit and is rejected when any destination would clear a source used elsewhere in the same copy plan. The shared adapter applies Azure Storage or Cosmos DB Table API table-name casing rules; this safety decision is not duplicated in the PowerShell cmdlet.
 
-Adapter authors upgrading to `DbaClientX.Core` 0.14 must return `DbaTableCopyPage` from `IDbaTableCopySource.ReadPageAsync`, carrying the provider's opaque continuation token in the page result. The offset constructor on `DbaTableCopyPageRequest` remains temporarily available for callers, but provider implementations should no longer invent paging state in consumers.
+Adapter authors must return `DbaTableCopyPage` from `IDbaTableCopySource.ReadPageAsync`, carrying the provider's opaque continuation token in the page result. The offset constructor on `DbaTableCopyPageRequest` remains temporarily available for callers, but provider implementations should no longer invent paging state in consumers.
 
 ### Verified and resumable database copies
 
-The .NET table-copy engine supports bounded keyset pages, content verification, and atomic destination checkpoints for SQLite and SQL Server. Define an ascending, unique, non-null key that is preserved in the destination, then enable the required options:
+The .NET table-copy engine supports bounded keyset pages, content verification, and atomic destination checkpoints for SQL Server, PostgreSQL, MySQL, Oracle, and SQLite. Define an ascending, unique, non-null key that is preserved in the destination, then enable the required options:
+
+Continuation tokens support provider-neutral scalar keys, including arbitrary-precision decimals, network addresses/prefixes, and calendar intervals. PostgreSQL arrays, ranges, multiranges, geometry values, and other provider-native values without a lossless token representation are rejected when selected as paging keys; use a supported scalar key or disable keyset pagination. Ordinary unquoted Oracle snake-case keys follow Oracle's uppercase identifier folding.
 
 ```csharp
 var definition = new DbaTableCopyDefinition("SourceRows", "dbo.ArchiveRows", new[] { "Id" })
@@ -176,21 +180,66 @@ var result = await new DbaTableCopyEngine().CopyAsync(sourceAdapter, destination
     new[] { definition }, options, cancellationToken);
 ```
 
-Create the destination schema first and keep its writers stopped during migration. Verified copies require empty destination tables unless `ClearDestination` explicitly discards their contents. The engine validates source contents and destination state before clearing tables. Each page and its checkpoint commit together in the destination database's `DbaClientX_TableCopyCheckpoints` table (`dbo` on SQL Server). Resume rereads the source and committed destination rows and refuses changed contents or definitions. A preflight interruption with no checkpoint may resume only into empty destination tables. Changing page size or timeouts does not require a new migration identifier.
+Create the destination schema first and keep its writers stopped during migration. Verified copies require empty destination tables unless `ClearDestination` explicitly discards their contents. The engine validates source contents and destination state before clearing tables. Each page and its checkpoint commit together in the destination database's checkpoint table (`dbo.DbaClientX_TableCopyCheckpoints` on SQL Server, `DbaX_TableCopyCheckpoints` on Oracle, and `DbaClientX_TableCopyCheckpoints` in the current schema/database on PostgreSQL, MySQL, and SQLite). Resume rereads the source and committed destination rows and refuses changed contents or definitions. A preflight interruption with no checkpoint may resume only into empty destination tables. Changing page size or timeouts does not require a new migration identifier.
+
+MySQL atomic checkpoints require both the destination and DbaClientX checkpoint tables to use InnoDB. DbaClientX creates its checkpoint table with InnoDB and rejects nontransactional destination engines before it clears or writes destination rows. Standalone MySQL bulk inserts also require InnoDB and use an owned transaction so conversion warnings roll back instead of silently committing coerced values.
 
 If initial destination clearing is interrupted, resume refuses nonempty tables that have no checkpoint. Confirm that the destination can still be discarded, then restart with a new checkpoint identifier and `ClearDestination` enabled.
 
 Content verification compares row counts and a SHA-256 multiset checksum over the copied columns. It normalizes numeric widths and booleans, preserves exact strings, nulls, binary values, and `datetimeoffset` offsets, and tolerates different provider sort orders. It does not verify excluded columns, triggers, permissions, or schema equivalence. Preflight rejects missing copied columns, generated columns in the write projection, and required destination columns without a supplied value or default. SQL Server verified writes preserve nulls and check constraints.
 
+MySQL `DECIMAL` and Oracle `NUMBER`/`FLOAT` values beyond `System.Decimal` precision are carried losslessly through content hashes and continuation tokens to compatible native destinations. MySQL accepts its full 65-digit range; Oracle accepts MySQL decimals through 38 digits. Wider MySQL decimals are rejected before Oracle writes unless the column is excluded or explicitly converted to `String`. Copies to other providers reject declarations beyond `System.Decimal` before writing unless projected portably. PostgreSQL table copy fails before writing when a `numeric` declaration can exceed `System.Decimal`; project that column to text or apply an explicit provider-neutral conversion.
+
+Oracle bulk and transactional writes apply the same provider-neutral conversions for GUID/RAW, date/time, interval, unsigned, and arbitrary-precision numeric values. Source compatibility checks resolve local and public synonyms before inspecting the underlying object and reject remote database-link synonyms. BC `DATE` values and unsupported binary floating-point special values fail before paging unless the affected column is excluded or has a supported portable projection.
+
+PostgreSQL reads preserve native interval month, day, and microsecond components in `DbaCalendarInterval`; PostgreSQL bulk writes rehydrate them without approximating calendar months as fixed-duration `TimeSpan` values. Oracle `INTERVAL YEAR TO MONTH` values continue to use `DbaYearMonthInterval` and rehydrate as native Oracle values. PostgreSQL destinations accept declarations through eight leading year digits, whose possible month values fit Npgsql's 32-bit representation; wider declarations and other destinations require exclusion or explicit `String` conversion. Excluded Oracle columns are skipped during page materialization, so an unrepresentable excluded temporal or locator value cannot fail an otherwise valid copy.
+
+Supported PostgreSQL arrays, geometric, range/multirange, text-search, bit-string, and other provider-native values remain lossless when the destination is PostgreSQL. PostgreSQL `inet` host addresses retain their original prefix lengths rather than being widened to host-only `/32` or `/128` values. Copies to other providers reject provider-native declarations before writing unless the column is excluded or explicitly converted to `String`. Excluded non-key PostgreSQL columns are not materialized, so unsupported numeric shapes and special values in an omitted column do not abort an otherwise valid copy.
+
+PostgreSQL enum and enum-array columns require an Npgsql enum mapping that the table-copy adapter cannot accept safely from a caller. DbaClientX therefore rejects those columns during source metadata validation, before reading a page or changing the destination. Cast or omit them in a provider-side source view before copying.
+
+With `ClearDestination`, SQL Server, PostgreSQL, MySQL, Oracle, and SQLite validate every projected source page against the real destination before committed destination rows are removed. Related definitions share one rollback-only transaction: destinations are cleared in reverse definition order and projected rows are validated in forward order, matching the real dependency-safe copy. This extra preflight pass catches cross-page uniqueness and destination-constraint failures without retaining all projected pages in memory. Because sequence, identity, auto-increment, and trigger side effects are not reliably reversible on every provider, destructive preflight rejects unsafe generator or trigger shapes. SQL Server also follows cascading-delete relationships when checking for rollback-unsafe child-table triggers. MySQL rejects explicit auto-increment values at or above the destination's current next value because even a rolled-back insert can advance that counter. Non-clearing copies perform metadata-only schema preflight so validation does not invoke destination generators or triggers before the real write. Project non-generating values, remove triggers for a destructive migration, or copy without `ClearDestination`.
+
+Content verification preserves non-zero `DateTimeOffset` offsets in addition to the UTC instant. A destination that normalizes `2026-09-21 12:00 +02:00` to `2026-09-21 10:00 +00:00` therefore no longer verifies as semantically identical.
+
 For verified or resumable SQL Server copies, set identity preservation through `DbaTableCopyOptions.KeepIdentity` and column mappings through `DbaTableCopyDefinition.ColumnMappings`. These settings are part of the checkpoint contract. SQL bulk destination names must match the physical column casing; map source `id` to destination `ID` explicitly even when the database uses a case-insensitive collation. Adapter-level mappings and the `FireTriggers` or `AllowEncryptedValueModifications` bulk flags are rejected in this mode. Ordinary copies retain adapter mappings and automatic table creation. `KeepIdentity` retains supplied identity values; it does not copy schema or replace ordinary key mappings.
 
-Use a stable SQLite backup as the source. For SQL Server, set `DbaProviderTableCopyAdapterOptions.ReadConsistency` to `Snapshot` to hold one source snapshot for the whole engine call. The engine checks `ALLOW_SNAPSHOT_ISOLATION` in every database named by the source definitions before reading rows or changing destinations. Three-part source names use their named database; one- and two-part names use the connection database. Linked-server sources are not supported in snapshot sessions. `Serializable` is an alternative for offline sources and can block writers. `CallerManaged`, the default, leaves source consistency to the caller. A resumed SQL source must remain unchanged between calls.
+Set `DbaProviderTableCopyAdapterOptions.ReadConsistency` to `Snapshot` to hold one provider transaction across the engine call. SQLite uses a deferred read transaction; WAL mode is recommended when writers must continue during the copy. SQL Server validates `ALLOW_SNAPSHOT_ISOLATION` in every database named by the source definitions before reading rows or changing destinations; linked-server sources are not supported in snapshot sessions. PostgreSQL and MySQL use their repeatable-read snapshot semantics. Oracle uses a serializable read transaction. `Serializable` is an alternative where supported and can block writers; SQLite begins an immediate transaction for this mode. `CallerManaged`, the default, leaves source consistency to the caller. A stable SQLite backup remains a useful offline source, and any resumed source must remain unchanged between calls.
+
+MySQL `Snapshot` and `Serializable` source sessions require InnoDB tables. The table-copy engine validates every source definition before reading; callers that open a MySQL read session directly must use the definition-aware overload so the same validation can run.
 
 Source and destination keys must be unique under their own provider's comparison rules. Set `DbaTableCopyDefinition.DestinationOrderByColumns` when destination verification needs a different key, such as a generated binary hash that distinguishes text values SQL collation considers equal. Generated source keys may be excluded from copied content when an explicit destination verification key is supplied. These key settings are part of the checkpoint contract.
 
 Implicit destination keys follow the actual source column names and the same mapping and exclusion rules as copied pages. Exclusions apply to both source and mapped destination names. `Dictionary` mappings and `HashSet` exclusions retain their comparers; other collection implementations use ordinal matching. An exclusion such as ordinal `id` therefore leaves source column `Id` intact. If the projected key is excluded, supply an explicit destination verification key.
 
-`MaxPageBytes` limits estimated payload per keyset page, not total process memory or SQLite's native row buffers. SQL values are read in bounded chunks; SQLite values are sized before managed allocation. A single larger row fails without truncation; raise the limit explicitly for large report or binary payloads. Mixed SQLite storage types and embedded null characters in text are preserved, while malformed UTF-8 text is rejected. Full content scans add I/O before and after copying. Checkpoints provide page-level durability, not an all-or-nothing transaction over the entire migration, so an incomplete destination must remain offline. Other provider adapters retain their existing count-verification path.
+`MaxPageBytes` limits estimated payload per keyset page, not total process memory or provider-native buffers. Values are read sequentially and bounded pages fail rather than truncate a row that exceeds the configured limit; raise the limit explicitly for large text or binary payloads. PostgreSQL arrays and other variable-size native objects are rejected before materialization in bounded mode; project them to text or binary, or omit `MaxPageBytes`. Mixed SQLite storage types and embedded null characters in text are preserved, while malformed UTF-8 text is rejected. Full content scans add I/O before and after copying. Checkpoints provide page-level durability, not an all-or-nothing transaction over the entire migration, so an incomplete destination must remain offline.
+
+### Stream database rows into OfficeIMO.Data.Arrow
+
+Each relational provider exposes `QueryReaderAsync`, which returns an owned, forward-only `DbaDataReader`. Disposing it closes the provider reader, command, and any connection DbaClientX opened. Provider failures raised later by synchronous or asynchronous row navigation and field access are normalized to the same sanitized exception and caller-cancellation contract used while opening the reader. This is the integration boundary for bounded consumers; DbaClientX provider packages intentionally do not depend on Apache.Arrow.
+
+```csharp
+using DBAClientX;
+using OfficeIMO.Data.Arrow;
+
+var client = new PostgreSql();
+await using var reader = await client.QueryReaderAsync(
+    connectionString,
+    "select id, payload from public.events order by id",
+    cancellationToken: cancellationToken);
+
+await foreach (var batch in reader.ReadArrowBatchesAsync(
+    new ArrowReadOptions { BatchSize = 16_384 },
+    cancellationToken))
+{
+    using (batch)
+    {
+        // Consume one bounded Apache Arrow RecordBatch.
+    }
+}
+```
+
+OfficeIMO.Data.Arrow also provides `OpenArrowStream` and `ExportArrowCStream`. Keep the returned stream owner alive until its managed or native consumer has finished, and dispose the `DbaDataReader` last. SQL Server, PostgreSQL, MySQL, Oracle, and SQLite expose the same owned async-reader shape.
 
 ### Build SQL
 

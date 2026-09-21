@@ -206,6 +206,45 @@ public static class DbaIdentifierPath
             _ => false
         };
 
+    /// <summary>Returns whether an unquoted segment is emitted as a delimited identifier by the provider table-copy path.</summary>
+    internal static bool IsAutomaticallyDelimitedSegment(string segment, DbaTableCopyProvider provider)
+    {
+        string value = ValidateAndTrimSegment(segment);
+        if (provider is not DbaTableCopyProvider.Oracle and not DbaTableCopyProvider.PostgreSql)
+        {
+            return false;
+        }
+
+        if (IsReservedIdentifier(value, provider))
+        {
+            return true;
+        }
+
+        if (value.Length == 0 || !IsProviderIdentifierStart(value[0], provider))
+        {
+            return true;
+        }
+
+        for (var index = 1; index < value.Length; index++)
+        {
+            if (!IsProviderIdentifierPart(value[index], provider))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsProviderIdentifierStart(char value, DbaTableCopyProvider provider)
+        => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' ||
+           (provider == DbaTableCopyProvider.PostgreSql && value == '_');
+
+    private static bool IsProviderIdentifierPart(char value, DbaTableCopyProvider provider)
+        => IsProviderIdentifierStart(value, provider) ||
+           value is >= '0' and <= '9' or '$' ||
+           (provider == DbaTableCopyProvider.Oracle && value is '_' or '#');
+
     /// <summary>Returns whether a segment has matching SQL identifier delimiters.</summary>
     public static bool IsDelimitedSegment(string segment)
     {

@@ -1736,6 +1736,38 @@ public class DbaProviderTableCopyRunnerTests
         }
     }
 
+    [Theory]
+    [InlineData(DbaTableCopyReadConsistency.Snapshot)]
+    [InlineData(DbaTableCopyReadConsistency.Serializable)]
+    public void ValidateSameProviderTableCopy_RejectsSQLiteConsistentReadIntoSameDatabase(
+        DbaTableCopyReadConsistency readConsistency)
+    {
+        var databasePath = CreateTempDatabasePath();
+        var request = new DbaProviderTableCopyRequest
+        {
+            Source = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=" + databasePath,
+                ReadConsistency = readConsistency
+            },
+            Destination = new DbaProviderTableCopyAdapterOptions
+            {
+                Provider = DbaTableCopyProvider.SQLite,
+                ConnectionString = "Data Source=" + databasePath + ";Pooling=False"
+            },
+            Definitions = new[]
+            {
+                new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" })
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => InvokeValidateSameProviderTableCopy(request));
+
+        Assert.Contains("SQLite", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CallerManaged", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task CopyAsync_BlocksClearDestinationWhenDestinationIsAlsoASourceTable()
     {

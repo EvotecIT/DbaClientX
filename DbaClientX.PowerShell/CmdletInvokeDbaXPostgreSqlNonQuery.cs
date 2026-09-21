@@ -92,10 +92,10 @@ public sealed class CmdletInvokeDbaXPostgreSqlNonQuery : PSCmdlet {
                 : postgreSql.ExecuteNonQuery(Server, Database, resolvedUsername, resolvedPassword, Query, parameters);
             WriteObject(affected);
         } catch (Exception ex) {
-            WriteWarning($"Invoke-DbaXPostgreSqlNonQuery - Error executing PostgreSql: {ex.Message}");
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXPostgreSqlNonQuery", Database));
         }
     }
 }

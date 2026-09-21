@@ -414,10 +414,25 @@ public partial class SqlServer
         return "[" + value.Replace("]", "]]") + "]";
     }
 
-    private static string ClassifySqlMonitoringError(Exception ex)
+    internal static string ClassifySqlMonitoringError(Exception ex)
     {
-        Exception actual = ex is DbaQueryExecutionException && ex.InnerException != null ? ex.InnerException : ex;
-        return actual switch
+        if (ex is DbaQueryExecutionException queryException)
+        {
+            return queryException.ProviderErrorCode switch
+            {
+                18456 => "authentication",
+                4060 => "database-unavailable",
+                -2 => "timeout",
+                _ when string.Equals(
+                    queryException.ProviderExceptionType,
+                    typeof(SqlException).FullName,
+                    StringComparison.Ordinal) => "sql",
+                _ when queryException.InnerException != null => ClassifySqlMonitoringError(queryException.InnerException),
+                _ => "unknown"
+            };
+        }
+
+        return ex switch
         {
             SqlException sql when sql.Number == 18456 => "authentication",
             SqlException sql when sql.Number == 4060 => "database-unavailable",

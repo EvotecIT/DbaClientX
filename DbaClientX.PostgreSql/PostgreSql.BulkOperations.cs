@@ -70,7 +70,7 @@ public partial class PostgreSql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
         finally
         {

@@ -83,21 +83,21 @@ public partial class SQLite
         }
 
         var stopwatch = Stopwatch.StartNew();
-        using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
-        connection.Open();
-        ApplyBusyTimeout(connection, busyTimeoutMs);
-        using CancellationTokenRegistration registration = cancellationToken.Register(
-            static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-            connection);
-        using var command = connection.CreateCommand();
-        command.CommandText = fullCheck
-            ? $"PRAGMA integrity_check({maxIssues});"
-            : $"PRAGMA quick_check({maxIssues});";
-        ApplyCommandTimeout(command);
-
-        var issues = new List<string>();
         try
         {
+            using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
+            connection.Open();
+            ApplyBusyTimeout(connection, busyTimeoutMs);
+            using CancellationTokenRegistration registration = cancellationToken.Register(
+                static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
+                connection);
+            using var command = connection.CreateCommand();
+            command.CommandText = fullCheck
+                ? $"PRAGMA integrity_check({maxIssues});"
+                : $"PRAGMA quick_check({maxIssues});";
+            ApplyCommandTimeout(command);
+
+            var issues = new List<string>();
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -108,6 +108,15 @@ public partial class SQLite
                     issues.Add(value);
                 }
             }
+
+            stopwatch.Stop();
+            return new SqliteIntegrityCheckResult
+            {
+                IsHealthy = issues.Count == 0,
+                IsFullCheck = fullCheck,
+                Issues = issues,
+                Elapsed = stopwatch.Elapsed
+            };
         }
         catch (SqliteException ex) when (
             cancellationToken.IsCancellationRequested &&
@@ -115,15 +124,13 @@ public partial class SQLite
         {
             throw CreateCallerCancellationException(ex, cancellationToken);
         }
-
-        stopwatch.Stop();
-        return new SqliteIntegrityCheckResult
+        catch (SqliteException ex)
         {
-            IsHealthy = issues.Count == 0,
-            IsFullCheck = fullCheck,
-            Issues = issues,
-            Elapsed = stopwatch.Elapsed
-        };
+            throw CreateQueryExecutionException(
+                "Failed to check SQLite database integrity.",
+                fullCheck ? "PRAGMA integrity_check" : "PRAGMA quick_check",
+                ex);
+        }
     }
 
     private SqliteBackupResult BackupDatabaseIncrementalCore(
@@ -136,7 +143,7 @@ public partial class SQLite
         cancellationToken.ThrowIfCancellationRequested();
         string sourcePath = Path.GetFullPath(sourceDatabase);
         string destinationPath = Path.GetFullPath(destinationDatabase);
-        if (string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+        if (AreSameBackupPath(sourcePath, destinationPath))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
         }
@@ -184,7 +191,11 @@ public partial class SQLite
                 if (backup == null || backup.IsInvalid)
                 {
                     string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                    throw new DbaQueryExecutionException("Failed to initialize SQLite online backup.", "SQLite online backup", new InvalidOperationException(message));
+                    int initializationCode = raw.sqlite3_errcode(destination.Handle);
+                    throw CreateBackupProviderException(
+                        "Failed to initialize SQLite online backup.",
+                        new InvalidOperationException(message),
+                        initializationCode);
                 }
 
                 int resultCode = raw.SQLITE_OK;
@@ -210,10 +221,10 @@ public partial class SQLite
                         if (resultCode != raw.SQLITE_OK && resultCode != raw.SQLITE_BUSY && resultCode != raw.SQLITE_LOCKED)
                         {
                             string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                            throw new DbaQueryExecutionException(
+                            throw CreateBackupProviderException(
                                 $"SQLite online backup failed with result code {resultCode}.",
-                                "SQLite online backup",
-                                new InvalidOperationException(message));
+                                new InvalidOperationException(message),
+                                resultCode);
                         }
 
                         bool isBusy = resultCode == raw.SQLITE_BUSY || resultCode == raw.SQLITE_LOCKED;
@@ -251,10 +262,10 @@ public partial class SQLite
                     if (backupFailure == null && resultCode == raw.SQLITE_DONE && finishCode != raw.SQLITE_OK)
                     {
                         string message = raw.sqlite3_errmsg(destination.Handle).utf8_to_string();
-                        throw new DbaQueryExecutionException(
+                        throw CreateBackupProviderException(
                             $"SQLite online backup finalization failed with result code {finishCode}.",
-                            "SQLite online backup",
-                            new InvalidOperationException(message));
+                            new InvalidOperationException(message),
+                            finishCode);
                     }
                 }
             }
@@ -290,6 +301,52 @@ public partial class SQLite
             }
         }
     }
+
+    internal static bool AreSameBackupPath(string sourcePath, string destinationPath)
+    {
+        if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
+        if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Case-only names can be separate files on a case-sensitive filesystem. If the destination
+        // does not resolve, it is safe to create it. If it resolves, inspect the directory entries:
+        // a case-insensitive filesystem exposes only one exact spelling for both aliases.
+        if (!File.Exists(sourcePath) || !File.Exists(destinationPath)) return false;
+        string? sourceDirectory = Path.GetDirectoryName(sourcePath);
+        string? destinationDirectory = Path.GetDirectoryName(destinationPath);
+        if (sourceDirectory == null || destinationDirectory == null ||
+            !string.Equals(sourceDirectory, destinationDirectory, StringComparison.Ordinal))
+        {
+            // Different case-only directory paths are ambiguous without platform-specific file IDs.
+            // Fail closed instead of allowing a backup to overwrite its source.
+            return true;
+        }
+
+        string sourceName = Path.GetFileName(sourcePath);
+        string destinationName = Path.GetFileName(destinationPath);
+        bool exactSource = false;
+        bool exactDestination = false;
+        foreach (string entry in Directory.EnumerateFiles(sourceDirectory))
+        {
+            string name = Path.GetFileName(entry);
+            exactSource |= string.Equals(name, sourceName, StringComparison.Ordinal);
+            exactDestination |= string.Equals(name, destinationName, StringComparison.Ordinal);
+            if (exactSource && exactDestination) return false;
+        }
+
+        return true;
+    }
+
+    private static DbaQueryExecutionException CreateBackupProviderException(
+        string message,
+        Exception exception,
+        int providerErrorCode)
+        => new(
+            message,
+            "SQLite online backup",
+            exception,
+            providerErrorCode,
+            providerSqlState: null,
+            providerErrorKind: DbaProviderErrorKind.Unknown);
 
     private static Task<T> RunDedicatedMaintenanceAsync<T>(Func<T> operation, CancellationToken cancellationToken)
     {

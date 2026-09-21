@@ -68,11 +68,11 @@ public partial class SqlServer
         }
         catch (SqlException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         catch (InvalidOperationException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {
@@ -144,11 +144,11 @@ public partial class SqlServer
         }
         catch (SqlException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         catch (InvalidOperationException ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {

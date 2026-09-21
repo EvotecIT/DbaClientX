@@ -124,7 +124,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <remarks>
     /// Some ADO.NET providers report a canceled command as a provider exception instead of
     /// <see cref="OperationCanceledException"/>. Once the caller's token is canceled, normalize that provider-specific
-    /// failure back to the standard cancellation contract and retain the original exception as diagnostic context.
+    /// failure back to the standard cancellation contract and retain only sanitized provider context.
     /// </remarks>
     protected Exception CreateQueryExecutionOrCancellationException(
         string message,
@@ -137,16 +137,47 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
             return CreateCallerCancellationException(exception, cancellationToken);
         }
 
-        return new DbaQueryExecutionException(message, commandText, exception);
+        return CreateQueryExecutionException(message, commandText, exception);
     }
 
-    /// <summary>Creates a standard caller-cancellation exception while retaining the provider failure.</summary>
+    /// <summary>Creates a query failure that retains only safe provider classification metadata.</summary>
+    protected DbaQueryExecutionException CreateQueryExecutionException(
+        string message,
+        string commandText,
+        Exception exception)
+        => new(
+            message,
+            commandText,
+            exception,
+            GetProviderErrorCode(exception),
+            GetProviderSqlState(exception),
+            GetProviderErrorKind(exception));
+
+    /// <summary>Returns a provider-native numeric error code suitable for public diagnostics.</summary>
+    protected virtual int? GetProviderErrorCode(Exception exception)
+        => exception is DbaQueryExecutionException queryException
+            ? queryException.ProviderErrorCode
+            : (exception as System.Data.Common.DbException)?.ErrorCode;
+
+    /// <summary>Returns a provider SQLSTATE suitable for public diagnostics.</summary>
+    protected virtual string? GetProviderSqlState(Exception exception)
+        => exception is DbaQueryExecutionException queryException
+            ? queryException.ProviderSqlState
+            : null;
+
+    /// <summary>Returns a portable provider failure category suitable for public diagnostics.</summary>
+    protected virtual DbaProviderErrorKind GetProviderErrorKind(Exception exception)
+        => exception is DbaQueryExecutionException queryException
+            ? queryException.ProviderErrorKind
+            : DbaProviderErrorKind.Unknown;
+
+    /// <summary>Creates a standard caller-cancellation exception while retaining only sanitized provider context.</summary>
     protected static OperationCanceledException CreateCallerCancellationException(
         Exception exception,
         CancellationToken cancellationToken)
         => new(
             "The database operation was canceled by the caller.",
-            exception,
+            DbaQueryExecutionException.CreateSanitizedProviderException(exception),
             cancellationToken);
 
     /// <summary>Awaits an ADO.NET operation and normalizes provider-specific cancellation failures.</summary>

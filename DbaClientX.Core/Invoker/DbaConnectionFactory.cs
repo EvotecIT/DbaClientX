@@ -55,7 +55,21 @@ public static class DbaConnectionFactory
     /// <param name="Details">Optional details such as a missing parameter name or unsupported option.</param>
     public sealed record ConnectionValidationResult(ConnectionValidationErrorCode Code, string Message, string? Details = null)
     {
-        /// <summary>Convenience property that indicates a successful validation.</summary>
+        /// <summary>Indicates that the shared connection-string grammar was parsed successfully.</summary>
+        /// <remarks>
+        /// This does not imply that provider-specific keywords are valid or that the configured
+        /// security policy was satisfied. Provider surfaces should parse the value with their
+        /// native connection-string builder before attempting a connection.
+        /// </remarks>
+        public bool ShapeValid => Code is ConnectionValidationErrorCode.None
+            or ConnectionValidationErrorCode.MissingRequiredParameter
+            or ConnectionValidationErrorCode.UnsupportedOption
+            or ConnectionValidationErrorCode.InvalidParameterValue;
+
+        /// <summary>Indicates that the shared security and required-option policy was satisfied.</summary>
+        public bool PolicyValid => Code == ConnectionValidationErrorCode.None;
+
+        /// <summary>Convenience property retained for compatibility; equivalent to <see cref="PolicyValid"/>.</summary>
         public bool IsValid => Code == ConnectionValidationErrorCode.None;
     }
 

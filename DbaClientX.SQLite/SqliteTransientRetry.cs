@@ -99,19 +99,28 @@ public static class SqliteTransientRetry {
             throw new ArgumentNullException(nameof(exception));
         }
 
-        return FindSqliteException(exception) is not null;
+        return FindSqliteErrorCode(exception).HasValue;
     }
 
     private static SqliteTransientRetryAttempt ToSqliteAttempt(TransientRetryAttempt attempt) {
-        int sqliteErrorCode = FindSqliteException(attempt.Exception)?.SqliteErrorCode ?? 0;
+        int sqliteErrorCode = FindSqliteErrorCode(attempt.Exception) ?? 0;
         return new SqliteTransientRetryAttempt(attempt.Attempt, attempt.Delay, sqliteErrorCode, attempt.Exception);
     }
 
-    private static SqliteException? FindSqliteException(Exception exception) {
+    private static int? FindSqliteErrorCode(Exception exception) {
         for (Exception? current = exception; current != null; current = current.InnerException) {
             if (current is SqliteException sqliteException &&
                 sqliteException.SqliteErrorCode is 5 or 6 or 10) {
-                return sqliteException;
+                return sqliteException.SqliteErrorCode;
+            }
+
+            if (current is DbaQueryExecutionException queryException &&
+                string.Equals(
+                    queryException.ProviderExceptionType,
+                    typeof(SqliteException).FullName,
+                    StringComparison.Ordinal) &&
+                queryException.ProviderErrorCode is 5 or 6 or 10) {
+                return queryException.ProviderErrorCode;
             }
         }
 

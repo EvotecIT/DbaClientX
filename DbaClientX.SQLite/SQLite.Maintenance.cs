@@ -14,7 +14,7 @@ public partial class SQLite
     /// </summary>
     /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
     /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
-    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds applied to both connections.</param>
+    /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
     /// <remarks>
     /// The source database is opened read-only and the destination is created when it does not exist. This is
     /// intended for backup-first maintenance workflows that need a provider-owned copy operation without exposing
@@ -24,57 +24,72 @@ public partial class SQLite
         string sourceDatabase,
         string destinationDatabase,
         int? busyTimeoutMs = null)
+        => BackupDatabase(sourceDatabase, destinationDatabase, overwriteDestination: false, busyTimeoutMs);
+
+    /// <summary>
+    /// Copies a SQLite database into a destination database using SQLite's online backup API.
+    /// </summary>
+    /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
+    /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
+    /// <param name="overwriteDestination">Whether an existing destination may be atomically replaced.</param>
+    /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
+    /// <remarks>
+    /// The source database is opened read-only. The destination is created when it does not exist and is replaced
+    /// atomically only when <paramref name="overwriteDestination"/> is true.
+    /// </remarks>
+    public virtual void BackupDatabase(
+        string sourceDatabase,
+        string destinationDatabase,
+        bool overwriteDestination,
+        int? busyTimeoutMs = null)
     {
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
         EnsureNoActiveTransaction();
-
-        var destinationDirectory = Path.GetDirectoryName(destinationDatabase);
-        if (!string.IsNullOrWhiteSpace(destinationDirectory))
+        if (busyTimeoutMs is <= 0)
         {
-            Directory.CreateDirectory(destinationDirectory);
+            throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout must be positive when specified.");
         }
 
+        string sourcePath = Path.GetFullPath(sourceDatabase);
+        string destinationPath = Path.GetFullPath(destinationDatabase);
+        if (AreSameBackupPath(sourcePath, destinationPath))
+        {
+            throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
+        }
+        if (File.Exists(sourcePath) && !overwriteDestination && File.Exists(destinationPath))
+        {
+            throw new IOException($"SQLite backup destination already exists: {destinationPath}");
+        }
+
+        var options = new SqliteBackupOptions
+        {
+            OverwriteDestination = overwriteDestination
+        };
+        if (busyTimeoutMs.HasValue)
+        {
+            options.BusyRetryTimeout = TimeSpan.FromMilliseconds(busyTimeoutMs.Value);
+        }
         try
         {
-            using var source = new SqliteConnection(BuildOperationalConnectionString(sourceDatabase, readOnly: true));
-            source.Open();
-            ApplyBusyTimeout(source, busyTimeoutMs);
-
-            using var destination = new SqliteConnection(BuildConnectionString(destinationDatabase, readOnly: false, busyTimeoutMs: null));
-            destination.Open();
-            ApplyBusyTimeout(destination, busyTimeoutMs);
-
-            source.BackupDatabase(destination);
+            BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
+                .GetAwaiter()
+                .GetResult();
         }
-        catch (SqliteException ex)
+        catch (DbaQueryExecutionException)
         {
-            throw CreateBackupException(ex);
+            throw;
         }
-        catch (IOException ex)
+        catch (Exception exception) when (
+            exception is SqliteException or IOException or UnauthorizedAccessException or
+            InvalidOperationException or NotSupportedException or TimeoutException)
         {
-            throw CreateBackupException(ex);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (InvalidOperationException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (ArgumentException ex)
-        {
-            throw CreateBackupException(ex);
-        }
-        catch (NotSupportedException ex)
-        {
-            throw CreateBackupException(ex);
+            throw CreateQueryExecutionException(
+                "Failed to back up SQLite database.",
+                "SQLite online backup",
+                exception);
         }
     }
-
-    private static DbaQueryExecutionException CreateBackupException(Exception exception) =>
-        new("Failed to back up SQLite database.", "SQLite online backup", exception);
 
     /// <summary>
     /// Executes <c>PRAGMA wal_checkpoint(...)</c> using the supplied checkpoint mode.
@@ -207,7 +222,7 @@ public partial class SQLite
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute SQLite maintenance command.", pragma, ex);
+            throw CreateQueryExecutionException("Failed to execute SQLite maintenance command.", pragma, ex);
         }
     }
 

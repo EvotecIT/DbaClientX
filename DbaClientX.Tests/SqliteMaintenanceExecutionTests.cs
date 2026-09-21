@@ -6,6 +6,157 @@ namespace DbaClientX.Tests;
 public sealed class SqliteMaintenanceExecutionTests
 {
     [Fact]
+    public async Task BackupDatabase_ExistingDestinationRequiresExplicitOverwrite()
+    {
+        string source = CreateDatabase(rowCount: 2);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            using var sqlite = new SQLite();
+
+            Assert.Throws<IOException>(() => sqlite.BackupDatabase(source, destination));
+            Assert.Equal(1, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabase_ExplicitOverwriteAtomicallyReplacesDestination()
+    {
+        string source = CreateDatabase(rowCount: 2);
+        string destination = CreateDatabase(rowCount: 1);
+        try
+        {
+            using var sqlite = new SQLite();
+
+            sqlite.BackupDatabase(source, destination, overwriteDestination: true);
+
+            Assert.Equal(2, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public void BackupDatabase_OperationalFailureUsesSanitizedLegacyExceptionContract()
+    {
+        string source = CreateDatabase(rowCount: 1);
+        string blockingFile = Path.Combine(Path.GetTempPath(), $"dbaclientx-backup-parent-{Guid.NewGuid():N}");
+        string destination = Path.Combine(blockingFile, "backup.sqlite");
+        File.WriteAllText(blockingFile, "not a directory");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            var exception = Assert.Throws<DbaQueryExecutionException>(() =>
+                sqlite.BackupDatabase(source, destination));
+
+            Assert.Contains("Failed to back up SQLite database", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(typeof(IOException).FullName, exception.ProviderExceptionType);
+            Assert.DoesNotContain(blockingFile, exception.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            Cleanup(blockingFile);
+        }
+    }
+
+    [Fact]
+    public void BackupDatabase_RejectsSameSourceAndDestination()
+    {
+        string source = CreateDatabase();
+        try
+        {
+            using var sqlite = new SQLite();
+
+            Assert.Throws<ArgumentException>(() => sqlite.BackupDatabase(source, source, overwriteDestination: true));
+        }
+        finally
+        {
+            Cleanup(source);
+        }
+    }
+
+    [Fact]
+    public void BackupDatabase_RejectsCaseOnlyAliasOnCaseInsensitiveFileSystem()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"dbaclientx-case-alias-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "app.db");
+        string destination = Path.Combine(directory, "App.db");
+        try
+        {
+            CreateDatabase(source, rowCount: 1);
+            Assert.SkipUnless(File.Exists(destination), "The temporary filesystem is case-sensitive.");
+
+            Assert.True(SQLite.AreSameBackupPath(source, destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            if (Directory.Exists(directory)) Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabase_AllowsCaseDistinctPathsOnCaseSensitiveFileSystems()
+    {
+        Assert.SkipWhen(Path.DirectorySeparatorChar == '\\', "Windows paths are case-insensitive.");
+        string directory = Path.Combine(Path.GetTempPath(), $"dbaclientx-case-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string source = Path.Combine(directory, "app.db");
+        string destination = Path.Combine(directory, "App.db");
+        try
+        {
+            CreateDatabase(source, rowCount: 2);
+            Assert.SkipWhen(File.Exists(destination), "The temporary filesystem is case-insensitive.");
+            using var sqlite = new SQLite();
+
+            sqlite.BackupDatabase(source, destination);
+
+            Assert.Equal(2, await CountRowsAsync(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+            if (Directory.Exists(directory)) Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
+    public void BackupDatabase_RejectsZeroBusyTimeoutInsteadOfSelectingUnboundedRetries()
+    {
+        string source = CreateDatabase();
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-zero-timeout-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+                sqlite.BackupDatabase(source, destination, busyTimeoutMs: 0));
+
+            Assert.Equal("busyTimeoutMs", exception.ParamName);
+            Assert.False(File.Exists(destination));
+        }
+        finally
+        {
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
     public async Task CheckIntegrityAsync_HealthyDatabase_ReturnsHealthyResult()
     {
         string database = CreateDatabase();
@@ -19,6 +170,28 @@ public sealed class SqliteMaintenanceExecutionTests
             Assert.True(result.IsFullCheck);
             Assert.Empty(result.Issues);
             Assert.True(result.Elapsed >= TimeSpan.Zero);
+        }
+        finally
+        {
+            Cleanup(database);
+        }
+    }
+
+    [Fact]
+    public async Task CheckIntegrityAsync_OperationalFailure_IsSanitized()
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"dbaclientx-invalid-{Guid.NewGuid():N}.sqlite");
+        await File.WriteAllTextAsync(database, "not a sqlite database; server=secret;password=hidden");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            DbaQueryExecutionException exception = await Assert.ThrowsAsync<DbaQueryExecutionException>(() =>
+                sqlite.CheckIntegrityAsync(database, fullCheck: true));
+
+            Assert.Contains("integrity", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(exception.ProviderErrorCode);
+            Assert.DoesNotContain("password=hidden", exception.ToString(), StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -361,6 +534,11 @@ public sealed class SqliteMaintenanceExecutionTests
     private static string CreateDatabase(int rowCount = 1)
     {
         string path = Path.Combine(Path.GetTempPath(), $"dbaclientx-maintenance-{Guid.NewGuid():N}.sqlite");
+        return CreateDatabase(path, rowCount);
+    }
+
+    private static string CreateDatabase(string path, int rowCount)
+    {
         using var connection = new SqliteConnection(SQLite.BuildConnectionString(path));
         connection.Open();
         using SqliteCommand command = connection.CreateCommand();

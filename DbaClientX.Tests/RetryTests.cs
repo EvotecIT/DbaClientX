@@ -350,7 +350,8 @@ public class RetryTests
             client.CreatePublicExecutionException(providerException, cancellation.Token));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
-        Assert.Same(providerException, exception.InnerException);
+        Assert.IsType<DBAClientX.DbaClientXException>(exception.InnerException);
+        Assert.NotSame(providerException, exception.InnerException);
     }
 
     [Fact]
@@ -364,7 +365,9 @@ public class RetryTests
         var exception = Assert.IsType<DBAClientX.DbaQueryExecutionException>(
             client.CreatePublicExecutionException(providerException, cancellation.Token));
 
-        Assert.Same(providerException, exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.NotSame(providerException, exception.InnerException);
+        Assert.Equal(typeof(InvalidOperationException).FullName, exception.ProviderExceptionType);
     }
 
     [Fact]

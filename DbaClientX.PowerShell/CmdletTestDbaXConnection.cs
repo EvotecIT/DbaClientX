@@ -42,12 +42,16 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
         var validation = DbaConnectionFactory.Validate(
             alias,
             validationConnectionString);
+        string? providerParseError = null;
+        var providerParsed = validation.ShapeValid
+            && DbaXProviderHelpers.TryParseConnectionString(Provider, validationConnectionString, out providerParseError);
+        var connectionStringValid = validation.PolicyValid && providerParsed;
 
         var pingSucceeded = false;
         object? pingResult = null;
         string? pingError = null;
         var stopwatch = new Stopwatch();
-        if (validation.IsValid && !SkipPing.IsPresent)
+        if (connectionStringValid && !SkipPing.IsPresent)
         {
             try
             {
@@ -59,11 +63,11 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
             catch (Exception ex) when (ex is DbaQueryExecutionException or DbException or InvalidOperationException or TimeoutException or ArgumentException)
             {
                 stopwatch.Stop();
-                pingError = ex.Message;
+                pingError = PowerShellHelpers.GetSafeErrorMessage(ex);
             }
         }
 
-        var succeeded = validation.IsValid && (SkipPing.IsPresent || pingSucceeded);
+        var succeeded = connectionStringValid && (SkipPing.IsPresent || pingSucceeded);
         if (!Detailed.IsPresent)
         {
             WriteObject(succeeded);
@@ -73,10 +77,13 @@ public sealed class CmdletTestDbaXConnection : PSCmdlet
         WriteObject(new PSObject(new
         {
             Provider,
-            ConnectionStringValid = validation.IsValid,
+            ShapeValid = validation.ShapeValid,
+            PolicyValid = validation.PolicyValid,
+            ProviderParsed = providerParsed,
+            ConnectionStringValid = connectionStringValid,
             ValidationCode = validation.Code.ToString(),
-            ValidationMessage = validation.IsValid ? null : DbaConnectionFactory.ToUserMessage(validation),
-            PingAttempted = validation.IsValid && !SkipPing.IsPresent,
+            ValidationMessage = validation.PolicyValid ? providerParseError : DbaConnectionFactory.ToUserMessage(validation),
+            PingAttempted = connectionStringValid && !SkipPing.IsPresent,
             PingSucceeded = pingSucceeded,
             PingResult = pingResult,
             PingError = pingError,

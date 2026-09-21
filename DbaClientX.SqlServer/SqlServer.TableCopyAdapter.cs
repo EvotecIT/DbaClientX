@@ -1,5 +1,6 @@
 using System.Data;
 using DBAClientX.DataMovement;
+using Microsoft.Data.SqlClient;
 
 namespace DBAClientX;
 
@@ -105,4 +106,10 @@ public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdap
         using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await sqlServer.ExecuteNonQueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    protected override bool IsMissingTableExceptionCore(Exception exception)
+        => exception is SqlException sqlException && IsMissingTableErrorNumber(sqlException.Number);
+
+    internal static bool IsMissingTableErrorNumber(int number) => number == 208;
 }

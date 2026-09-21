@@ -131,6 +131,75 @@ public sealed class FabricHttpClientTests
     }
 
     [Fact]
+    public async Task GetAllPages_RejectsCollectionsAboveConfiguredItemLimit()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.OK,
+            """{"value":[{"id":"1"},{"id":"2"}],"continuationUri":"https://api.fabric.microsoft.com/v1/items?continuationToken=next"}""");
+        handler.Enqueue(HttpStatusCode.OK, """{"value":[{"id":"3"},{"id":"4"}]}""");
+        var client = TestClients.Create(handler, maxPaginationItems: 3);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.GetAllPagesAsync<TestItem>("items"));
+
+        Assert.Contains("pagination item limit", exception.Message);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task GetPages_StreamsPagesWithoutRequiringCollectionAccumulation()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.OK,
+            """{"value":[{"id":"1"}],"continuationUri":"https://api.fabric.microsoft.com/v1/items?continuationToken=next"}""");
+        handler.Enqueue(HttpStatusCode.OK, """{"value":[{"id":"2"}]}""");
+        var client = TestClients.Create(handler, maxPaginationItems: 1);
+        var ids = new List<string?>();
+
+        await foreach (var page in client.GetPagesAsync<TestItem>("items"))
+        {
+            ids.AddRange(page.Value?.Value.Select(item => item.Id) ?? Array.Empty<string?>());
+        }
+
+        Assert.Equal(new[] { "1", "2" }, ids);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Get_RejectsResponseAboveConfiguredByteLimit()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(HttpStatusCode.OK, """{"value":[{"id":"1234567890"}]}""");
+        var client = TestClients.Create(handler, maxResponseContentBytes: 12);
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            client.GetAsync<FabricPage<TestItem>>("items"));
+
+        Assert.Contains("content-size limit", exception.Message);
+    }
+
+    [Fact]
+    public async Task OversizedError_PreservesStatusAndRequestIdWithoutRetainingBody()
+    {
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(
+            HttpStatusCode.Forbidden,
+            "oversized service error body",
+            response => response.Headers.Add("x-ms-request-id", "request-oversized"));
+        var client = TestClients.Create(handler, maxResponseContentBytes: 8);
+
+        var exception = await Assert.ThrowsAsync<FabricApiException>(() =>
+            client.GetAsync<object>("workspaces"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, exception.StatusCode);
+        Assert.Equal("request-oversized", exception.RequestId);
+        Assert.Null(exception.ErrorCode);
+        Assert.DoesNotContain("oversized service error body", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Post_DoesNotRetryNonIdempotentRequest()
     {
         var handler = new QueueHttpMessageHandler();
@@ -213,7 +282,7 @@ public sealed class FabricHttpClientTests
             client.GetAsync<object>("workspaces"));
 
         Assert.DoesNotContain(StaticTokenProvider.Token, exception.ToString());
-        Assert.Null(exception.InnerException);
+        Assert.IsType<HttpRequestException>(exception.InnerException);
         Assert.Single(handler.Requests);
     }
 
@@ -250,5 +319,10 @@ public sealed class FabricHttpClientTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             client.GetAsync<object>("workspaces", cancellationToken: cancellation.Token));
+    }
+
+    private sealed class TestItem
+    {
+        public string? Id { get; set; }
     }
 }

@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('DBAClientX.')) Or '$(PackageId)' == 'DbaClientX.AzureTables'">
+    <!-- Compare public packages with the current published contract during pack. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.0.8</PackageValidationBaselineVersion>
+  </PropertyGroup>
+</Project>

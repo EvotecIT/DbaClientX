@@ -6,6 +6,19 @@ namespace DbaClientX.Tests;
 
 public class DbaConnectionFactoryTests
 {
+    [Fact]
+    public void Validate_DistinguishesShapeFromPolicy()
+    {
+        var policyFailure = DbaConnectionFactory.Validate("postgresql", "Server=.;Database=app");
+        var malformed = DbaConnectionFactory.Validate("postgresql", "Server==:bad");
+
+        Assert.True(policyFailure.ShapeValid);
+        Assert.False(policyFailure.PolicyValid);
+        Assert.False(policyFailure.IsValid);
+        Assert.False(malformed.ShapeValid);
+        Assert.False(malformed.PolicyValid);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

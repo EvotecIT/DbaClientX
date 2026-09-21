@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -115,6 +116,43 @@ public sealed class FabricHttpClient
         CancellationToken cancellationToken = default)
     {
         var values = new List<T>();
+        string? stableOperationId = operationId;
+        await foreach (var response in GetPagesAsync<T>(
+            requestUri,
+            operationId,
+            cancellationToken).ConfigureAwait(false))
+        {
+            stableOperationId = response.OperationId;
+            var pageValues = response.Value?.Value;
+            if (pageValues == null)
+            {
+                continue;
+            }
+
+            if (pageValues.Count > _options.MaxPaginationItems - values.Count)
+            {
+                throw new InvalidOperationException(
+                    "The service exceeded the configured pagination item limit.");
+            }
+
+            values.AddRange(pageValues);
+        }
+
+        return new FabricCollectionResult<T>(
+            values,
+            stableOperationId ?? throw new InvalidOperationException(
+                "The paged request did not establish an operation identifier."));
+    }
+
+    /// <summary>
+    /// Streams collection pages without retaining values from earlier pages. Continuations remain
+    /// restricted to the configured service authority and share one operation identifier.
+    /// </summary>
+    public async IAsyncEnumerable<FabricResponse<FabricPage<T>>> GetPagesAsync<T>(
+        string requestUri,
+        string? operationId = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
         var observedPages = new HashSet<string>(StringComparer.Ordinal);
         string? next = requestUri;
         string? stableOperationId = operationId;
@@ -140,18 +178,9 @@ public sealed class FabricHttpClient
                 stableOperationId,
                 cancellationToken).ConfigureAwait(false);
             stableOperationId = response.OperationId;
-            if (response.Value?.Value != null)
-            {
-                values.AddRange(response.Value.Value);
-            }
-
+            yield return response;
             next = response.Value?.ContinuationUri;
         }
-
-        return new FabricCollectionResult<T>(
-            values,
-            stableOperationId ?? throw new InvalidOperationException(
-                "The paged request did not establish an operation identifier."));
     }
 
     private async Task<FabricResponse<T>> SendTypedAsync<T>(
@@ -204,7 +233,8 @@ public sealed class FabricHttpClient
             {
                 DbaClientXDiagnostics.RecordException(operation.Activity, ex);
                 throw new HttpRequestException(
-                    "The Fabric request failed at the transport layer.");
+                    "The Fabric request failed at the transport layer.",
+                    new HttpRequestException("The underlying HTTP transport failed."));
             }
 
             using (response)
@@ -341,7 +371,7 @@ public sealed class FabricHttpClient
         return delay > _options.MaximumRetryDelay ? _options.MaximumRetryDelay : delay;
     }
 
-    private static async Task<T?> DeserializeAsync<T>(
+    private async Task<T?> DeserializeAsync<T>(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
@@ -350,7 +380,7 @@ public sealed class FabricHttpClient
             return default;
         }
 
-        using var content = await ReadContentStreamAsync(
+        using var content = await ReadBoundedContentStreamAsync(
             response.Content,
             cancellationToken).ConfigureAwait(false);
         if (content.CanSeek && content.Length == 0)
@@ -364,7 +394,7 @@ public sealed class FabricHttpClient
             cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<FabricApiException> CreateExceptionAsync(
+    private async Task<FabricApiException> CreateExceptionAsync(
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
@@ -373,7 +403,7 @@ public sealed class FabricHttpClient
         {
             try
             {
-                using var content = await ReadContentStreamAsync(
+                using var content = await ReadBoundedContentStreamAsync(
                     response.Content,
                     cancellationToken).ConfigureAwait(false);
                 using var document = await JsonDocument.ParseAsync(
@@ -387,6 +417,10 @@ public sealed class FabricHttpClient
             catch (JsonException)
             {
                 // Raw response content is intentionally not retained.
+            }
+            catch (ResponseContentTooLargeException)
+            {
+                // Preserve the HTTP error contract without retaining an oversized response body.
             }
         }
 
@@ -413,6 +447,20 @@ public sealed class FabricHttpClient
 #else
         return content.ReadAsStreamAsync(cancellationToken);
 #endif
+    }
+
+    private async Task<Stream> ReadBoundedContentStreamAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength is { } length &&
+            length > _options.MaxResponseContentBytes)
+        {
+            throw new ResponseContentTooLargeException();
+        }
+
+        var stream = await ReadContentStreamAsync(content, cancellationToken).ConfigureAwait(false);
+        return new LengthLimitedReadStream(stream, _options.MaxResponseContentBytes);
     }
 
     private static string? GetRequestId(HttpResponseMessage response)

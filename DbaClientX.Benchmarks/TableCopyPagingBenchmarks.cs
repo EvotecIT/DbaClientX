@@ -4,7 +4,10 @@ using DBAClientX.DataMovement;
 
 namespace DbaClientX.Benchmarks;
 
-/// <summary>Compares the cursor copy engine with the previous offset-loop behavior.</summary>
+/// <summary>
+/// Measures orchestration and allocation cost for cursor and offset paging over the same in-memory rows.
+/// This is not a database-provider throughput comparison.
+/// </summary>
 [MemoryDiagnoser]
 public class TableCopyPagingBenchmarks
 {

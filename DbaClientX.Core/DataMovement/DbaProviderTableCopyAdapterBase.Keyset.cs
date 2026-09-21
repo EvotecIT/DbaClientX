@@ -7,8 +7,6 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     private async Task<DbaTableCopyPage> ReadKeysetPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken)
     {
         request.Definition.Validate();
-        if (Provider is not (DbaTableCopyProvider.SQLite or DbaTableCopyProvider.SqlServer))
-            throw new NotSupportedException("Keyset table-copy reads currently support SQLite and SQL Server.");
         object[]? keys = DbaKeysetContinuationToken.Decode(request.Definition, request.ContinuationToken);
         var parameters = new Dictionary<string, object?>();
         string predicate = BuildKeysetPredicate(request.Definition.OrderByColumns!, keys, parameters);
@@ -24,9 +22,12 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         }
         string where = predicate.Length == 0 ? "" : " WHERE " + predicate;
         string order = BuildOrderByClause(request.Definition.OrderByColumns);
-        string query = Provider == DbaTableCopyProvider.SqlServer
-            ? $"SELECT TOP ({request.PageSize}) * FROM {from}{where}{order}"
-            : $"SELECT * FROM {from}{where}{order} LIMIT {request.PageSize}";
+        string query = Provider switch
+        {
+            DbaTableCopyProvider.SqlServer => $"SELECT TOP ({request.PageSize}) * FROM {from}{where}{order}",
+            DbaTableCopyProvider.Oracle => $"SELECT * FROM {from}{where}{order} FETCH FIRST {request.PageSize} ROWS ONLY",
+            _ => $"SELECT * FROM {from}{where}{order} LIMIT {request.PageSize}"
+        };
         DataTable table;
         try
         {
@@ -39,15 +40,18 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         try
         {
             if (rankColumn != null && table.Columns.Contains(rankColumn)) table.Columns.Remove(rankColumn);
-            foreach (string column in request.Definition.OrderByColumns!)
-            {
-                bool exists = Provider == DbaTableCopyProvider.SQLite
-                    ? table.Columns.Cast<DataColumn>().Any(actual => DbaIdentifierPath.NormalizeSqliteIdentifier(actual.ColumnName) == DbaIdentifierPath.NormalizeSqliteIdentifier(column))
-                    : table.Columns.Contains(column);
-                if (!exists) throw new InvalidOperationException($"Paging column '{column}' does not exist in table '{request.Definition.SourceName}'.");
-            }
+            IReadOnlyList<string> resultColumns = ResolveKeysetResultColumns(
+                Provider,
+                table.Columns,
+                request.Definition.OrderByColumns!,
+                request.Definition.SourceName);
             table.TableName = request.Definition.DestinationName;
-            string? nextToken = table.Rows.Count == 0 ? null : DbaKeysetContinuationToken.Encode(request.Definition, table.Rows[table.Rows.Count - 1]);
+            string? nextToken = table.Rows.Count == 0
+                ? null
+                : DbaKeysetContinuationToken.EncodeFromResultColumns(
+                    request.Definition,
+                    table.Rows[table.Rows.Count - 1],
+                    resultColumns);
             if (nextToken != null && string.Equals(nextToken, request.ContinuationToken, StringComparison.Ordinal))
                 throw new InvalidOperationException("The source key did not advance. Use a unique, non-null ascending key.");
             return new DbaTableCopyPage(table, nextToken);
@@ -59,22 +63,76 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         }
     }
 
+    internal static IReadOnlyList<string> ResolveKeysetResultColumns(
+        DbaTableCopyProvider provider,
+        DataColumnCollection resultColumns,
+        IReadOnlyList<string> orderByColumns,
+        string sourceName)
+    {
+        var resolved = new string[orderByColumns.Count];
+        for (var index = 0; index < orderByColumns.Count; index++)
+        {
+            string planned = orderByColumns[index];
+            bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
+            string physical = DbaIdentifierPath.UnquoteSegment(planned, provider);
+            bool emittedDelimited = delimited || DbaIdentifierPath.IsAutomaticallyDelimitedSegment(physical, provider);
+            if (!emittedDelimited)
+            {
+                physical = provider switch
+                {
+                    DbaTableCopyProvider.PostgreSql => physical.ToLowerInvariant(),
+                    DbaTableCopyProvider.Oracle => physical.ToUpperInvariant(),
+                    _ => physical
+                };
+            }
+
+            DataColumn? result = resultColumns.Cast<DataColumn>()
+                .FirstOrDefault(column => string.Equals(column.ColumnName, physical, StringComparison.Ordinal));
+            if (result == null && provider == DbaTableCopyProvider.SQLite)
+            {
+                string normalized = DbaIdentifierPath.NormalizeSqliteIdentifier(physical);
+                result = resultColumns.Cast<DataColumn>().FirstOrDefault(column =>
+                    DbaIdentifierPath.NormalizeSqliteIdentifier(column.ColumnName) == normalized);
+            }
+            if (result == null && provider is not DbaTableCopyProvider.PostgreSql and not DbaTableCopyProvider.Oracle &&
+                resultColumns.Contains(physical))
+            {
+                result = resultColumns[physical];
+            }
+            if (result == null)
+            {
+                throw new InvalidOperationException(
+                    $"Paging column '{planned}' does not exist in table '{sourceName}'.");
+            }
+
+            resolved[index] = result.ColumnName;
+        }
+
+        return resolved;
+    }
+
     private string BuildKeysetPredicate(IReadOnlyList<string> columns, object[]? values, IDictionary<string, object?> parameters)
     {
         if (values == null) return string.Empty;
-        for (int index = 0; index < values.Length; index++) parameters.Add("@dbax_key" + index, values[index]);
-        if (Provider == DbaTableCopyProvider.SQLite && columns.Count > 1)
-            return $"({string.Join(", ", columns.Select(QuotePath))}) > ({string.Join(", ", parameters.Keys)})";
+        for (int index = 0; index < values.Length; index++) parameters.Add(GetKeysetParameterName(index), values[index]);
+        if (Provider is DbaTableCopyProvider.SQLite or DbaTableCopyProvider.PostgreSql or DbaTableCopyProvider.MySql && columns.Count > 1)
+        {
+            var parameterNames = Enumerable.Range(0, columns.Count).Select(GetKeysetParameterName);
+            return $"({string.Join(", ", columns.Select(QuotePath))}) > ({string.Join(", ", parameterNames)})";
+        }
         var alternatives = new List<string>();
         for (int index = 0; index < columns.Count; index++)
         {
             var parts = new List<string>();
-            for (int previous = 0; previous < index; previous++) parts.Add($"{QuotePath(columns[previous])} = @dbax_key{previous}");
-            parts.Add($"{QuotePath(columns[index])} > @dbax_key{index}");
+            for (int previous = 0; previous < index; previous++) parts.Add($"{QuotePath(columns[previous])} = {GetKeysetParameterName(previous)}");
+            parts.Add($"{QuotePath(columns[index])} > {GetKeysetParameterName(index)}");
             alternatives.Add("(" + string.Join(" AND ", parts) + ")");
         }
         return string.Join(" OR ", alternatives);
     }
+
+    private string GetKeysetParameterName(int index)
+        => (Provider == DbaTableCopyProvider.Oracle ? ":dbax_key" : "@dbax_key") + index;
 
     /// <summary>Executes a parameterized keyset query with a row-payload limit. Providers opt in explicitly.</summary>
     protected virtual Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)

@@ -32,9 +32,16 @@ public sealed partial class SQLiteTableCopyAdapter
     /// <inheritdoc />
     protected override async Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
     {
-        using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using SqliteConnection? owned = _readConnection == null
+            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            : null;
+        SqliteConnection connection = _readConnection ?? owned!;
+        if (owned != null)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
         using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = _readTransaction;
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);

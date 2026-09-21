@@ -1,14 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.DataMovement;
 using MySqlConnector;
 
 namespace DBAClientX;
 
 public partial class MySql
 {
+    internal const string RollbackCapableBulkDestinationQuery = @"SELECT ENGINE
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+  AND ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))";
+
+    private readonly ConditionalWeakTable<MySqlBulkCopy, TransactionalBulkCopyMarker> _transactionalBulkCopies = new();
+
     /// <summary>
     /// Performs a bulk insert using <see cref="MySqlBulkCopy"/> and the provided <see cref="DataTable"/> payload.
     /// </summary>
@@ -46,11 +56,18 @@ public partial class MySql
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
         var dispose = false;
+        var ownsWriteTransaction = false;
 
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
-            var bulkCopy = CreateBulkCopy(connection!, transaction);
+            EnsureRollbackCapableBulkDestination(connection!, transaction, destinationTable);
+            if (transaction == null)
+            {
+                transaction = BeginBulkCopyTransaction(connection!);
+                ownsWriteTransaction = true;
+            }
+            var bulkCopy = TrackBulkCopy(CreateBulkCopy(connection!, transaction), transaction);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
@@ -65,17 +82,24 @@ public partial class MySql
             {
                 WriteToServer(bulkCopy, table);
             }
+            if (ownsWriteTransaction && transaction != null)
+            {
+                CommitDbTransaction(transaction);
+            }
         }
         catch (DbaTransactionException)
         {
+            if (ownsWriteTransaction) TryRollbackDbTransactionOnDispose(transaction);
             throw;
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            if (ownsWriteTransaction) TryRollbackDbTransactionOnDispose(transaction);
+            throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
         finally
         {
+            if (ownsWriteTransaction) transaction?.Dispose();
             if (dispose)
             {
                 DisposeConnection(connection!);
@@ -122,11 +146,22 @@ public partial class MySql
         MySqlConnection? connection = null;
         MySqlTransaction? transaction = null;
         var dispose = false;
+        var ownsWriteTransaction = false;
 
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            var bulkCopy = CreateBulkCopy(connection!, transaction);
+            await EnsureRollbackCapableBulkDestinationAsync(
+                connection!,
+                transaction,
+                destinationTable,
+                cancellationToken).ConfigureAwait(false);
+            if (transaction == null)
+            {
+                transaction = await BeginBulkCopyTransactionAsync(connection!, cancellationToken).ConfigureAwait(false);
+                ownsWriteTransaction = true;
+            }
+            var bulkCopy = TrackBulkCopy(CreateBulkCopy(connection!, transaction), transaction);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, bulkCopyTimeout);
 
             if (batchSize.HasValue && batchSize.Value > 0)
@@ -141,17 +176,29 @@ public partial class MySql
             {
                 await WriteToServerAsync(bulkCopy, table, cancellationToken).ConfigureAwait(false);
             }
+            if (ownsWriteTransaction && transaction != null)
+            {
+                await CommitDbTransactionAsync(transaction, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (DbaTransactionException)
         {
+            if (ownsWriteTransaction) await TryRollbackDbTransactionOnDisposeAsync(transaction).ConfigureAwait(false);
             throw;
         }
         catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
+            if (ownsWriteTransaction) await TryRollbackDbTransactionOnDisposeAsync(transaction).ConfigureAwait(false);
             throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
+        }
+        catch
+        {
+            if (ownsWriteTransaction) await TryRollbackDbTransactionOnDisposeAsync(transaction).ConfigureAwait(false);
+            throw;
         }
         finally
         {
+            if (ownsWriteTransaction) transaction?.Dispose();
             await DisposeOwnedResourceAsync(connection, dispose, DisposeConnectionAsync).ConfigureAwait(false);
         }
     }
@@ -161,25 +208,111 @@ public partial class MySql
     /// </summary>
     protected virtual MySqlBulkCopy CreateBulkCopy(MySqlConnection connection, MySqlTransaction? transaction) => new(connection, transaction);
 
+    /// <summary>Begins the rollback-capable transaction used for an otherwise standalone strict bulk write.</summary>
+    protected virtual MySqlTransaction? BeginBulkCopyTransaction(MySqlConnection connection)
+        => BeginDbTransaction(connection, IsolationLevel.ReadCommitted);
+
+    /// <summary>Begins the rollback-capable transaction used for an otherwise standalone strict asynchronous bulk write.</summary>
+    protected virtual async Task<MySqlTransaction?> BeginBulkCopyTransactionAsync(
+        MySqlConnection connection,
+        CancellationToken cancellationToken)
+        => await BeginDbTransactionAsync(connection, IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>Ensures a strict bulk destination can roll back warning-bearing writes.</summary>
+    protected virtual void EnsureRollbackCapableBulkDestination(
+        MySqlConnection connection,
+        MySqlTransaction? transaction,
+        string destinationTable)
+    {
+        (string database, string table) = ResolveBulkDestination(connection, destinationTable);
+        using var command = new MySqlCommand(RollbackCapableBulkDestinationQuery, connection, transaction)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@database", database);
+        command.Parameters.AddWithValue("@table", table);
+        ValidateRollbackCapableBulkDestination(destinationTable, Convert.ToString(command.ExecuteScalar()));
+    }
+
+    /// <summary>Ensures an asynchronous strict bulk destination can roll back warning-bearing writes.</summary>
+    protected virtual async Task EnsureRollbackCapableBulkDestinationAsync(
+        MySqlConnection connection,
+        MySqlTransaction? transaction,
+        string destinationTable,
+        CancellationToken cancellationToken)
+    {
+        (string database, string table) = ResolveBulkDestination(connection, destinationTable);
+        await using var command = new MySqlCommand(RollbackCapableBulkDestinationQuery, connection, transaction)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@database", database);
+        command.Parameters.AddWithValue("@table", table);
+        ValidateRollbackCapableBulkDestination(
+            destinationTable,
+            Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)));
+    }
+
+    private static (string Database, string Table) ResolveBulkDestination(
+        MySqlConnection connection,
+        string destinationTable)
+    {
+        string[] segments = DbaIdentifierPath.SplitSegments(destinationTable, DbaTableCopyProvider.MySql)
+            .Select(segment => DbaIdentifierPath.UnquoteSegment(segment, DbaTableCopyProvider.MySql))
+            .ToArray();
+        if (segments.Length is < 1 or > 2)
+        {
+            throw new ArgumentException(
+                "MySQL bulk destinations support table or database.table names.",
+                nameof(destinationTable));
+        }
+
+        string database = segments.Length == 2 ? segments[0] : connection.Database;
+        if (string.IsNullOrWhiteSpace(database))
+        {
+            throw new InvalidOperationException(
+                $"MySQL bulk destination '{destinationTable}' requires a selected database or a database-qualified table name.");
+        }
+
+        return (database, segments[segments.Length - 1]);
+    }
+
+    internal static void ValidateRollbackCapableBulkDestination(string destinationTable, string? engine)
+    {
+        if (string.Equals(engine, "InnoDB", StringComparison.OrdinalIgnoreCase)) return;
+        throw new InvalidOperationException(
+            $"MySQL bulk destination '{destinationTable}' must use InnoDB so conversion-warning failures can be rolled back; found '{engine ?? "unknown"}'.");
+    }
+
     /// <summary>
     /// Writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table) => bulkCopy.WriteToServer(table);
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table)
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(table), bulkCopy.DestinationTableName, bulkCopy);
 
     /// <summary>
     /// Asynchronously writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(table, cancellationToken).AsTask();
+    protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, DataTable table, CancellationToken cancellationToken)
+        => ThrowIfBulkCopyWarnings(
+            await bulkCopy.WriteToServerAsync(table, cancellationToken).ConfigureAwait(false),
+            bulkCopy.DestinationTableName,
+            bulkCopy);
 
     /// <summary>
     /// Writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount) => bulkCopy.WriteToServer(rows, columnCount);
+    protected virtual void WriteToServer(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount)
+        => ThrowIfBulkCopyWarnings(bulkCopy.WriteToServer(rows, columnCount), bulkCopy.DestinationTableName, bulkCopy);
 
     /// <summary>
     /// Asynchronously writes a row sequence to the server using the provided bulk copy instance.
     /// </summary>
-    protected virtual Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).AsTask();
+    protected virtual async Task WriteToServerAsync(MySqlBulkCopy bulkCopy, IEnumerable<DataRow> rows, int columnCount, CancellationToken cancellationToken)
+        => ThrowIfBulkCopyWarnings(
+            await bulkCopy.WriteToServerAsync(rows, columnCount, cancellationToken).ConfigureAwait(false),
+            bulkCopy.DestinationTableName,
+            bulkCopy);
 
     private static void ConfigureBulkCopy(MySqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
     {
@@ -242,6 +375,16 @@ public partial class MySql
         {
             yield return rows[i];
         }
+    }
+
+    private sealed class TransactionalBulkCopyMarker
+    {
+    }
+
+    private MySqlBulkCopy TrackBulkCopy(MySqlBulkCopy bulkCopy, MySqlTransaction? transaction)
+    {
+        if (transaction != null) _transactionalBulkCopies.Add(bulkCopy, new TransactionalBulkCopyMarker());
+        return bulkCopy;
     }
 
     private static void ValidateBulkInsertInputs(DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout)

@@ -20,6 +20,8 @@ public class MySqlBulkInsertTests
         public string? ConnectionString { get; private set; }
         public int SyncDisposeCalls { get; private set; }
         public int AsyncDisposeCalls { get; private set; }
+        public int SyncOwnedTransactionStarts { get; private set; }
+        public int AsyncOwnedTransactionStarts { get; private set; }
 
         protected override MySqlConnection CreateConnection(string connectionString)
         {
@@ -33,6 +35,34 @@ public class MySqlBulkInsertTests
         }
 
         protected override Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        protected override void EnsureRollbackCapableBulkDestination(
+            MySqlConnection connection,
+            MySqlTransaction? transaction,
+            string destinationTable)
+        {
+        }
+
+        protected override Task EnsureRollbackCapableBulkDestinationAsync(
+            MySqlConnection connection,
+            MySqlTransaction? transaction,
+            string destinationTable,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        protected override MySqlTransaction? BeginBulkCopyTransaction(MySqlConnection connection)
+        {
+            SyncOwnedTransactionStarts++;
+            return null;
+        }
+
+        protected override Task<MySqlTransaction?> BeginBulkCopyTransactionAsync(
+            MySqlConnection connection,
+            CancellationToken cancellationToken)
+        {
+            AsyncOwnedTransactionStarts++;
+            return Task.FromResult<MySqlTransaction?>(null);
+        }
 
         protected override void WriteToServer(MySqlBulkCopy bulkCopy, DataTable table)
         {
@@ -117,6 +147,8 @@ public class MySqlBulkInsertTests
         Assert.Contains("AllowLoadLocalInfile=true", mySql.ConnectionString, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(1, mySql.SyncDisposeCalls);
         Assert.Equal(0, mySql.AsyncDisposeCalls);
+        Assert.Equal(1, mySql.SyncOwnedTransactionStarts);
+        Assert.Equal(0, mySql.AsyncOwnedTransactionStarts);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);
@@ -138,6 +170,22 @@ public class MySqlBulkInsertTests
             mySql.BulkInsert("h", "db", "u", "p", table, "Dest", bulkCopyTimeout: -1));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("MyISAM")]
+    public void BulkInsert_RejectsDestinationsThatCannotRollbackWarnings(string? engine)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DBAClientX.MySql.ValidateRollbackCapableBulkDestination("app.rows", engine));
+
+        Assert.Contains("InnoDB", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BulkInsert_AcceptsInnoDbDestinationForStrictWarningHandling()
+        => DBAClientX.MySql.ValidateRollbackCapableBulkDestination("app.rows", "InnoDB");
+
     [Fact]
     public async Task BulkInsertAsync_SetsOptionsAndMappings()
     {
@@ -155,6 +203,8 @@ public class MySqlBulkInsertTests
         Assert.Contains("AllowLoadLocalInfile=true", mySql.ConnectionString, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, mySql.SyncDisposeCalls);
         Assert.Equal(1, mySql.AsyncDisposeCalls);
+        Assert.Equal(0, mySql.SyncOwnedTransactionStarts);
+        Assert.Equal(1, mySql.AsyncOwnedTransactionStarts);
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 0 && m.Destination == "Id");
         Assert.Contains(mySql.Mappings, m => m.Ordinal == 1 && m.Destination == "Name");
         Assert.Equal(new[] { 1, 1 }, mySql.BatchRowCounts);

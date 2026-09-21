@@ -68,7 +68,7 @@ public partial class MySql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute query.", query, ex);
         }
         finally
         {
@@ -123,7 +123,7 @@ public partial class MySql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute scalar query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute scalar query.", query, ex);
         }
         finally
         {
@@ -177,7 +177,7 @@ public partial class MySql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute non-query.", query, ex);
+            throw CreateQueryExecutionException("Failed to execute non-query.", query, ex);
         }
         finally
         {
@@ -297,5 +297,25 @@ public partial class MySql
             TypeCode.DateTime => DbType.DateTime,
             _ => DbType.Object
         };
+    }
+
+    /// <inheritdoc />
+    protected override int? GetProviderErrorCode(Exception exception)
+        => FindMySqlException(exception) is MySqlException mySqlException
+            ? (int)mySqlException.ErrorCode
+            : base.GetProviderErrorCode(exception);
+
+    /// <inheritdoc />
+    protected override DbaProviderErrorKind GetProviderErrorKind(Exception exception)
+        => FindMySqlException(exception) is MySqlException mySqlException &&
+           MySqlTableCopyAdapter.IsMissingTableErrorCode(mySqlException.ErrorCode)
+            ? DbaProviderErrorKind.MissingTable
+            : base.GetProviderErrorKind(exception);
+
+    private static MySqlException? FindMySqlException(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+            if (current is MySqlException mySqlException) return mySqlException;
+        return null;
     }
 }

@@ -209,6 +209,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     /// <inheritdoc />
     protected override void EndProcessing()
     {
+        string? destinationTarget = null;
         try
         {
             ValidateOptions();
@@ -232,7 +233,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             }
 
             var definitions = BuildDefinitions();
-            var destinationTarget = definitions.Count == 1 ? definitions[0].DestinationName : $"{definitions.Count} table definitions";
+            destinationTarget = definitions.Count == 1 ? definitions[0].DestinationName : $"{definitions.Count} table definitions";
             var processMessage = definitions.Count == 1
                 ? $"Copy rows from {SourceProvider}:{definitions[0].SourceName} to {DestinationProvider}:{definitions[0].DestinationName}"
                 : $"Copy rows from {SourceProvider} to {DestinationProvider} using {definitions.Count} table definitions";
@@ -287,11 +288,17 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
         catch (Exception ex)
         {
-            WriteWarning($"Copy-DbaXTableData - Error copying table data: {ex.Message}");
+            ErrorRecord safeError = PowerShellHelpers.CreateSafeErrorRecord(
+                ex,
+                "CopyDbaXTableData",
+                destinationTarget);
             if (_errorAction == ActionPreference.Stop)
             {
-                throw;
+                ThrowTerminatingError(safeError);
+                return;
             }
+
+            WriteError(safeError);
         }
     }
 

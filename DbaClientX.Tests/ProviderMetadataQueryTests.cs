@@ -53,6 +53,15 @@ public class ProviderMetadataQueryTests
             Assert.Contains("generated_expression", query);
             Assert.Contains("generated_kind", query);
         }
+
+        string oracleColumns = GetQuery<DBAClientX.Oracle>("OracleColumnsQuery");
+        Assert.Contains("virtual_column", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("data_default AS default_expression", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("THEN data_default", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("data_default ELSE", oracleColumns, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("all_tab_identity_cols", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("owner = :owner", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("table_name = :table", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -108,6 +117,9 @@ public class ProviderMetadataQueryTests
         Assert.Contains("EXPRESSION AS expression", indexesWithExpressionsAndVisibility);
         Assert.Contains("CASE WHEN IS_VISIBLE = 'YES' THEN 1 WHEN IS_VISIBLE = 'NO' THEN 0 ELSE NULL END AS is_visible", indexesWithExpressionsAndVisibility);
         Assert.Contains("CASE WHEN ROUTINE_TYPE = 'FUNCTION' THEN NULLIF(DTD_IDENTIFIER, '') ELSE NULL END AS data_type", routines);
+        Assert.Contains("@@lower_case_table_names", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("BINARY TABLE_SCHEMA = BINARY @schema", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("BINARY TABLE_NAME = BINARY @table", DBAClientX.MySql.MySqlTableCopyColumnsQuery, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -159,6 +171,64 @@ public class ProviderMetadataQueryTests
         Assert.Contains("cols.ordinality > ix.indnkeyatts AS is_included", indexes);
         Assert.DoesNotContain("cols.ordinality <= ix.indnkeyatts)\r\nORDER BY", indexes);
         Assert.Contains("bool_and(tg.tgenabled <> 'D') AS is_enabled", foreignKeys);
+    }
+
+    [Fact]
+    public void PostgreSqlTableCopyPreflight_ExcludesForeignTables()
+    {
+        string checkpoint = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlCheckpointDestinationIdentityQuery;
+        string checkpointStorage = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlCheckpointStorageDurabilityQuery;
+        string schema = DBAClientX.PostgreSqlTableCopyAdapter.PostgreSqlSchemaPreflightDestinationQuery;
+
+        Assert.Contains("relkind IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relkind IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence = 'p'", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence = 'p'", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pg_catalog.pg_inherits", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("descendant.relkind NOT IN ('r', 'p')", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("descendant.relkind NOT IN ('r', 'p')", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("'f'", checkpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("'f'", schema, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relpersistence", checkpointStorage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("relkind IN ('r', 'p')", checkpointStorage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("u")]
+    [InlineData("t")]
+    public void PostgreSqlCheckpointStorage_RejectsNonPermanentTables(string? persistence)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DBAClientX.PostgreSqlTableCopyAdapter.ValidateCheckpointStorageDurability(persistence));
+
+        Assert.Contains("permanent logged table", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PostgreSqlCheckpointStorage_AcceptsPermanentLoggedTable()
+    {
+        DBAClientX.PostgreSqlTableCopyAdapter.ValidateCheckpointStorageDurability("p");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("MyISAM")]
+    public void MySqlCheckpointStorage_RejectsNonTransactionalEngines(string? engine)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            DBAClientX.MySqlTableCopyAdapter.ValidateCheckpointStorageEngine(engine));
+
+        Assert.Contains("InnoDB", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MySqlCheckpointStorage_AcceptsInnoDb()
+    {
+        DBAClientX.MySqlTableCopyAdapter.ValidateCheckpointStorageEngine("InnoDB");
     }
 
     private static string GetQuery<T>(string fieldName)

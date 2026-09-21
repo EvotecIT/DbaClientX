@@ -150,4 +150,31 @@ public class SqlServerMonitoringTests
         var providerException = Assert.IsType<OperationCanceledException>(exception.InnerException);
         Assert.Equal(default, providerException.CancellationToken);
     }
+
+    [Theory]
+    [InlineData(18456, "authentication")]
+    [InlineData(4060, "database-unavailable")]
+    [InlineData(-2, "timeout")]
+    public void MonitoringClassification_UsesSanitizedProviderErrorCodes(int providerErrorCode, string expected)
+    {
+        var exception = new DbaQueryExecutionException(
+            "The database operation failed.",
+            query: null,
+            innerException: new InvalidOperationException("sensitive provider text"),
+            providerErrorCode);
+
+        Assert.Equal(expected, SqlServer.ClassifySqlMonitoringError(exception));
+    }
+
+    [Fact]
+    public void MonitoringClassification_UsesSanitizedTimeoutType()
+    {
+        var exception = new DbaQueryExecutionException(
+            "The database operation failed.",
+            query: null,
+            innerException: new TimeoutException("sensitive provider text"),
+            providerErrorCode: null);
+
+        Assert.Equal("timeout", SqlServer.ClassifySqlMonitoringError(exception));
+    }
 }
