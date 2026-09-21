@@ -75,4 +75,65 @@ public sealed partial class DbaTableCopySqlServerReliabilityTests
         Assert.True(result.Verified);
         Assert.Equal(3L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT COUNT_BIG(*) FROM {fixture.Table} WHERE Extra=7")));
     }
+
+    [Fact]
+    public async Task CopyAsync_OmittedSqlIdentityColumn_PreservesRowsAndIdentitySeedBeforeClear()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.CopyAsync(new() { KeepIdentity = true });
+        decimal identityBefore = Convert.ToDecimal(await fixture.Sql.ExecuteScalarAsync(
+            fixture.Connection,
+            $"SELECT IDENT_CURRENT(N'{fixture.Table.Replace("'", "''")}')"));
+        DbaTableCopyDefinition definition = fixture.Definition with { ExcludedColumns = new[] { "Id" } };
+
+        InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new DbaTableCopyEngine().CopyAsync(
+                fixture.Source,
+                fixture.Destination,
+                new[] { definition },
+                new() { ClearDestination = true, KeepIdentity = true }));
+
+        Assert.Contains("omits identity column", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(3L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT COUNT_BIG(*) FROM {fixture.Table}")));
+        Assert.Equal(identityBefore, Convert.ToDecimal(await fixture.Sql.ExecuteScalarAsync(
+            fixture.Connection,
+            $"SELECT IDENT_CURRENT(N'{fixture.Table.Replace("'", "''")}')")));
+    }
+
+    [Fact]
+    public async Task CopyAsync_EmptyBatchSourceWithTrigger_PreservesDestinationBeforeClear()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        string targetName = "dbo.DbaxEmptyTriggerTarget" + Guid.NewGuid().ToString("N");
+        string triggerName = "dbo.DbaxEmptyDeleteTrigger" + Guid.NewGuid().ToString("N");
+        using var sqlite = new SQLite();
+        sqlite.ExecuteNonQuery(fixture.LocalPath, "CREATE TABLE EmptySourceRows (Id INTEGER PRIMARY KEY, Value TEXT NULL)");
+        try
+        {
+            await fixture.Sql.ExecuteNonQueryAsync(
+                fixture.Connection,
+                $"CREATE TABLE {targetName} (Id bigint NOT NULL PRIMARY KEY, Value nvarchar(50) NULL); " +
+                $"INSERT INTO {targetName} VALUES (99,N'preserve'); " +
+                $"CREATE TRIGGER {triggerName} ON {targetName} AFTER DELETE AS BEGIN SET NOCOUNT ON; END");
+            var emptyDefinition = new DbaTableCopyDefinition("EmptySourceRows", targetName, new[] { "Id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    fixture.Source,
+                    fixture.Destination,
+                    new[] { fixture.Definition, emptyDefinition },
+                    new() { ClearDestination = true, KeepIdentity = true }));
+
+            Assert.Contains("enabled INSERT or DELETE trigger", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT COUNT_BIG(*) FROM {targetName}")));
+            Assert.Equal("preserve", Convert.ToString(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT Value FROM {targetName}")));
+        }
+        finally
+        {
+            await fixture.Sql.ExecuteNonQueryAsync(fixture.Connection, $"DROP TABLE IF EXISTS {targetName}");
+        }
+    }
 }

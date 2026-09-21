@@ -65,11 +65,16 @@ WHERE trigger_info.parent_id = OBJECT_ID(@name, N'U')
             SelectBatchPreflightDatabase(connection, definitions);
             for (var index = 0; index < definitions.Count; index++)
             {
+                await ValidateRollbackSafeTriggersAsync(
+                    connection, definitions[index].DestinationName, cancellationToken).ConfigureAwait(false);
                 if (firstPages[index] is not DataTable page) continue;
                 IReadOnlyList<DbaColumnInfo> columns = await ValidateSchemaAsync(
                     connection, definitions[index], page, options, cancellationToken).ConfigureAwait(false);
-                await ValidateRollbackSafetyAsync(
-                    connection, definitions[index], page, columns, options, cancellationToken).ConfigureAwait(false);
+                ValidateRollbackSafeGeneratorProjection(
+                    definitions[index].DestinationName,
+                    GetProjectedDestinationColumns(page),
+                    columns,
+                    HasKeepIdentity(options));
             }
 
             var session = new SqlServerSchemaPreflightBatchSession(
@@ -100,35 +105,70 @@ WHERE trigger_info.parent_id = OBJECT_ID(@name, N'U')
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
-        bool keepIdentity = ((GetEffectiveBulkInsertOptions(options)?.BulkCopyOptions ?? SqlBulkCopyOptions.Default) & SqlBulkCopyOptions.KeepIdentity) != 0;
-        if (!keepIdentity && columns.Any(static column => column.IsIdentity == true))
+        ValidateRollbackSafeGeneratorProjection(
+            definition.DestinationName,
+            GetProjectedDestinationColumns(page),
+            columns,
+            HasKeepIdentity(options));
+        await ValidateRollbackSafeTriggersAsync(
+            connection, definition.DestinationName, cancellationToken).ConfigureAwait(false);
+    }
+
+    private bool HasKeepIdentity(DbaTableCopyOptions options)
+        => ((GetEffectiveBulkInsertOptions(options)?.BulkCopyOptions ?? SqlBulkCopyOptions.Default) & SqlBulkCopyOptions.KeepIdentity) != 0;
+
+    private IReadOnlyCollection<string> GetProjectedDestinationColumns(DataTable page)
+        => page.Columns.Cast<DataColumn>().Select(column =>
+            _bulkInsertOptions?.ColumnMappings?.TryGetValue(column.ColumnName, out string? mapped) == true
+                ? mapped
+                : column.ColumnName).ToArray();
+
+    internal static void ValidateRollbackSafeGeneratorProjection(
+        string tableName,
+        IReadOnlyCollection<string> projectedColumns,
+        IReadOnlyList<DbaColumnInfo> destinationColumns,
+        bool keepIdentity)
+    {
+        var projected = new HashSet<string>(projectedColumns, StringComparer.OrdinalIgnoreCase);
+        DbaColumnInfo? identityColumn = destinationColumns.FirstOrDefault(static column => column.IsIdentity == true);
+        if (identityColumn != null && !keepIdentity)
         {
             throw new InvalidOperationException(
-                $"SQL Server destination '{definition.DestinationName}' uses an identity generator. ClearDestination all-page preflight requires KeepIdentity and explicit identity values so validation does not consume nontransactional identity values.");
+                $"SQL Server destination '{tableName}' uses an identity generator. ClearDestination all-page preflight requires KeepIdentity and explicit identity values so validation does not consume nontransactional identity values.");
         }
 
-        var projected = new HashSet<string>(
-            page.Columns.Cast<DataColumn>().Select(column =>
-                _bulkInsertOptions?.ColumnMappings?.TryGetValue(column.ColumnName, out string? mapped) == true ? mapped : column.ColumnName),
-            StringComparer.OrdinalIgnoreCase);
-        DbaColumnInfo? sequenceColumn = columns.FirstOrDefault(column =>
+        DbaColumnInfo? omittedIdentity = destinationColumns.FirstOrDefault(column =>
+            column.IsIdentity == true && !projected.Contains(column.Name));
+        if (omittedIdentity != null)
+        {
+            throw new InvalidOperationException(
+                $"SQL Server destination '{tableName}' omits identity column '{omittedIdentity.Name}'. ClearDestination cannot safely preflight this projection because identity advances are not rolled back. Project an explicit value for the column with KeepIdentity, or copy without ClearDestination.");
+        }
+
+        DbaColumnInfo? sequenceColumn = destinationColumns.FirstOrDefault(column =>
             !projected.Contains(column.Name) &&
             column.DefaultExpression?.IndexOf("NEXT VALUE FOR", StringComparison.OrdinalIgnoreCase) >= 0);
         if (sequenceColumn != null)
         {
             throw new InvalidOperationException(
-                $"SQL Server destination '{definition.DestinationName}' omits sequence-backed column '{sequenceColumn.Name}'. ClearDestination cannot preflight it without consuming nontransactional sequence values.");
+                $"SQL Server destination '{tableName}' omits sequence-backed column '{sequenceColumn.Name}'. ClearDestination cannot preflight it without consuming nontransactional sequence values.");
         }
+    }
 
+    private async Task ValidateRollbackSafeTriggersAsync(
+        SqlConnection connection,
+        string destinationName,
+        CancellationToken cancellationToken)
+    {
         using var trigger = new SqlCommand(SqlServerRollbackUnsafeTriggerQuery, connection)
         {
             CommandTimeout = CommandTimeout
         };
-        trigger.Parameters.Add(new SqlParameter("@name", SqlDbType.NVarChar, 776) { Value = QuotePath(definition.DestinationName) });
+        trigger.Parameters.Add(new SqlParameter("@name", SqlDbType.NVarChar, 776) { Value = QuotePath(destinationName) });
         if (await trigger.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) != null)
         {
             throw new InvalidOperationException(
-                $"SQL Server destination '{definition.DestinationName}' has an enabled INSERT or DELETE trigger. ClearDestination cannot safely preflight trigger side effects.");
+                $"SQL Server destination '{destinationName}' has an enabled INSERT or DELETE trigger. ClearDestination cannot safely preflight trigger side effects.");
         }
     }
 

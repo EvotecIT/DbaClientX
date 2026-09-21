@@ -640,6 +640,42 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("sequence advances are not rolled back", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public void SqlServerSchemaPreflight_RequiresProjectedIdentityValues(
+        bool keepIdentity,
+        bool projectIdentity,
+        bool shouldReject)
+    {
+        var columns = new[]
+        {
+            new DbaColumnInfo("dbo", "Rows", "Id", "bigint") { IsIdentity = true },
+            new DbaColumnInfo("dbo", "Rows", "Value", "nvarchar(50)")
+        };
+        string[] projected = projectIdentity ? new[] { "Id", "Value" } : new[] { "Value" };
+
+        Exception? exception = Record.Exception(() =>
+            SqlServerTableCopyAdapter.ValidateRollbackSafeGeneratorProjection(
+                "dbo.Rows",
+                projected,
+                columns,
+                keepIdentity));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("identity", invalid.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(keepIdentity ? "not rolled back" : "KeepIdentity", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+    }
+
     [Fact]
     public void MySqlSchemaPreflight_RejectsOmittedAutoIncrementColumns()
     {
@@ -706,6 +742,11 @@ public class DbaProviderTableCopyAdapterBaseTests
     [Fact]
     public void RollbackOnlyPreflight_RejectsProviderTriggersThatCanEscapeRollback()
     {
+        string sqlServer = SqlServerTableCopyAdapter.SqlServerRollbackUnsafeTriggerQuery;
+        Assert.Contains("sys.triggers", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ExecIsInsertTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ExecIsDeleteTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
+
         string postgreSql = PostgreSqlTableCopyAdapter.PostgreSqlRollbackUnsafeTriggerQuery;
         Assert.Contains("pg_trigger", postgreSql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NOT tgisinternal", postgreSql, StringComparison.OrdinalIgnoreCase);
