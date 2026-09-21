@@ -516,6 +516,22 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.True(MySqlTableCopyAdapter.IsPortableDecimalProjection(converted, "amount"));
     }
 
+    [Theory]
+    [InlineData(28, DbaTableCopyProvider.SQLite, true)]
+    [InlineData(29, DbaTableCopyProvider.SQLite, false)]
+    [InlineData(38, DbaTableCopyProvider.Oracle, true)]
+    [InlineData(39, DbaTableCopyProvider.Oracle, false)]
+    [InlineData(65, DbaTableCopyProvider.MySql, true)]
+    public void MySqlDecimalPrecision_RespectsDestinationNumericRange(
+        int precision,
+        DbaTableCopyProvider destinationProvider,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            MySqlTableCopyAdapter.IsMySqlDecimalPrecisionPortable(precision, destinationProvider));
+    }
+
     [Fact]
     public void MySqlArbitraryDecimalProjection_HonorsConfiguredComparers()
     {
@@ -742,6 +758,46 @@ public class DbaProviderTableCopyAdapterBaseTests
         {
             Assert.Null(exception);
         }
+    }
+
+    [Theory]
+    [InlineData(99L, false)]
+    [InlineData(100L, true)]
+    [InlineData(150L, true)]
+    public void MySqlSchemaPreflight_RejectsExplicitValuesThatAdvanceAutoIncrement(
+        long value,
+        bool shouldReject)
+    {
+        using var page = new DataTable();
+        page.Columns.Add("Id", typeof(long));
+        page.Rows.Add(value);
+        var columns = new[]
+        {
+            new DbaColumnInfo("app", "rows", "Id", "bigint") { IsIdentity = true }
+        };
+
+        Exception? exception = Record.Exception(() =>
+            MySqlTableCopyAdapter.ValidateRollbackSafeGeneratorValues(
+                "app.rows",
+                page,
+                columns,
+                noAutoValueOnZero: false,
+                nextAutoIncrement: 100m));
+
+        if (shouldReject)
+        {
+            var invalid = Assert.IsType<InvalidOperationException>(exception);
+            Assert.Contains("current next value 100", invalid.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("not rolled back", invalid.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.Null(exception);
+        }
+
+        Assert.Contains("SELECT AUTO_INCREMENT", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY TABLE_SCHEMA = BINARY @database", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("BINARY TABLE_NAME = BINARY @table", MySqlTableCopyAdapter.MySqlAutoIncrementValueQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

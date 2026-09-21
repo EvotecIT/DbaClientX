@@ -178,6 +178,28 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task CheckIntegrityAsync_OperationalFailure_IsSanitized()
+    {
+        string database = Path.Combine(Path.GetTempPath(), $"dbaclientx-invalid-{Guid.NewGuid():N}.sqlite");
+        await File.WriteAllTextAsync(database, "not a sqlite database; server=secret;password=hidden");
+        try
+        {
+            using var sqlite = new SQLite();
+
+            DbaQueryExecutionException exception = await Assert.ThrowsAsync<DbaQueryExecutionException>(() =>
+                sqlite.CheckIntegrityAsync(database, fullCheck: true));
+
+            Assert.Contains("integrity", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(exception.ProviderErrorCode);
+            Assert.DoesNotContain("password=hidden", exception.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Cleanup(database);
+        }
+    }
+
+    [Fact]
     public async Task BackupDatabaseIncrementalAsync_CompletedBackup_IsReadableAndReportsProgress()
     {
         string source = CreateDatabase(rowCount: 256);

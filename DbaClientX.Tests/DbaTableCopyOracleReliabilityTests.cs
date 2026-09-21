@@ -69,7 +69,35 @@ public sealed class DbaTableCopyOracleReliabilityTests
             "PERIOD",
             "INTERVAL YEAR(4) TO MONTH",
             DbaTableCopyProvider.PostgreSql,
-            portableProjection: false);
+            portableProjection: false,
+            leadingYearPrecision: 8);
+    }
+
+    [Fact]
+    public void DestinationCompatibility_RejectsOracleYearMonthIntervalsBeyondPostgreSqlRange()
+    {
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.ValidateOracleYearMonthProjection(
+                "SOURCE_ROWS",
+                "PERIOD",
+                "INTERVAL YEAR(9) TO MONTH",
+                DbaTableCopyProvider.PostgreSql,
+                portableProjection: false,
+                leadingYearPrecision: null));
+
+        Assert.Contains("32-bit interval month range", exception.Message, StringComparison.OrdinalIgnoreCase);
+        OracleTableCopyAdapter.ValidateOracleYearMonthProjection(
+            "SOURCE_ROWS",
+            "PERIOD",
+            "INTERVAL YEAR(9) TO MONTH",
+            DbaTableCopyProvider.PostgreSql,
+            portableProjection: true,
+            leadingYearPrecision: 9);
+        Assert.Equal(
+            9,
+            OracleTableCopyAdapter.ResolveOracleYearLeadingPrecision(
+                "INTERVAL YEAR(9) TO MONTH",
+                metadataPrecision: null));
     }
 
     [Fact]

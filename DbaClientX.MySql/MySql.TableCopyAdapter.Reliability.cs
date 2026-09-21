@@ -15,6 +15,12 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TRIGGER_SCHEMA = BINARY @databas
   AND EVENT_MANIPULATION IN ('INSERT', 'DELETE')
 LIMIT 1";
 
+    internal const string MySqlAutoIncrementValueQuery = @"SELECT AUTO_INCREMENT
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_TYPE = 'BASE TABLE'
+  AND ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database AND BINARY TABLE_NAME = BINARY @table)
+       OR (@@lower_case_table_names <> 0 AND TABLE_SCHEMA = @database AND TABLE_NAME = @table))";
+
     /// <inheritdoc />
     public override bool SupportsAtomicCheckpoints => true;
 
@@ -161,6 +167,13 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                 cancellationToken).ConfigureAwait(false);
             bool noAutoValueOnZero = options.ClearDestination &&
                 await ResolveNoAutoValueOnZeroAsync(connection, cancellationToken).ConfigureAwait(false);
+            decimal? nextAutoIncrement = options.ClearDestination && columns.Any(static column => column.IsIdentity == true)
+                ? await ResolveNextAutoIncrementAsync(
+                    connection,
+                    database,
+                    segments[segments.Length - 1],
+                    cancellationToken).ConfigureAwait(false)
+                : null;
             DbaTableCopySchemaValidator.Validate(
                 definition.DestinationName,
                 firstPage.Columns.Cast<DataColumn>().Select(static column => column.ColumnName).ToArray(),
@@ -178,7 +191,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                     definition.DestinationName,
                     firstPage,
                     columns,
-                    noAutoValueOnZero);
+                    noAutoValueOnZero,
+                    nextAutoIncrement);
                 await ValidateRollbackSafeTriggersAsync(
                     connection,
                     database,
@@ -199,7 +213,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                 definition,
                 options,
                 columns,
-                noAutoValueOnZero);
+                noAutoValueOnZero,
+                nextAutoIncrement);
             try
             {
                 await session.InitializeAsync(firstPage, cancellationToken).ConfigureAwait(false);
@@ -242,7 +257,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         string tableName,
         DataTable page,
         IReadOnlyList<DbaColumnInfo> destinationColumns,
-        bool noAutoValueOnZero)
+        bool noAutoValueOnZero,
+        decimal? nextAutoIncrement = null)
     {
         var projectedColumns = page.Columns.Cast<DataColumn>().ToDictionary(
             column => DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.MySql).ToUpperInvariant(),
@@ -262,7 +278,46 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                         "ClearDestination cannot safely preflight this value because auto-increment advances are not rolled back. " +
                         "Project a non-generating explicit value, enable NO_AUTO_VALUE_ON_ZERO when zero is intentional, or copy without ClearDestination.");
                 }
+                if (nextAutoIncrement.HasValue)
+                {
+                    if (!TryConvertMySqlGeneratorValue(value, out decimal explicitValue))
+                    {
+                        throw new InvalidOperationException(
+                            $"MySQL destination '{tableName}' projects an unsupported explicit value for auto-increment column '{identity.Name}'. " +
+                            "ClearDestination cannot prove that rollback-only preflight will preserve the generator state.");
+                    }
+                    if (explicitValue >= nextAutoIncrement.Value)
+                    {
+                        throw new InvalidOperationException(
+                            $"MySQL destination '{tableName}' projects explicit auto-increment value {explicitValue} at or above the current next value {nextAutoIncrement.Value} for column '{identity.Name}'. " +
+                            "ClearDestination cannot safely preflight this value because auto-increment advances are not rolled back. " +
+                            "Use existing values below the current counter or copy without ClearDestination.");
+                    }
+                }
             }
+        }
+    }
+
+    private static bool TryConvertMySqlGeneratorValue(object value, out decimal result)
+    {
+        if (value is DbaArbitraryDecimal number)
+        {
+            return decimal.TryParse(
+                number.CanonicalValue,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out result);
+        }
+
+        try
+        {
+            result = Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch (Exception exception) when (exception is FormatException or InvalidCastException or OverflowException)
+        {
+            result = default;
+            return false;
         }
     }
 
@@ -289,6 +344,28 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         string sqlMode = Convert.ToString(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)) ?? "";
         return sqlMode.Split(',').Any(mode =>
             string.Equals(mode.Trim(), "NO_AUTO_VALUE_ON_ZERO", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task<decimal?> ResolveNextAutoIncrementAsync(
+        MySqlConnection connection,
+        string database,
+        string table,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new MySqlCommand(MySqlAutoIncrementValueQuery, connection)
+        {
+            CommandTimeout = CommandTimeout
+        };
+        command.Parameters.AddWithValue("@database", database);
+        command.Parameters.AddWithValue("@table", table);
+        object? value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (value == null || value == DBNull.Value)
+        {
+            throw new InvalidOperationException(
+                $"MySQL destination '{database}.{table}' has an auto-increment column whose next value could not be resolved for rollback-only schema preflight.");
+        }
+
+        return Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private async Task ValidateRollbackSafeTriggersAsync(
@@ -321,6 +398,7 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         private readonly DbaTableCopyOptions _options;
         private readonly IReadOnlyList<DbaColumnInfo> _destinationColumns;
         private readonly bool _noAutoValueOnZero;
+        private readonly decimal? _nextAutoIncrement;
         private bool _disposed;
 
         internal MySqlSchemaPreflightSession(
@@ -330,7 +408,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             DbaTableCopyDefinition definition,
             DbaTableCopyOptions options,
             IReadOnlyList<DbaColumnInfo> destinationColumns,
-            bool noAutoValueOnZero)
+            bool noAutoValueOnZero,
+            decimal? nextAutoIncrement)
         {
             _owner = owner;
             _connection = connection;
@@ -339,6 +418,7 @@ WHERE TABLE_TYPE = 'BASE TABLE'
             _options = options;
             _destinationColumns = destinationColumns;
             _noAutoValueOnZero = noAutoValueOnZero;
+            _nextAutoIncrement = nextAutoIncrement;
         }
 
         internal async Task InitializeAsync(DataTable page, CancellationToken cancellationToken)
@@ -350,7 +430,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                     _definition.DestinationName,
                     page,
                     _destinationColumns,
-                    _noAutoValueOnZero);
+                    _noAutoValueOnZero,
+                    _nextAutoIncrement);
                 await using var clear = new MySqlCommand(
                     $"DELETE FROM {_owner.QuotePath(_definition.DestinationName)}",
                     _connection,
@@ -374,7 +455,8 @@ WHERE TABLE_TYPE = 'BASE TABLE'
                     _definition.DestinationName,
                     page,
                     _destinationColumns,
-                    _noAutoValueOnZero);
+                    _noAutoValueOnZero,
+                    _nextAutoIncrement);
             }
             try
             {

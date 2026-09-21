@@ -21,7 +21,7 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         CancellationToken cancellationToken)
     {
-        if (destinationProvider is DbaTableCopyProvider.MySql or DbaTableCopyProvider.Oracle) return;
+        if (destinationProvider == DbaTableCopyProvider.MySql) return;
 
         await using MySqlConnection? owned = _readConnection == null
             ? new MySqlConnection(ResolveMySqlRegularOperationConnectionString())
@@ -59,11 +59,15 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
                 if (dataType is "decimal" or "numeric")
                 {
                     int precision = reader.GetInt32(2);
-                    if (precision <= 28 || IsPortableDecimalProjection(definition, column)) continue;
+                    int portablePrecision = destinationProvider == DbaTableCopyProvider.Oracle ? 38 : 28;
+                    if (IsMySqlDecimalPrecisionPortable(precision, destinationProvider) ||
+                        IsPortableDecimalProjection(definition, column)) continue;
                     throw new NotSupportedException(
-                        $"MySQL source column '{definition.SourceName}.{column}' uses DECIMAL precision {precision}, which can exceed System.Decimal and is not portable to {destinationProvider}. " +
-                        "Exclude the column, convert it explicitly to String, or copy it to a MySQL or Oracle destination.");
+                        $"MySQL source column '{definition.SourceName}.{column}' uses DECIMAL precision {precision}, which exceeds the {portablePrecision}-digit numeric range supported by {destinationProvider}. " +
+                        "Exclude the column, convert it explicitly to String, or copy it to a MySQL destination.");
                 }
+
+                if (destinationProvider == DbaTableCopyProvider.Oracle) continue;
 
                 if (IsPortableUnsignedProjection(definition, column)) continue;
                 if (dataType == "bit")
@@ -80,6 +84,12 @@ WHERE ((@@lower_case_table_names = 0 AND BINARY TABLE_SCHEMA = BINARY @database 
             }
         }
     }
+
+    internal static bool IsMySqlDecimalPrecisionPortable(
+        int precision,
+        DbaTableCopyProvider destinationProvider)
+        => destinationProvider == DbaTableCopyProvider.MySql ||
+           precision <= (destinationProvider == DbaTableCopyProvider.Oracle ? 38 : 28);
 
     internal static bool IsPortableDecimalProjection(DbaTableCopyDefinition definition, string sourceColumn)
         => IsPortableNumericProjection(definition, sourceColumn, allowDecimalConversion: false);

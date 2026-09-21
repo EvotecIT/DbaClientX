@@ -83,21 +83,21 @@ public partial class SQLite
         }
 
         var stopwatch = Stopwatch.StartNew();
-        using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
-        connection.Open();
-        ApplyBusyTimeout(connection, busyTimeoutMs);
-        using CancellationTokenRegistration registration = cancellationToken.Register(
-            static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-            connection);
-        using var command = connection.CreateCommand();
-        command.CommandText = fullCheck
-            ? $"PRAGMA integrity_check({maxIssues});"
-            : $"PRAGMA quick_check({maxIssues});";
-        ApplyCommandTimeout(command);
-
-        var issues = new List<string>();
         try
         {
+            using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
+            connection.Open();
+            ApplyBusyTimeout(connection, busyTimeoutMs);
+            using CancellationTokenRegistration registration = cancellationToken.Register(
+                static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
+                connection);
+            using var command = connection.CreateCommand();
+            command.CommandText = fullCheck
+                ? $"PRAGMA integrity_check({maxIssues});"
+                : $"PRAGMA quick_check({maxIssues});";
+            ApplyCommandTimeout(command);
+
+            var issues = new List<string>();
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -108,6 +108,15 @@ public partial class SQLite
                     issues.Add(value);
                 }
             }
+
+            stopwatch.Stop();
+            return new SqliteIntegrityCheckResult
+            {
+                IsHealthy = issues.Count == 0,
+                IsFullCheck = fullCheck,
+                Issues = issues,
+                Elapsed = stopwatch.Elapsed
+            };
         }
         catch (SqliteException ex) when (
             cancellationToken.IsCancellationRequested &&
@@ -115,15 +124,13 @@ public partial class SQLite
         {
             throw CreateCallerCancellationException(ex, cancellationToken);
         }
-
-        stopwatch.Stop();
-        return new SqliteIntegrityCheckResult
+        catch (SqliteException ex)
         {
-            IsHealthy = issues.Count == 0,
-            IsFullCheck = fullCheck,
-            Issues = issues,
-            Elapsed = stopwatch.Elapsed
-        };
+            throw CreateQueryExecutionException(
+                "Failed to check SQLite database integrity.",
+                fullCheck ? "PRAGMA integrity_check" : "PRAGMA quick_check",
+                ex);
+        }
     }
 
     private SqliteBackupResult BackupDatabaseIncrementalCore(

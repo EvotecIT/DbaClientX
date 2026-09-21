@@ -23,6 +23,7 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             bool noAutoValueOnZero = options.ClearDestination &&
                 await ResolveNoAutoValueOnZeroAsync(connection, cancellationToken).ConfigureAwait(false);
             var destinationColumns = new IReadOnlyList<DbaColumnInfo>?[definitions.Count];
+            var nextAutoIncrementValues = new decimal?[definitions.Count];
             for (var index = 0; index < definitions.Count; index++)
             {
                 DbaTableCopyDefinition definition = definitions[index];
@@ -60,6 +61,14 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 {
                     var columns = await mySql.GetTableCopyColumnsAsync(connection, database, table, cancellationToken).ConfigureAwait(false);
                     destinationColumns[index] = columns;
+                    if (options.ClearDestination && columns.Any(static column => column.IsIdentity == true))
+                    {
+                        nextAutoIncrementValues[index] = await ResolveNextAutoIncrementAsync(
+                            connection,
+                            database,
+                            table,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                     if (firstPage != null)
                     {
                         string[] projectedColumns = firstPage.Columns.Cast<DataColumn>()
@@ -79,7 +88,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                                 definition.DestinationName,
                                 firstPage,
                                 columns,
-                                noAutoValueOnZero);
+                                noAutoValueOnZero,
+                                nextAutoIncrementValues[index]);
                         }
                     }
                 }
@@ -99,7 +109,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                 definitions,
                 options,
                 destinationColumns,
-                noAutoValueOnZero);
+                noAutoValueOnZero,
+                nextAutoIncrementValues);
             try
             {
                 await session.InitializeAsync(firstPages, cancellationToken).ConfigureAwait(false);
@@ -137,6 +148,7 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         private readonly DbaTableCopyOptions _options;
         private readonly IReadOnlyList<DbaColumnInfo>?[] _destinationColumns;
         private readonly bool _noAutoValueOnZero;
+        private readonly decimal?[] _nextAutoIncrementValues;
         private bool _disposed;
 
         internal MySqlSchemaPreflightBatchSession(
@@ -146,7 +158,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             IReadOnlyList<DbaTableCopyDefinition> definitions,
             DbaTableCopyOptions options,
             IReadOnlyList<DbaColumnInfo>?[] destinationColumns,
-            bool noAutoValueOnZero)
+            bool noAutoValueOnZero,
+            decimal?[] nextAutoIncrementValues)
         {
             _owner = owner;
             _connection = connection;
@@ -155,6 +168,7 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
             _options = options;
             _destinationColumns = destinationColumns;
             _noAutoValueOnZero = noAutoValueOnZero;
+            _nextAutoIncrementValues = nextAutoIncrementValues;
         }
 
         internal async Task InitializeAsync(IReadOnlyList<DataTable?> firstPages, CancellationToken cancellationToken)
@@ -171,7 +185,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                             _definitions[index].DestinationName,
                             firstPage,
                             columns,
-                            _noAutoValueOnZero);
+                            _noAutoValueOnZero,
+                            _nextAutoIncrementValues[index]);
                     }
                 }
                 for (var index = _definitions.Count - 1; index >= 0; index--)
@@ -201,7 +216,8 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
                     definition.DestinationName,
                     page,
                     columns,
-                    _noAutoValueOnZero);
+                    _noAutoValueOnZero,
+                    _nextAutoIncrementValues[definitionIndex]);
             }
             try
             {

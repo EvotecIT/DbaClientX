@@ -102,7 +102,8 @@ WHERE OWNER = :owner
                             column,
                             dataType,
                             destinationProvider,
-                            excluded || IsPortableNumericProjection(definition, column));
+                            excluded || IsPortableNumericProjection(definition, column),
+                            precision);
                         continue;
                     }
 
@@ -179,17 +180,49 @@ WHERE OWNER = :owner
         string columnName,
         string dataType,
         DbaTableCopyProvider destinationProvider,
-        bool portableProjection)
+        bool portableProjection,
+        int? leadingYearPrecision = null)
     {
         if (!IsOracleYearMonthInterval(dataType) || portableProjection ||
-            destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.PostgreSql)
+            destinationProvider == DbaTableCopyProvider.Oracle)
         {
             return;
+        }
+
+        if (destinationProvider == DbaTableCopyProvider.PostgreSql)
+        {
+            int effectivePrecision = ResolveOracleYearLeadingPrecision(dataType, leadingYearPrecision);
+            if (effectivePrecision <= 8) return;
+
+            throw new NotSupportedException(
+                $"Oracle source column '{sourceName}.{columnName}' uses {dataType} with leading year precision {effectivePrecision}, which can exceed PostgreSQL's 32-bit interval month range. " +
+                "Exclude the column or convert it explicitly to String before copying to PostgreSQL.");
         }
 
         throw new NotSupportedException(
             $"Oracle source column '{sourceName}.{columnName}' uses {dataType}, whose calendar-month semantics are not portable to {destinationProvider}. " +
             "Exclude the column, convert it explicitly to String, or copy it to an Oracle or PostgreSQL destination.");
+    }
+
+    internal static int ResolveOracleYearLeadingPrecision(string dataType, int? metadataPrecision)
+    {
+        if (metadataPrecision.HasValue) return metadataPrecision.Value;
+        int openParenthesis = dataType.IndexOf('(');
+        if (openParenthesis >= 0)
+        {
+            int closeParenthesis = dataType.IndexOf(')', openParenthesis + 1);
+            if (closeParenthesis > openParenthesis + 1 &&
+                int.TryParse(
+                    dataType.Substring(openParenthesis + 1, closeParenthesis - openParenthesis - 1),
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return 2;
     }
 
     internal static void ValidateOracleDaySecondIntervalShape(
