@@ -75,7 +75,7 @@ public partial class MySql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {
@@ -196,7 +196,7 @@ public partial class MySql
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {

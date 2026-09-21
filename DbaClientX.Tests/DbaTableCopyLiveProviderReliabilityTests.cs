@@ -1111,7 +1111,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 "99:preserved",
                 Convert.ToString(await ExecuteScalarAsync(
                     connection,
-                    $"SELECT id || ':' || payload FROM \"{destinationTable}\"")));
+                    $"SELECT id || ':' || payload FROM \"{partitionTable}\"")));
         }
         finally
         {
@@ -1181,7 +1181,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 "99:preserved",
                 Convert.ToString(await ExecuteScalarAsync(
                     connection,
-                    $"SELECT id || ':' || payload FROM \"{destinationTable}\"")));
+                    $"SELECT id || ':' || payload FROM \"{localPartition}\"")));
         }
         finally
         {

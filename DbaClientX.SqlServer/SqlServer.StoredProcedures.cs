@@ -74,7 +74,7 @@ public partial class SqlServer
         }
         catch (Exception ex)
         {
-            throw new DbaQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
+            throw CreateQueryExecutionException("Failed to execute stored procedure.", procedure, ex);
         }
         finally
         {

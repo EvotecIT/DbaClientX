@@ -1,5 +1,6 @@
 using DBAClientX;
 using DBAClientX.DataMovement;
+using Npgsql;
 
 namespace DbaClientX.Tests;
 
@@ -70,6 +71,43 @@ public sealed class DbaQueryExecutionExceptionTests
     }
 
     [Fact]
+    public void LegacyConstructor_PreservesNestedSanitizedProviderMetadata()
+    {
+        var original = new DbaQueryExecutionException(
+            "First failure.",
+            "SELECT first",
+            new InvalidOperationException("provider-secret"),
+            providerErrorCode: 1146,
+            providerSqlState: "42S02",
+            providerErrorKind: DbaProviderErrorKind.MissingTable);
+
+        var wrapped = new DbaQueryExecutionException("Second failure.", "SELECT second", original);
+
+        Assert.Equal(1146, wrapped.ProviderErrorCode);
+        Assert.Equal("42S02", wrapped.ProviderSqlState);
+        Assert.Equal(DbaProviderErrorKind.MissingTable, wrapped.ProviderErrorKind);
+        Assert.Equal(typeof(InvalidOperationException).FullName, wrapped.ProviderExceptionType);
+    }
+
+    [Fact]
+    public void ProviderFactory_ExtractsPostgreSqlStateAndClassification()
+    {
+        using var provider = new PostgreSqlExceptionFactory();
+        var native = new PostgresException(
+            "provider-secret",
+            "ERROR",
+            "ERROR",
+            PostgresErrorCodes.UndefinedTable);
+
+        DbaQueryExecutionException exception = provider.Wrap(native);
+
+        Assert.Equal(PostgresErrorCodes.UndefinedTable, exception.ProviderSqlState);
+        Assert.Equal(DbaProviderErrorKind.MissingTable, exception.ProviderErrorKind);
+        Assert.Equal(typeof(PostgresException).FullName, exception.ProviderExceptionType);
+        Assert.DoesNotContain("provider-secret", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SqliteMissingTable_RetainsPortableClassificationEndToEnd()
     {
         string path = Path.Combine(Path.GetTempPath(), $"dbaclientx-{Guid.NewGuid():N}.db");
@@ -92,4 +130,11 @@ public sealed class DbaQueryExecutionExceptionTests
             }
         }
     }
+
+    private sealed class PostgreSqlExceptionFactory : PostgreSql
+    {
+        internal DbaQueryExecutionException Wrap(Exception exception)
+            => CreateQueryExecutionException("Failed to execute stored procedure.", "secret_procedure", exception);
+    }
+
 }

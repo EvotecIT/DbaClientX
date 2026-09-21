@@ -90,10 +90,14 @@ public class DbaQueryExecutionException : DbaClientXException
         DbaProviderErrorKind providerErrorKind) : base(BuildMessage(message, query), CreateSanitizedProviderException(innerException))
     {
         QueryFingerprint = CreateFingerprint(query);
-        ProviderExceptionType = innerException?.GetType().FullName;
-        ProviderErrorCode = providerErrorCode ?? (innerException as System.Data.Common.DbException)?.ErrorCode;
-        ProviderSqlState = NormalizeSqlState(providerSqlState);
-        ProviderErrorKind = providerErrorKind;
+        DbaQueryExecutionException? queryException = innerException as DbaQueryExecutionException;
+        ProviderExceptionType = queryException?.ProviderExceptionType ?? innerException?.GetType().FullName;
+        ProviderErrorCode = providerErrorCode ?? queryException?.ProviderErrorCode ??
+            (innerException as System.Data.Common.DbException)?.ErrorCode;
+        ProviderSqlState = NormalizeSqlState(providerSqlState ?? queryException?.ProviderSqlState);
+        ProviderErrorKind = providerErrorKind == DbaProviderErrorKind.Unknown && queryException != null
+            ? queryException.ProviderErrorKind
+            : providerErrorKind;
     }
 
     private static string? NormalizeSqlState(string? sqlState)

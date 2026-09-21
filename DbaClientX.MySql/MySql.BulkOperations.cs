@@ -95,7 +95,7 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         catch (Exception ex)
         {
             if (ownsWriteTransaction) TryRollbackDbTransactionOnDispose(transaction);
-            throw new DbaQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
+            throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
         finally
         {

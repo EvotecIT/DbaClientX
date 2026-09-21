@@ -81,7 +81,7 @@ public partial class SqlServer
                 DisposeConnection(connection);
             }
 
-            throw new DbaQueryExecutionException("Failed to open query reader.", query, ex);
+            throw CreateQueryExecutionException("Failed to open query reader.", query, ex);
         }
     }
 
