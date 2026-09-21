@@ -68,6 +68,13 @@ ORDER BY attribute.attnum";
                     string? elementTypeKind = reader.IsDBNull(4) ? null : reader.GetString(4);
                     string formattedType = reader.GetString(5);
                     bool isArray = elementTypeName != null;
+                    if (IsPostgreSqlOrderByColumn(definition, column) &&
+                        !IsSupportedPostgreSqlKeysetType(typeName, typeKind, elementTypeName))
+                    {
+                        throw new NotSupportedException(
+                            $"PostgreSQL paging column '{definition.SourceName}.{column}' uses type '{typeName}', which cannot be represented losslessly in a DbaClientX continuation token. " +
+                            "Use a supported scalar ordering key or disable keyset pagination.");
+                    }
                     if (IsPostgreSqlEnum(typeKind, elementTypeKind))
                     {
                         throw new NotSupportedException(
@@ -274,17 +281,7 @@ ORDER BY attribute.attnum";
         DbaTableCopyDefinition definition,
         string sourceColumn)
     {
-        if (definition.OrderByColumns != null)
-        {
-            foreach (string planned in definition.OrderByColumns)
-            {
-                bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
-                string physical = DbaIdentifierPath.UnquoteSegment(planned, DbaTableCopyProvider.PostgreSql);
-                bool emittedDelimited = delimited || IsAutomaticallyDelimitedPostgreSqlIdentifier(physical);
-                if (!emittedDelimited) physical = physical.ToLowerInvariant();
-                if (string.Equals(physical, sourceColumn, StringComparison.Ordinal)) return true;
-            }
-        }
+        if (IsPostgreSqlOrderByColumn(definition, sourceColumn)) return true;
 
         IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
             ? mappingDictionary.Comparer
@@ -298,6 +295,33 @@ ORDER BY attribute.attnum";
         return definition.ExcludedColumns?.Any(name =>
             excludedComparer.Equals(name, sourceColumn) ||
             excludedComparer.Equals(name, destinationColumn)) != true;
+    }
+
+    internal static bool IsSupportedPostgreSqlKeysetType(
+        string typeName,
+        string typeKind,
+        string? elementTypeName)
+    {
+        if (elementTypeName != null) return false;
+        if (!IsProviderSpecificPostgreSqlScalar(typeName, typeKind)) return true;
+        return typeName is "inet" or "cidr" or "macaddr" or "macaddr8" or "interval";
+    }
+
+    private static bool IsPostgreSqlOrderByColumn(
+        DbaTableCopyDefinition definition,
+        string sourceColumn)
+    {
+        if (definition.OrderByColumns == null) return false;
+        foreach (string planned in definition.OrderByColumns)
+        {
+            bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
+            string physical = DbaIdentifierPath.UnquoteSegment(planned, DbaTableCopyProvider.PostgreSql);
+            bool emittedDelimited = delimited || IsAutomaticallyDelimitedPostgreSqlIdentifier(physical);
+            if (!emittedDelimited) physical = physical.ToLowerInvariant();
+            if (string.Equals(physical, sourceColumn, StringComparison.Ordinal)) return true;
+        }
+
+        return false;
     }
 
     private static bool IsAutomaticallyDelimitedPostgreSqlIdentifier(string value)

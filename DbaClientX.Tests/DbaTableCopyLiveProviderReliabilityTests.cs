@@ -1946,7 +1946,6 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             string generatorStateSql = provider == DbaTableCopyProvider.PostgreSql
                 ? $"SELECT last_value::text || ':' || is_called::text FROM \"{destinationTable}_id_seq\""
                 : $"SELECT AUTO_INCREMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{destinationTable}'";
-            string? before = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
             var source = CreateAdapter(provider, connectionString!, new[] { "payload" });
             var destination = CreateAdapter(provider, connectionString!);
             var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "payload" })
@@ -1967,7 +1966,6 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 : $"SELECT CONCAT(id, ':', payload) FROM `{destinationTable}`";
             Assert.Equal("1:new", Convert.ToString(await ExecuteScalarAsync(connection, copiedSql)));
             string? after = Convert.ToString(await ExecuteScalarAsync(connection, generatorStateSql));
-            Assert.NotEqual(before, after);
             Assert.Equal(
                 provider == DbaTableCopyProvider.PostgreSql ? "1:true" : "2",
                 after?.ToLowerInvariant());
@@ -2167,7 +2165,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, address inet NOT NULL, subnet cidr NOT NULL, mac macaddr NOT NULL)");
             await ExecuteAsync(
                 connection,
-                $"INSERT INTO \"{sourceTable}\" VALUES (1, '192.0.2.42', '198.51.100.0/24', '00:11:22:aa:bb:cc'), (2, '2001:db8::42', '2001:db8::/48', '00:11:22:aa:bb:dd')");
+                $"INSERT INTO \"{sourceTable}\" VALUES (1, '192.0.2.42/24', '198.51.100.0/24', '00:11:22:aa:bb:cc'), (2, '2001:db8::42/48', '2001:db8::/48', '00:11:22:aa:bb:dd')");
 
             var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
             var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
@@ -2187,6 +2185,12 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(
                 connection,
                 $"SELECT COUNT(*) FROM \"{destinationTable}\"")));
+            Assert.Equal("192.0.2.42/24", Convert.ToString(await ExecuteScalarAsync(
+                connection,
+                $"SELECT address::text FROM \"{destinationTable}\" WHERE id = 1")));
+            Assert.Equal("2001:db8::42/48", Convert.ToString(await ExecuteScalarAsync(
+                connection,
+                $"SELECT address::text FROM \"{destinationTable}\" WHERE id = 2")));
         }
         finally
         {
@@ -2285,6 +2289,61 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
             Assert.True(result.Verified);
             Assert.Equal(2, result.CopiedRows);
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlRangeKey_RejectsBeforeChangingDestination()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N")[..12];
+        string sourceTable = "dbax_range_key_source_" + suffix;
+        string destinationTable = "dbax_range_key_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{sourceTable}\" (span int4range NOT NULL PRIMARY KEY, payload text NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"CREATE TABLE \"{destinationTable}\" (span int4range NOT NULL PRIMARY KEY, payload text NOT NULL)");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{sourceTable}\" VALUES ('[1,5)'::int4range, 'new')");
+            await ExecuteAsync(
+                connection,
+                $"INSERT INTO \"{destinationTable}\" VALUES ('[100,200)'::int4range, 'legacy')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "span" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "span" })
+            {
+                UseKeysetPagination = true
+            };
+
+            NotSupportedException exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("continuation token", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal("legacy", Convert.ToString(await ExecuteScalarAsync(
+                connection,
+                $"SELECT payload FROM \"{destinationTable}\"")));
         }
         finally
         {

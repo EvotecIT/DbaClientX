@@ -227,6 +227,14 @@ FROM root";
             .Select(ordinal => materializeColumns[ordinal] &&
                 string.Equals(reader.GetDataTypeName(ordinal), "interval", StringComparison.OrdinalIgnoreCase))
             .ToArray();
+        bool[] inetColumns = Enumerable.Range(0, reader.FieldCount)
+            .Select(ordinal => materializeColumns[ordinal] &&
+                string.Equals(reader.GetDataTypeName(ordinal), "inet", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        bool[] cidrColumns = Enumerable.Range(0, reader.FieldCount)
+            .Select(ordinal => materializeColumns[ordinal] &&
+                string.Equals(reader.GetDataTypeName(ordinal), "cidr", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
             ? ordinal => materializeColumns[ordinal] ? ValidateBoundedFieldType(reader, ordinal) : 0
             : null;
@@ -237,11 +245,21 @@ FROM root";
             readFieldValue: ordinal => materializeColumns[ordinal]
                 ? intervalColumns[ordinal]
                     ? NormalizeInterval(reader.GetFieldValue<NpgsqlInterval>(ordinal))
+                    : inetColumns[ordinal]
+                        ? NormalizeProviderValue(reader.GetFieldValue<NpgsqlInet>(ordinal))
+                        : cidrColumns[ordinal]
+#if NET472
+                            ? NormalizeProviderValue(reader.GetFieldValue<NpgsqlCidr>(ordinal))
+#else
+                            ? NormalizeProviderValue(reader.GetFieldValue<System.Net.IPNetwork>(ordinal))
+#endif
                     : NormalizeProviderValue(reader.GetValue(ordinal))
                 : DBNull.Value,
             normalizedFieldType: ordinal => materializeColumns[ordinal]
                 ? intervalColumns[ordinal]
                     ? typeof(DbaCalendarInterval)
+                    : inetColumns[ordinal] || cidrColumns[ordinal]
+                        ? typeof(DbaIpNetwork)
                     : GetNormalizedFieldType(reader.GetFieldType(ordinal))
                 : typeof(object),
             cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -284,6 +302,7 @@ FROM root";
 
     internal static object NormalizeProviderValue(object value)
     {
+        if (value is NpgsqlInet inet) return new DbaIpNetwork(inet.Address, inet.Netmask);
 #if NET472
         if (value is NpgsqlCidr cidr) return new DbaIpNetwork(cidr.Address, cidr.Netmask);
 #else
@@ -341,6 +360,7 @@ FROM root";
 
     internal static Type GetNormalizedFieldType(Type providerType)
     {
+        if (providerType == typeof(NpgsqlInet)) return typeof(DbaIpNetwork);
 #if NET472
         if (providerType == typeof(NpgsqlCidr)) return typeof(DbaIpNetwork);
 #else
@@ -354,11 +374,7 @@ FROM root";
         if (value is DbaCalendarInterval interval)
             return new NpgsqlInterval(interval.Months, interval.Days, interval.Microseconds);
         if (value is not DbaIpNetwork network) return value ?? DBNull.Value;
-#if NET472
-        return new NpgsqlCidr(network.Address, checked((byte)network.PrefixLength));
-#else
-        return new System.Net.IPNetwork(network.Address, network.PrefixLength);
-#endif
+        return new NpgsqlInet(network.Address, checked((byte)network.PrefixLength));
     }
 
     private static long? ValidateBoundedFieldType(NpgsqlDataReader reader, int ordinal)
@@ -376,6 +392,7 @@ FROM root";
 #if NET6_0_OR_GREATER
         if (type == typeof(DateOnly) || type == typeof(TimeOnly)) return null;
 #endif
+        if (type == typeof(NpgsqlInet)) return null;
 #if NET472
         if (type == typeof(NpgsqlCidr)) return null;
 #else

@@ -243,7 +243,7 @@ public static class DbaIdentifierPath
     private static bool IsProviderIdentifierPart(char value, DbaTableCopyProvider provider)
         => IsProviderIdentifierStart(value, provider) ||
            value is >= '0' and <= '9' or '$' ||
-           (provider == DbaTableCopyProvider.Oracle && value == '#');
+           (provider == DbaTableCopyProvider.Oracle && value is '_' or '#');
 
     /// <summary>Returns whether a segment has matching SQL identifier delimiters.</summary>
     public static bool IsDelimitedSegment(string segment)

@@ -9,12 +9,23 @@ public sealed partial class SqlServerTableCopyAdapter :
     IDbaTableCopySchemaPreflightSessionDestination,
     IDbaTableCopySchemaPreflightBatchSessionDestination
 {
-    internal const string SqlServerRollbackUnsafeTriggerQuery = @"SELECT TOP (1) 1
+    internal const string SqlServerRollbackUnsafeTriggerQuery = @"WITH cascade_targets AS (
+    SELECT OBJECT_ID(@name, N'U') AS object_id, 0 AS depth
+    UNION ALL
+    SELECT foreign_key.parent_object_id, cascade_targets.depth + 1
+    FROM sys.foreign_keys AS foreign_key
+    INNER JOIN cascade_targets ON cascade_targets.object_id = foreign_key.referenced_object_id
+    WHERE foreign_key.is_disabled = 0
+      AND foreign_key.delete_referential_action = 1
+)
+SELECT TOP (1) 1
 FROM sys.triggers AS trigger_info
-WHERE trigger_info.parent_id = OBJECT_ID(@name, N'U')
-  AND trigger_info.is_disabled = 0
-  AND (OBJECTPROPERTY(trigger_info.object_id, 'ExecIsInsertTrigger') = 1
-       OR OBJECTPROPERTY(trigger_info.object_id, 'ExecIsDeleteTrigger') = 1)";
+INNER JOIN cascade_targets ON cascade_targets.object_id = trigger_info.parent_id
+WHERE trigger_info.is_disabled = 0
+  AND (OBJECTPROPERTY(trigger_info.object_id, 'ExecIsDeleteTrigger') = 1
+       OR (cascade_targets.depth = 0
+           AND OBJECTPROPERTY(trigger_info.object_id, 'ExecIsInsertTrigger') = 1))
+OPTION (MAXRECURSION 32767)";
 
     /// <inheritdoc />
     public async Task<IDbaTableCopySchemaPreflightSession> OpenSchemaPreflightSessionAsync(

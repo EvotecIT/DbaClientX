@@ -163,31 +163,19 @@ public static class DbaPostgreSqlBulkCopyNormalizer
     [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
 #endif
     private static Type GetProviderNetworkType()
-    {
-#if NET472
-        return typeof(NpgsqlCidr);
-#else
-        return typeof(System.Net.IPNetwork);
-#endif
-    }
+        => typeof(NpgsqlInet);
 
     private static bool IsProviderNetwork(object value)
-    {
+        => value is NpgsqlInet
 #if NET472
-        return value is NpgsqlCidr;
+           or NpgsqlCidr
 #else
-        return value is System.Net.IPNetwork;
+           or System.Net.IPNetwork
 #endif
-    }
+        ;
 
     private static object CreateProviderNetwork(DbaIpNetwork network)
-    {
-#if NET472
-        return new NpgsqlCidr(network.Address, checked((byte)network.PrefixLength));
-#else
-        return new System.Net.IPNetwork(network.Address, network.PrefixLength);
-#endif
-    }
+        => new NpgsqlInet(network.Address, checked((byte)network.PrefixLength));
 
     private static NpgsqlInterval CreateProviderYearMonthInterval(DbaYearMonthInterval interval, string columnName)
     {

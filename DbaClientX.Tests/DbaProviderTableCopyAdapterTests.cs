@@ -125,6 +125,28 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Theory]
+    [InlineData("int8", "b", null, true)]
+    [InlineData("inet", "b", null, true)]
+    [InlineData("interval", "b", null, true)]
+    [InlineData("int4range", "r", null, false)]
+    [InlineData("int4multirange", "m", null, false)]
+    [InlineData("_int4", "b", "int4", false)]
+    [InlineData("point", "b", null, false)]
+    public void PostgreSqlKeysetPaging_ClassifiesContinuationTokenTypes(
+        string typeName,
+        string typeKind,
+        string? elementTypeName,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            PostgreSqlTableCopyAdapter.IsSupportedPostgreSqlKeysetType(
+                typeName,
+                typeKind,
+                elementTypeName));
+    }
+
+    [Theory]
     [InlineData("date", true)]
     [InlineData("timestamp", true)]
     [InlineData("timestamptz", true)]
@@ -837,6 +859,9 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("sys.triggers", sqlServer, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ExecIsInsertTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ExecIsDeleteTrigger", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("sys.foreign_keys", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("delete_referential_action = 1", sqlServer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cascade_targets.depth = 0", sqlServer, StringComparison.OrdinalIgnoreCase);
 
         string postgreSql = PostgreSqlTableCopyAdapter.PostgreSqlRollbackUnsafeTriggerQuery;
         Assert.Contains("pg_trigger", postgreSql, StringComparison.OrdinalIgnoreCase);
@@ -877,6 +902,7 @@ public class DbaProviderTableCopyAdapterBaseTests
     [Theory]
     [InlineData(DbaTableCopyProvider.PostgreSql, "ID", "ID", "id", "id")]
     [InlineData(DbaTableCopyProvider.Oracle, "id", "id", "ID", "ID")]
+    [InlineData(DbaTableCopyProvider.Oracle, "customer_id", "customer_id", "CUSTOMER_ID", "CUSTOMER_ID")]
     public void KeysetResultColumns_ApplyProviderFoldingBeforeExactLookup(
         DbaTableCopyProvider provider,
         string orderedColumn,
@@ -1715,11 +1741,16 @@ public class DbaProviderTableCopyAdapterBaseTests
 
         using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Networks");
 
-        Assert.Equal(typeof(System.Net.IPNetwork), normalized.Columns[0].DataType);
-        var providerValue = Assert.IsType<System.Net.IPNetwork>(normalized.Rows[0][0]);
-        Assert.Equal(expected.Address, providerValue.BaseAddress);
-        Assert.Equal(expected.PrefixLength, providerValue.PrefixLength);
+        Assert.Equal(typeof(NpgsqlInet), normalized.Columns[0].DataType);
+        var providerValue = Assert.IsType<NpgsqlInet>(normalized.Rows[0][0]);
+        Assert.Equal(expected.Address, providerValue.Address);
+        Assert.Equal(expected.PrefixLength, providerValue.Netmask);
         Assert.Equal(expected, Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(providerValue)));
+
+        var inet = new NpgsqlInet(IPAddress.Parse("192.0.2.42"), 24);
+        Assert.Equal(
+            new DbaIpNetwork(IPAddress.Parse("192.0.2.42"), 24),
+            Assert.IsType<DbaIpNetwork>(PostgreSqlTableCopyAdapter.NormalizeProviderValue(inet)));
     }
 
     [Fact]
