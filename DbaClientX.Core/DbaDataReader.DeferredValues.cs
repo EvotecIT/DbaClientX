@@ -51,7 +51,7 @@ public sealed partial class DbaDataReader
             {
                 return _inner.Read(buffer);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
             {
                 throw _exceptionFactory(exception, CancellationToken.None);
             }
@@ -81,7 +81,7 @@ public sealed partial class DbaDataReader
             {
                 return operation();
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, cancellationToken))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }
@@ -93,7 +93,7 @@ public sealed partial class DbaDataReader
             {
                 return await operation().ConfigureAwait(false);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, cancellationToken))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }
@@ -108,7 +108,7 @@ public sealed partial class DbaDataReader
             {
                 return await operation().ConfigureAwait(false);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }
@@ -157,7 +157,7 @@ public sealed partial class DbaDataReader
             {
                 return _inner.Read(buffer);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
             {
                 throw _exceptionFactory(exception, CancellationToken.None);
             }
@@ -169,7 +169,7 @@ public sealed partial class DbaDataReader
             {
                 return _inner.ReadBlock(buffer);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
             {
                 throw _exceptionFactory(exception, CancellationToken.None);
             }
@@ -206,7 +206,7 @@ public sealed partial class DbaDataReader
             {
                 return operation();
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, CancellationToken.None))
             {
                 throw _exceptionFactory(exception, CancellationToken.None);
             }
@@ -218,7 +218,7 @@ public sealed partial class DbaDataReader
             {
                 return await operation().ConfigureAwait(false);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, cancellationToken))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }
@@ -233,7 +233,7 @@ public sealed partial class DbaDataReader
             {
                 return await operation().ConfigureAwait(false);
             }
-            catch (Exception exception) when (IsProviderConsumptionException(exception))
+            catch (Exception exception) when (IsProviderConsumptionException(exception, cancellationToken))
             {
                 throw _exceptionFactory(exception, cancellationToken);
             }

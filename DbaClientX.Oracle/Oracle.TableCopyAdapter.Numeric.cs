@@ -10,7 +10,7 @@ SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
   AND TABLE_NAME = :table
-  AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%')";
+  AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%' OR DATA_TYPE LIKE 'INTERVAL YEAR%')";
 
     /// <inheritdoc />
     public async Task ValidateDestinationCompatibilityAsync(
@@ -78,7 +78,7 @@ WHERE OWNER = :owner
                     string dataType = reader.GetString(1);
                     int? precision = reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2));
                     int? scale = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3));
-                    bool excluded = IsPortableNumericProjection(definition, column, allowStringConversion: false);
+                    bool excluded = IsExcludedProjection(definition, column) && !IsPagingColumn(definition, column);
                     if (string.Equals(dataType, "BFILE", StringComparison.OrdinalIgnoreCase))
                     {
                         ValidateOracleBFileProjection(definition.SourceName, column, excluded);
@@ -93,6 +93,16 @@ WHERE OWNER = :owner
                     if (IsOracleDaySecondInterval(dataType))
                     {
                         if (!excluded) ValidateOracleDaySecondIntervalShape(column, dataType, precision, scale);
+                        continue;
+                    }
+                    if (IsOracleYearMonthInterval(dataType))
+                    {
+                        ValidateOracleYearMonthProjection(
+                            definition.SourceName,
+                            column,
+                            dataType,
+                            destinationProvider,
+                            excluded || IsPortableNumericProjection(definition, column));
                         continue;
                     }
 
@@ -161,6 +171,27 @@ WHERE OWNER = :owner
     private static bool IsOracleDaySecondInterval(string dataType)
         => dataType.StartsWith("INTERVAL DAY", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsOracleYearMonthInterval(string dataType)
+        => dataType.StartsWith("INTERVAL YEAR", StringComparison.OrdinalIgnoreCase);
+
+    internal static void ValidateOracleYearMonthProjection(
+        string sourceName,
+        string columnName,
+        string dataType,
+        DbaTableCopyProvider destinationProvider,
+        bool portableProjection)
+    {
+        if (!IsOracleYearMonthInterval(dataType) || portableProjection ||
+            destinationProvider is DbaTableCopyProvider.Oracle or DbaTableCopyProvider.PostgreSql)
+        {
+            return;
+        }
+
+        throw new NotSupportedException(
+            $"Oracle source column '{sourceName}.{columnName}' uses {dataType}, whose calendar-month semantics are not portable to {destinationProvider}. " +
+            "Exclude the column, convert it explicitly to String, or copy it to an Oracle or PostgreSQL destination.");
+    }
+
     internal static void ValidateOracleDaySecondIntervalShape(
         string columnName,
         string dataType,
@@ -213,24 +244,10 @@ WHERE OWNER = :owner
         string sourceColumn,
         bool allowStringConversion = true)
     {
-        IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
-            ? mappingDictionary.Comparer
-            : StringComparer.Ordinal;
-        string destinationColumn = definition.ColumnMappings?
-            .FirstOrDefault(pair => mappingComparer.Equals(pair.Key, sourceColumn)).Value
-            ?? sourceColumn;
-
-        IEqualityComparer<string> excludedComparer = definition.ExcludedColumns is HashSet<string> excludedSet
-            ? excludedSet.Comparer
-            : StringComparer.Ordinal;
-        if (definition.ExcludedColumns?.Any(name =>
-                excludedComparer.Equals(name, sourceColumn) ||
-                excludedComparer.Equals(name, destinationColumn)) == true)
-        {
-            return true;
-        }
+        if (IsExcludedProjection(definition, sourceColumn) && !IsPagingColumn(definition, sourceColumn)) return true;
 
         if (!allowStringConversion || definition.ColumnTypeConversions == null) return false;
+        string destinationColumn = ResolveDestinationColumn(definition, sourceColumn);
         IEqualityComparer<string> conversionComparer = definition.ColumnTypeConversions is Dictionary<string, DbaTableCopyColumnType> conversionDictionary
             ? conversionDictionary.Comparer
             : StringComparer.Ordinal;
@@ -238,5 +255,43 @@ WHERE OWNER = :owner
             (conversionComparer.Equals(pair.Key, sourceColumn) ||
              conversionComparer.Equals(pair.Key, destinationColumn)) &&
             pair.Value == DbaTableCopyColumnType.String);
+    }
+
+    internal static bool ShouldMaterializeSourceColumn(DbaTableCopyDefinition definition, string sourceColumn)
+        => !IsExcludedProjection(definition, sourceColumn) || IsPagingColumn(definition, sourceColumn);
+
+    private static bool IsExcludedProjection(DbaTableCopyDefinition definition, string sourceColumn)
+    {
+        string destinationColumn = ResolveDestinationColumn(definition, sourceColumn);
+        IEqualityComparer<string> excludedComparer = definition.ExcludedColumns is HashSet<string> excludedSet
+            ? excludedSet.Comparer
+            : StringComparer.Ordinal;
+        return definition.ExcludedColumns?.Any(name =>
+            excludedComparer.Equals(name, sourceColumn) ||
+            excludedComparer.Equals(name, destinationColumn)) == true;
+    }
+
+    private static string ResolveDestinationColumn(DbaTableCopyDefinition definition, string sourceColumn)
+    {
+        IEqualityComparer<string> mappingComparer = definition.ColumnMappings is Dictionary<string, string> mappingDictionary
+            ? mappingDictionary.Comparer
+            : StringComparer.Ordinal;
+        return definition.ColumnMappings?
+            .FirstOrDefault(pair => mappingComparer.Equals(pair.Key, sourceColumn)).Value
+            ?? sourceColumn;
+    }
+
+    private static bool IsPagingColumn(DbaTableCopyDefinition definition, string sourceColumn)
+    {
+        if (definition.OrderByColumns == null) return false;
+        foreach (string planned in definition.OrderByColumns)
+        {
+            bool delimited = DbaIdentifierPath.IsDelimitedSegment(planned);
+            string physical = DbaIdentifierPath.UnquoteSegment(planned, DbaTableCopyProvider.Oracle);
+            if (!delimited) physical = physical.ToUpperInvariant();
+            if (string.Equals(physical, sourceColumn, StringComparison.Ordinal)) return true;
+        }
+
+        return false;
     }
 }

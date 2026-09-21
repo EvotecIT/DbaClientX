@@ -311,7 +311,7 @@ public sealed partial class DbaDataReader : DbDataReader
         {
             return operation();
         }
-        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception))
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception, cancellationToken))
         {
             throw _consumptionExceptionFactory!(exception, cancellationToken);
         }
@@ -323,17 +323,23 @@ public sealed partial class DbaDataReader : DbDataReader
         {
             return await operation().ConfigureAwait(false);
         }
-        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception))
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception, cancellationToken))
         {
             throw _consumptionExceptionFactory!(exception, cancellationToken);
         }
     }
 
-    private bool ShouldNormalizeConsumptionException(Exception exception)
-        => _consumptionExceptionFactory != null && IsProviderConsumptionException(exception);
+    private bool ShouldNormalizeConsumptionException(Exception exception, CancellationToken cancellationToken)
+        => _consumptionExceptionFactory != null && IsProviderConsumptionException(exception, cancellationToken);
 
-    private static bool IsProviderConsumptionException(Exception exception)
-        => exception is DbException or IOException or TimeoutException or OperationCanceledException;
+    private static bool IsProviderConsumptionException(Exception exception, CancellationToken cancellationToken)
+        => (exception is DbException or IOException or TimeoutException or OperationCanceledException) &&
+           !IsCallerCancellation(exception, cancellationToken);
+
+    private static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
+        => exception is OperationCanceledException &&
+           cancellationToken.CanBeCanceled &&
+           cancellationToken.IsCancellationRequested;
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)

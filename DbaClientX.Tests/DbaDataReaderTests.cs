@@ -239,10 +239,37 @@ public class DbaDataReaderTests
     }
 
     [Fact]
-    public async Task NextResultAsync_PassesCallerTokenToDeferredFailureNormalizer()
+    public async Task NextResultAsync_PreservesCallerCancellation()
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
+        var expected = new OperationCanceledException("caller canceled", cancellation.Token);
+        bool factoryCalled = false;
+        await using var reader = new DBAClientX.DbaDataReader(
+            new ThrowingDataReader(expected),
+            command: null,
+            connection: null,
+            ownsConnection: false,
+            disposeConnection: null,
+            afterReaderDisposed: null,
+            disposeConnectionAsync: null,
+            afterReaderDisposedAsync: null,
+            consumptionExceptionFactory: (exception, token) =>
+            {
+                factoryCalled = true;
+                return new OperationCanceledException("safe cancellation", exception, token);
+            });
+
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(
+            () => reader.NextResultAsync(cancellation.Token));
+
+        Assert.Same(expected, exception);
+        Assert.False(factoryCalled);
+    }
+
+    [Fact]
+    public async Task ReadAsync_NormalizesProviderCancellationWithoutCallerCancellation()
+    {
         await using var reader = new DBAClientX.DbaDataReader(
             new ThrowingDataReader(new OperationCanceledException("provider canceled")),
             command: null,
@@ -252,14 +279,11 @@ public class DbaDataReaderTests
             afterReaderDisposed: null,
             disposeConnectionAsync: null,
             afterReaderDisposedAsync: null,
-            consumptionExceptionFactory: (exception, token) =>
-                new OperationCanceledException("safe cancellation", exception, token));
+            consumptionExceptionFactory: (exception, _) =>
+                new DBAClientX.DbaQueryExecutionException("Deferred read failed.", "SELECT sensitive", exception));
 
-        var exception = await Assert.ThrowsAsync<OperationCanceledException>(
-            () => reader.NextResultAsync(cancellation.Token));
-
-        Assert.Equal(cancellation.Token, exception.CancellationToken);
-        Assert.Equal("safe cancellation", exception.Message);
+        await Assert.ThrowsAsync<DBAClientX.DbaQueryExecutionException>(
+            () => reader.ReadAsync(CancellationToken.None));
     }
 
     [Fact]
@@ -323,21 +347,27 @@ public class DbaDataReaderTests
     }
 
     [Fact]
-    public async Task DeferredStreamReadAsync_PassesCallerTokenToFailureNormalizer()
+    public async Task DeferredStreamReadAsync_PreservesCallerCancellation()
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
+        var expected = new OperationCanceledException("caller canceled", cancellation.Token);
+        bool factoryCalled = false;
         using var reader = CreateDeferredValueReader(
-            new ThrowingStream(new OperationCanceledException("provider canceled")),
+            new ThrowingStream(expected),
             TextReader.Null,
-            (exception, token) => new OperationCanceledException("safe cancellation", exception, token));
+            (exception, token) =>
+            {
+                factoryCalled = true;
+                return new OperationCanceledException("safe cancellation", exception, token);
+            });
         await using Stream stream = reader.GetStream(0);
 
         OperationCanceledException exception = await Assert.ThrowsAsync<OperationCanceledException>(
             () => stream.ReadAsync(new byte[1], 0, 1, cancellation.Token));
 
-        Assert.Equal(cancellation.Token, exception.CancellationToken);
-        Assert.Equal("safe cancellation", exception.Message);
+        Assert.Same(expected, exception);
+        Assert.False(factoryCalled);
     }
 
     private static DBAClientX.DbaDataReader CreateNormalizingReader(string rawMessage)

@@ -190,7 +190,7 @@ MySQL `DECIMAL` and Oracle `NUMBER`/`FLOAT` values beyond `System.Decimal` preci
 
 Oracle bulk and transactional writes apply the same provider-neutral conversions for GUID/RAW, date/time, interval, unsigned, and arbitrary-precision numeric values.
 
-PostgreSQL reads preserve native interval month, day, and microsecond components in `DbaCalendarInterval`; PostgreSQL bulk writes rehydrate them without approximating calendar months as fixed-duration `TimeSpan` values. Oracle `INTERVAL YEAR TO MONTH` values continue to use `DbaYearMonthInterval` and rehydrate as native PostgreSQL month components.
+PostgreSQL reads preserve native interval month, day, and microsecond components in `DbaCalendarInterval`; PostgreSQL bulk writes rehydrate them without approximating calendar months as fixed-duration `TimeSpan` values. Oracle `INTERVAL YEAR TO MONTH` values continue to use `DbaYearMonthInterval` and rehydrate as native Oracle or PostgreSQL month components; other destinations require exclusion or explicit `String` conversion. Excluded Oracle columns are skipped during page materialization, so an unrepresentable excluded temporal or locator value cannot fail an otherwise valid copy.
 
 PostgreSQL arrays, geometric, range/multirange, text-search, bit-string, and other provider-native values remain lossless when the destination is PostgreSQL. Copies to other providers reject those declarations before writing unless the column is excluded or explicitly converted to `String`.
 

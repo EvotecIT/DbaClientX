@@ -39,6 +39,37 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Contains("DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE')", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'TIMESTAMP%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("DATA_TYPE LIKE 'INTERVAL DAY%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("DATA_TYPE LIKE 'INTERVAL YEAR%'", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(DbaTableCopyProvider.SqlServer)]
+    [InlineData(DbaTableCopyProvider.MySql)]
+    [InlineData(DbaTableCopyProvider.SQLite)]
+    public void DestinationCompatibility_RejectsUnsupportedOracleYearMonthIntervals(
+        DbaTableCopyProvider destinationProvider)
+    {
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            OracleTableCopyAdapter.ValidateOracleYearMonthProjection(
+                "SOURCE_ROWS",
+                "PERIOD",
+                "INTERVAL YEAR(4) TO MONTH",
+                destinationProvider,
+                portableProjection: false));
+
+        Assert.Contains("calendar-month", exception.Message, StringComparison.OrdinalIgnoreCase);
+        OracleTableCopyAdapter.ValidateOracleYearMonthProjection(
+            "SOURCE_ROWS",
+            "PERIOD",
+            "INTERVAL YEAR(4) TO MONTH",
+            destinationProvider,
+            portableProjection: true);
+        OracleTableCopyAdapter.ValidateOracleYearMonthProjection(
+            "SOURCE_ROWS",
+            "PERIOD",
+            "INTERVAL YEAR(4) TO MONTH",
+            DbaTableCopyProvider.PostgreSql,
+            portableProjection: false);
     }
 
     [Fact]
@@ -121,6 +152,24 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.True(OracleTableCopyAdapter.IsPortableNumericProjection(converted, "EVENT_TIME"));
         Assert.False(OracleTableCopyAdapter.IsPortableNumericProjection(converted, "EVENT_TIME", allowStringConversion: false));
         Assert.True(OracleTableCopyAdapter.IsPortableNumericProjection(excluded, "EVENT_TIME", allowStringConversion: false));
+    }
+
+    [Fact]
+    public void PageProjection_SkipsExcludedOracleValuesButRetainsPagingKeys()
+    {
+        var excluded = new DbaTableCopyDefinition(
+            "SOURCE_ROWS",
+            "DESTINATION_ROWS",
+            new[] { "ID" },
+            ExcludedColumns: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "EVENT_TIME" });
+        var excludedKey = excluded with
+        {
+            ExcludedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "ID" }
+        };
+
+        Assert.False(OracleTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "EVENT_TIME"));
+        Assert.True(OracleTableCopyAdapter.ShouldMaterializeSourceColumn(excluded, "ID"));
+        Assert.True(OracleTableCopyAdapter.ShouldMaterializeSourceColumn(excludedKey, "ID"));
     }
 
     [Theory]

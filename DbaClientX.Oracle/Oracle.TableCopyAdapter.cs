@@ -200,13 +200,25 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
     {
         if (_readConnection != null)
         {
-            return await ExecuteOraclePageAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
+            return await ExecuteOraclePageAsync(null, query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
         }
         using var oracle = new Oracle { ReturnType = ReturnType.DataTable, CommandTimeout = CommandTimeout };
         var result = await oracle.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
         return result as DataTable
             ?? throw new InvalidOperationException("Oracle did not return a DataTable.");
     }
+
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteTableCopyPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        CancellationToken cancellationToken)
+        => ExecuteOraclePageAsync(
+            definition,
+            query,
+            new Dictionary<string, object?>(),
+            maxBytes: null,
+            cancellationToken);
 
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)

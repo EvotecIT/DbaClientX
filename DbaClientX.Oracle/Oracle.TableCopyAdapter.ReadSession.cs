@@ -46,9 +46,23 @@ public sealed partial class OracleTableCopyAdapter
 
     /// <inheritdoc />
     protected override Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
-        => ExecuteOraclePageAsync(query, parameters, maxBytes, cancellationToken);
+        => ExecuteOraclePageAsync(null, query, parameters, maxBytes, cancellationToken);
 
-    private async Task<DataTable> ExecuteOraclePageAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    protected override Task<DataTable> ExecuteKeysetPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        IReadOnlyDictionary<string, object?> parameters,
+        long? maxBytes,
+        CancellationToken cancellationToken)
+        => ExecuteOraclePageAsync(definition, query, parameters, maxBytes, cancellationToken);
+
+    private async Task<DataTable> ExecuteOraclePageAsync(
+        DbaTableCopyDefinition? definition,
+        string query,
+        IReadOnlyDictionary<string, object?> parameters,
+        long? maxBytes,
+        CancellationToken cancellationToken)
     {
         using OracleConnection? owned = _readConnection == null ? new OracleConnection(ConnectionString) : null;
         OracleConnection connection = _readConnection ?? owned!;
@@ -66,15 +80,22 @@ public sealed partial class OracleTableCopyAdapter
         }
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((OracleCommand)state!).Cancel(), command);
         using OracleDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
+        bool[] materializeColumns = Enumerable.Range(0, reader.FieldCount)
+            .Select(ordinal => definition == null || ShouldMaterializeSourceColumn(definition, reader.GetName(ordinal)))
+            .ToArray();
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
-            ? ordinal => ValidateBoundedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal))
+            ? ordinal => materializeColumns[ordinal]
+                ? ValidateBoundedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal))
+                : 0
             : null;
         return await DbaTableCopyPageReader.ReadAsync(
             reader,
             maxBytes,
             fieldPayloadBytes,
-            readFieldValue: ordinal => ReadProviderValue(reader, ordinal),
-            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal)),
+            readFieldValue: ordinal => materializeColumns[ordinal] ? ReadProviderValue(reader, ordinal) : DBNull.Value,
+            normalizedFieldType: ordinal => materializeColumns[ordinal]
+                ? GetNormalizedFieldType(reader.GetFieldType(ordinal), reader.GetDataTypeName(ordinal))
+                : typeof(object),
             cancellationToken).ConfigureAwait(false);
     }
 

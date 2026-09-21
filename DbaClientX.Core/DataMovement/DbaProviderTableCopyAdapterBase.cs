@@ -75,7 +75,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
         DataTable table;
         try
         {
-            table = await ExecuteTableAsync(query, cancellationToken).ConfigureAwait(false);
+            table = await ExecuteTableCopyPageCoreAsync(request.Definition, query, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (_treatMissingTablesAsEmpty && IsMissingTableException(ex))
         {
@@ -153,6 +153,13 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
 
     /// <summary>Executes a table-returning SQL statement using the concrete provider.</summary>
     protected abstract Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken);
+
+    /// <summary>Executes a table-copy page with its projection definition available to the provider.</summary>
+    protected virtual Task<DataTable> ExecuteTableCopyPageCoreAsync(
+        DbaTableCopyDefinition definition,
+        string query,
+        CancellationToken cancellationToken)
+        => ExecuteTableCoreAsync(query, cancellationToken);
 
     /// <summary>Executes a non-query SQL statement using the concrete provider.</summary>
     protected abstract Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken);
