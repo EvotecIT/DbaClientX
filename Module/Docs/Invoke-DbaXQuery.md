@@ -80,7 +80,7 @@ Parameter Sets: Query, QueryReader
 Aliases: None
 Possible values:
 
-Required: True
+Required: False
 Position: named
 Default value: None
 Accept pipeline input: False
@@ -168,7 +168,7 @@ Accept wildcard characters: False
 ```
 
 ### -QueryTimeout
-Sets the command timeout in seconds.
+Sets the command timeout in seconds. Specify 0 for no timeout.
 
 ```yaml
 Type: Int32

@@ -600,7 +600,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. SQLite destinations do not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -1049,7 +1049,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. SQLite destinations do not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -3463,7 +3463,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -3569,7 +3569,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -3764,7 +3764,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the timeout for the command in seconds.</maml:para>
+            <maml:para>Sets the timeout for the command in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -3893,7 +3893,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the timeout for the command in seconds.</maml:para>
+          <maml:para>Sets the timeout for the command in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -4099,7 +4099,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -4198,7 +4198,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -4347,7 +4347,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -4464,7 +4464,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -4635,7 +4635,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Command timeout to assign to the transaction client.</maml:para>
+            <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -4755,7 +4755,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Command timeout to assign to the transaction client.</maml:para>
+          <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -4904,7 +4904,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -5015,7 +5015,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -5199,7 +5199,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the timeout for the command in seconds.</maml:para>
+            <maml:para>Sets the timeout for the command in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -5328,7 +5328,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the timeout for the command in seconds.</maml:para>
+          <maml:para>Sets the timeout for the command in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -5529,7 +5529,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -5628,7 +5628,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -5773,7 +5773,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -5890,7 +5890,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -6056,7 +6056,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Command timeout to assign to the transaction client.</maml:para>
+            <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -6176,7 +6176,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Command timeout to assign to the transaction client.</maml:para>
+          <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -6325,7 +6325,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -6442,7 +6442,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -6571,7 +6571,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -6780,7 +6780,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -6879,7 +6879,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -7037,7 +7037,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Command timeout to assign to the transaction client.</maml:para>
+            <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -7157,7 +7157,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Command timeout to assign to the transaction client.</maml:para>
+          <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -7319,7 +7319,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -7473,7 +7473,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -7572,7 +7572,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -7662,13 +7662,13 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       </command:syntaxItem>
     </command:syntax>
     <command:parameters>
-      <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>AsDataReader</maml:name>
         <maml:description>
           <maml:para>When enabled, returns one live reader that owns its command and connection until the caller disposes it.&#xD;
 A disabled switch remains compatible with ordinary buffered query options.</maml:para>
         </maml:description>
-        <command:parameterValue required="true" variableLength="false">SwitchParameter</command:parameterValue>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
           <maml:name>SwitchParameter</maml:name>
           <maml:uri />
@@ -7738,7 +7738,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -7972,7 +7972,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional command timeout in seconds.</maml:para>
+            <maml:para>Optional command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -8072,7 +8072,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional command timeout in seconds.</maml:para>
+          <maml:para>Optional command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -8194,7 +8194,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Sets the command timeout in seconds.</maml:para>
+            <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -8275,7 +8275,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Sets the command timeout in seconds.</maml:para>
+          <maml:para>Sets the command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -8663,7 +8663,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Command timeout to assign to the transaction client.</maml:para>
+            <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -8735,7 +8735,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Command timeout to assign to the transaction client.</maml:para>
+          <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -8854,7 +8854,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional command timeout in seconds.</maml:para>
+            <maml:para>Optional command timeout in seconds. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -8966,7 +8966,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional command timeout in seconds.</maml:para>
+          <maml:para>Optional command timeout in seconds. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -9132,7 +9132,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>QueryTimeout</maml:name>
           <maml:description>
-            <maml:para>Command timeout to assign to the transaction client.</maml:para>
+            <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -9252,7 +9252,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>QueryTimeout</maml:name>
         <maml:description>
-          <maml:para>Command timeout to assign to the transaction client.</maml:para>
+          <maml:para>Command timeout to assign to the transaction client. Specify 0 for no timeout.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -11351,7 +11351,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -11541,7 +11541,7 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. SQLite does not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>

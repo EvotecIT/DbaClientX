@@ -45,7 +45,7 @@ Accept wildcard characters: False
 ```
 
 ### -BulkCopyTimeout
-Optional provider bulk-copy timeout in seconds. SQLite does not support this option.
+Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.
 
 ```yaml
 Type: Int32

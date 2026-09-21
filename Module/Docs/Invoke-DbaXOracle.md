@@ -130,7 +130,7 @@ Accept wildcard characters: False
 ```
 
 ### -QueryTimeout
-Sets the timeout for the command in seconds.
+Sets the timeout for the command in seconds. Specify 0 for no timeout.
 
 ```yaml
 Type: Int32

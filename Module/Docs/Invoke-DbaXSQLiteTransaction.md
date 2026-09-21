@@ -77,7 +77,7 @@ Accept wildcard characters: False
 ```
 
 ### -QueryTimeout
-Command timeout to assign to the transaction client.
+Command timeout to assign to the transaction client. Specify 0 for no timeout.
 
 ```yaml
 Type: Int32
