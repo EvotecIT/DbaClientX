@@ -392,6 +392,102 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
 
     [Fact]
     [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlVerifiedCopy_PreservesCalendarIntervalComponents()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string sourceTable = "dbax_interval_source_" + suffix;
+        string destinationTable = "dbax_interval_destination_" + suffix;
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, $"CREATE TABLE \"{sourceTable}\" (id bigint NOT NULL PRIMARY KEY, period interval NOT NULL)");
+            await ExecuteAsync(connection, $"CREATE TABLE \"{destinationTable}\" (id bigint NOT NULL PRIMARY KEY, period interval NOT NULL)");
+            await ExecuteAsync(connection, $"INSERT INTO \"{sourceTable}\" VALUES (1, INTERVAL '1 year 2 mons 3 days 04:05:06.123456')");
+
+            var source = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!, new[] { "id" });
+            var destination = CreateAdapter(DbaTableCopyProvider.PostgreSql, connectionString!);
+            var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                source,
+                destination,
+                new[] { definition },
+                new DbaTableCopyOptions { PageSize = 1, VerifyContent = true });
+
+            Assert.True(result.Verified);
+            Assert.Equal(14L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT EXTRACT(YEAR FROM period)::bigint * 12 + EXTRACT(MONTH FROM period)::bigint FROM \"{destinationTable}\"")));
+            Assert.Equal(3L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT EXTRACT(DAY FROM period)::bigint FROM \"{destinationTable}\"")));
+            Assert.Equal(14_706_123_456L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT (EXTRACT(HOUR FROM period) * 3600000000 + EXTRACT(MINUTE FROM period) * 60000000 + EXTRACT(SECOND FROM period) * 1000000)::bigint FROM \"{destinationTable}\"")));
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{destinationTable}\"");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{sourceTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task PostgreSqlConsistentRead_RejectsViewsDependingOnForeignTables()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_POSTGRESQL_TEST_CONNECTION");
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(connectionString),
+            "Set DBACLIENTX_POSTGRESQL_TEST_CONNECTION to an isolated PostgreSQL database.");
+
+        string suffix = Guid.NewGuid().ToString("N");
+        string remoteTable = "dbax_view_remote_" + suffix;
+        string foreignTable = "dbax_view_foreign_" + suffix;
+        string view = "dbax_foreign_view_" + suffix;
+        string server = "dbax_view_server_" + suffix;
+        var builder = new NpgsqlConnectionStringBuilder(connectionString!);
+        string remoteUsername = builder.Username
+            ?? throw new InvalidOperationException("The PostgreSQL live-provider connection requires a username.");
+        string remotePassword = builder.Password
+            ?? throw new InvalidOperationException("The PostgreSQL live-provider connection requires a password.");
+        await using var connection = new NpgsqlConnection(connectionString!);
+        await connection.OpenAsync();
+        try
+        {
+            await ExecuteAsync(connection, "CREATE EXTENSION IF NOT EXISTS postgres_fdw");
+            await ExecuteAsync(connection, $"CREATE TABLE \"{remoteTable}\" (id bigint NOT NULL PRIMARY KEY, payload text NOT NULL)");
+            await ExecuteAsync(connection, $"CREATE SERVER \"{server}\" FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host '127.0.0.1', port '{builder.Port}', dbname '{EscapeSqlLiteral(connection.Database)}')");
+            await ExecuteAsync(connection, $"CREATE USER MAPPING FOR CURRENT_USER SERVER \"{server}\" OPTIONS (user '{EscapeSqlLiteral(remoteUsername)}', password '{EscapeSqlLiteral(remotePassword)}')");
+            await ExecuteAsync(connection, $"CREATE FOREIGN TABLE \"{foreignTable}\" (id bigint NOT NULL, payload text NOT NULL) SERVER \"{server}\" OPTIONS (schema_name 'public', table_name '{remoteTable}')");
+            await ExecuteAsync(connection, $"CREATE VIEW \"{view}\" AS SELECT id, payload FROM \"{foreignTable}\"");
+
+            var source = CreateAdapter(
+                DbaTableCopyProvider.PostgreSql,
+                connectionString!,
+                new[] { "id" },
+                DbaTableCopyReadConsistency.Snapshot);
+            var definition = new DbaTableCopyDefinition(view, view, new[] { "id" }) { UseKeysetPagination = true };
+
+            InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                ((IDbaTableCopyDefinitionReadSession)source).OpenReadSessionAsync(new[] { definition }));
+
+            Assert.Contains("view dependency graph", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await TryExecuteAsync(connection, $"DROP VIEW IF EXISTS \"{view}\"");
+            await TryExecuteAsync(connection, $"DROP FOREIGN TABLE IF EXISTS \"{foreignTable}\"");
+            await TryExecuteAsync(connection, $"DROP SERVER IF EXISTS \"{server}\" CASCADE");
+            await TryExecuteAsync(connection, $"DROP TABLE IF EXISTS \"{remoteTable}\"");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
     public async Task MySqlCheckpointedCopy_RejectsNontransactionalDestinationBeforeClearingRows()
     {
         var connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
@@ -2271,6 +2367,8 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             : "`DbaClientX_TableCopyCheckpoints`";
         return $"DELETE FROM {table} WHERE CopyId LIKE '%{suffix.Replace("'", "''")}'";
     }
+
+    private static string EscapeSqlLiteral(string value) => value.Replace("'", "''");
 
     private static async Task ExecuteAsync(DbConnection connection, string sql)
     {

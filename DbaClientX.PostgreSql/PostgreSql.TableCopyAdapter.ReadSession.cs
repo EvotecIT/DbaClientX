@@ -122,10 +122,24 @@ WITH RECURSIVE root AS (
     SELECT cls.oid, cls.relkind
     FROM pg_catalog.pg_class AS cls
     WHERE cls.oid = to_regclass(@name)
-), relation_tree AS (
+), view_dependencies AS (
     SELECT root.oid
     FROM root
-    UNION ALL
+    UNION
+    SELECT dependency.refobjid
+    FROM view_dependencies AS owner
+    JOIN pg_catalog.pg_rewrite AS rewrite ON rewrite.ev_class = owner.oid
+    JOIN pg_catalog.pg_depend AS dependency
+      ON dependency.classid = 'pg_catalog.pg_rewrite'::regclass
+     AND dependency.objid = rewrite.oid
+     AND dependency.refclassid = 'pg_catalog.pg_class'::regclass
+    JOIN pg_catalog.pg_class AS referenced ON referenced.oid = dependency.refobjid
+    WHERE dependency.refobjid <> owner.oid
+      AND referenced.relkind IN ('r', 'p', 'f', 'v', 'm')
+), relation_tree AS (
+    SELECT view_dependencies.oid
+    FROM view_dependencies
+    UNION
     SELECT inheritance.inhrelid
     FROM pg_catalog.pg_inherits AS inheritance
     JOIN relation_tree AS parent ON inheritance.inhparent = parent.oid
@@ -148,7 +162,7 @@ FROM root";
     {
         if (!containsForeignRelation && !string.Equals(relationKind, "f", StringComparison.Ordinal)) return;
         throw new InvalidOperationException(
-            $"PostgreSQL {consistency} read consistency does not support foreign source table or partition tree '{sourceName}' because the local transaction cannot guarantee a stable remote snapshot.");
+            $"PostgreSQL {consistency} read consistency does not support foreign source table dependencies for '{sourceName}' because its relation, partition tree, or view dependency graph contains a foreign table whose remote data is not protected by the local transaction and cannot provide a stable remote snapshot.");
     }
 
     private NpgsqlCommand CreateReadCommand(string query)
@@ -180,6 +194,9 @@ FROM root";
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((NpgsqlCommand)state!).Cancel(), command);
         using NpgsqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         ValidateNumericColumns(reader);
+        bool[] intervalColumns = Enumerable.Range(0, reader.FieldCount)
+            .Select(ordinal => string.Equals(reader.GetDataTypeName(ordinal), "interval", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Func<int, long?>? fieldPayloadBytes = maxBytes.HasValue
             ? ordinal => ValidateBoundedFieldType(reader, ordinal)
             : null;
@@ -187,8 +204,12 @@ FROM root";
             reader,
             maxBytes,
             fieldPayloadBytes,
-            readFieldValue: ordinal => NormalizeProviderValue(reader.GetValue(ordinal)),
-            normalizedFieldType: ordinal => GetNormalizedFieldType(reader.GetFieldType(ordinal)),
+            readFieldValue: ordinal => intervalColumns[ordinal]
+                ? NormalizeInterval(reader.GetFieldValue<NpgsqlInterval>(ordinal))
+                : NormalizeProviderValue(reader.GetValue(ordinal)),
+            normalizedFieldType: ordinal => intervalColumns[ordinal]
+                ? typeof(DbaCalendarInterval)
+                : GetNormalizedFieldType(reader.GetFieldType(ordinal)),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
@@ -235,6 +256,9 @@ FROM root";
 #endif
         return value;
     }
+
+    internal static DbaCalendarInterval NormalizeInterval(NpgsqlInterval value)
+        => new(value.Months, value.Days, value.Time);
 
     /// <inheritdoc />
     public object? NormalizeContentValue(object value)
@@ -292,6 +316,8 @@ FROM root";
 
     internal static object GetPageParameterValue(object? value)
     {
+        if (value is DbaCalendarInterval interval)
+            return new NpgsqlInterval(interval.Months, interval.Days, interval.Microseconds);
         if (value is not DbaIpNetwork network) return value ?? DBNull.Value;
 #if NET472
         return new NpgsqlCidr(network.Address, checked((byte)network.PrefixLength));
@@ -311,6 +337,7 @@ FROM root";
         {
             return null;
         }
+        if (string.Equals(reader.GetDataTypeName(ordinal), "interval", StringComparison.OrdinalIgnoreCase)) return null;
 #if NET6_0_OR_GREATER
         if (type == typeof(DateOnly) || type == typeof(TimeOnly)) return null;
 #endif

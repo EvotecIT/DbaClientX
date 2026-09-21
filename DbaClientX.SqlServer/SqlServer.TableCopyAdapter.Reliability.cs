@@ -105,13 +105,17 @@ public sealed partial class SqlServerTableCopyAdapter
             options.BatchSize, options.BulkCopyTimeout, cancellationToken).ConfigureAwait(false);
     }
 
-    private SqlServerBulkInsertOptions? GetEffectiveBulkInsertOptions(DbaTableCopyOptions options, bool externalTransaction = false)
+    private SqlServerBulkInsertOptions? GetEffectiveBulkInsertOptions(
+        DbaTableCopyOptions options,
+        bool externalTransaction = false,
+        bool forceConstraints = false)
     {
         if (!externalTransaction && !options.KeepIdentity && !options.VerifyContent && options.CheckpointId == null) return _bulkInsertOptions;
         SqlBulkCopyOptions flags = _bulkInsertOptions?.BulkCopyOptions ?? SqlBulkCopyOptions.Default;
         if (externalTransaction) flags &= ~SqlBulkCopyOptions.UseInternalTransaction;
         if (options.KeepIdentity) flags |= SqlBulkCopyOptions.KeepIdentity;
-        if (options.VerifyContent || options.CheckpointId != null) flags |= SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints;
+        if (options.VerifyContent || options.CheckpointId != null || forceConstraints)
+            flags |= SqlBulkCopyOptions.KeepNulls | SqlBulkCopyOptions.CheckConstraints;
         return new SqlServerBulkInsertOptions
         {
             BulkCopyOptions = flags,

@@ -25,7 +25,7 @@ ORDER BY attribute.attnum";
     {
         "point", "line", "lseg", "box", "path", "polygon", "circle",
         "tsquery", "tsvector", "pg_lsn", "tid", "bit", "varbit", "hstore",
-        "inet", "cidr", "macaddr", "macaddr8"
+        "inet", "cidr", "macaddr", "macaddr8", "interval"
     };
 
     /// <inheritdoc />

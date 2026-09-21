@@ -57,6 +57,8 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Contains("partition tree", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("pg_catalog.pg_inherits", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
         Assert.Contains("descendant.relkind = 'f'", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("pg_catalog.pg_rewrite", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
+        Assert.Contains("pg_catalog.pg_depend", PostgreSqlTableCopyAdapter.PostgreSqlConsistentSourceRelationQuery, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -214,6 +216,29 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
+    public void KeysetContinuationToken_RoundTripsCalendarIntervals()
+    {
+        var tokenType = typeof(DbaTableCopyDefinition).Assembly.GetType(
+            "DBAClientX.DataMovement.DbaKeysetContinuationToken",
+            throwOnError: true)!;
+        var encode = tokenType.GetMethod("Encode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var decode = tokenType.GetMethod("Decode", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Period" })
+        {
+            UseKeysetPagination = true
+        };
+        using var table = new DataTable();
+        table.Columns.Add("Period", typeof(DbaCalendarInterval));
+        var expected = new DbaCalendarInterval(-14, 3, 4_500_001);
+        DataRow row = table.Rows.Add(expected);
+
+        string token = Assert.IsType<string>(encode.Invoke(null, new object[] { definition, row }));
+        object[] values = Assert.IsType<object[]>(decode.Invoke(null, new object?[] { definition, token }));
+
+        Assert.Equal(expected, Assert.IsType<DbaCalendarInterval>(Assert.Single(values)));
+    }
+
+    [Fact]
     public void KeysetContinuationToken_RoundTripsArbitraryDecimals()
     {
         Type tokenType = typeof(DbaTableCopyEngine).Assembly.GetType(
@@ -277,6 +302,20 @@ public class DbaProviderTableCopyAdapterBaseTests
         using var second = first.Copy();
 
         Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(second, "Period"));
+    }
+
+    [Fact]
+    public void ContentHasher_PreservesCalendarIntervalComponents()
+    {
+        using var first = new DataTable();
+        first.Columns.Add("Period", typeof(DbaCalendarInterval));
+        first.Rows.Add(new DbaCalendarInterval(1, 2, 3));
+        using var same = first.Copy();
+        using var changed = first.Clone();
+        changed.Rows.Add(new DbaCalendarInterval(1, 3, 3));
+
+        Assert.Equal(ComputeContentHash(first, "Period"), ComputeContentHash(same, "Period"));
+        Assert.NotEqual(ComputeContentHash(first, "Period"), ComputeContentHash(changed, "Period"));
     }
 
     [Theory]
@@ -771,13 +810,13 @@ public class DbaProviderTableCopyAdapterBaseTests
     }
 
     [Fact]
-    public void ContentHasher_NormalizesProviderGuidAndTimestampRepresentations()
+    public void ContentHasher_NormalizesProviderGuidAndUtcTimestampRepresentations()
     {
         var guid = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
         using var source = new DataTable();
         source.Columns.Add("Identifier", typeof(Guid));
         source.Columns.Add("Instant", typeof(DateTimeOffset));
-        source.Rows.Add(guid, new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.FromHours(2)));
+        source.Rows.Add(guid, new DateTimeOffset(2026, 9, 20, 10, 0, 0, TimeSpan.Zero));
 
         using var destination = new DataTable();
         destination.Columns.Add("Identifier", typeof(byte[]));
@@ -788,6 +827,18 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(
             ComputeContentHash(source, "Identifier", "Instant"),
             ComputeContentHash(destination, "Identifier", "Instant"));
+    }
+
+    [Fact]
+    public void ContentHasher_DistinguishesDateTimeOffsetSourceOffsets()
+    {
+        using var utc = new DataTable();
+        utc.Columns.Add("Instant", typeof(DateTimeOffset));
+        utc.Rows.Add(new DateTimeOffset(2026, 9, 21, 10, 0, 0, TimeSpan.Zero));
+        using var offset = utc.Clone();
+        offset.Rows.Add(new DateTimeOffset(2026, 9, 21, 12, 0, 0, TimeSpan.FromHours(2)));
+
+        Assert.NotEqual(ComputeContentHash(utc, "Instant"), ComputeContentHash(offset, "Instant"));
     }
 
     [Fact]
@@ -1555,6 +1606,26 @@ public class DbaProviderTableCopyAdapterBaseTests
         Assert.Equal(0, providerValue.Days);
         Assert.Equal(0, providerValue.Time);
         Assert.Equal(expected, page.Rows[0][0]);
+    }
+
+    [Fact]
+    public void BulkPage_PostgreSqlRoundTripsCalendarIntervalComponents()
+    {
+        using var page = new DataTable("Periods");
+        page.Columns.Add("Period", typeof(DbaCalendarInterval));
+        var expected = new DbaCalendarInterval(-13, 5, 12_345_678);
+        page.Rows.Add(expected);
+
+        using DataTable normalized = DbaPostgreSqlBulkCopyNormalizer.NormalizePage(page, "Periods");
+
+        Assert.Equal(typeof(NpgsqlInterval), normalized.Columns[0].DataType);
+        NpgsqlInterval providerValue = Assert.IsType<NpgsqlInterval>(normalized.Rows[0][0]);
+        Assert.Equal(expected.Months, providerValue.Months);
+        Assert.Equal(expected.Days, providerValue.Days);
+        Assert.Equal(expected.Microseconds, providerValue.Time);
+        Assert.Equal(expected, PostgreSqlTableCopyAdapter.NormalizeInterval(providerValue));
+        NpgsqlInterval parameter = Assert.IsType<NpgsqlInterval>(PostgreSqlTableCopyAdapter.GetPageParameterValue(expected));
+        Assert.Equal(providerValue, parameter);
     }
 
     [Fact]

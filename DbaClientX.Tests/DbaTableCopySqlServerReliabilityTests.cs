@@ -8,6 +8,44 @@ namespace DbaClientX.Tests;
 public sealed partial class DbaTableCopySqlServerReliabilityTests
 {
     [Fact]
+    public async Task CopyAsync_ClearDestinationPreflightsEverySqlServerPageBeforeDeletingRows()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        string sourceName = "dbo.DbaxPreflightSource" + Guid.NewGuid().ToString("N");
+        string targetName = "dbo.DbaxPreflightTarget" + Guid.NewGuid().ToString("N");
+        try
+        {
+            await fixture.Sql.ExecuteNonQueryAsync(
+                fixture.Connection,
+                $"CREATE TABLE {sourceName} (Id int NOT NULL PRIMARY KEY, Payload nvarchar(50) NOT NULL); " +
+                $"INSERT INTO {sourceName} VALUES (1,N'duplicate'),(2,N'duplicate'); " +
+                $"CREATE TABLE {targetName} (Id int NOT NULL PRIMARY KEY, Payload nvarchar(50) NOT NULL UNIQUE); " +
+                $"INSERT INTO {targetName} VALUES (99,N'preserve')");
+            var source = new SqlServerTableCopyAdapter(fixture.Connection, new[] { "Id" });
+            var destination = new SqlServerTableCopyAdapter(fixture.Connection);
+            var definition = new DbaTableCopyDefinition(sourceName, targetName, new[] { "Id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT COUNT_BIG(*) FROM {targetName}")));
+            Assert.Equal("preserve", Convert.ToString(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT Payload FROM {targetName}")));
+        }
+        finally
+        {
+            await fixture.Sql.ExecuteNonQueryAsync(fixture.Connection, $"DROP TABLE IF EXISTS {targetName}; DROP TABLE IF EXISTS {sourceName}");
+        }
+    }
+
+    [Fact]
     public async Task ReadPageAsync_ByteLimitedSqlPage_StopsTransferAndPreservesSnapshot()
     {
         using Fixture fixture = await Fixture.CreateAsync();

@@ -79,10 +79,22 @@ internal sealed class DbaTableCopyContentHasher : IDisposable
                 _writer.Write(date.Kind == DateTimeKind.Unspecified ? (byte)7 : (byte)4);
                 _writer.Write(date.Kind == DateTimeKind.Local ? date.ToUniversalTime().Ticks : date.Ticks);
                 break;
-            case DateTimeOffset date: _writer.Write((byte)4); _writer.Write(date.UtcTicks); break;
+            case DateTimeOffset date:
+                // Preserve the source offset when it carries semantics. UTC DateTimeOffset values
+                // intentionally remain hash-compatible with UTC DateTime values.
+                _writer.Write(date.Offset == TimeSpan.Zero ? (byte)4 : (byte)13);
+                _writer.Write(date.UtcTicks);
+                if (date.Offset != TimeSpan.Zero) _writer.Write(date.Offset.Ticks);
+                break;
             case Guid guid: WriteBinary(guid.ToByteArray()); break;
             case TimeSpan duration: _writer.Write((byte)6); _writer.Write(duration.Ticks); break;
             case DbaYearMonthInterval interval: _writer.Write((byte)8); _writer.Write(interval.TotalMonths); break;
+            case DbaCalendarInterval interval:
+                _writer.Write((byte)14);
+                _writer.Write(interval.Months);
+                _writer.Write(interval.Days);
+                _writer.Write(interval.Microseconds);
+                break;
             case System.Net.IPAddress address:
                 WriteIpAddress(9, address);
                 break;

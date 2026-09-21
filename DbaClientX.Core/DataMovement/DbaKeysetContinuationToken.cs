@@ -43,6 +43,12 @@ internal static class DbaKeysetContinuationToken
                     case float number: writer.Write((byte)10); writer.Write(number); break;
                     case double number: writer.Write((byte)11); writer.Write(number); break;
                     case DbaYearMonthInterval interval: writer.Write((byte)15); writer.Write(interval.TotalMonths); break;
+                    case DbaCalendarInterval interval:
+                        writer.Write((byte)20);
+                        writer.Write(interval.Months);
+                        writer.Write(interval.Days);
+                        writer.Write(interval.Microseconds);
+                        break;
                     case System.Net.IPAddress address:
                         writer.Write((byte)16);
                         WriteBytes(writer, address.GetAddressBytes());
@@ -102,6 +108,7 @@ internal static class DbaKeysetContinuationToken
                     11 => reader.ReadDouble(),
                     12 => reader.ReadUInt64(),
                     15 => new DbaYearMonthInterval(reader.ReadInt64()),
+                    20 => new DbaCalendarInterval(reader.ReadInt32(), reader.ReadInt32(), reader.ReadInt64()),
                     16 => ReadIpAddress(reader),
                     17 => new System.Net.NetworkInformation.PhysicalAddress(ReadBytes(reader, reader.ReadInt32())),
                     18 => new DbaIpNetwork(

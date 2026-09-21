@@ -7,6 +7,41 @@ namespace DbaClientX.Tests;
 public sealed partial class DbaTableCopyReliabilityTests
 {
     [Fact]
+    public async Task CopyAsync_SQLiteClearDestinationPreflightsEveryPageBeforeDeletingRows()
+    {
+        string sourcePath = Path.Combine(Path.GetTempPath(), "dbax-preflight-source-" + Guid.NewGuid().ToString("N") + ".db");
+        string destinationPath = Path.Combine(Path.GetTempPath(), "dbax-preflight-destination-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using var sqlite = new SQLite();
+            sqlite.ExecuteNonQuery(sourcePath, "CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, Payload TEXT NOT NULL); INSERT INTO SourceRows VALUES (1,'duplicate'),(2,'duplicate');");
+            sqlite.ExecuteNonQuery(destinationPath, "CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, Payload TEXT NOT NULL UNIQUE); INSERT INTO DestinationRows VALUES (99,'preserve');");
+            var source = new SQLiteTableCopyAdapter(sourcePath, new[] { "Id" });
+            var destination = new SQLiteTableCopyAdapter(destinationPath);
+            var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" })
+            {
+                UseKeysetPagination = true
+            };
+
+            InvalidOperationException exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new DbaTableCopyEngine().CopyAsync(
+                    source,
+                    destination,
+                    new[] { definition },
+                    new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 }));
+
+            Assert.Contains("schema preflight", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1L, Convert.ToInt64(sqlite.ExecuteScalar(destinationPath, "SELECT COUNT(*) FROM DestinationRows")));
+            Assert.Equal("preserve", sqlite.ExecuteScalar(destinationPath, "SELECT Payload FROM DestinationRows"));
+        }
+        finally
+        {
+            DeleteSQLiteFiles(sourcePath);
+            DeleteSQLiteFiles(destinationPath);
+        }
+    }
+
+    [Fact]
     public async Task ReadPageAsync_MissingOptionalSource_ReturnsEmptyKeysetPage()
     {
         using var fixture = new Fixture();
@@ -16,6 +51,15 @@ public sealed partial class DbaTableCopyReliabilityTests
         Assert.Empty(page.Data.Rows.Cast<DataRow>());
         Assert.Null(page.ContinuationToken);
         await Assert.ThrowsAnyAsync<Exception>(() => fixture.Source.ReadPageAsync(new(definition, null, 1)));
+    }
+
+    private static void DeleteSQLiteFiles(string path)
+    {
+        foreach (string suffix in new[] { string.Empty, "-wal", "-shm", "-journal" })
+        {
+            string candidate = path + suffix;
+            if (File.Exists(candidate)) File.Delete(candidate);
+        }
     }
 
     [Fact]
