@@ -79,6 +79,7 @@ public sealed class FabricLongRunningOperationClient
                     return new FabricOperationResult<T>(
                         state,
                         value,
+                        stateResponse.Location != null,
                         operation.OperationId,
                         serviceOperationId);
                 }

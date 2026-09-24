@@ -36,6 +36,7 @@ public sealed class FabricLongRunningOperationClientTests
             TimeSpan.FromMinutes(1));
 
         Assert.Equal("result-1", result.Value?.Id);
+        Assert.True(result.HasResult);
         Assert.Equal("Succeeded", result.State.Status);
         Assert.Equal(new[] { TimeSpan.FromSeconds(3) }, delays);
         Assert.Equal(3, handler.Requests.Count);
@@ -55,7 +56,33 @@ public sealed class FabricLongRunningOperationClientTests
 
         Assert.Equal("Succeeded", result.State.Status);
         Assert.Null(result.Value);
+        Assert.False(result.HasResult);
         Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task WaitForCompletion_DistinguishesAbsentResultFromDefaultValuePayload()
+    {
+        var serviceOperationId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var noResultHandler = new QueueHttpMessageHandler();
+        noResultHandler.Enqueue(HttpStatusCode.OK, """{"status":"Succeeded"}""");
+        var noResult = await new FabricLongRunningOperationClient(TestClients.Create(noResultHandler))
+            .WaitForCompletionAsync<int>(serviceOperationId, TimeSpan.FromMinutes(1));
+
+        var resultHandler = new QueueHttpMessageHandler();
+        resultHandler.Enqueue(
+            HttpStatusCode.OK,
+            """{"status":"Succeeded"}""",
+            response => response.Headers.Location =
+                new Uri($"https://api.fabric.microsoft.com/v1/operations/{serviceOperationId:D}/result"));
+        resultHandler.Enqueue(HttpStatusCode.OK, "0");
+        var zeroResult = await new FabricLongRunningOperationClient(TestClients.Create(resultHandler))
+            .WaitForCompletionAsync<int>(serviceOperationId, TimeSpan.FromMinutes(1));
+
+        Assert.Equal(0, noResult.Value);
+        Assert.False(noResult.HasResult);
+        Assert.Equal(0, zeroResult.Value);
+        Assert.True(zeroResult.HasResult);
     }
 
     [Fact]

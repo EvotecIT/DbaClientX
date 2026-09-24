@@ -44,11 +44,13 @@ public sealed class FabricOperationResult<T>
     internal FabricOperationResult(
         FabricOperationState state,
         T? value,
+        bool hasResult,
         string operationId,
         Guid serviceOperationId)
     {
         State = state;
         Value = value;
+        HasResult = hasResult;
         OperationId = operationId;
         ServiceOperationId = serviceOperationId;
     }
@@ -56,8 +58,11 @@ public sealed class FabricOperationResult<T>
     /// <summary>Gets the terminal operation state.</summary>
     public FabricOperationState State { get; }
 
-    /// <summary>Gets the operation result.</summary>
+    /// <summary>Gets the operation result, or default when no result resource was supplied. Check <see cref="HasResult"/> to distinguish absence for value types.</summary>
     public T? Value { get; }
+
+    /// <summary>Gets whether the operation supplied a result resource.</summary>
+    public bool HasResult { get; }
 
     /// <summary>Gets the stable cross-library W3C operation identifier.</summary>
     public string OperationId { get; }
