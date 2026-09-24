@@ -242,7 +242,7 @@ describe 'Copy-DbaXTableData cmdlet' {
 
         $result.CopiedRows | Should -Be 2
         $result.VerificationRequested | Should -BeFalse
-        $result.SourceRows | Should -BeNullOrEmpty
+        $result.SourceRows | Should -Be 2
         $result.Manifest.VerificationRequested | Should -BeFalse
     }
 

@@ -42,20 +42,20 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
-    public async Task CopyAsync_UnverifiedCopyUsesPagesWithoutCountingSource()
+    public async Task CopyAsync_UnverifiedCopyKeepsInitialSourceBound()
     {
-        var source = new MemoryTableCopySource(CreateRows(5)) { ThrowOnCountRows = true };
+        var source = new MemoryTableCopySource(CreateRows(4)) { SourceRowCountOverride = 2 };
         var destination = new MemoryTableCopyDestination();
 
         var result = await new DbaTableCopyEngine().CopyAsync(
             source,
             destination,
             new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
-            new DbaTableCopyOptions { PageSize = 2, VerifyRowCounts = false });
+            new DbaTableCopyOptions { PageSize = 1, VerifyRowCounts = false });
 
-        Assert.Equal(5, result.CopiedRows);
-        Assert.Null(result.SourceRows);
-        Assert.Equal(0, source.CountCalls);
+        Assert.Equal(1, source.CountCalls);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(new long[] { 0, 1 }, source.RequestedOffsets);
         Assert.False(result.VerificationRequested);
         Assert.False(result.Manifest!.VerificationRequested);
     }
@@ -119,25 +119,6 @@ public class DbaTableCopyEngineTests
         Assert.Equal(0, result.SourceRows);
         Assert.Equal(0, result.CopiedRows);
         Assert.Equal(0, result.DestinationRows);
-    }
-
-    [Fact]
-    public async Task CopyAsync_UnverifiedEmptySourceStillWritesSchemaPage()
-    {
-        var source = new MemoryTableCopySource(CreateRows(0)) { ThrowOnCountRows = true };
-        var destination = new MemoryTableCopyDestination { WriteEmptyPages = true };
-
-        var result = await new DbaTableCopyEngine().CopyAsync(
-            source,
-            destination,
-            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") },
-            new DbaTableCopyOptions { VerifyRowCounts = false });
-
-        Assert.Equal(0, source.CountCalls);
-        Assert.Equal(new[] { "DestinationRows" }, destination.WriteOrder);
-        Assert.Equal(2, destination.Rows.Columns.Count);
-        Assert.Equal(0, result.CopiedRows);
-        Assert.False(result.VerificationRequested);
     }
 
     [Fact]

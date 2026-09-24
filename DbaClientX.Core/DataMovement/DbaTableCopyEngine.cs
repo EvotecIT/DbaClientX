@@ -183,13 +183,9 @@ public sealed partial class DbaTableCopyEngine
         activity?.SetTag(
             "dbaclientx.table",
             DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
-        // Unverified copies can follow continuation tokens without a full source count.
-        // ClearDestination still supplies a preflight count before any destructive write.
-        var sourceRows = preflight != null
-            ? preflight.SourceRows
-            : options.VerifyRowCounts
-                ? await CountRowsAsync(source, definition, "source", cancellationToken).ConfigureAwait(false)
-                : null;
+        var sourceRows = preflight == null
+            ? await CountRowsAsync(source, definition, "source", cancellationToken).ConfigureAwait(false)
+            : preflight.SourceRows;
         var initialDestinationRows = await CountInitialDestinationRowsAsync(
                 destination,
                 definition,
@@ -281,13 +277,6 @@ public sealed partial class DbaTableCopyEngine
             if (nextPage.Data.Rows.Count > 0)
             {
                 copied += await CopyPageAsync(destination, definition, options, nextPage.Data, copied, sourceRows, pageCount, cancellationToken).ConfigureAwait(false);
-            }
-            else if (copied == 0 && continuationToken == null && nextPage.Data.Columns.Count > 0 &&
-                     ShouldWriteEmptyPage(destination, definition))
-            {
-                // An empty, uncounted source still needs its schema written when
-                // the destination creates tables from the first page.
-                await CopyPageAsync(destination, definition, options, nextPage.Data, copied, sourceRows, pageCount, cancellationToken).ConfigureAwait(false);
             }
 
             if (HasCopiedKnownSourceRows(sourceRows, copied))
@@ -406,7 +395,7 @@ public sealed partial class DbaTableCopyEngine
             }
         }
 
-        if (options.VerifyRowCounts && !sourceRows.HasValue)
+        if (!sourceRows.HasValue)
         {
             DbaClientXDiagnostics.RecordWarning(
                 "source_count_unknown",

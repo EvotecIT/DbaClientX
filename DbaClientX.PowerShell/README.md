@@ -119,7 +119,7 @@ Copy-DbaXTableData @copy
 Copy-DbaXTableData @copy -Resume # Only if the first run was interrupted.
 ```
 
-The result's `VerificationRequested` field distinguishes a checked copy from one run with `-NoVerify`. Without verification, the cmdlet follows pages without a source count scan unless `-ClearDestination` needs a safety preflight.
+The result's `VerificationRequested` field distinguishes a checked copy from one run with `-NoVerify`. The initial source count still bounds the copy, including when the source table changes during a run.
 
 ## Build SQL Before Running It
 

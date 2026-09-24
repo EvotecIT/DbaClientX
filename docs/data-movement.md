@@ -259,7 +259,7 @@ Copy-DbaXTableData `
 
 For a unique, non-null ascending key, `-UseKeysetPagination` avoids increasingly expensive offset reads. Add `-VerifyContent` to compare copied values, and `-CheckpointId` to commit a durable checkpoint with each page. Reuse that ID with `-Resume` after an interruption. `-MaxPageBytes` bounds the estimated payload of a keyset page; it does not bound all process memory. Content verification and checkpoints require keyset paging for every supplied table definition. Use `New-DbaXTableCopyDefinition -UseKeysetPagination` when copying a plan through `-Definition`.
 
-`-NoVerify` skips row-count verification and its source scan for an ordinary copy. The engine still counts and checks the source before `-ClearDestination` because that operation deletes destination rows. Check `VerificationRequested` alongside `Verified` in `-PassThru` output: `Verified` reports whether enabled checks passed, including the case where none were requested.
+`-NoVerify` skips destination row-count verification. The engine still counts source rows to bound the copy, and checks the source before `-ClearDestination` because that operation deletes destination rows. Check `VerificationRequested` alongside `Verified` in `-PassThru` output: `Verified` reports whether enabled checks passed, including the case where none were requested.
 
 When providers differ in type affinity or destination schema, shape each page before the bulk write. Use this shape for SQLite to SQL Server history migrations where SQLite helper columns should be dropped, identity columns should be omitted, and numeric flags should become SQL Server `bit` values:
 

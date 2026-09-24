@@ -691,7 +691,13 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
 
     private void WriteTableCopyProgress(DbaTableCopyProgress progress)
     {
-        var record = new ProgressRecord(2, $"Copying {progress.TableName}", $"{progress.RowsCopied} row(s) copied")
+        var (activity, status) = progress.Phase switch
+        {
+            DbaTableCopyPhase.ValidateSource => ($"Validating source {progress.TableName}", $"{progress.RowsCopied} row(s) validated"),
+            DbaTableCopyPhase.VerifyDestination => ($"Verifying destination {progress.TableName}", $"{progress.RowsCopied} row(s) checked"),
+            _ => ($"Copying {progress.TableName}", $"{progress.RowsCopied} row(s) copied")
+        };
+        var record = new ProgressRecord(2, activity, status)
         {
             PercentComplete = progress.PercentComplete.HasValue
                 ? Math.Min(100, (int)Math.Round(progress.PercentComplete.Value))
