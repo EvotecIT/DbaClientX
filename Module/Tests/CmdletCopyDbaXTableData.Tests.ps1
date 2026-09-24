@@ -380,6 +380,22 @@ describe 'Copy-DbaXTableData cmdlet' {
         } | Should -Throw -ExpectedMessage '*Refusing to copy provider table*'
     }
 
+    it 'bounds an explicitly allowed same-table copy without verification' {
+        $database = Join-Path $TestDrive 'same-table-unverified.db'
+        Invoke-DbaXSQLite -Database $database -Query 'CREATE TABLE Rows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $database -Query "INSERT INTO Rows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');" | Out-Null
+
+        $result = Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString "Data Source=$database" `
+            -SourceTable Rows -DestinationProvider SQLite -DestinationConnectionString "Data Source=$database;Pooling=False" `
+            -DestinationTable Rows -OrderBy Id -AllowSameTableCopy -NoVerify -PageSize 1 -PassThru -ErrorAction Stop
+
+        $result.CopiedRows | Should -Be 2
+        $result.SourceRows | Should -Be 2
+        $result.VerificationRequested | Should -BeFalse
+        $count = Invoke-DbaXSQLite -Database $database -Query 'SELECT COUNT(*) AS RowCount FROM Rows;'
+        [int] $count.RowCount | Should -Be 4
+    }
+
     it 'preserves SQLite destination connection string options for clear operations' {
         $source = Join-Path $TestDrive 'source-readonly.db'
         $destination = Join-Path $TestDrive 'destination-readonly.db'
