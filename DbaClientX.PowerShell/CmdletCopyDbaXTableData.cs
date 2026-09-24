@@ -26,7 +26,7 @@ namespace DBAClientX.PowerShell;
 /// </example>
 [Cmdlet(VerbsCommon.Copy, "DbaXTableData", SupportsShouldProcess = true)]
 [CmdletBinding()]
-public sealed class CmdletCopyDbaXTableData : PSCmdlet
+public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
 {
     private readonly List<DbaTableCopyDefinition> _definitionBuffer = new();
     private ActionPreference _errorAction;
@@ -68,6 +68,15 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [Parameter]
     [ValidateNotNullOrEmpty]
     public string[]? OrderBy { get; set; }
+
+    /// <summary>Use a unique, non-null ascending source key for bounded keyset pages.</summary>
+    [Parameter]
+    public SwitchParameter UseKeysetPagination { get; set; }
+
+    /// <summary>Destination key columns for verified readback when source keys are mapped or generated.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string[]? DestinationOrderByColumns { get; set; }
 
     /// <summary>Allows paged copies without an explicit order. Use only for ad hoc copies where provider natural order is acceptable.</summary>
     [Parameter]
@@ -162,6 +171,27 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     [Parameter]
     public SwitchParameter NoVerify { get; set; }
 
+    /// <summary>Verify copied column values as well as row counts.</summary>
+    [Parameter]
+    public SwitchParameter VerifyContent { get; set; }
+
+    /// <summary>Identifier for durable destination checkpoints across interrupted runs.</summary>
+    [Parameter]
+    [ValidateNotNullOrEmpty]
+    public string? CheckpointId { get; set; }
+
+    /// <summary>Resume a previously checkpointed copy after validating committed content.</summary>
+    [Parameter]
+    public SwitchParameter Resume { get; set; }
+
+    /// <summary>Require empty destination tables before writing.</summary>
+    [Parameter]
+    public SwitchParameter RequireEmptyDestination { get; set; }
+
+    /// <summary>Estimated maximum in-memory payload for a keyset page.</summary>
+    [Parameter]
+    public long? MaxPageBytes { get; set; }
+
     /// <summary>Optional non-zero 32-character W3C trace identifier used to correlate this copy with downstream workflows.</summary>
     [Parameter]
     [ValidateNotNullOrEmpty]
@@ -192,22 +222,25 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
     public SwitchParameter PassThru { get; set; }
 
     /// <inheritdoc />
-    protected override void BeginProcessing()
+    protected override Task BeginProcessingAsync()
     {
         _errorAction = this.ResolveErrorAction();
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    protected override void ProcessRecord()
+    protected override Task ProcessRecordAsync()
     {
         if (Definition is { Length: > 0 })
         {
             _definitionBuffer.AddRange(Definition);
         }
+
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    protected override void EndProcessing()
+    protected override async Task EndProcessingAsync()
     {
         string? destinationTarget = null;
         try
@@ -244,14 +277,8 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
             var startedAt = DateTimeOffset.UtcNow;
             var stopwatch = Stopwatch.StartNew();
-            var bufferedProgress = new List<DbaTableCopyProgress>();
-            var result = CopyAsync(definitions, bufferedProgress).GetAwaiter().GetResult();
+            var result = await CopyAsync(definitions).ConfigureAwait(false);
             stopwatch.Stop();
-
-            foreach (var progress in bufferedProgress)
-            {
-                WriteTableCopyProgress(progress);
-            }
 
             CompleteProgress();
             if (!result.Verified)
@@ -276,15 +303,20 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                     SourceRows = result.SourceRows,
                     CopiedRows = result.CopiedRows,
                      DestinationRows = result.DestinationRows,
-                     Verified = result.Verified,
-                     OperationId = result.OperationId,
-                     Manifest = result.Manifest,
-                     Tables = result.Tables,
+                    Verified = result.Verified,
+                    VerificationRequested = result.VerificationRequested,
+                    OperationId = result.OperationId,
+                    Manifest = result.Manifest,
+                    Tables = result.Tables,
                     StartedAt = startedAt,
                     CompletedAt = DateTimeOffset.UtcNow,
                     ElapsedMilliseconds = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 2)
                 }));
             }
+        }
+        catch (OperationCanceledException) when (CancelToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -302,7 +334,7 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         }
     }
 
-    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions, List<DbaTableCopyProgress> bufferedProgress)
+    private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions)
     {
         var request = new DbaProviderTableCopyRequest
         {
@@ -326,18 +358,24 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
             {
                 PageSize = PageSize,
                 BatchSize = BatchSize,
-                 BulkCopyTimeout = BulkCopyTimeout,
-                 ClearDestination = ClearDestination.IsPresent,
-                 VerifyRowCounts = !NoVerify.IsPresent,
-                 OperationId = OperationId,
-                 Progress = bufferedProgress.Add
+                BulkCopyTimeout = BulkCopyTimeout,
+                ClearDestination = ClearDestination.IsPresent,
+                VerifyRowCounts = !NoVerify.IsPresent,
+                VerifyContent = VerifyContent.IsPresent,
+                CheckpointId = CheckpointId,
+                Resume = Resume.IsPresent,
+                RequireEmptyDestination = RequireEmptyDestination.IsPresent,
+                MaxPageBytes = MaxPageBytes,
+                KeepIdentity = KeepIdentity.IsPresent,
+                OperationId = OperationId,
+                Progress = WriteTableCopyProgress
             }
         };
 
         return await new DbaProviderTableCopyRunner(
                 CreateSourceAdapter,
                 CreateDestinationAdapter)
-            .CopyAsync(request)
+            .CopyAsync(request, CancelToken)
             .ConfigureAwait(false);
     }
 
@@ -390,6 +428,10 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
                 NormalizeExcludedColumnNames(ExcludeColumn),
                 BuildColumnTypeConversions(),
                 BuildSourceOptions())
+            {
+                UseKeysetPagination = UseKeysetPagination.IsPresent,
+                DestinationOrderByColumns = DestinationOrderByColumns
+            }
         };
     }
 
@@ -408,6 +450,21 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
         if (BulkCopyTimeout.HasValue && BulkCopyTimeout.Value < 0)
         {
             throw new PSArgumentException("BulkCopyTimeout cannot be negative.", nameof(BulkCopyTimeout));
+        }
+
+        if (MaxPageBytes is <= 0)
+        {
+            throw new PSArgumentException("MaxPageBytes must be greater than zero.", nameof(MaxPageBytes));
+        }
+
+        if (CheckpointId != null && (string.IsNullOrWhiteSpace(CheckpointId) || CheckpointId.Length > 128))
+        {
+            throw new PSArgumentException("CheckpointId must contain between 1 and 128 non-whitespace characters.", nameof(CheckpointId));
+        }
+
+        if (Resume.IsPresent && (CheckpointId == null || ClearDestination.IsPresent))
+        {
+            throw new PSArgumentException("Resume requires CheckpointId and cannot be combined with ClearDestination.", nameof(Resume));
         }
 
         if (DeduplicateSourceOrderBy is { Length: > 0 } && DeduplicateSourceBy is not { Length: > 0 })
@@ -453,7 +510,14 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
 
         if (hasDefinitions && HasSingleTableShapingOptions())
         {
-            throw new PSArgumentException("ColumnMap, ExcludeColumn, source deduplication, and type-conversion column switches are only used with SourceTable/DestinationTable. Put per-table shaping on the supplied DbaTableCopyDefinition objects.");
+            throw new PSArgumentException("Column mapping, source shaping, keyset pagination, and destination key switches are only used with SourceTable/DestinationTable. Put per-table settings on the supplied DbaTableCopyDefinition objects.");
+        }
+
+        var definitions = hasDefinitions ? EnumerateSuppliedDefinitions().ToArray() : BuildDefinitions();
+        if ((VerifyContent.IsPresent || CheckpointId != null || MaxPageBytes.HasValue) &&
+            definitions.Any(static definition => !definition.UseKeysetPagination))
+        {
+            throw new PSArgumentException("VerifyContent, CheckpointId, and MaxPageBytes require keyset pagination for every table.");
         }
 
         if (hasDefinitions &&
@@ -473,7 +537,9 @@ public sealed class CmdletCopyDbaXTableData : PSCmdlet
            KeepNulls.IsPresent;
 
     private bool HasSingleTableShapingOptions()
-        => ColumnMap is { Count: > 0 } ||
+        => UseKeysetPagination.IsPresent ||
+           DestinationOrderByColumns is { Length: > 0 } ||
+           ColumnMap is { Count: > 0 } ||
            ExcludeColumn is { Length: > 0 } ||
            BooleanColumn is { Length: > 0 } ||
            Int32Column is { Length: > 0 } ||

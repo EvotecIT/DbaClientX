@@ -15,6 +15,9 @@ public sealed record DbaTableCopyResult(IReadOnlyList<DbaTableCopyTableResult> T
     /// <summary>Serializable, redacted diagnostic manifest for the completed copy.</summary>
     public DbaTableCopyRunManifest? Manifest { get; init; }
 
+    /// <summary>Whether this run requested row-count, content, or checkpoint verification.</summary>
+    public bool VerificationRequested { get; init; }
+
     /// <summary>Total source rows counted before copy when known.</summary>
     public long? SourceRows => SumKnown(static table => table.SourceRows, Tables);
 
@@ -24,7 +27,7 @@ public sealed record DbaTableCopyResult(IReadOnlyList<DbaTableCopyTableResult> T
     /// <summary>Total destination rows counted after copy when known.</summary>
     public long? DestinationRows => SumKnown(static table => table.DestinationRows, Tables);
 
-    /// <summary>Indicates whether every table with known source and destination counts matched.</summary>
+    /// <summary>Indicates whether all requested checks passed. Also true when no verification was requested; inspect <see cref="VerificationRequested"/> to distinguish that case.</summary>
     public bool Verified => Tables.All(static table => table.Verified);
 
     private static long? SumKnown(Func<DbaTableCopyTableResult, long?> selector, IReadOnlyList<DbaTableCopyTableResult> tables)

@@ -129,6 +129,7 @@ public sealed class CmdletCopyDbaXAzureTableData : AsyncPSCmdlet
                 result.CopiedRows,
                 result.DestinationRows,
                 result.Verified,
+                result.VerificationRequested,
                 StartedAt = startedAt,
                 CompletedAt = DateTimeOffset.UtcNow,
                 ElapsedMilliseconds = Math.Round(result.Duration.TotalMilliseconds, 2)
