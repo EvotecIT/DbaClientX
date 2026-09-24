@@ -64,15 +64,22 @@ public sealed class FabricLongRunningOperationClient
 
                 if (string.Equals(state.Status, "Succeeded", StringComparison.OrdinalIgnoreCase))
                 {
-                    var resultUri = stateResponse.Location ??
-                        new Uri($"operations/{serviceOperationId:D}/result", UriKind.Relative);
-                    var result = await _transport.GetAsync<T>(
-                        resultUri.ToString(),
-                        operation.OperationId,
-                        deadlineToken).ConfigureAwait(false);
+                    // Fabric operations that have no result do not return a result location.
+                    // Do not manufacture a result URL for those successful operations.
+                    T? value = default;
+                    if (stateResponse.Location is { } resultUri)
+                    {
+                        var result = await _transport.GetAsync<T>(
+                            resultUri.ToString(),
+                            operation.OperationId,
+                            deadlineToken).ConfigureAwait(false);
+                        value = result.Value;
+                    }
+
                     return new FabricOperationResult<T>(
                         state,
-                        result.Value,
+                        value,
+                        stateResponse.Location != null,
                         operation.OperationId,
                         serviceOperationId);
                 }
