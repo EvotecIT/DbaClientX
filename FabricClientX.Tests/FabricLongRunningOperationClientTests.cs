@@ -42,6 +42,23 @@ public sealed class FabricLongRunningOperationClientTests
     }
 
     [Fact]
+    public async Task WaitForCompletion_SucceedsWhenOperationHasNoResult()
+    {
+        var serviceOperationId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var handler = new QueueHttpMessageHandler();
+        handler.Enqueue(HttpStatusCode.OK, """{"status":"Succeeded","percentComplete":100}""");
+        var client = new FabricLongRunningOperationClient(TestClients.Create(handler));
+
+        var result = await client.WaitForCompletionAsync<OperationPayload>(
+            serviceOperationId,
+            TimeSpan.FromMinutes(1));
+
+        Assert.Equal("Succeeded", result.State.Status);
+        Assert.Null(result.Value);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
     public async Task WaitForCompletion_BoundsAnInFlightStatusRequestByTimeout()
     {
         var handler = new QueueHttpMessageHandler();
