@@ -31,6 +31,14 @@ public sealed class CmdletNewDbaXTableCopyDefinition : PSCmdlet
     [Parameter(Mandatory = false)]
     public string[]? OrderByColumns { get; set; }
 
+    /// <summary>Use a unique, non-null ascending source key instead of offset paging.</summary>
+    [Parameter]
+    public SwitchParameter UseKeysetPagination { get; set; }
+
+    /// <summary>Destination key columns for verified readback when source keys are mapped or generated.</summary>
+    [Parameter]
+    public string[]? DestinationOrderByColumns { get; set; }
+
     /// <summary>Optional source column to destination column mappings.</summary>
     [Parameter(Mandatory = false)]
     public Hashtable? ColumnMappings { get; set; }
@@ -78,7 +86,11 @@ public sealed class CmdletNewDbaXTableCopyDefinition : PSCmdlet
             DbaXProviderHelpers.ToStringDictionary(ColumnMappings),
             ExcludedColumns,
             DbaXProviderHelpers.ToColumnTypeDictionary(ColumnTypeConversions),
-            sourceOptions);
+            sourceOptions)
+        {
+            UseKeysetPagination = UseKeysetPagination.IsPresent,
+            DestinationOrderByColumns = DestinationOrderByColumns
+        };
         definition.Validate();
         WriteObject(definition);
     }

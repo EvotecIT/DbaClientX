@@ -42,6 +42,25 @@ public class DbaTableCopyEngineTests
     }
 
     [Fact]
+    public async Task CopyAsync_UnverifiedCopyKeepsInitialSourceBound()
+    {
+        var source = new MemoryTableCopySource(CreateRows(4)) { SourceRowCountOverride = 2 };
+        var destination = new MemoryTableCopyDestination();
+
+        var result = await new DbaTableCopyEngine().CopyAsync(
+            source,
+            destination,
+            new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows", new[] { "Id" }) },
+            new DbaTableCopyOptions { PageSize = 1, VerifyRowCounts = false });
+
+        Assert.Equal(1, source.CountCalls);
+        Assert.Equal(2, result.CopiedRows);
+        Assert.Equal(new long[] { 0, 1 }, source.RequestedOffsets);
+        Assert.False(result.VerificationRequested);
+        Assert.False(result.Manifest!.VerificationRequested);
+    }
+
+    [Fact]
     public async Task CopyAsync_ReportsVerificationMismatch()
     {
         var source = new MemoryTableCopySource(CreateRows(2));

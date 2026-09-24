@@ -41,7 +41,10 @@ public sealed record DbaTableCopyRunManifest
     public IReadOnlyList<DbaTableCopyRunWarning> Warnings { get; init; } =
         Array.Empty<DbaTableCopyRunWarning>();
 
-    /// <summary>Indicates whether all table results passed enabled verification.</summary>
+    /// <summary>Whether this run requested row-count, content, or checkpoint verification.</summary>
+    public bool VerificationRequested { get; init; }
+
+    /// <summary>Indicates whether all table results passed enabled verification. Also true when none was requested.</summary>
     public bool Verified { get; init; }
 
     /// <summary>DbaClientX.Core assembly version that produced the manifest.</summary>
@@ -92,6 +95,7 @@ public sealed record DbaTableCopyRunManifest
             Warnings = warnings
                 .Select(static warning => new DbaTableCopyRunWarning(warning.Code, warning.Message))
                 .ToArray(),
+            VerificationRequested = options.VerifyRowCounts || options.VerifyContent || options.CheckpointId != null,
             Verified = results.All(static result => result.Verified),
             LibraryVersion = typeof(DbaTableCopyEngine).Assembly.GetName().Version?.ToString() ?? "unknown"
         };

@@ -149,7 +149,8 @@ public sealed partial class DbaTableCopyEngine
             operation.Activity?.SetStatus(ActivityStatusCode.Ok);
             return new DbaTableCopyResult(results, sw.Elapsed)
             {
-                Manifest = manifest
+                Manifest = manifest,
+                VerificationRequested = options.VerifyRowCounts || options.VerifyContent || options.CheckpointId != null
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

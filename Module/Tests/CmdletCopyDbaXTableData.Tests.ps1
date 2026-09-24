@@ -36,6 +36,11 @@ describe 'Copy-DbaXTableData cmdlet' {
         $parameters | Should -Contain 'DestinationFabricWarehouse'
         $parameters | Should -Contain 'ClearDestination'
         $parameters | Should -Contain 'NoVerify'
+        $parameters | Should -Contain 'UseKeysetPagination'
+        $parameters | Should -Contain 'VerifyContent'
+        $parameters | Should -Contain 'CheckpointId'
+        $parameters | Should -Contain 'Resume'
+        $parameters | Should -Contain 'MaxPageBytes'
         $parameters | Should -Contain 'OperationId'
         $parameters | Should -Contain 'TableLock'
         $parameters | Should -Contain 'CheckConstraints'
@@ -191,6 +196,72 @@ describe 'Copy-DbaXTableData cmdlet' {
         [int] $count.RowsLoaded | Should -Be 7
     }
 
+    it 'runs a content-verified checkpointed keyset copy and resumes it' {
+        $source = Join-Path $TestDrive 'source-verified.db'
+        $destination = Join-Path $TestDrive 'destination-verified.db'
+
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two'), (3, 'Three');" | Out-Null
+
+        $definition = New-DbaXTableCopyDefinition -SourceName SourceRows -DestinationName DestinationRows -OrderByColumns Id -UseKeysetPagination
+        $copy = @{
+            SourceProvider = 'SQLite'
+            SourceConnectionString = "Data Source=$source"
+            DestinationProvider = 'SQLite'
+            DestinationConnectionString = "Data Source=$destination"
+            Definition = $definition
+            VerifyContent = $true
+            CheckpointId = 'verified-copy'
+            PageSize = 2
+            MaxPageBytes = 1024
+            PassThru = $true
+        }
+
+        $first = Copy-DbaXTableData @copy -ErrorAction Stop
+        $first.VerificationRequested | Should -BeTrue
+        $first.Verified | Should -BeTrue
+        $first.CopiedRows | Should -Be 3
+
+        $resumed = Copy-DbaXTableData @copy -Resume -ErrorAction Stop
+        $resumed.Verified | Should -BeTrue
+        $count = Invoke-DbaXSQLite -Database $destination -Query 'SELECT COUNT(*) AS RowsLoaded FROM DestinationRows;'
+        [int] $count.RowsLoaded | Should -Be 3
+    }
+
+    it 'reports that an unverified copy did not run verification' {
+        $source = Join-Path $TestDrive 'source-noverify.db'
+        $destination = Join-Path $TestDrive 'destination-noverify.db'
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query 'INSERT INTO SourceRows (Id) VALUES (1), (2);' | Out-Null
+
+        $result = Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString "Data Source=$source" `
+            -SourceTable SourceRows -DestinationProvider SQLite -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable DestinationRows -OrderBy Id -NoVerify -PassThru -ErrorAction Stop
+
+        $result.CopiedRows | Should -Be 2
+        $result.VerificationRequested | Should -BeFalse
+        $result.SourceRows | Should -Be 2
+        $result.Manifest.VerificationRequested | Should -BeFalse
+    }
+
+    it 'uses keyset paging and content verification for a direct table copy' {
+        $source = Join-Path $TestDrive 'source-keyset.db'
+        $destination = Join-Path $TestDrive 'destination-keyset.db'
+        Invoke-DbaXSQLite -Database $source -Query 'CREATE TABLE SourceRows (Id INTEGER NOT NULL PRIMARY KEY, Name TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $destination -Query 'CREATE TABLE DestinationRows (Id INTEGER NOT NULL PRIMARY KEY, Name TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $source -Query "INSERT INTO SourceRows (Id, Name) VALUES (1, 'One'), (2, 'Two');" | Out-Null
+
+        $result = Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString "Data Source=$source" `
+            -SourceTable SourceRows -DestinationProvider SQLite -DestinationConnectionString "Data Source=$destination" `
+            -DestinationTable DestinationRows -OrderBy Id -UseKeysetPagination -VerifyContent -PageSize 1 -PassThru -ErrorAction Stop
+
+        $result.VerificationRequested | Should -BeTrue
+        $result.Verified | Should -BeTrue
+        $result.CopiedRows | Should -Be 2
+    }
+
     it 'maps excludes and converts columns while copying rows' {
         $source = Join-Path $TestDrive 'source-transform.db'
         $destination = Join-Path $TestDrive 'destination-transform.db'
@@ -307,6 +378,22 @@ describe 'Copy-DbaXTableData cmdlet' {
                 -OrderBy Id `
                 -ErrorAction Stop
         } | Should -Throw -ExpectedMessage '*Refusing to copy provider table*'
+    }
+
+    it 'bounds an explicitly allowed same-table copy without verification' {
+        $database = Join-Path $TestDrive 'same-table-unverified.db'
+        Invoke-DbaXSQLite -Database $database -Query 'CREATE TABLE Rows (Id INTEGER NOT NULL, DisplayName TEXT NOT NULL);' | Out-Null
+        Invoke-DbaXSQLite -Database $database -Query "INSERT INTO Rows (Id, DisplayName) VALUES (1, 'One'), (2, 'Two');" | Out-Null
+
+        $result = Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString "Data Source=$database" `
+            -SourceTable Rows -DestinationProvider SQLite -DestinationConnectionString "Data Source=$database;Pooling=False" `
+            -DestinationTable Rows -OrderBy Id -AllowSameTableCopy -NoVerify -PageSize 1 -PassThru -ErrorAction Stop
+
+        $result.CopiedRows | Should -Be 2
+        $result.SourceRows | Should -Be 2
+        $result.VerificationRequested | Should -BeFalse
+        $count = Invoke-DbaXSQLite -Database $database -Query 'SELECT COUNT(*) AS RowCount FROM Rows;'
+        [int] $count.RowCount | Should -Be 4
     }
 
     it 'preserves SQLite destination connection string options for clear operations' {

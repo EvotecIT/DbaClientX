@@ -97,6 +97,30 @@ Copy-DbaXTableData `
     -PassThru
 ```
 
+For a large copy, use a unique, non-null ascending key and enable content verification. Keep the destination empty before the first run. Save the checkpoint ID and pass `-Resume` with the same ID after an interruption; omit `-ClearDestination` when resuming:
+
+```powershell
+$migrationId = [guid]::NewGuid().ToString('N') # Save this ID for a later resume.
+$copy = @{
+    SourceProvider = 'SQLite'
+    SourceConnectionString = $sourceConnectionString
+    SourceTable = 'ProbeResults'
+    DestinationProvider = 'SqlServer'
+    DestinationConnectionString = $destinationConnectionString
+    DestinationTable = 'dbo.ProbeResults'
+    OrderBy = 'Id'
+    UseKeysetPagination = $true
+    VerifyContent = $true
+    CheckpointId = $migrationId
+    MaxPageBytes = 32MB
+    PassThru = $true
+}
+Copy-DbaXTableData @copy
+Copy-DbaXTableData @copy -Resume # Only if the first run was interrupted.
+```
+
+The result's `VerificationRequested` field distinguishes a checked copy from one run with `-NoVerify`. The initial source count still bounds the copy, including when the source table changes during a run.
+
 ## Build SQL Before Running It
 
 Build SQL through the core query builder when a script needs provider quoting but you still want to decide where to execute the command:
