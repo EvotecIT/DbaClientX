@@ -22,6 +22,12 @@ namespace DBAClientX.PowerShell;
 /// <code>Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Logs' -Stream -ReturnType DataRow</code>
 /// <para>Streams each row as it is received, which is useful for large result sets.</para>
 /// </example>
+/// <example>
+/// <summary>Query a database without being able to change it.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'SELECT COUNT(*) AS Probes FROM ProbeResults' -ReadOnly</code>
+/// <para>Opens the file with <c>Mode=ReadOnly</c>: statements that write fail and a missing file is never created. Use it to inspect a database that a service owns.</para>
+/// </example>
 /// <seealso href="https://learn.microsoft.com/dotnet/standard/data/sqlite/">SQLite in .NET</seealso>
 /// <seealso href="https://github.com/EvotecIT/DbaClientX">Project documentation</seealso>
 [Cmdlet(VerbsLifecycle.Invoke, "DbaXSQLite", DefaultParameterSetName = "Query", SupportsShouldProcess = true)]
@@ -47,6 +53,15 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
     /// <summary>Streams results instead of buffering them.</summary>
     [Parameter]
     public SwitchParameter Stream { get; set; }
+
+    /// <summary>
+    /// Opens the database read-only (<c>Mode=ReadOnly</c>). Statements that modify it fail with a SQLite read-only error, and a
+    /// missing database file is reported instead of being created. <c>-Database</c> must be a file path or a file-backed
+    /// connection string. SQLite may still create <c>-wal</c>/<c>-shm</c> files next to a WAL database, and statements such
+    /// as <c>VACUUM INTO</c> can write other files.
+    /// </summary>
+    [Parameter]
+    public SwitchParameter ReadOnly { get; set; }
 
     /// <summary>Selects the format of returned data. Defaults to PSObject so an ordinary PowerShell query emits every row.</summary>
     [Parameter]
@@ -78,7 +93,9 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         if (!ShouldProcess(Database, "Execute SQLite query")) {
             return;
         }
-        var connectionString = DBAClientX.SQLite.BuildConnectionString(Database);
+        var connectionString = ReadOnly.IsPresent
+            ? DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "Invoke-DbaXSQLite -ReadOnly"))
+            : DBAClientX.SQLite.BuildConnectionString(Database);
         if (!PowerShellHelpers.TryValidateConnection(this, "sqlite", connectionString, ErrorAction))
         {
             return;
@@ -87,7 +104,9 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
-                var enumerable = sqlite.QueryStreamAsync(Database, Query, parameters, cancellationToken: CancelToken);
+                var enumerable = ReadOnly.IsPresent
+                    ? sqlite.QueryStreamWithConnectionStringAsync(connectionString, Query, parameters, cancellationToken: CancelToken)
+                    : sqlite.QueryStreamAsync(Database, Query, parameters, cancellationToken: CancelToken);
                 await DbaXResultWriter.WriteRowsAsync(enumerable, ReturnType, WriteObject).ConfigureAwait(false);
                 return;
             }
@@ -96,7 +115,9 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
                 throw new NotSupportedException("Streaming is not supported on this platform.");
             }
 #endif
-            var result = sqlite.Query(Database, Query, parameters);
+            var result = ReadOnly.IsPresent
+                ? await sqlite.QueryWithConnectionStringAsync(connectionString, Query, parameters, cancellationToken: CancelToken).ConfigureAwait(false)
+                : sqlite.Query(Database, Query, parameters);
             if (result != null) {
                 if (ReturnType == ReturnType.PSObject) {
                     foreach (DataRow row in ((DataTable)result).Rows) {

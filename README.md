@@ -134,6 +134,12 @@ Invoke-DbaXOracle -Server 'ora01' -Database 'service' -Query 'select * from user
 Invoke-DbaXSQLite -Database '.\app.db' -Query 'select * from users limit 10'
 ```
 
+`-ReadOnly` opens a SQLite database with `Mode=ReadOnly`, so statements that modify it fail and a missing file is not created (SQLite may still create `-wal`/`-shm` files next to a WAL database). Use it to inspect a database that a running service owns:
+
+```powershell
+Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'select count(*) as Probes from ProbeResults' -ReadOnly
+```
+
 ### Azure Tables
 
 Azure queries expose the provider continuation tokens through `-AsPage`; ordinary use streams all returned entities:
