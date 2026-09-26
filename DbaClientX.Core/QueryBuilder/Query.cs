@@ -717,6 +717,7 @@ public partial class Query
     /// </summary>
     /// <param name="dialect">The target SQL dialect.</param>
     /// <returns>The compiled SQL text.</returns>
+    /// <exception cref="InvalidOperationException">The query is a keyset page query; use <c>CompileWithParameters</c>.</exception>
     public string Compile(SqlDialect dialect = SqlDialect.SqlServer)
     {
         var compiler = new QueryCompiler(dialect);

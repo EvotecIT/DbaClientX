@@ -50,6 +50,7 @@ public partial class QueryCompiler
     /// </summary>
     /// <param name="query">The query to compile.</param>
     /// <returns>The SQL text.</returns>
+    /// <exception cref="InvalidOperationException">The query is a keyset page query; use <c>CompileWithParameters</c>.</exception>
     public string Compile(Query query)
         => CompileInternal(query, null);
 
@@ -402,6 +403,12 @@ public partial class QueryCompiler
 
     private string CompileInternal(Query query, List<object>? parameters)
     {
+        if (parameters == null && query.RequiresParameterizedCompile)
+        {
+            throw new InvalidOperationException(
+                "Keyset page queries carry cursor values that literal SQL cannot represent exactly (for example fractional seconds). Compile them with CompileWithParameters.");
+        }
+
         if (query.OpenGroups != 0)
         {
             throw new InvalidOperationException("Unbalanced groupings: some groups have not been closed.");
