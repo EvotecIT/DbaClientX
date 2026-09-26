@@ -71,7 +71,7 @@ public abstract partial class DatabaseClientBase
     /// <summary>
     /// Adapts populated <paramref name="table"/> columns so the current row values can be stored without losing information.
     /// </summary>
-    private static void AdaptColumnTypesToValues(DataTable table, object?[] values, bool[] observedValues)
+    internal static void AdaptColumnTypesToValues(DataTable table, object?[] values, bool[] observedValues)
     {
         for (var i = 0; i < values.Length; i++)
         {

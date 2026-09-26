@@ -7,6 +7,9 @@ namespace DBAClientX.PowerShell;
 
 internal static class DbaXResultWriter
 {
+    /// <summary>Name given to tables collected from streamed rows, matching buffered query results.</summary>
+    private const string StreamedTableName = "Table0";
+
     internal static void WriteResult(object? result, ReturnType returnType, Action<object?, bool> writeObject)
     {
         if (result == null)
@@ -32,28 +35,14 @@ internal static class DbaXResultWriter
         switch (returnType)
         {
             case ReturnType.DataTable:
-                DataTable? table = null;
-                foreach (var row in rows)
-                {
-                    table ??= row.Table.Clone();
-                    AddRow(table, row);
-                }
-
-                if (table != null)
-                {
-                    writeObject(table, false);
-                }
-
-                break;
             case ReturnType.DataSet:
-                DataTable? dataTable = null;
+                var collector = new DataRowStreamCollector(StreamedTableName);
                 foreach (var row in rows)
                 {
-                    dataTable ??= row.Table.Clone();
-                    AddRow(dataTable, row);
+                    collector.Add(row);
                 }
 
-                writeObject(CreateDataSet(dataTable), false);
+                WriteCollected(collector.Table, returnType, writeObject);
                 break;
             case ReturnType.PSObject:
                 foreach (var row in rows)
@@ -78,28 +67,14 @@ internal static class DbaXResultWriter
         switch (returnType)
         {
             case ReturnType.DataTable:
-                DataTable? table = null;
-                await foreach (var row in rows.ConfigureAwait(false))
-                {
-                    table ??= row.Table.Clone();
-                    AddRow(table, row);
-                }
-
-                if (table != null)
-                {
-                    writeObject(table, false);
-                }
-
-                break;
             case ReturnType.DataSet:
-                DataTable? dataTable = null;
+                var collector = new DataRowStreamCollector(StreamedTableName);
                 await foreach (var row in rows.ConfigureAwait(false))
                 {
-                    dataTable ??= row.Table.Clone();
-                    AddRow(dataTable, row);
+                    collector.Add(row);
                 }
 
-                writeObject(CreateDataSet(dataTable), false);
+                WriteCollected(collector.Table, returnType, writeObject);
                 break;
             case ReturnType.PSObject:
                 await foreach (var row in rows.ConfigureAwait(false))
@@ -119,25 +94,28 @@ internal static class DbaXResultWriter
     }
 #endif
 
-    private static DataSet CreateDataSet(DataTable? table)
+    /// <summary>
+    /// Writes a table collected from streamed rows. An empty stream has no schema, so it writes nothing for
+    /// <see cref="ReturnType.DataTable"/> and an empty <see cref="DataSet"/> for <see cref="ReturnType.DataSet"/>.
+    /// </summary>
+    private static void WriteCollected(DataTable? table, ReturnType returnType, Action<object?, bool> writeObject)
     {
+        if (returnType == ReturnType.DataTable)
+        {
+            if (table != null)
+            {
+                writeObject(table, false);
+            }
+
+            return;
+        }
+
         var set = new DataSet();
         if (table != null)
         {
             set.Tables.Add(table);
         }
 
-        return set;
-    }
-
-    private static void AddRow(DataTable table, DataRow row)
-    {
-        if (row.RowState == DataRowState.Detached)
-        {
-            table.Rows.Add(row.ItemArray);
-            return;
-        }
-
-        table.ImportRow(row);
+        writeObject(set, false);
     }
 }

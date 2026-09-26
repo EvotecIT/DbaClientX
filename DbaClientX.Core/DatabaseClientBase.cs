@@ -645,9 +645,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                     if (reader.Read())
                     {
                         var table = new DataTable("Table0");
+                        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         for (int i = 0; i < reader.FieldCount; i++)
                         {
-                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
                         }
                         var row = table.NewRow();
                         for (int i = 0; i < reader.FieldCount; i++)
@@ -829,9 +830,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                         cancellationToken).ConfigureAwait(false))
                     {
                         var table = new DataTable("Table0");
+                        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         for (int i = 0; i < reader.FieldCount; i++)
                         {
-                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
                         }
                         var row = table.NewRow();
                         for (int i = 0; i < reader.FieldCount; i++)
@@ -1048,9 +1050,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
         var fieldCount = reader.FieldCount;
         var columnNames = new string[fieldCount];
         var columnTypes = new Type[fieldCount];
+        var usedColumnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < fieldCount; i++)
         {
-            columnNames[i] = reader.GetName(i);
+            columnNames[i] = GetUniqueColumnName(reader.GetName(i), i, usedColumnNames);
             columnTypes[i] = reader.GetFieldType(i);
         }
 

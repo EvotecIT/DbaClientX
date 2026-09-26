@@ -202,42 +202,4 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
 
         yield return connectionString.Substring(start);
     }
-
-    private static async Task<DataTable> ReadDataTableAsync(SqliteDataReader reader, CancellationToken cancellationToken)
-    {
-        var table = new DataTable();
-        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (var i = 0; i < reader.FieldCount; i++)
-        {
-            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
-        }
-
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            var row = table.NewRow();
-            for (var i = 0; i < reader.FieldCount; i++)
-            {
-                row[i] = await reader.IsDBNullAsync(i, cancellationToken).ConfigureAwait(false)
-                    ? DBNull.Value
-                    : reader.GetValue(i);
-            }
-
-            table.Rows.Add(row);
-        }
-
-        return table;
-    }
-
-    private static string GetUniqueColumnName(string? columnName, int ordinal, HashSet<string> usedNames)
-    {
-        var baseName = string.IsNullOrEmpty(columnName) ? $"Column{ordinal + 1}" : columnName!;
-        var name = baseName;
-        var suffix = 1;
-        while (!usedNames.Add(name))
-        {
-            name = $"{baseName}_{suffix++}";
-        }
-
-        return name;
-    }
 }
