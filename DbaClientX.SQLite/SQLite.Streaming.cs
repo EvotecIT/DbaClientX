@@ -185,5 +185,52 @@ public partial class SQLite
             }
         }
     }
+
+    /// <summary>
+    /// Streams query results from a SQLite connection string through a caller-provided mapper, without building a
+    /// <see cref="DataTable"/>.
+    /// </summary>
+    /// <remarks>
+    /// Use this overload for connection options that a database path cannot express, such as <c>Mode=ReadOnly</c> or a
+    /// shared in-memory database. Only the current row is held in memory; <paramref name="map"/> must copy what it needs
+    /// because the record is reused for the next row.
+    /// </remarks>
+    public virtual IAsyncEnumerable<T> QueryStreamWithConnectionStringAsync<T>(
+        string connectionString,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        bool useTransaction = false,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        Action<IDataRecord>? initialize = null)
+    {
+        ValidateCommandText(query);
+        if (map == null) throw new ArgumentNullException(nameof(map));
+        var normalizedConnectionString = NormalizeConnectionString(connectionString);
+
+        return Stream();
+
+        async IAsyncEnumerable<T> Stream()
+        {
+            var dbTypes = ConvertParameterTypes(parameterTypes);
+            var (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
+                {
+                    yield return row;
+                }
+            }
+            finally
+            {
+                if (dispose)
+                {
+                    await connection.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+        }
+    }
 }
 #endif
