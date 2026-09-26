@@ -1048,9 +1048,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
         var fieldCount = reader.FieldCount;
         var columnNames = new string[fieldCount];
         var columnTypes = new Type[fieldCount];
+        var usedColumnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < fieldCount; i++)
         {
-            columnNames[i] = reader.GetName(i);
+            columnNames[i] = GetUniqueColumnName(reader.GetName(i), i, usedColumnNames);
             columnTypes[i] = reader.GetFieldType(i);
         }
 

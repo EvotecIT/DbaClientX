@@ -9,6 +9,7 @@ using Microsoft.Data.SqlClient;
 
 namespace DbaClientX.Tests;
 
+[Collection(CmdletFactoryCollection.Name)]
 public class InvokeDbaXQueryCmdletTests
 {
     [Fact]

@@ -118,6 +118,31 @@ public class DbaXResultWriterTests
         Assert.Equal("Ada", psObject.Properties["Name"].Value);
     }
 
+    [Fact]
+    public void WriteRows_DataTableReturnType_WidensAcrossSourceTables()
+    {
+        using var integers = new DataTable();
+        integers.Columns.Add("Value", typeof(long));
+        using var texts = new DataTable();
+        texts.Columns.Add("Value", typeof(string));
+        var first = integers.NewRow();
+        first["Value"] = 1L;
+        var second = texts.NewRow();
+        second["Value"] = "a";
+        var output = new List<object?>();
+
+        DbaXResultWriter.WriteRows(
+            new[] { first, second },
+            ReturnType.DataTable,
+            (value, _) => output.Add(value));
+
+        using var table = Assert.IsType<DataTable>(Assert.Single(output));
+
+        Assert.Equal("Table0", table.TableName);
+        Assert.Equal(typeof(object), table.Columns["Value"]!.DataType);
+        Assert.Equal(new object[] { 1L, "a" }, table.Rows.Cast<DataRow>().Select(row => row["Value"]).ToArray());
+    }
+
     private static DataRow CreateDetachedRow(DataTable table, string name)
     {
         table.Columns.Add("Name", typeof(string));

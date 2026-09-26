@@ -88,40 +88,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
             if (Stream.IsPresent) {
                 var enumerable = sqlite.QueryStreamAsync(Database, Query, parameters, cancellationToken: CancelToken);
-                switch (ReturnType) {
-                    case ReturnType.DataRow:
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            WriteObject(row);
-                        }
-                        break;
-                    case ReturnType.DataTable:
-                        DataTable? table = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            table ??= row.Table.Clone();
-                            table.ImportRow(row);
-                        }
-                        if (table != null) {
-                            WriteObject(table);
-                        }
-                        break;
-                    case ReturnType.DataSet:
-                        DataTable? dataTable = null;
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            dataTable ??= row.Table.Clone();
-                            dataTable.ImportRow(row);
-                        }
-                        DataSet set = new DataSet();
-                        if (dataTable != null) {
-                            set.Tables.Add(dataTable);
-                        }
-                        WriteObject(set);
-                        break;
-                    default:
-                        await foreach (var row in enumerable.ConfigureAwait(false)) {
-                            WriteObject(PSObjectConverter.DataRowToPSObject(row));
-                        }
-                        break;
-                }
+                await DbaXResultWriter.WriteRowsAsync(enumerable, ReturnType, WriteObject).ConfigureAwait(false);
                 return;
             }
 #else
