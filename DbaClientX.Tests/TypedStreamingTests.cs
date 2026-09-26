@@ -111,6 +111,8 @@ public class TypedStreamingTests
         public DateTime FromOffset { get; set; }
         public TimeSpan Duration { get; set; }
         public Guid FromBytes { get; set; }
+        public DateTime FromOffsetText { get; set; }
+        public DateTime FromPlainText { get; set; }
     }
 
     [Fact]
@@ -123,7 +125,9 @@ public class TypedStreamingTests
         table.Columns.Add("FromOffset", typeof(DateTimeOffset));
         table.Columns.Add("Duration", typeof(string));
         table.Columns.Add("FromBytes", typeof(byte[]));
-        table.Rows.Add("2026-09-26 10:30:00", new DateTime(2026, 9, 26, 10, 30, 0, DateTimeKind.Unspecified), new DateTimeOffset(2026, 9, 26, 12, 30, 0, TimeSpan.FromHours(2)), "01:02:03", guid.ToByteArray());
+        table.Columns.Add("FromOffsetText", typeof(string));
+        table.Columns.Add("FromPlainText", typeof(string));
+        table.Rows.Add("2026-09-26 10:30:00", new DateTime(2026, 9, 26, 10, 30, 0, DateTimeKind.Unspecified), new DateTimeOffset(2026, 9, 26, 12, 30, 0, TimeSpan.FromHours(2)), "01:02:03", guid.ToByteArray(), "2026-09-26T12:30:00+02:00", "2026-09-26 10:30:00");
         using var reader = table.CreateDataReader();
         Assert.True(reader.Read());
 
@@ -137,6 +141,10 @@ public class TypedStreamingTests
         Assert.Equal(DateTimeKind.Utc, row.FromOffset.Kind);
         Assert.Equal(new TimeSpan(1, 2, 3), row.Duration);
         Assert.Equal(guid, row.FromBytes);
+        Assert.Equal(expected.UtcDateTime, row.FromOffsetText);
+        Assert.Equal(DateTimeKind.Utc, row.FromOffsetText.Kind);
+        Assert.Equal(new DateTime(2026, 9, 26, 10, 30, 0), row.FromPlainText);
+        Assert.Equal(DateTimeKind.Unspecified, row.FromPlainText.Kind);
     }
 
     [Fact]
