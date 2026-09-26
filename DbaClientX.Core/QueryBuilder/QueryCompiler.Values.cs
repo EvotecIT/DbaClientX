@@ -199,7 +199,40 @@ public partial class QueryCompiler
             decimal number => number.ToString(CultureInfo.InvariantCulture),
             double number => number.ToString(CultureInfo.InvariantCulture),
             float number => number.ToString(CultureInfo.InvariantCulture),
+            Guid guid => $"'{guid.ToString("D", CultureInfo.InvariantCulture)}'",
+            TimeSpan time => FormatTimeSpanLiteral(time),
+            byte[] bytes => FormatBinaryLiteral(bytes),
             _ => value.ToString() ?? string.Empty
+        };
+    }
+
+    /// <summary>
+    /// Formats a time literal as <c>[-][d ]hh:mm:ss[.fffffff]</c>, the form PostgreSQL intervals and MySQL <c>TIME</c> accept.
+    /// </summary>
+    private static string FormatTimeSpanLiteral(TimeSpan time)
+    {
+        var sign = time < TimeSpan.Zero ? "-" : string.Empty;
+        var duration = time.Duration();
+        var timeOfDay = new TimeSpan(duration.Ticks % TimeSpan.TicksPerDay).ToString("c", CultureInfo.InvariantCulture);
+        return duration.Days == 0
+            ? $"'{sign}{timeOfDay}'"
+            : $"'{sign}{duration.Days.ToString(CultureInfo.InvariantCulture)} {timeOfDay}'";
+    }
+
+    private string FormatBinaryLiteral(byte[] bytes)
+    {
+        var hex = new StringBuilder(bytes.Length * 2);
+        foreach (var value in bytes)
+        {
+            hex.Append(value.ToString("X2", CultureInfo.InvariantCulture));
+        }
+
+        return _dialect switch
+        {
+            SqlDialect.SqlServer => "0x" + hex,
+            SqlDialect.PostgreSql => "decode('" + hex + "', 'hex')",
+            SqlDialect.Oracle => "HEXTORAW('" + hex + "')",
+            _ => "X'" + hex + "'"
         };
     }
 

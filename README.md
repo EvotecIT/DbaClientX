@@ -602,7 +602,11 @@ var table = (DataTable)(await sqlite.QueryAsync(path, sql, values))!;
 var page = paging.CreatePage(table); // page.Items, page.NextCursor (null on the last page)
 ```
 
-Keyset columns must be unquoted, non-null and unique together (end with the primary key). The source query must not set `ORDER BY` (keyset), `Limit`, `Offset`, `Top`, or `UNION`; offset paging requires `ORDER BY` on a unique column set. Cursors are not signed, so treat them as untrusted input (for example, cap the offset you accept).
+Keyset columns must be unquoted, non-null and unique together (end with the primary key). The source query must not set `ORDER BY` (keyset), `Limit`, `Offset`, `Top`, or `UNION`; offset paging requires `ORDER BY` on a unique column set.
+
+- Keyset page queries must be compiled with `CompileWithParameters`; `Compile()` throws, because literal SQL loses precision such as fractional seconds.
+- Cursors are unsigned by default, so treat them as untrusted input. Declare key types (`KeysetColumn.Asc<long>("Id")`, matching the CLR type the provider returns) to reject cursor values of another type, and set `SigningKey` (32 random bytes kept on the server and used only for paging) to reject any modified cursor. Signing proves the server issued a cursor; it does not authorize access, so keep applying the caller's filters. For offset paging, also cap the offset you accept.
+- SQL Server sends `DateTime` parameters as `datetime` (1/300 s precision). For `datetime2` keys, set `UseDateTime2ForDateTimeParameters = true` on the `SqlServer` client or pass an explicit `SqlDbType.DateTime2` parameter type, so page boundaries do not repeat or skip rows.
 
 ## Supported .NET Versions
 
