@@ -519,6 +519,37 @@ if (result is DataTable table) {
 }
 ```
 
+### Stream Typed Rows
+
+`Query`/`QueryAsync` build a whole `DataTable` in memory. For large results, stream instead and pick the lightest shape that fits:
+
+| API | Memory | Use when |
+| --- | --- | --- |
+| `Query`, `QueryAsync` (`DataTable`/`DataSet`) | Whole result | Small results, PowerShell output, code that needs a `DataTable` |
+| `QueryStreamAsync` (`DataRow`) | One row plus a detached `DataRow` per row | Existing `DataRow` code; SQLite may switch to a wider row schema mid-stream |
+| `QueryStreamAsync<T>(…, map)` | One row | Large results, typed consumers, reports and exports |
+| `QueryStreamAsync<T>(…).ChunkAsync(n)` | One chunk | Batched writes: bulk inserts, dataset chunks, HTTP responses |
+| `QueryReaderAsync` (`DbaDataReader`) | One row | Full reader control, for example `SqlBulkCopy` from a reader |
+
+```csharp
+using DBAClientX;
+using DBAClientX.Mapping;
+
+using var sqlite = new DBAClientX.SQLite();
+
+// Map columns to properties by name (case-insensitive), converting SQLite text dates, enums and GUIDs.
+await foreach (var evt in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id, Zone, CreatedUtc FROM Events", DbaRecordMapper.For<EventRow>())) {
+    Console.WriteLine($"{evt.Id} {evt.Zone}");
+}
+
+// Hand-written maps are fastest; chunk them for batch consumers.
+await foreach (var chunk in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id, Zone FROM Events", r => (r.GetInt64(0), r.GetString(1))).ChunkAsync(5_000)) {
+    await WriteBatchAsync(chunk);
+}
+```
+
+`DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryStreamWithConnectionStringAsync<T>` for connection options such as `Mode=ReadOnly`.
+
 ### Bulk Insert
 
 ```csharp
