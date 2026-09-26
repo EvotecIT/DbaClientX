@@ -19,6 +19,7 @@ public static class QueryBuilder
     /// <param name="query">The query to compile.</param>
     /// <param name="dialect">The target SQL dialect.</param>
     /// <returns>The SQL text representation.</returns>
+    /// <exception cref="InvalidOperationException">The query is a keyset page query; use <c>CompileWithParameters</c>.</exception>
     public static string Compile(Query query, SqlDialect dialect = SqlDialect.SqlServer)
     {
         var compiler = new QueryCompiler(dialect);

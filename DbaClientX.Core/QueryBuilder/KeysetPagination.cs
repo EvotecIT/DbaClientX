@@ -22,8 +22,9 @@ namespace DBAClientX.QueryBuilder;
 /// are sent as parameters.
 /// </para>
 /// <para>
-/// Cursors are opaque but not signed. Treat them as untrusted input: a client can change the key values, which only
-/// changes where the page starts.
+/// Cursors are opaque but, by default, not signed: a client can change the key values, which only changes where the page
+/// starts. Declare <see cref="KeysetColumn.ValueType"/> to reject values of the wrong type, and set
+/// <see cref="SigningKey"/> to reject any modified cursor.
 /// </para>
 /// </remarks>
 /// <example>
@@ -37,6 +38,7 @@ namespace DBAClientX.QueryBuilder;
 public sealed class KeysetPagination
 {
     private readonly KeysetColumn[] _columns;
+    private byte[]? _signingKey;
 
     /// <summary>
     /// Initializes a new keyset pagination.
@@ -66,11 +68,35 @@ public sealed class KeysetPagination
     public IReadOnlyList<KeysetColumn> Columns => Array.AsReadOnly(_columns);
 
     /// <summary>
+    /// Gets or initializes an optional HMAC-SHA256 key. When set, cursors are signed and unsigned or modified cursors are
+    /// rejected with <see cref="ArgumentException"/>. Use at least 32 random bytes, keep the key server-side and dedicate it
+    /// to paging. Signing proves a cursor was issued by this server; it does not authorize access, so the source query must
+    /// still apply the caller's filters.
+    /// </summary>
+    public byte[]? SigningKey
+    {
+        get => _signingKey == null ? null : (byte[])_signingKey.Clone();
+        init
+        {
+            if (value != null && value.Length < 16)
+            {
+                throw new ArgumentException("The signing key must be at least 16 bytes.", nameof(SigningKey));
+            }
+
+            _signingKey = value == null ? null : (byte[])value.Clone();
+        }
+    }
+
+    /// <summary>
     /// Creates the query for the page after <paramref name="cursor"/>. The source query is not modified.
     /// </summary>
     /// <param name="source">A <c>SELECT</c> query without ordering or limits.</param>
     /// <param name="cursor">A cursor from <see cref="QueryPage{T}.NextCursor"/>, or <see langword="null"/> for the first page.</param>
-    /// <returns>A query ordered by the key columns that fetches <see cref="PageSize"/> + 1 rows, so the extra row signals another page.</returns>
+    /// <returns>
+    /// A query ordered by the key columns that fetches <see cref="PageSize"/> + 1 rows, so the extra row signals another
+    /// page. Compile it with <see cref="Query.CompileWithParameters(SqlDialect)"/>; <see cref="Query.Compile(SqlDialect)"/>
+    /// throws because literal cursor values lose precision (for example fractional seconds).
+    /// </returns>
     /// <exception cref="ArgumentException">The cursor is malformed or was created for a different key.</exception>
     /// <exception cref="InvalidOperationException">The source query cannot be paged.</exception>
     public Query CreatePageQuery(Query source, string? cursor = null)
@@ -80,7 +106,7 @@ public sealed class KeysetPagination
             throw new ArgumentNullException(nameof(source));
         }
 
-        var after = cursor == null ? null : QueryPageCursor.DecodeKeyset(_columns, cursor);
+        var after = cursor == null ? null : QueryPageCursor.DecodeKeyset(_columns, cursor, _signingKey);
         return source.CreateKeysetPageQuery(_columns, after, PageSize + 1);
     }
 
@@ -141,6 +167,6 @@ public sealed class KeysetPagination
             throw new ArgumentException($"Exactly {_columns.Length} key values are required.", nameof(keyValues));
         }
 
-        return QueryPageCursor.EncodeKeyset(_columns, keyValues);
+        return QueryPageCursor.EncodeKeyset(_columns, keyValues, _signingKey);
     }
 }

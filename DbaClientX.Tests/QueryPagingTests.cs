@@ -194,11 +194,12 @@ public class QueryPagingTests
             .Having("u.Id", ">", 0);
         var before = source.Compile();
 
-        var sql = paging.CreatePageQuery(source, paging.CreateCursor(new object?[] { 5 })).Compile(SqlDialect.SqlServer);
+        var (sql, parameters) = paging.CreatePageQuery(source, paging.CreateCursor(new object?[] { 5 })).CompileWithParameters(SqlDialect.SqlServer);
 
         Assert.Equal(
-            "SELECT DISTINCT TOP 11 [u].[Id], [u].[Name] FROM [Users] AS [u] JOIN [Orders] AS [o] ON [u].[Id] = [o].[UserId] WHERE [u].[Id] > 5 GROUP BY [u].[Id], [u].[Name] HAVING [u].[Id] > 0 ORDER BY [u].[Id]",
+            "SELECT DISTINCT TOP 11 [u].[Id], [u].[Name] FROM [Users] AS [u] JOIN [Orders] AS [o] ON [u].[Id] = [o].[UserId] WHERE [u].[Id] > @p0 GROUP BY [u].[Id], [u].[Name] HAVING [u].[Id] > @p1 ORDER BY [u].[Id]",
             sql);
+        Assert.Equal(new object[] { 5L, 0 }, parameters);
         Assert.Equal(before, source.Compile());
         Assert.Equal("Id", paging.Columns[0].ResultColumn);
     }
@@ -246,6 +247,113 @@ public class QueryPagingTests
         var nearEnd = last.CreatePageQuery(source, pageIndex: 1);
         Assert.Equal(int.MaxValue - 1, nearEnd.OffsetValue);
     }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer)]
+    [InlineData(SqlDialect.PostgreSql)]
+    [InlineData(SqlDialect.MySql)]
+    [InlineData(SqlDialect.SQLite)]
+    [InlineData(SqlDialect.Oracle)]
+    public void KeysetPageQuery_LiteralCompile_IsRefused(SqlDialect dialect)
+    {
+        var paging = new KeysetPagination(10, KeysetColumn.Asc("created"));
+        var cursor = paging.CreateCursor(new object?[] { new DateTime(2026, 9, 26, 10, 30, 0, 123, DateTimeKind.Utc).AddTicks(4567) });
+        var page = paging.CreatePageQuery(new Query().From("t"), cursor);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => page.Compile(dialect));
+        Assert.Throws<InvalidOperationException>(() => paging.CreatePageQuery(new Query().From("t")).Compile(dialect));
+        var nested = Assert.Throws<InvalidOperationException>(() => new Query().From(page, "p").Compile(dialect));
+
+        Assert.Contains("CompileWithParameters", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("CompileWithParameters", nested.Message, StringComparison.Ordinal);
+        var (_, parameters) = page.CompileWithParameters(dialect);
+        Assert.Equal(new DateTime(2026, 9, 26, 10, 30, 0, 123, DateTimeKind.Utc).AddTicks(4567), parameters[0]);
+    }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer, "0x0AFF")]
+    [InlineData(SqlDialect.PostgreSql, "decode('0AFF', 'hex')")]
+    [InlineData(SqlDialect.MySql, "X'0AFF'")]
+    [InlineData(SqlDialect.SQLite, "X'0AFF'")]
+    [InlineData(SqlDialect.Oracle, "HEXTORAW('0AFF')")]
+    public void Compile_GuidTimeSpanAndBinaryLiterals_AreQuoted(SqlDialect dialect, string binary)
+    {
+        var guid = new Guid("0f8fad5b-d9cb-469f-a165-70867728950e");
+
+        var sql = new Query().From("t")
+            .Where("g", guid)
+            .Where("d", new TimeSpan(1, 2, 3, 4))
+            .Where("b", new byte[] { 0x0A, 0xFF })
+            .Compile(dialect);
+
+        Assert.EndsWith($" = '0f8fad5b-d9cb-469f-a165-70867728950e' AND {Quote(dialect, "d")} = '1 02:03:04' AND {Quote(dialect, "b")} = {binary}", sql);
+    }
+
+    [Fact]
+    public void KeysetCursor_TypedKey_RejectsValuesOfAnotherType()
+    {
+        var typed = new KeysetPagination(10, KeysetColumn.Asc<int>("id"));
+        var untyped = new KeysetPagination(10, KeysetColumn.Asc("id"));
+
+        var forged = untyped.CreateCursor(new object?[] { "1 OR 1=1" });
+        var overflow = untyped.CreateCursor(new object?[] { long.MaxValue });
+
+        var exception = Assert.Throws<ArgumentException>(() => typed.CreatePageQuery(new Query().From("t"), forged));
+        Assert.Equal("cursor", exception.ParamName);
+        Assert.Throws<ArgumentException>(() => typed.CreatePageQuery(new Query().From("t"), overflow));
+        Assert.Throws<InvalidOperationException>(() => typed.CreateCursor(new object?[] { "x" }));
+        var (_, parameters) = typed.CreatePageQuery(new Query().From("t"), typed.CreateCursor(new object?[] { 7L })).CompileWithParameters(SqlDialect.SQLite);
+        Assert.IsType<int>(parameters[0]);
+        Assert.Equal(7, parameters[0]);
+        var nullable = new KeysetPagination(10, KeysetColumn.Desc<int?>("id"));
+        Assert.Equal(typeof(int), nullable.Columns[0].ValueType);
+        Assert.Throws<ArgumentException>(() => KeysetColumn.Asc<DayOfWeek>("day"));
+    }
+
+    [Fact]
+    public void KeysetCursor_SigningKey_RejectsModifiedUnsignedAndForeignCursors()
+    {
+        var key = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray();
+        var signed = new KeysetPagination(10, KeysetColumn.Asc("id")) { SigningKey = key };
+        var otherKey = new KeysetPagination(10, KeysetColumn.Asc("id")) { SigningKey = key.Reverse().ToArray() };
+        var unsigned = new KeysetPagination(10, KeysetColumn.Asc("id"));
+        var cursor = signed.CreateCursor(new object?[] { 41L });
+        var index = "dbax-page-v1.".Length + 30;
+        var tampered = cursor.Substring(0, index) + (cursor[index] == 'A' ? 'B' : 'A') + cursor.Substring(index + 1);
+
+        var (_, parameters) = signed.CreatePageQuery(new Query().From("t"), cursor).CompileWithParameters(SqlDialect.SQLite);
+
+        Assert.Equal(41L, parameters[0]);
+        Assert.NotEqual(cursor, tampered);
+        Assert.Equal("cursor", Assert.Throws<ArgumentException>(() => signed.CreatePageQuery(new Query().From("t"), tampered)).ParamName);
+        Assert.Contains("not signed", Assert.Throws<ArgumentException>(() => signed.CreatePageQuery(new Query().From("t"), unsigned.CreateCursor(new object?[] { 41L }))).Message, StringComparison.Ordinal);
+        Assert.Contains("is signed", Assert.Throws<ArgumentException>(() => unsigned.CreatePageQuery(new Query().From("t"), cursor)).Message, StringComparison.Ordinal);
+        Assert.Contains("signature is invalid", Assert.Throws<ArgumentException>(() => otherKey.CreatePageQuery(new Query().From("t"), cursor)).Message, StringComparison.Ordinal);
+        key[0] = 99;
+        Assert.Equal(41L, signed.CreatePageQuery(new Query().From("t"), cursor).CompileWithParameters(SqlDialect.SQLite).Parameters[0]);
+        Assert.Throws<ArgumentException>(() => new KeysetPagination(10, KeysetColumn.Asc("id")) { SigningKey = new byte[8] });
+    }
+
+    [Fact]
+    public void OffsetCursor_SigningKey_RejectsForgedOffsets()
+    {
+        var key = Enumerable.Range(1, 32).Select(value => (byte)value).ToArray();
+        var signed = new OffsetPagination(10) { SigningKey = key };
+        var source = new Query().From("t").OrderBy("id");
+        var next = signed.CreatePage(Enumerable.Range(1, 11).ToArray(), null).NextCursor;
+
+        Assert.Equal(10, signed.CreatePageQuery(source, next).OffsetValue);
+        Assert.Throws<ArgumentException>(() => signed.CreatePageQuery(source, new OffsetPagination(10).CreatePage(Enumerable.Range(1, 11).ToArray(), null).NextCursor));
+        Assert.Throws<ArgumentException>(() => signed.CreatePageQuery(source, "dbax-page-v1.Av____8"));
+    }
+
+    private static string Quote(SqlDialect dialect, string identifier)
+        => dialect switch
+        {
+            SqlDialect.SqlServer => $"[{identifier}]",
+            SqlDialect.MySql => $"`{identifier}`",
+            _ => $"\"{identifier}\"",
+        };
 
     private static async Task SeedAsync(DBAClientX.SQLite sqlite, string connectionString)
     {

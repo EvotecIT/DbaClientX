@@ -14,8 +14,8 @@ namespace DBAClientX.QueryBuilder;
 /// source query must have <c>ORDER BY</c> on a unique column set and must not set <c>LIMIT</c>, <c>OFFSET</c>,
 /// <c>TOP</c> or compound operators.
 /// <para>
-/// Cursors are opaque but not tamper-proof: a client can request any offset, so cap the page index or offset you
-/// accept from untrusted callers. The offset is rendered as a literal, so each page compiles to a distinct statement.
+/// Cursors are opaque but, unless <see cref="SigningKey"/> is set, not tamper-proof: a client can request any offset, so
+/// cap the page index or offset you accept from untrusted callers. The offset is rendered as a literal, so each page compiles to a distinct statement.
 /// </para>
 /// </remarks>
 public sealed class OffsetPagination
@@ -36,6 +36,27 @@ public sealed class OffsetPagination
 
     /// <summary>Gets the maximum number of rows per page.</summary>
     public int PageSize { get; }
+
+    /// <summary>
+    /// Gets or initializes an optional HMAC-SHA256 key. When set, cursors are signed and unsigned or modified cursors are
+    /// rejected with <see cref="ArgumentException"/>. Use at least 32 random bytes, keep the key server-side and dedicate
+    /// it to paging.
+    /// </summary>
+    public byte[]? SigningKey
+    {
+        get => _signingKey == null ? null : (byte[])_signingKey.Clone();
+        init
+        {
+            if (value != null && value.Length < 16)
+            {
+                throw new ArgumentException("The signing key must be at least 16 bytes.", nameof(SigningKey));
+            }
+
+            _signingKey = value == null ? null : (byte[])value.Clone();
+        }
+    }
+
+    private byte[]? _signingKey;
 
     /// <summary>
     /// Creates the query for the page at <paramref name="cursor"/>. The source query is not modified.
@@ -68,7 +89,7 @@ public sealed class OffsetPagination
             throw new ArgumentOutOfRangeException(nameof(pageIndex), pageIndex, "Page index is out of range.");
         }
 
-        return CreatePageQuery(source, pageIndex == 0 ? null : QueryPageCursor.EncodeOffset(pageIndex * PageSize));
+        return CreatePageQuery(source, pageIndex == 0 ? null : QueryPageCursor.EncodeOffset(pageIndex * PageSize, _signingKey));
     }
 
     /// <summary>
@@ -98,7 +119,7 @@ public sealed class OffsetPagination
             throw new InvalidOperationException("The next page offset exceeds Int32.MaxValue; use keyset paging for this result.");
         }
 
-        return new QueryPage<T>(rows.Take(PageSize).ToArray(), QueryPageCursor.EncodeOffset((int)nextOffset));
+        return new QueryPage<T>(rows.Take(PageSize).ToArray(), QueryPageCursor.EncodeOffset((int)nextOffset, _signingKey));
     }
 
     /// <summary>
@@ -119,6 +140,6 @@ public sealed class OffsetPagination
         return CreatePage(table.Rows.Cast<DataRow>().ToArray(), cursor);
     }
 
-    private static int GetOffset(string? cursor)
-        => cursor == null ? 0 : QueryPageCursor.DecodeOffset(cursor);
+    private int GetOffset(string? cursor)
+        => cursor == null ? 0 : QueryPageCursor.DecodeOffset(cursor, _signingKey);
 }

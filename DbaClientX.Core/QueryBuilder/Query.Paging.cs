@@ -5,6 +5,14 @@ namespace DBAClientX.QueryBuilder;
 
 public partial class Query
 {
+    private bool _requiresParameterizedCompile;
+
+    /// <summary>
+    /// Gets a value indicating whether the query must be compiled with parameters, because it carries values that literal
+    /// SQL cannot represent exactly (keyset cursor values).
+    /// </summary>
+    internal bool RequiresParameterizedCompile => _requiresParameterizedCompile;
+
     /// <summary>
     /// Creates a copy of this <c>SELECT</c> query that reads one keyset page.
     /// </summary>
@@ -20,6 +28,7 @@ public partial class Query
         }
 
         var page = CloneForPaging();
+        page._requiresParameterizedCompile = true;
         if (after != null)
         {
             page.AddKeysetPredicate(columns, after);
