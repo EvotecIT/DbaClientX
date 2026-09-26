@@ -38,7 +38,8 @@ public static class DbaRecordMapper
     /// </description></item>
     /// <item><description>
     /// Date and time values without an offset or kind are treated as UTC when converted to <see cref="DateTimeOffset"/>;
-    /// <see cref="DateTimeOffset"/> values convert to UTC <see cref="DateTime"/>.
+    /// <see cref="DateTimeOffset"/> values and text with an offset convert to UTC <see cref="DateTime"/>, and text without
+    /// an offset keeps <see cref="DateTimeKind.Unspecified"/>.
     /// </description></item>
     /// </list>
     /// For hot paths, a hand-written <c>Func&lt;IDataRecord, T&gt;</c> that calls typed getters by ordinal is faster.
@@ -160,7 +161,7 @@ public static class DbaRecordMapper
                     _ when target.IsEnum => Enum.ToObject(target, System.Convert.ChangeType(value, Enum.GetUnderlyingType(target), CultureInfo.InvariantCulture)!),
                     string text when target == typeof(Guid) => Guid.Parse(text),
                     byte[] { Length: 16 } bytes when target == typeof(Guid) => new Guid(bytes),
-                    string text when target == typeof(DateTime) => DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+                    string text when target == typeof(DateTime) => DateTime.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal),
                     string text when target == typeof(DateTimeOffset) => DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal),
                     DateTime dateTime when target == typeof(DateTimeOffset) => new DateTimeOffset(
                         dateTime.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(dateTime, DateTimeKind.Utc) : dateTime),
