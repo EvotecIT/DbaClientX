@@ -1,10 +1,15 @@
 using System;
 using System.Data;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DBAClientX;
 
 public abstract partial class DatabaseClientBase
 {
+    /// <summary>Members <see cref="DataColumn"/> requires from its data type.</summary>
+    private const DynamicallyAccessedMemberTypes DataColumnTypeMembers =
+        DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties;
+
     /// <summary>Largest magnitude of <see cref="long"/> that <see cref="double"/> represents exactly (2^53).</summary>
     private const long MaxExactDoubleInteger = 1L << 53;
 
@@ -32,6 +37,8 @@ public abstract partial class DatabaseClientBase
     /// <param name="value">The value about to be stored.</param>
     /// <param name="hasObservedValue">Whether the column already stored a non-null value.</param>
     /// <returns>The replacement column type, or <see langword="null"/> when the current type can store the value.</returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2073", Justification = "Only reached when AdaptResultColumnTypesToValues is enabled (the SQLite provider), where Microsoft.Data.Sqlite materializes long, double, string or byte[]; DataColumn stores these with built-in storage and does not reflect over their members. Every other result is typeof(object) or typeof(double).")]
+    [return: DynamicallyAccessedMembers(DataColumnTypeMembers)]
     private static Type? ResolveAdaptedColumnType(Type columnType, object? value, bool hasObservedValue)
     {
         if (value is null || value is DBNull || columnType == typeof(object))
@@ -139,7 +146,7 @@ public abstract partial class DatabaseClientBase
     /// <param name="ordinal">The column ordinal.</param>
     /// <param name="dataType">The replacement column type.</param>
     /// <param name="copyValues">Whether existing values must be copied; <see langword="false"/> when the column only holds nulls.</param>
-    private static void ReplaceColumnType(DataTable table, int ordinal, Type dataType, bool copyValues)
+    private static void ReplaceColumnType(DataTable table, int ordinal, [DynamicallyAccessedMembers(DataColumnTypeMembers)] Type dataType, bool copyValues)
     {
         var existing = table.Columns[ordinal];
         var columnName = existing.ColumnName;
@@ -162,6 +169,7 @@ public abstract partial class DatabaseClientBase
     /// <summary>
     /// Creates the detached-row table used by streamed query results.
     /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2062", Justification = "Column types come from DbDataReader.GetFieldType, which carries the DataColumn annotation, or from ResolveAdaptedColumnType, which is annotated; a Type[] cannot carry the annotation itself.")]
     private static DataTable CreateStreamTable(string[] columnNames, Type[] columnTypes)
     {
         var table = new DataTable();
