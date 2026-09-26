@@ -233,6 +233,21 @@ public class SQLiteMixedTypeColumnTests
     }
 
     [Fact]
+    public async Task Query_DataRowReturnTypeWithDuplicateColumnNames_UsesUniqueNames()
+    {
+        using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataRow };
+
+        var syncRow = Assert.IsType<DataRow>(sqlite.Query(":memory:", "SELECT 1 AS a, 2 AS A"));
+        var asyncRow = Assert.IsType<DataRow>(await sqlite.QueryAsync(":memory:", "SELECT 1 AS a, 2 AS A"));
+
+        foreach (var row in new[] { syncRow, asyncRow })
+        {
+            Assert.Equal(new[] { "a", "A1" }, row.Table.Columns.Cast<DataColumn>().Select(column => column.ColumnName).ToArray());
+            Assert.Equal(new object[] { 1L, 2L }, row.ItemArray);
+        }
+    }
+
+    [Fact]
     public async Task QueryStreamAsync_PragmaTableInfoWithMixedDefaults_YieldsEveryColumn()
     {
         var path = CreateDatabase();

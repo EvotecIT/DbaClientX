@@ -645,9 +645,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                     if (reader.Read())
                     {
                         var table = new DataTable("Table0");
+                        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         for (int i = 0; i < reader.FieldCount; i++)
                         {
-                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
                         }
                         var row = table.NewRow();
                         for (int i = 0; i < reader.FieldCount; i++)
@@ -829,9 +830,10 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                         cancellationToken).ConfigureAwait(false))
                     {
                         var table = new DataTable("Table0");
+                        var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         for (int i = 0; i < reader.FieldCount; i++)
                         {
-                            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+                            table.Columns.Add(GetUniqueColumnName(reader.GetName(i), i, columnNames), reader.GetFieldType(i));
                         }
                         var row = table.NewRow();
                         for (int i = 0; i < reader.FieldCount; i++)
