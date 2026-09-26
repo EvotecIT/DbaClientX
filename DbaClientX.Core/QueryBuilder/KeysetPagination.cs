@@ -35,7 +35,7 @@ namespace DBAClientX.QueryBuilder;
 /// // execute, then: var page = paging.CreatePage(table); page.NextCursor feeds the next request.
 /// </code>
 /// </example>
-public sealed class KeysetPagination
+public sealed partial class KeysetPagination
 {
     private readonly KeysetColumn[] _columns;
     private byte[]? _signingKey;

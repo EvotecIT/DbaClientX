@@ -632,12 +632,27 @@ Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 var paging = new KeysetPagination(100, KeysetColumn.Desc("CreatedUtc"), KeysetColumn.Asc("Id"));
 var source = new Query().Select("Id", "CreatedUtc", "Message").From("Events").Where("Zone", zone);
 
-var (sql, parameters) = paging.CreatePageQuery(source, cursor).CompileWithParameters(SqlDialect.SQLite);
-var values = parameters.Select((value, index) => (value, index)).ToDictionary(p => "@p" + p.index, p => (object?)p.value);
+// CompileWithNamedParameters returns parameters keyed by placeholder (@p0…, or :p0… for Oracle).
+var (sql, parameters) = paging.CreatePageQuery(source, cursor).CompileWithNamedParameters(SqlDialect.SQLite);
 using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
-var table = (DataTable)(await sqlite.QueryAsync(path, sql, values))!;
+var table = (DataTable)(await sqlite.QueryAsync(path, sql, parameters))!;
 var page = paging.CreatePage(table); // page.Items, page.NextCursor (null on the last page)
 ```
+
+To read a whole result page by page with bounded memory, let the pagination drive a typed stream. `StreamAsync` yields rows across pages; `ReadPagesAsync` yields pages with their cursors, so a consumer can stop and resume:
+
+```csharp
+var paging = new KeysetPagination(5_000, KeysetColumn.Desc<long>("CreatedUtcMs"), KeysetColumn.Asc<long>("Id"));
+await foreach (var evt in paging.StreamAsync(
+    source,
+    SqlDialect.SQLite,
+    (sql, parameters, ct) => sqlite.QueryStreamAsync(path, sql, DbaRecordMapper.For<EventRow>(), parameters, cancellationToken: ct),
+    evt => new object?[] { evt.CreatedUtcMs, evt.Id })) {
+    // memory stays bounded by the page size
+}
+```
+
+`QueryParameters.ToDictionary(values, dialect)` converts the positional values from `CompileWithParameters` into the same named shape.
 
 Keyset columns must be unquoted, non-null and unique together (end with the primary key). The source query must not set `ORDER BY` (keyset), `Limit`, `Offset`, `Top`, or `UNION`; offset paging requires `ORDER BY` on a unique column set.
 
