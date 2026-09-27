@@ -182,6 +182,32 @@ public class QueryStreamCancellationTests
         public IAsyncEnumerable<DataRow> Stream(DbConnection connection, CancellationToken token) => ExecuteQueryStreamAsync(connection, null, "sp", null, token, commandType: CommandType.StoredProcedure);
     }
 
+    [Theory]
+    [InlineData(DataSetDateTime.Utc, DateTimeKind.Utc)]
+    [InlineData(DataSetDateTime.Local, DateTimeKind.Local)]
+    public async Task ExecuteQueryStreamAsync_PreservesProviderDateTimeKind(DataSetDateTime mode, DateTimeKind kind)
+    {
+        using var table = new DataTable();
+        table.Columns.Add("Value", typeof(DateTime)).DateTimeMode = mode;
+        table.Rows.Add(DBNull.Value);
+        var timestamp = new DateTime(2026, 9, 27, 12, 0, 0, kind);
+        table.Rows.Add(timestamp);
+        table.Rows.Add(timestamp.AddHours(1));
+        using var connection = new TestDbConnection(table, () => { });
+        var collector = new DataRowStreamCollector();
+        var index = 0;
+        await foreach (var row in new TestClient().Stream(connection, CancellationToken.None))
+        {
+            collector.Add(row);
+            if (index++ == 0) continue;
+            var actual = Assert.IsType<DateTime>(row[0]);
+            Assert.Equal(kind, actual.Kind);
+            Assert.Equal(((DateTime)table.Rows[index - 1][0]).Ticks, actual.Ticks);
+        }
+        Assert.Equal(3, collector.RowCount);
+        Assert.Equal(kind, Assert.IsType<DateTime>(collector.Table!.Rows[1][0]).Kind);
+    }
+
     [Fact]
     public async Task ExecuteQueryStreamAsync_DisposesReader_OnCancellation()
     {

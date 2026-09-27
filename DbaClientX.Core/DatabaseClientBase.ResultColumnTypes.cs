@@ -184,6 +184,33 @@ public abstract partial class DatabaseClientBase
         replacement.ColumnName = columnName;
     }
 
+    /// <summary>Preserves provider timestamp kinds without changing tables of rows already yielded.</summary>
+    private static DataTable AdaptStreamDateTimeModes(DataTable table, object?[] values)
+    {
+        var cloned = false;
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (table.Columns[i].DataType != typeof(DateTime) || values[i] is not DateTime timestamp)
+            {
+                continue;
+            }
+
+            var mode = GetDateTimeMode(timestamp);
+            if (table.Columns[i].DateTimeMode == mode)
+            {
+                continue;
+            }
+
+            if (!cloned)
+            {
+                table = table.Clone();
+                cloned = true;
+            }
+            table.Columns[i].DateTimeMode = mode;
+        }
+        return table;
+    }
+
     /// <summary>
     /// Creates the detached-row table used by streamed query results.
     /// </summary>

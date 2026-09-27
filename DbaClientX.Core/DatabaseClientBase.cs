@@ -1077,6 +1077,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                 table = CreateStreamTable(columnNames, columnTypes);
             }
 
+            table = AdaptStreamDateTimeModes(table, values);
             var row = table.NewRow();
             row.ItemArray = values;
             yield return row;

@@ -4,6 +4,9 @@
 
 ### Behavior changes
 
+- **Streamed timestamps retain UTC/local kinds.** Provider `DateTime` values keep their kind in detached rows and collected tables. When collected source columns use different timestamp modes, the result widens to `object` to preserve each value. Tabular conversion of `DataRow` or `DataRowView` inputs requires matching timestamp modes and rejects incompatible schemas instead of silently normalizing values.
+- **Collected provider subtypes use safe object storage.** A runtime provider type differing from its declared column type uses `object` storage unless it is a built-in storage type, keeping the original value without requiring extra trimming metadata.
+
 - **SQLite result column types follow the returned values.** Buffered SQLite queries (`Query`, `QueryAsync`, `Invoke-DbaXSQLite`) no longer take a column's type from the first row only:
   - A column that starts with NULLs adopts the type of its first non-null value, so `PRAGMA table_info` now returns `dflt_value` as `string` instead of failing.
   - INTEGER and REAL values in one column widen to `object`, preserving the original `long` and `double` values regardless of row order. REAL values were previously squeezed into a `long` column.

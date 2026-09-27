@@ -5,6 +5,21 @@ namespace DbaClientX.Tests;
 
 public class PowerShellDataTableConverterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ToDataTable_MixedDateTimeModes_RejectsIncompatibleSchema(bool rowViews)
+    {
+        using var a = new DataTable();
+        using var b = new DataTable();
+        a.Columns.Add("Value", typeof(DateTime)).DateTimeMode = DataSetDateTime.Utc;
+        b.Columns.Add("Value", typeof(DateTime)).DateTimeMode = DataSetDateTime.Local;
+        a.Rows.Add(new DateTime(2026, 9, 27, 12, 0, 0));
+        b.Rows.Add(new DateTime(2026, 9, 27, 13, 0, 0));
+        var inputs = rowViews ? new object?[] { a.DefaultView[0], b.DefaultView[0] } : new object?[] { a.Rows[0], b.Rows[0] };
+        Assert.Throws<ArgumentException>(() => PowerShellDataTableConverter.ToDataTable(inputs));
+    }
+
     [Fact]
     public void ToDataTable_ExpandsSingleEnumerableInput()
     {
