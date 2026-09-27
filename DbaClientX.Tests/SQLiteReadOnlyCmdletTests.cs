@@ -40,6 +40,24 @@ public sealed class SQLiteReadOnlyCmdletTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReadOnly_ConnectionString_PreservesPasswordOption(bool stream)
+    {
+        var connection = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+        {
+            DataSource = _path,
+            Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadWriteCreate,
+            Cache = Microsoft.Data.Sqlite.SqliteCacheMode.Private,
+            DefaultTimeout = 37,
+            Password = "example-only",
+        }.ToString();
+        // The bundled native SQLite lacks encryption. Dropping Password would incorrectly make this query succeed.
+        var exception = Assert.ThrowsAny<RuntimeException>(() => Invoke(connection, "SELECT Id FROM T", ReturnType.DataTable, stream));
+        Assert.Contains(stream ? "encryption" : "Failed to execute query", Flatten(exception), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
     [InlineData("INSERT INTO T VALUES (3, 'c')", false)]
     [InlineData("INSERT INTO T VALUES (3, 'c')", true)]
     [InlineData("UPDATE T SET Name = 'z'", false)]
