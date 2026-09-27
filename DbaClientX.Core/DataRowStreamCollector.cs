@@ -15,9 +15,9 @@ namespace DBAClientX;
 /// </para>
 /// <para>
 /// The collector copies values instead and widens columns with the same rules as buffered SQLite queries: a column that
-    /// has only held nulls adopts the runtime type of its first non-null value, and any mix of different runtime types
-    /// widens to <see cref="object"/>. Values are never converted to a narrower or different type. Date/time columns keep
-    /// their source <see cref="DataColumn.DateTimeMode"/> so UTC and local kinds survive collection.
+/// has only held nulls adopts a built-in storage type from its first non-null value, and any mix of different runtime types
+/// widens to <see cref="object"/>. Values are never converted to a narrower or different type. Date/time columns keep
+/// their source <see cref="DataColumn.DateTimeMode"/>; differing modes widen to object so each kind survives.
 /// </para>
 /// <para>
 /// Rows are matched by ordinal, so every collected row must come from the same result set. Because widening follows
@@ -83,7 +83,7 @@ public sealed class DataRowStreamCollector
                 nameof(row));
         }
 
-        DatabaseClientBase.AdaptColumnTypesToValues(_table, values, _observedValues);
+        DatabaseClientBase.AdaptColumnTypesToValues(_table, values, _observedValues, row.Table);
         _table.Rows.Add(values);
     }
 

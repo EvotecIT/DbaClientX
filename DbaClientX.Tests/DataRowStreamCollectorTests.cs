@@ -42,6 +42,55 @@ public class DataRowStreamCollectorTests
         Assert.Equal(kind, Assert.IsType<DateTime>(collector.Table!.Rows[1][0]).Kind);
     }
 
+    [Theory]
+    [InlineData(DataSetDateTime.Utc, DataSetDateTime.Local, false)]
+    [InlineData(DataSetDateTime.Utc, DataSetDateTime.Local, true)]
+    [InlineData(DataSetDateTime.Local, DataSetDateTime.Utc, false)]
+    [InlineData(DataSetDateTime.Local, DataSetDateTime.Utc, true)]
+    [InlineData(DataSetDateTime.Utc, DataSetDateTime.Unspecified, false)]
+    [InlineData(DataSetDateTime.UnspecifiedLocal, DataSetDateTime.Local, false)]
+    [InlineData(DataSetDateTime.Utc, DataSetDateTime.Unspecified, true)]
+    public void Add_DifferentDateTimeModes_PreservesEachValue(DataSetDateTime first, DataSetDateTime second, bool firstIsNull)
+    {
+        var collector = new DataRowStreamCollector();
+        using var a = new DataTable();
+        using var b = new DataTable();
+        a.Columns.Add("Value", typeof(DateTime)).DateTimeMode = first;
+        b.Columns.Add("Value", typeof(DateTime)).DateTimeMode = second;
+        a.Rows.Add(firstIsNull ? DBNull.Value : (object)new DateTime(2026, 9, 27, 12, 0, 0));
+        b.Rows.Add(new DateTime(2026, 9, 27, 13, 0, 0));
+        var expected = new[] { a.Rows[0][0], b.Rows[0][0] };
+        collector.Add(a.Rows[0]);
+        collector.Add(b.Rows[0]);
+        Assert.Equal(firstIsNull ? typeof(DateTime) : typeof(object), collector.Table!.Columns[0].DataType);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (expected[i] is DBNull)
+            {
+                Assert.IsType<DBNull>(collector.Table.Rows[i][0]);
+                continue;
+            }
+            var timestamp = Assert.IsType<DateTime>(expected[i]);
+            var actual = Assert.IsType<DateTime>(collector.Table.Rows[i][0]);
+            Assert.Equal(timestamp.Ticks, actual.Ticks);
+            Assert.Equal(timestamp.Kind, actual.Kind);
+        }
+    }
+
+    [Fact]
+    public void Add_NullsThenProviderSubtype_StoresOriginalObject()
+    {
+        var collector = new DataRowStreamCollector();
+        collector.Add(CreateRow(typeof(string), DBNull.Value));
+        var value = new ProviderDerivedValue { Name = "original", Extra = 42 };
+        collector.Add(CreateRow(typeof(ProviderBaseValue), value));
+        Assert.Equal(typeof(object), collector.Table!.Columns[0].DataType);
+        Assert.Same(value, collector.Table.Rows[1][0]);
+    }
+
+    public class ProviderBaseValue { public string? Name { get; set; } }
+    public sealed class ProviderDerivedValue : ProviderBaseValue { public int Extra { get; set; } }
+
     [Fact]
     public void Add_DetachedRows_CopiesEveryRow()
     {
