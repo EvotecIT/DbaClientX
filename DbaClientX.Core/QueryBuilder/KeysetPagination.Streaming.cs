@@ -8,6 +8,16 @@ namespace DBAClientX.QueryBuilder;
 
 public sealed partial class KeysetPagination
 {
+    /// <summary>Gets or initializes a comparison of key tuples in the database's configured sort order.</summary>
+    /// <remarks>
+    /// Return a positive value when the first tuple comes after the second. The comparison must include every key and
+    /// respect each column's direction. Automatic streaming uses this to reject duplicate or backward rows. Without a
+    /// callback, numeric, boolean and temporal keys are compared in their natural order, adjusted for column direction.
+    /// Text, GUID, binary and provider-specific keys require a callback because their database ordering can differ from
+    /// CLR ordering. Query creation and manual page materialization do not require this callback.
+    /// </remarks>
+    public Func<IReadOnlyList<object?>, IReadOnlyList<object?>, int>? CompareKeys { get; init; }
+
     /// <summary>
     /// Reads keyset pages one after another, starting after <paramref name="cursor"/>.
     /// </summary>
@@ -75,7 +85,7 @@ public sealed partial class KeysetPagination
         Func<T, IReadOnlyList<object?>> keySelector,
         string? cursor = null,
         CancellationToken cancellationToken = default)
-        => Flatten(ReadPagesAsync(source, dialect, executePage, keySelector, cursor, cancellationToken));
+        => Flatten(ReadPagesAsync(source, dialect, executePage, keySelector, cursor, cancellationToken), cancellationToken);
 
     private static async IAsyncEnumerable<T> Flatten<T>(IAsyncEnumerable<QueryPage<T>> pages, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -83,6 +93,7 @@ public sealed partial class KeysetPagination
         {
             foreach (var item in page.Items)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 yield return item;
             }
         }
@@ -90,6 +101,38 @@ public sealed partial class KeysetPagination
 
     private const string NotAdvancingMessage =
         "The page query returned rows at or before the cursor. Check that executePage passes the parameters and that key values round-trip exactly (for SQL Server datetime2 keys, enable UseDateTime2ForDateTimeParameters).";
+
+    private int CompareOrderedKeys(object[] current, object[] previous)
+    {
+        if (CompareKeys != null)
+        {
+            return CompareKeys(current, previous);
+        }
+
+        for (var index = 0; index < _columns.Length; index++)
+        {
+            var left = current[index];
+            var right = previous[index];
+            if (left.GetType() != right.GetType()
+                || left is not (long or int or byte or sbyte or short or ushort or uint or ulong or decimal or float or double
+                    or bool or DateTime or DateTimeOffset or TimeSpan
+#if NET6_0_OR_GREATER
+                    or DateOnly or TimeOnly
+#endif
+                    ))
+            {
+                throw new InvalidOperationException("Configure CompareKeys with the database's ordering for text, GUID, binary or provider-specific keys.");
+            }
+
+            var comparison = ((IComparable)left).CompareTo(right);
+            if (comparison != 0)
+            {
+                return _columns[index].Descending ? (comparison > 0 ? -1 : 1) : comparison;
+            }
+        }
+
+        return 0;
+    }
 
     private async IAsyncEnumerable<QueryPage<T>> Read<T>(
         Query source,
@@ -103,16 +146,21 @@ public sealed partial class KeysetPagination
         {
             cancellationToken.ThrowIfCancellationRequested();
             var (sql, parameters) = CreatePageQuery(source, cursor).CompileWithNamedParameters(dialect);
+            var previousKeys = cursor == null ? null : QueryPageCursor.DecodeKeyset(_columns, cursor, _signingKey);
             var rows = new List<T>(Math.Min(PageSize + 1, 1024));
             var pageRows = executePage(sql, parameters, cancellationToken)
                 ?? throw new InvalidOperationException("executePage returned null.");
             await foreach (var row in pageRows.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                // Rows at or before the cursor mean the parameters were ignored or the key did not round-trip exactly.
-                if (rows.Count == 0 && cursor != null && string.Equals(CreateCursor(keySelector(row)), cursor, StringComparison.Ordinal))
+                // Round-trip through the same codec as the query so declared and widened integer keys compare alike.
+                var rowCursor = CreateCursor(keySelector(row));
+                var currentKeys = QueryPageCursor.DecodeKeyset(_columns, rowCursor, _signingKey);
+                if (previousKeys != null && CompareOrderedKeys(currentKeys, previousKeys) <= 0)
                 {
                     throw new InvalidOperationException(NotAdvancingMessage);
                 }
+
+                previousKeys = currentKeys;
 
                 rows.Add(row);
                 if (rows.Count > PageSize)

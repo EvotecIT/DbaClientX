@@ -212,4 +212,87 @@ public class QueryBridgeHelpersTests
 
         public void Dispose() => _keepAlive.Dispose();
     }
+
+    [Fact]
+    public async Task KeysetStreamAsync_CancelledWithinPage_StopsBeforeYieldingAnotherRow()
+    {
+        var paging = new KeysetPagination(3, KeysetColumn.Asc<long>("id"));
+        using var cancellation = new CancellationTokenSource();
+        var yielded = 0;
+        async IAsyncEnumerable<long> Rows()
+        {
+            await Task.Yield();
+            yield return 1;
+            yield return 2;
+            yield return 3;
+        }
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var row in paging.StreamAsync(new Query().From("t"), SqlDialect.SQLite, (_, _, _) => Rows(),
+                row => new object?[] { row }, cancellationToken: cancellation.Token))
+            {
+                yielded++;
+                cancellation.Cancel();
+            }
+        });
+        Assert.Equal(1, yielded);
+    }
+
+    [Theory]
+    [InlineData(false, 5L)]
+    [InlineData(true, 15L)]
+    [InlineData(false, 10L)]
+    public async Task KeysetReadPagesAsync_RejectsBackwardAndEqualRowsBeforeYield(bool descending, long returned)
+    {
+        var paging = new KeysetPagination(2, descending ? KeysetColumn.Desc<long>("id") : KeysetColumn.Asc<long>("id"));
+        var yielded = 0;
+        var disposed = false;
+        async IAsyncEnumerable<long> Rows()
+        {
+            try { await Task.Yield(); yield return returned; }
+            finally { disposed = true; }
+        }
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var page in paging.ReadPagesAsync(new Query().From("t"), SqlDialect.SQLite,
+                (_, _, _) => Rows(), row => new object?[] { row }, paging.CreateCursor(new object?[] { 10L }))) yielded++;
+        });
+        Assert.Equal(0, yielded);
+        Assert.True(disposed);
+    }
+
+    [Fact]
+    public async Task KeysetReadPagesAsync_CompositeKeys_RespectsEachDirection()
+    {
+        var paging = new KeysetPagination(2, KeysetColumn.Desc<long>("created"), KeysetColumn.Asc<long>("id"));
+        async IAsyncEnumerable<long[]> Rows()
+        {
+            await Task.Yield();
+            yield return new long[] { 10, 3 };
+            yield return new long[] { 9, 1 };
+        }
+        var pages = new List<QueryPage<long[]>>();
+        await foreach (var page in paging.ReadPagesAsync(new Query().From("t"), SqlDialect.SQLite, (_, _, _) => Rows(),
+            row => new object?[] { row[0], row[1] }, paging.CreateCursor(new object?[] { 10L, 2L }))) pages.Add(page);
+        Assert.Equal(2, Assert.Single(pages).Items.Count);
+    }
+
+    [Fact]
+    public async Task KeysetReadPagesAsync_TextKeys_UsesConfiguredDatabaseCollation()
+    {
+        var paging = new KeysetPagination(2, KeysetColumn.Asc<string>("name"))
+        {
+            CompareKeys = (left, right) => StringComparer.OrdinalIgnoreCase.Compare((string)left[0]!, (string)right[0]!),
+        };
+        async IAsyncEnumerable<string> Rows()
+        {
+            await Task.Yield();
+            yield return "B";
+            yield return "c";
+        }
+        var pages = new List<QueryPage<string>>();
+        await foreach (var page in paging.ReadPagesAsync(new Query().From("t"), SqlDialect.SQLite, (_, _, _) => Rows(),
+            row => new object?[] { row }, paging.CreateCursor(new object?[] { "a" }))) pages.Add(page);
+        Assert.Equal(new[] { "B", "c" }, Assert.Single(pages).Items);
+    }
 }
