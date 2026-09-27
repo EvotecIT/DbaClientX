@@ -13,7 +13,8 @@ public sealed partial class KeysetPagination
     /// Return a positive value when the first tuple comes after the second. The comparison must include every key and
     /// respect each column's direction. Automatic streaming uses this to reject duplicate or backward rows. Without a
     /// callback, numeric, boolean and temporal keys with matching codec-normalized runtime types are compared in their
-    /// natural order, adjusted for column direction.
+    /// natural order, adjusted for column direction. Floating-point NaN keys require a callback: for example, PostgreSQL
+    /// sorts NaN after all other values, unlike CLR comparison.
     /// Mixed numeric storage types (such as SQLite INTEGER and REAL), text, GUID, binary and provider-specific keys
     /// require a callback because their database ordering can differ from
     /// CLR ordering. Query creation and manual page materialization do not require this callback.
@@ -104,6 +105,18 @@ public sealed partial class KeysetPagination
     private const string NotAdvancingMessage =
         "The page query returned rows at or before the cursor. Check that executePage passes the parameters and that key values round-trip exactly (for SQL Server datetime2 keys, enable UseDateTime2ForDateTimeParameters).";
 
+    private void ValidateAutomaticKeyOrdering(object[] keys)
+    {
+        if (CompareKeys != null) return;
+        foreach (var key in keys)
+        {
+            if (key is double number && double.IsNaN(number) || key is float single && float.IsNaN(single))
+            {
+                throw new InvalidOperationException("Configure CompareKeys with the database's ordering for floating-point NaN keys.");
+            }
+        }
+    }
+
     private int CompareOrderedKeys(object[] current, object[] previous)
     {
         if (CompareKeys != null)
@@ -149,6 +162,7 @@ public sealed partial class KeysetPagination
             cancellationToken.ThrowIfCancellationRequested();
             var (sql, parameters) = CreatePageQuery(source, cursor).CompileWithNamedParameters(dialect);
             var previousKeys = cursor == null ? null : QueryPageCursor.DecodeKeyset(_columns, cursor, _signingKey);
+            if (previousKeys != null) ValidateAutomaticKeyOrdering(previousKeys);
             var rows = new List<T>(Math.Min(PageSize + 1, 1024));
             var pageRows = executePage(sql, parameters, cancellationToken)
                 ?? throw new InvalidOperationException("executePage returned null.");
@@ -157,6 +171,7 @@ public sealed partial class KeysetPagination
                 // Round-trip through the same codec as the query so declared and widened integer keys compare alike.
                 var rowCursor = CreateCursor(keySelector(row));
                 var currentKeys = QueryPageCursor.DecodeKeyset(_columns, rowCursor, _signingKey);
+                ValidateAutomaticKeyOrdering(currentKeys);
                 if (previousKeys != null && CompareOrderedKeys(currentKeys, previousKeys) <= 0)
                 {
                     throw new InvalidOperationException(NotAdvancingMessage);
