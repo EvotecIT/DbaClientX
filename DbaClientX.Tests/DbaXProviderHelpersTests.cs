@@ -227,6 +227,35 @@ public class DbaXProviderHelpersTests
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
     }
 
+    [Theory]
+    [InlineData("FullUri", "shared", "Private", SqliteCacheMode.Private)]
+    [InlineData("Data Source", "shared", "Private", SqliteCacheMode.Private)]
+    [InlineData("FullUri", "private", "Shared", SqliteCacheMode.Shared)]
+    [InlineData("Data Source", "private", "Shared", SqliteCacheMode.Shared)]
+    public void ReadOnlyUri_ExplicitCacheTakesPrecedence(string sourceKey, string uriCache, string explicitCache, SqliteCacheMode expected)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-explicit-uri-cache.db");
+        var input = sourceKey + "=" + new Uri(path).AbsoluteUri + "?cache=" + uriCache + ";Cache=" + explicitCache;
+        var builder = new SqliteConnectionStringBuilder(DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(input));
+        Assert.Equal(expected, builder.Cache);
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+    }
+
+    [Theory]
+    [InlineData("FullUri")]
+    [InlineData("Data Source")]
+    public void ReadOnlyUri_ExplicitFileModeTakesPrecedenceOverUriMemory(string sourceKey)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-explicit-uri-mode.db");
+        var input = sourceKey + "=" + new Uri(path).AbsoluteUri + "?mode=memory;Mode=ReadWrite";
+        Assert.True(DbaXProviderHelpers.IsSQLiteFileBackedDatabase(input));
+        Assert.Equal(path, DbaXProviderHelpers.GetSQLiteDatabasePath(input, "read-only inspection"));
+        var builder = new SqliteConnectionStringBuilder(DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(input));
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+    }
+
     [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesFullUriMemoryMode()
     {

@@ -576,6 +576,7 @@ internal static class DbaXProviderHelpers
     {
         if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
         {
+            if (builder.ContainsKey("Mode")) return;
             if (string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase))
             {
                 builder["Mode"] = "Memory";
@@ -598,6 +599,7 @@ internal static class DbaXProviderHelpers
 
         if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase))
         {
+            if (builder.ContainsKey("Cache")) return;
             if (string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase))
             {
                 builder["Cache"] = "Shared";
