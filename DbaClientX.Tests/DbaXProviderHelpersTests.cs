@@ -427,6 +427,19 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
+    public void ExecutePing_SQLiteOptionLikeMissingFilename_DoesNotCreateDatabase()
+    {
+        var path = "Mode=Memory;Password=" + Guid.NewGuid().ToString("N");
+        Assert.False(File.Exists(path));
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => DbaXProviderHelpers.ExecutePing(DbaXProvider.SQLite, path));
+            Assert.False(File.Exists(path));
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); File.Delete(path); }
+    }
+
+    [Fact]
     public void ExecutePing_SQLiteMemoryConnectionString_DoesNotTreatDataSourceAsFile()
     {
         var database = "dbaclientx-memory-" + Guid.NewGuid().ToString("N");

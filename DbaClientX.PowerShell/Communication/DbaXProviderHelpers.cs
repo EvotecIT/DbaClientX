@@ -513,7 +513,7 @@ internal static class DbaXProviderHelpers
     private static bool TryParseConnectionString(string value, out DbConnectionStringBuilder builder)
     {
         builder = new DbConnectionStringBuilder();
-        if (!MayBeConnectionString(value))
+        if (!HasSQLiteSourceKey(value))
         {
             return false;
         }
@@ -721,7 +721,7 @@ internal static class DbaXProviderHelpers
         }
 
         using var client = new DBAClientX.SQLite();
-        return MayBeConnectionString(databaseOrConnectionString)
+        return HasSQLiteSourceKey(databaseOrConnectionString)
             ? client.ExecuteScalarWithConnectionString(GetSQLiteConnectionString(databaseOrConnectionString), "SELECT 1")
             : client.ExecuteScalar(database, "SELECT 1");
     }
