@@ -251,10 +251,22 @@ Describe 'Provider-neutral DbaClientX cmdlet surface' {
         } | Should -Not -Throw
     }
 
-    It 'keeps one-key SQLite options from being treated as file paths during validation' {
+    It 'validates option-looking SQLite filenames as file paths' {
         $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Mode=ReadOnly' -SkipPing -Detailed
 
-        $result.ConnectionStringValid | Should -BeFalse
+        $result.ConnectionStringValid | Should -BeTrue
+    }
+
+    It 'does not create missing SQLite files with option-looking names' {
+        Push-Location $TestDrive
+        try {
+            $result = Test-DbaXConnection -Provider SQLite -ConnectionString 'Mode=Memory' -Detailed
+            $result.ConnectionStringValid | Should -BeTrue
+            $result.PingSucceeded | Should -BeFalse
+            Test-Path -LiteralPath 'Mode=Memory' | Should -BeFalse
+        } finally {
+            Pop-Location
+        }
     }
 
     It 'rejects provider-invalid connection strings before ping' {

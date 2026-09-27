@@ -134,6 +134,14 @@ Invoke-DbaXOracle -Server 'ora01' -Database 'service' -Query 'select * from user
 Invoke-DbaXSQLite -Database '.\app.db' -Query 'select * from users limit 10'
 ```
 
+`-ReadOnly` opens a SQLite database with `Mode=ReadOnly`, so statements that modify it fail and a missing file is not created (SQLite may still create `-wal`/`-shm` files next to a WAL database). Use it to inspect a database that a running service owns:
+
+```powershell
+Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'select count(*) as Probes from ProbeResults' -ReadOnly
+```
+
+`-Database` accepts a file path or a file-backed connection string with one source key (`Data Source`, `DataSource`, `Filename`, or `FullUri`). Read-only connection strings retain options such as `Password`, `Cache`, and `Default Timeout`; `Mode` and `Pooling` are overridden. Explicit connection options take precedence over file-URI query hints. Conflicting source aliases and in-memory databases are rejected. Validation failures warn and return under `-ErrorAction Continue`, and terminate under `Stop`. Connection options are kept out of confirmation targets and error targets. `VACUUM INTO` can still write a separate output file.
+
 ### Azure Tables
 
 Azure queries expose the provider continuation tokens through `-AsPage`; ordinary use streams all returned entities:

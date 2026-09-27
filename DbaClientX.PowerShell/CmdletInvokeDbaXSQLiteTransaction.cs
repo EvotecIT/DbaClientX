@@ -36,7 +36,7 @@ public sealed class CmdletInvokeDbaXSQLiteTransaction : PSCmdlet
     /// <inheritdoc />
     protected override void ProcessRecord()
     {
-        if (!ShouldProcess(Database, "Execute SQLite transaction"))
+        if (!ShouldProcess(DbaXProviderHelpers.GetSafeSQLiteTarget(Database), "Execute SQLite transaction"))
         {
             return;
         }

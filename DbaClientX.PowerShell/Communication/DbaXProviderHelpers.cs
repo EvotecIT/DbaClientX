@@ -224,7 +224,7 @@ internal static class DbaXProviderHelpers
 
     private static string GetSQLiteDatabase(string databaseOrConnectionString, bool preserveOptionBearingConnectionStrings)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             return databaseOrConnectionString;
         }
@@ -266,7 +266,7 @@ internal static class DbaXProviderHelpers
 
     internal static string GetSQLiteDatabasePath(string databaseOrConnectionString, string operationName)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             if (string.Equals(databaseOrConnectionString, ":memory:", StringComparison.OrdinalIgnoreCase))
             {
@@ -279,8 +279,10 @@ internal static class DbaXProviderHelpers
 
         if (!TryParseConnectionString(databaseOrConnectionString, out var builder))
         {
-            return databaseOrConnectionString;
+            throw new PSArgumentException($"{operationName} requires a valid SQLite connection string.");
         }
+
+        ValidateSQLiteConnectionString(databaseOrConnectionString);
 
         if (IsSQLiteMemoryMode(builder))
         {
@@ -326,7 +328,7 @@ internal static class DbaXProviderHelpers
     }
 
     internal static string GetSQLiteConnectionString(string databaseOrConnectionString)
-        => MayBeConnectionString(databaseOrConnectionString)
+        => HasSQLiteSourceKey(databaseOrConnectionString)
             ? databaseOrConnectionString
             : DBAClientX.SQLite.BuildConnectionString(databaseOrConnectionString);
 
@@ -339,7 +341,7 @@ internal static class DbaXProviderHelpers
 
     internal static string GetSQLiteReadOnlyConnectionString(string databaseOrConnectionString)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             ValidateSQLiteDatabasePath(databaseOrConnectionString);
             return DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
@@ -431,6 +433,23 @@ internal static class DbaXProviderHelpers
         return string.Equals(left, right!.ToUpperInvariant(), StringComparison.Ordinal);
     }
 
+    /// <summary>Keeps option-bearing SQLite connection strings out of prompts and error targets.</summary>
+    internal static string GetSafeSQLiteTarget(string databaseOrConnectionString)
+        => MayBeConnectionString(databaseOrConnectionString) ? "SQLite database connection" : databaseOrConnectionString;
+
+    private static bool HasSQLiteSourceKey(string value)
+    {
+        foreach (var segment in value.Split(';'))
+        {
+            var separator = segment.IndexOf('=');
+            if (separator <= 0) continue;
+            var key = segment.Substring(0, separator).Trim();
+            if (IsSQLiteSourceKey(key))
+                return true;
+        }
+        return false;
+    }
+
     private static bool MayBeConnectionString(string value)
     {
         foreach (var segment in value.Split(';'))
@@ -488,13 +507,13 @@ internal static class DbaXProviderHelpers
             return uri.IsFile;
         }
 
-        return !MayBeConnectionString(database);
+        return !HasSQLiteSourceKey(database);
     }
 
     private static bool TryParseConnectionString(string value, out DbConnectionStringBuilder builder)
     {
         builder = new DbConnectionStringBuilder();
-        if (!MayBeConnectionString(value))
+        if (!HasSQLiteSourceKey(value))
         {
             return false;
         }
@@ -504,7 +523,7 @@ internal static class DbaXProviderHelpers
             builder.ConnectionString = value;
             return true;
         }
-        catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
+        catch (ArgumentException)
         {
             return false;
         }
@@ -557,6 +576,7 @@ internal static class DbaXProviderHelpers
     {
         if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
         {
+            if (builder.ContainsKey("Mode")) return;
             if (string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase))
             {
                 builder["Mode"] = "Memory";
@@ -579,6 +599,7 @@ internal static class DbaXProviderHelpers
 
         if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase))
         {
+            if (builder.ContainsKey("Cache")) return;
             if (string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase))
             {
                 builder["Cache"] = "Shared";
@@ -702,7 +723,7 @@ internal static class DbaXProviderHelpers
         }
 
         using var client = new DBAClientX.SQLite();
-        return MayBeConnectionString(databaseOrConnectionString)
+        return HasSQLiteSourceKey(databaseOrConnectionString)
             ? client.ExecuteScalarWithConnectionString(GetSQLiteConnectionString(databaseOrConnectionString), "SELECT 1")
             : client.ExecuteScalar(database, "SELECT 1");
     }
