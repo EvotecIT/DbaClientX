@@ -135,7 +135,7 @@ public class SQLiteMixedTypeColumnTests
     [Theory]
     [InlineData("ASC")]
     [InlineData("DESC")]
-    public void Query_NumericAffinityWithIntegerAndReal_MaterializesDoubleColumn(string order)
+    public void Query_NumericAffinityWithIntegerAndReal_PreservesStorageTypes(string order)
     {
         var path = CreateDatabase();
         try
@@ -145,10 +145,10 @@ public class SQLiteMixedTypeColumnTests
 
             var table = Assert.IsType<DataTable>(sqlite.Query(path, $"SELECT Price FROM P ORDER BY Id {order};"));
 
-            Assert.Equal(typeof(double), table.Columns["Price"]!.DataType);
+            Assert.Equal(typeof(object), table.Columns["Price"]!.DataType);
             var prices = table.Rows.Cast<DataRow>().Select(row => row["Price"]).ToList();
             Assert.Contains(1.5d, prices);
-            Assert.Contains(2d, prices);
+            Assert.Contains(2L, prices);
             Assert.Contains(DBNull.Value, prices);
         }
         finally
@@ -167,6 +167,37 @@ public class SQLiteMixedTypeColumnTests
         Assert.Equal(typeof(object), table.Columns["Value"]!.DataType);
         Assert.Equal(9007199254740993L, table.Rows[0]["Value"]);
         Assert.Equal(1.5d, table.Rows[1]["Value"]);
+    }
+
+    [Theory]
+    [InlineData("SELECT 1 AS Value UNION ALL SELECT 1.5 UNION ALL SELECT 'a';", 1L, 1.5d)]
+    [InlineData("SELECT 1.5 AS Value UNION ALL SELECT 1 UNION ALL SELECT 'a';", 1.5d, 1L)]
+    public async Task Query_MixedNumericThenText_PreservesValuesAcrossAllMaterializers(string sql, object first, object second)
+    {
+        using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
+        var sync = Assert.IsType<DataTable>(sqlite.Query(":memory:", sql));
+        var asyncTable = Assert.IsType<DataTable>(await sqlite.QueryAsync(":memory:", sql));
+        var streamed = new List<DataRow>();
+        await foreach (var row in sqlite.QueryStreamAsync(":memory:", sql)) streamed.Add(row);
+        foreach (var rows in new[] { sync.Rows.Cast<DataRow>().ToList(), asyncTable.Rows.Cast<DataRow>().ToList(), streamed })
+        {
+            Assert.Equal(first.GetType(), rows[0][0].GetType());
+            Assert.Equal(second.GetType(), rows[1][0].GetType());
+            Assert.Equal(new[] { first, second, "a" }, rows.Select(row => row[0]).ToArray());
+            Assert.Equal(typeof(object), rows[2].Table.Columns[0].DataType);
+        }
+    }
+
+    [Theory]
+    [InlineData("SELECT 9007199254740993 AS Value UNION ALL SELECT 1.5;", 0)]
+    [InlineData("SELECT 1.5 AS Value UNION ALL SELECT 9007199254740993;", 1)]
+    public async Task QueryStreamAsync_LargeIntegerWithReal_PreservesPrecisionAndObjectSchema(string sql, int integerIndex)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        var rows = new List<DataRow>();
+        await foreach (var row in sqlite.QueryStreamAsync(":memory:", sql)) rows.Add(row);
+        Assert.Equal(9007199254740993L, Assert.IsType<long>(rows[integerIndex][0]));
+        Assert.Equal(typeof(object), rows[1].Table.Columns[0].DataType);
     }
 
     [Fact]

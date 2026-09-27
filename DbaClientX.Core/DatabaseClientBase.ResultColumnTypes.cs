@@ -10,9 +10,6 @@ public abstract partial class DatabaseClientBase
     private const DynamicallyAccessedMemberTypes DataColumnTypeMembers =
         DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties;
 
-    /// <summary>Largest magnitude of <see cref="long"/> that <see cref="double"/> represents exactly (2^53).</summary>
-    private const long MaxExactDoubleInteger = 1L << 53;
-
     /// <summary>
     /// Gets a value indicating whether query materialization adapts <see cref="DataColumn.DataType"/> to the values
     /// actually returned by the provider instead of trusting the field type reported before the first row is read.
@@ -24,8 +21,7 @@ public abstract partial class DatabaseClientBase
     /// <list type="bullet">
     /// <item><description>columns whose values share one type keep that type;</description></item>
     /// <item><description>a column that has only held nulls adopts the type of the first non-null value;</description></item>
-    /// <item><description>integer and floating-point values in one column are materialized as <see cref="double"/> while every integer is exactly representable;</description></item>
-    /// <item><description>any other combination of value types widens the column to <see cref="object"/>, preserving each value as returned.</description></item>
+    /// <item><description>any combination of different value types widens the column to <see cref="object"/>, preserving each value as returned, including integer and floating-point values.</description></item>
     /// </list>
     /// </remarks>
     protected virtual bool AdaptResultColumnTypesToValues => false;
@@ -52,21 +48,8 @@ public abstract partial class DatabaseClientBase
             return null;
         }
 
-        if (columnType == typeof(double) && value is long integer)
-        {
-            return IsExactDouble(integer) ? null : typeof(object);
-        }
-
-        if (columnType == typeof(long) && value is double)
-        {
-            return typeof(double);
-        }
-
         return hasObservedValue ? typeof(object) : valueType;
     }
-
-    private static bool IsExactDouble(long value)
-        => value >= -MaxExactDoubleInteger && value <= MaxExactDoubleInteger;
 
     /// <summary>
     /// Adapts populated <paramref name="table"/> columns so the current row values can be stored without losing information.
@@ -83,11 +66,6 @@ public abstract partial class DatabaseClientBase
 
             var column = table.Columns[i];
             var adaptedType = ResolveAdaptedColumnType(column.DataType, value, observedValues[i]);
-            if (adaptedType == typeof(double) && observedValues[i] && HasInexactDoubleInteger(table, column))
-            {
-                adaptedType = typeof(object);
-            }
-
             if (adaptedType != null)
             {
                 ReplaceColumnType(table, i, adaptedType, copyValues: observedValues[i]);
@@ -124,19 +102,6 @@ public abstract partial class DatabaseClientBase
         }
 
         return changed;
-    }
-
-    private static bool HasInexactDoubleInteger(DataTable table, DataColumn column)
-    {
-        foreach (DataRow row in table.Rows)
-        {
-            if (row[column] is long integer && !IsExactDouble(integer))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
