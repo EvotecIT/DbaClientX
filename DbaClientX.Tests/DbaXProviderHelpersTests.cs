@@ -93,13 +93,14 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteConnectionString_PreservesOneKeyOptionsForValidation()
+    public void GetSQLiteConnectionString_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
         var actual = DbaXProviderHelpers.GetSQLiteConnectionString(connectionString);
 
-        Assert.Equal(connectionString, actual);
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(actual);
+        Assert.Equal(connectionString, builder.DataSource);
     }
 
     [Fact]
@@ -271,13 +272,15 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
+    public void GetSQLiteReadOnlyConnectionString_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
         var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
 
-        Assert.Equal(connectionString, actual);
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(actual);
+        Assert.Equal(connectionString, builder.DataSource);
+        Assert.Equal(Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly, builder.Mode);
     }
 
     [Fact]
@@ -371,13 +374,11 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteDatabasePath_RejectsConnectionStringsWithoutDatabase()
+    public void GetSQLiteDatabasePath_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
-        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
-
-        Assert.Contains("Data Source", exception.Message);
+        Assert.Equal(connectionString, DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
     }
 
     [Fact]
