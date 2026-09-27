@@ -162,6 +162,12 @@ public partial class SQLite : DatabaseClientBase
             ConnectionString = connectionString
         };
 
+        int sourceCount = 0;
+        foreach (var sourceKey in ConnectionStringSourceKeys)
+            if (builder.ContainsKey(sourceKey)) sourceCount++;
+        if (sourceCount > 1)
+            throw new ArgumentException("SQLite connection strings must specify exactly one data source key.", nameof(connectionString));
+
         if (TryTranslateSQLiteSourceUri(builder, "FullUri", removeSourceKey: true))
         {
             return builder.ConnectionString;

@@ -311,6 +311,12 @@ public static class DbaConnectionFactory
 
     private static ConnectionValidationResult? ValidateSqlitePath(DbConnectionStringBuilder builder)
     {
+        if (new[] { "Data Source", "DataSource", "Filename", "FullUri" }.Count(builder.ContainsKey) > 1)
+        {
+            return new ConnectionValidationResult(ConnectionValidationErrorCode.InvalidParameterValue,
+                "SQLite connection strings must specify exactly one data source key.", "Data Source");
+        }
+
         foreach (var key in new[] { "Data Source", "DataSource", "Filename", "FullUri" })
         {
             if (!TryGetNonEmptyValue(builder, key, out var path))

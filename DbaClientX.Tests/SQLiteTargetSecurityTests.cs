@@ -31,7 +31,7 @@ public class SQLiteTargetSecurityTests
         ps.Runspace = runspace;
         ps.AddCommand(transaction ? "Invoke-DbaXSQLiteTransaction" : "Invoke-DbaXSQLite").AddParameter("Database", Connection);
         if (transaction) ps.AddParameter("ScriptBlock", ScriptBlock.Create("param($client)"));
-        else ps.AddParameter("Query", "SELECT 1").AddParameter("ReadOnly");
+        else ps.AddParameter("Query", "SELECT * FROM missing_target_security_table").AddParameter("ReadOnly");
         ps.AddParameter(confirm ? "Confirm" : "WhatIf", true);
         ps.Invoke();
         Assert.NotEmpty(host.Output.ToString());
@@ -49,14 +49,14 @@ public class SQLiteTargetSecurityTests
         var state = InitialSessionState.CreateDefault();
         state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXSQLite", typeof(CmdletInvokeDbaXSQLite), null));
         using var ps = PowerShell.Create(state);
-        var connection = readOnly
-            ? "Data Source=" + Path.Combine(Path.GetTempPath(), "dbaclientx-target-missing-" + Guid.NewGuid().ToString("N") + ".db") + ";Password=" + Secret
-            : Connection;
-        ps.AddCommand("Invoke-DbaXSQLite").AddParameter("Database", connection).AddParameter("Query", "SELECT 1")
+        var path = Path.Combine(Path.GetTempPath(), "dbaclientx-target-missing-" + Guid.NewGuid().ToString("N") + ".db");
+        var connection = readOnly ? "Data Source=" + path + ";Password=" + Secret : path + ";Password=" + Secret;
+        ps.AddCommand("Invoke-DbaXSQLite").AddParameter("Database", connection).AddParameter("Query", "SELECT * FROM missing_target_security_table")
             .AddParameter("ErrorAction", ActionPreference.Continue);
         if (stream) ps.AddParameter("Stream");
         if (readOnly) ps.AddParameter("ReadOnly");
-        ps.Invoke();
+        try { ps.Invoke(); }
+        finally { if (!readOnly) { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); File.Delete(connection); } }
         var error = Assert.Single(ps.Streams.Error);
         Assert.DoesNotContain(Secret, error.TargetObject?.ToString() ?? "", StringComparison.Ordinal);
         Assert.DoesNotContain(Secret, error.ToString(), StringComparison.Ordinal);

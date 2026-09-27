@@ -121,6 +121,65 @@ public sealed class SQLiteReadOnlyCmdletTests : IDisposable
         Assert.Equal(3L, sqlite.ExecuteScalar(_path, "SELECT COUNT(*) FROM T"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReadOnly_AttachedAlias_CannotModifyDatabase(bool stream)
+    {
+        var sql = "ATTACH DATABASE '" + _path.Replace("'", "''") + "' AS alias; UPDATE alias.T SET Name = 'changed'; SELECT Name FROM alias.T;";
+        Assert.ThrowsAny<RuntimeException>(() => Invoke(_path, sql, ReturnType.DataTable, stream));
+        using var sqlite = new DBAClientX.SQLite();
+        Assert.Equal("a", sqlite.ExecuteScalar(_path, "SELECT Name FROM T WHERE Id = 1"));
+    }
+
+    [Theory]
+    [InlineData(":memory:", false)]
+    [InlineData(":memory:", true)]
+    [InlineData("Data Source=shared;Mode=Memory", false)]
+    [InlineData("Data Source=shared;Mode=Memory", true)]
+    [InlineData("FullUri=https://example.invalid/database", false)]
+    [InlineData("FullUri=https://example.invalid/database", true)]
+    public void ReadOnly_NonFileInput_HonorsErrorAction(string database, bool stop)
+    {
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXSQLite", typeof(CmdletInvokeDbaXSQLite), null));
+        using var ps = PowerShell.Create(state);
+        ps.AddCommand("Invoke-DbaXSQLite").AddParameter("Database", database).AddParameter("Query", "SELECT 1")
+            .AddParameter("ReadOnly").AddParameter("ErrorAction", stop ? ActionPreference.Stop : ActionPreference.Continue);
+        if (stop) Assert.ThrowsAny<RuntimeException>(() => ps.Invoke());
+        else
+        {
+            Assert.Empty(ps.Invoke());
+            Assert.Contains(ps.Streams.Warning, warning => warning.Message.Contains("file-backed", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Theory]
+    [InlineData("Mode=archive.db")]
+    [InlineData("report;Password=history.db")]
+    public void ReadOnly_OptionLikeFilename_IsAPath(string filename)
+    {
+        // A relative filename is a supported input, even when it contains option-looking text.
+        var path = "dbaclientx-" + Guid.NewGuid().ToString("N") + ";" + filename;
+        using var sqlite = new DBAClientX.SQLite();
+        try
+        {
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE T (Id INTEGER); INSERT INTO T VALUES (1)");
+            var table = Assert.IsType<DataTable>(Assert.Single(Invoke(path, "SELECT Id FROM T", ReturnType.DataTable, false)).BaseObject);
+            Assert.Equal(1L, table.Rows[0]["Id"]);
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); File.Delete(path); }
+    }
+
+    [Fact]
+    public void ReadOnly_ConflictingSourceAliases_AreRejected()
+    {
+        var input = "Data Source=" + _path + ";FullUri=../outside.db";
+        var exception = Assert.ThrowsAny<RuntimeException>(() => Invoke(input, "SELECT 1", ReturnType.DataTable, false));
+        Assert.Contains("source", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(DBAClientX.Invoker.DbaConnectionFactory.Validate("sqlite", input).IsValid);
+    }
+
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();

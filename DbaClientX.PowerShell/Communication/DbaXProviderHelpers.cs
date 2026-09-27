@@ -224,7 +224,7 @@ internal static class DbaXProviderHelpers
 
     private static string GetSQLiteDatabase(string databaseOrConnectionString, bool preserveOptionBearingConnectionStrings)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             return databaseOrConnectionString;
         }
@@ -266,7 +266,7 @@ internal static class DbaXProviderHelpers
 
     internal static string GetSQLiteDatabasePath(string databaseOrConnectionString, string operationName)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             if (string.Equals(databaseOrConnectionString, ":memory:", StringComparison.OrdinalIgnoreCase))
             {
@@ -281,6 +281,8 @@ internal static class DbaXProviderHelpers
         {
             throw new PSArgumentException($"{operationName} requires a valid SQLite connection string.");
         }
+
+        ValidateSQLiteConnectionString(databaseOrConnectionString);
 
         if (IsSQLiteMemoryMode(builder))
         {
@@ -326,7 +328,7 @@ internal static class DbaXProviderHelpers
     }
 
     internal static string GetSQLiteConnectionString(string databaseOrConnectionString)
-        => MayBeConnectionString(databaseOrConnectionString)
+        => HasSQLiteSourceKey(databaseOrConnectionString)
             ? databaseOrConnectionString
             : DBAClientX.SQLite.BuildConnectionString(databaseOrConnectionString);
 
@@ -339,7 +341,7 @@ internal static class DbaXProviderHelpers
 
     internal static string GetSQLiteReadOnlyConnectionString(string databaseOrConnectionString)
     {
-        if (!MayBeConnectionString(databaseOrConnectionString))
+        if (!HasSQLiteSourceKey(databaseOrConnectionString))
         {
             ValidateSQLiteDatabasePath(databaseOrConnectionString);
             return DBAClientX.SQLite.BuildReadOnlyConnectionString(databaseOrConnectionString);
@@ -435,6 +437,19 @@ internal static class DbaXProviderHelpers
     internal static string GetSafeSQLiteTarget(string databaseOrConnectionString)
         => MayBeConnectionString(databaseOrConnectionString) ? "SQLite database connection" : databaseOrConnectionString;
 
+    private static bool HasSQLiteSourceKey(string value)
+    {
+        foreach (var segment in value.Split(';'))
+        {
+            var separator = segment.IndexOf('=');
+            if (separator <= 0) continue;
+            var key = segment.Substring(0, separator).Trim();
+            if (IsSQLiteSourceKey(key))
+                return true;
+        }
+        return false;
+    }
+
     private static bool MayBeConnectionString(string value)
     {
         foreach (var segment in value.Split(';'))
@@ -492,7 +507,7 @@ internal static class DbaXProviderHelpers
             return uri.IsFile;
         }
 
-        return !MayBeConnectionString(database);
+        return !HasSQLiteSourceKey(database);
     }
 
     private static bool TryParseConnectionString(string value, out DbConnectionStringBuilder builder)
