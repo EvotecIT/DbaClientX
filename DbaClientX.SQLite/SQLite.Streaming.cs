@@ -14,6 +14,11 @@ public partial class SQLite
     /// <summary>
     /// Streams query results asynchronously, yielding one <see cref="DataRow"/> at a time.
     /// </summary>
+    /// <remarks>
+    /// SQLite columns can mix storage classes across rows. When a later row needs a different column type (for example a
+    /// TEXT value after INTEGER values), rows from that point are created from a new <see cref="DataTable"/> with the adapted
+    /// schema, so do not assume every streamed row shares the schema of the first row's <see cref="DataRow.Table"/>.
+    /// </remarks>
     public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(
         string database,
         string query,
@@ -71,6 +76,11 @@ public partial class SQLite
     /// <summary>
     /// Streams query results asynchronously from a SQLite connection string, yielding one <see cref="DataRow"/> at a time.
     /// </summary>
+    /// <remarks>
+    /// SQLite columns can mix storage classes across rows. When a later row needs a different column type (for example a
+    /// TEXT value after INTEGER values), rows from that point are created from a new <see cref="DataTable"/> with the adapted
+    /// schema, so do not assume every streamed row shares the schema of the first row's <see cref="DataRow.Table"/>.
+    /// </remarks>
     public virtual async IAsyncEnumerable<DataRow> QueryStreamWithConnectionStringAsync(
         string connectionString,
         string query,

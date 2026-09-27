@@ -663,7 +663,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                 }
                 else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
-                    result = ReadDataTable(reader, "Table0");
+                    result = ReadDataTable(reader, "Table0", AdaptResultColumnTypesToValues);
                 }
                 else
                 {
@@ -671,7 +671,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                     var tableIndex = 0;
                     do
                     {
-                        var table = ReadDataTable(reader, $"Table{tableIndex}");
+                        var table = ReadDataTable(reader, $"Table{tableIndex}", AdaptResultColumnTypesToValues);
                         dataSet.Tables.Add(table);
                         tableIndex++;
                     } while (!reader.IsClosed && reader.NextResult());
@@ -847,7 +847,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                 }
                 else if (returnType == ReturnType.DataTable || returnType == ReturnType.PSObject)
                 {
-                    result = await ReadDataTableAsync(reader, "Table0", cancellationToken).ConfigureAwait(false);
+                    result = await ReadDataTableAsync(reader, "Table0", AdaptResultColumnTypesToValues, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -855,7 +855,7 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
                     var tableIndex = 0;
                     do
                     {
-                        var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", cancellationToken).ConfigureAwait(false);
+                        var table = await ReadDataTableAsync(reader, $"Table{tableIndex}", AdaptResultColumnTypesToValues, cancellationToken).ConfigureAwait(false);
                         dataSet.Tables.Add(table);
                         tableIndex++;
                     } while (!reader.IsClosed && await AwaitWithCallerCancellationAsync(
@@ -1045,21 +1045,37 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
             CreateTransientRetryOptions(),
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        var table = new DataTable();
-        for (int i = 0; i < reader.FieldCount; i++)
+        var fieldCount = reader.FieldCount;
+        var columnNames = new string[fieldCount];
+        var columnTypes = new Type[fieldCount];
+        for (int i = 0; i < fieldCount; i++)
         {
-            table.Columns.Add(reader.GetName(i), reader.GetFieldType(i));
+            columnNames[i] = reader.GetName(i);
+            columnTypes[i] = reader.GetFieldType(i);
         }
+
+        // Streamed rows are detached, so a column type cannot change once rows exist. When values require a different
+        // type, later rows are created from a new table with the adapted schema; rows already yielded keep their table.
+        var table = CreateStreamTable(columnNames, columnTypes);
+        var observedValues = AdaptResultColumnTypesToValues ? new bool[fieldCount] : null;
+        var values = new object[fieldCount];
 
         while (await AwaitWithCallerCancellationAsync(
             () => reader.ReadAsync(cancellationToken),
             cancellationToken).ConfigureAwait(false))
         {
-            var row = table.NewRow();
-            for (int i = 0; i < reader.FieldCount; i++)
+            for (int i = 0; i < fieldCount; i++)
             {
-                row[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
+                values[i] = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
             }
+
+            if (observedValues != null && AdaptColumnTypesToValues(columnTypes, values, observedValues))
+            {
+                table = CreateStreamTable(columnNames, columnTypes);
+            }
+
+            var row = table.NewRow();
+            row.ItemArray = values;
             yield return row;
         }
 
@@ -1182,6 +1198,18 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="tableName">Name assigned to the created data table.</param>
     /// <returns>A data table containing every row in the current result set.</returns>
     protected static DataTable ReadDataTable(DbDataReader reader, string tableName)
+        => ReadDataTable(reader, tableName, adaptColumnTypesToValues: false);
+
+    /// <summary>
+    /// Materializes the current result set from a data reader without relying on <see cref="DataTable.Load(IDataReader)"/>.
+    /// </summary>
+    /// <param name="reader">Reader positioned before the first row of the current result set.</param>
+    /// <param name="tableName">Name assigned to the created data table.</param>
+    /// <param name="adaptColumnTypesToValues">
+    /// When <see langword="true"/>, column types follow the values actually read (see <see cref="AdaptResultColumnTypesToValues"/>).
+    /// </param>
+    /// <returns>A data table containing every row in the current result set.</returns>
+    protected static DataTable ReadDataTable(DbDataReader reader, string tableName, bool adaptColumnTypesToValues)
     {
         var table = new DataTable(tableName);
         var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1192,12 +1220,18 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
 
         var fieldCount = reader.FieldCount;
         var values = new object[fieldCount];
+        var observedValues = adaptColumnTypesToValues ? new bool[fieldCount] : null;
         table.BeginLoadData();
         try
         {
             while (reader.Read())
             {
                 reader.GetValues(values);
+                if (observedValues != null)
+                {
+                    AdaptColumnTypesToValues(table, values, observedValues);
+                }
+
                 table.Rows.Add(values);
             }
         }
@@ -1216,7 +1250,20 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
     /// <param name="tableName">Name assigned to the created data table.</param>
     /// <param name="cancellationToken">Token used to cancel reader operations.</param>
     /// <returns>A data table containing every row in the current result set.</returns>
-    protected static async Task<DataTable> ReadDataTableAsync(DbDataReader reader, string tableName, CancellationToken cancellationToken)
+    protected static Task<DataTable> ReadDataTableAsync(DbDataReader reader, string tableName, CancellationToken cancellationToken)
+        => ReadDataTableAsync(reader, tableName, adaptColumnTypesToValues: false, cancellationToken);
+
+    /// <summary>
+    /// Asynchronously materializes the current result set from a data reader without relying on <see cref="DataTable.Load(IDataReader)"/>.
+    /// </summary>
+    /// <param name="reader">Reader positioned before the first row of the current result set.</param>
+    /// <param name="tableName">Name assigned to the created data table.</param>
+    /// <param name="adaptColumnTypesToValues">
+    /// When <see langword="true"/>, column types follow the values actually read (see <see cref="AdaptResultColumnTypesToValues"/>).
+    /// </param>
+    /// <param name="cancellationToken">Token used to cancel reader operations.</param>
+    /// <returns>A data table containing every row in the current result set.</returns>
+    protected static async Task<DataTable> ReadDataTableAsync(DbDataReader reader, string tableName, bool adaptColumnTypesToValues, CancellationToken cancellationToken)
     {
         var table = new DataTable(tableName);
         var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1227,12 +1274,18 @@ public abstract partial class DatabaseClientBase : IDisposable, IAsyncDisposable
 
         var fieldCount = reader.FieldCount;
         var values = new object[fieldCount];
+        var observedValues = adaptColumnTypesToValues ? new bool[fieldCount] : null;
         table.BeginLoadData();
         try
         {
             while (await ReadWithCallerCancellationAsync(reader, cancellationToken).ConfigureAwait(false))
             {
                 reader.GetValues(values);
+                if (observedValues != null)
+                {
+                    AdaptColumnTypesToValues(table, values, observedValues);
+                }
+
                 table.Rows.Add(values);
             }
         }

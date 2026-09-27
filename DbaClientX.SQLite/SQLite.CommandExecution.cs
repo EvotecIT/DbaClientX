@@ -222,6 +222,13 @@ public partial class SQLite
         DbTypeConverter.ConvertParameterTypes(types, static () => new SqliteParameter(), static (p, t) => p.SqliteType = t);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// SQLite is dynamically typed: a result column can mix NULL, INTEGER, REAL, TEXT, and BLOB values across rows
+    /// (for example <c>PRAGMA table_info</c> defaults), and the reported field type only reflects the first row.
+    /// </remarks>
+    protected override bool AdaptResultColumnTypesToValues => true;
+
+    /// <inheritdoc />
     protected override int? GetProviderErrorCode(Exception exception)
         => FindSqliteException(exception)?.SqliteErrorCode ?? base.GetProviderErrorCode(exception);
 
