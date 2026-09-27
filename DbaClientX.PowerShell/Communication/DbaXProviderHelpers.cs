@@ -279,7 +279,7 @@ internal static class DbaXProviderHelpers
 
         if (!TryParseConnectionString(databaseOrConnectionString, out var builder))
         {
-            return databaseOrConnectionString;
+            throw new PSArgumentException($"{operationName} requires a valid SQLite connection string.");
         }
 
         if (IsSQLiteMemoryMode(builder))
@@ -508,7 +508,7 @@ internal static class DbaXProviderHelpers
             builder.ConnectionString = value;
             return true;
         }
-        catch (ArgumentException ex) when (ex.ParamName == "ConnectionString")
+        catch (ArgumentException)
         {
             return false;
         }

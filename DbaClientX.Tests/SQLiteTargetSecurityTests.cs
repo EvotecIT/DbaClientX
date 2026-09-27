@@ -62,6 +62,33 @@ public class SQLiteTargetSecurityTests
         Assert.DoesNotContain(Secret, error.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MalformedMaintenanceInput_IsRejectedWithoutExposingConnectionOptions(bool destination)
+    {
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXSQLiteMaintenance", typeof(CmdletInvokeDbaXSQLiteMaintenance), null));
+        var host = new CaptureHost();
+        using var runspace = RunspaceFactory.CreateRunspace(host, state);
+        runspace.Open();
+        using var ps = PowerShell.Create();
+        ps.Runspace = runspace;
+        var malformed = "Data Source=app.db;Password='" + Secret;
+        ps.AddCommand("Invoke-DbaXSQLiteMaintenance")
+            .AddParameter("Database", destination ? "app.db" : malformed)
+            .AddParameter("Action", destination ? DbaXSQLiteMaintenanceAction.Backup : DbaXSQLiteMaintenanceAction.Optimize)
+            .AddParameter("WhatIf", true);
+        if (destination) ps.AddParameter("Destination", malformed);
+        var failure = Record.Exception(() => ps.Invoke());
+        Assert.DoesNotContain(Secret, host.Output.ToString(), StringComparison.Ordinal);
+        Assert.NotNull(failure);
+        Assert.Contains("requires a valid SQLite connection string", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, failure.Message, StringComparison.Ordinal);
+        if (failure is RuntimeException runtime)
+            Assert.DoesNotContain(Secret, runtime.ErrorRecord.TargetObject?.ToString() ?? "", StringComparison.Ordinal);
+    }
+
     private sealed class CaptureHost : PSHost
     {
         public StringBuilder Output { get; } = new();
