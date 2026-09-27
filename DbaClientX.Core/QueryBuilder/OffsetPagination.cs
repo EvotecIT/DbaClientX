@@ -83,14 +83,7 @@ public sealed class OffsetPagination
     /// <param name="pageIndex">Zero-based page number.</param>
     /// <returns>A query that skips earlier rows and fetches <see cref="PageSize"/> + 1 rows.</returns>
     public Query CreatePageQuery(Query source, int pageIndex)
-    {
-        if (pageIndex < 0 || (long)pageIndex * PageSize > int.MaxValue)
-        {
-            throw new ArgumentOutOfRangeException(nameof(pageIndex), pageIndex, "Page index is out of range.");
-        }
-
-        return CreatePageQuery(source, pageIndex == 0 ? null : QueryPageCursor.EncodeOffset(pageIndex * PageSize, _signingKey));
-    }
+        => CreatePageQuery(source, CreatePageCursor(pageIndex));
 
     /// <summary>
     /// Creates a page from the rows returned by a page query.
@@ -108,12 +101,13 @@ public sealed class OffsetPagination
             throw new ArgumentNullException(nameof(rows));
         }
 
+        var offset = GetOffset(cursor);
         if (rows.Count <= PageSize)
         {
             return new QueryPage<T>(rows, null);
         }
 
-        var nextOffset = (long)GetOffset(cursor) + PageSize;
+        var nextOffset = (long)offset + PageSize;
         if (nextOffset > int.MaxValue)
         {
             throw new InvalidOperationException("The next page offset exceeds Int32.MaxValue; use keyset paging for this result.");
@@ -142,4 +136,29 @@ public sealed class OffsetPagination
 
     private int GetOffset(string? cursor)
         => cursor == null ? 0 : QueryPageCursor.DecodeOffset(cursor, _signingKey);
+
+    /// <summary>Creates a result page for the same zero-based index passed to <see cref="CreatePageQuery(Query, int)"/>.</summary>
+    /// <typeparam name="T">Row type.</typeparam>
+    /// <param name="rows">Rows returned by the page query.</param>
+    /// <param name="pageIndex">Zero-based page number used by the query.</param>
+    /// <returns>Rows and a cursor continuing after the requested page.</returns>
+    public QueryPage<T> CreatePage<T>(IReadOnlyList<T> rows, int pageIndex)
+        => CreatePage(rows, CreatePageCursor(pageIndex));
+
+    /// <summary>Creates a result page for the same zero-based index passed to <see cref="CreatePageQuery(Query, int)"/>.</summary>
+    /// <param name="table">The page query result.</param>
+    /// <param name="pageIndex">Zero-based page number used by the query.</param>
+    /// <returns>Rows and a cursor continuing after the requested page.</returns>
+    public QueryPage<DataRow> CreatePage(DataTable table, int pageIndex)
+        => CreatePage(table, CreatePageCursor(pageIndex));
+
+    private string? CreatePageCursor(int pageIndex)
+    {
+        if (pageIndex < 0 || (long)pageIndex * PageSize > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pageIndex), pageIndex, "Page index is out of range.");
+        }
+
+        return pageIndex == 0 ? null : QueryPageCursor.EncodeOffset(pageIndex * PageSize, _signingKey);
+    }
 }

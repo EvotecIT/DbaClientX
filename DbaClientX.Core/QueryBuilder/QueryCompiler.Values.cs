@@ -212,11 +212,12 @@ public partial class QueryCompiler
     private static string FormatTimeSpanLiteral(TimeSpan time)
     {
         var sign = time < TimeSpan.Zero ? "-" : string.Empty;
-        var duration = time.Duration();
-        var timeOfDay = new TimeSpan(duration.Ticks % TimeSpan.TicksPerDay).ToString("c", CultureInfo.InvariantCulture);
-        return duration.Days == 0
+        var magnitude = time.Ticks < 0 ? (ulong)(-(time.Ticks + 1)) + 1 : (ulong)time.Ticks;
+        var days = magnitude / (ulong)TimeSpan.TicksPerDay;
+        var timeOfDay = new TimeSpan((long)(magnitude % (ulong)TimeSpan.TicksPerDay)).ToString("c", CultureInfo.InvariantCulture);
+        return days == 0
             ? $"'{sign}{timeOfDay}'"
-            : $"'{sign}{duration.Days.ToString(CultureInfo.InvariantCulture)} {timeOfDay}'";
+            : $"'{sign}{days.ToString(CultureInfo.InvariantCulture)} {timeOfDay}'";
     }
 
     private string FormatBinaryLiteral(byte[] bytes)

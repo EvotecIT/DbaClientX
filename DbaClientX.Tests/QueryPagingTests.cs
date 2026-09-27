@@ -355,6 +355,63 @@ public class QueryPagingTests
             _ => $"\"{identifier}\"",
         };
 
+    [Fact]
+    public void OffsetPage_DirectJump_ContinuesAfterRequestedIndex()
+    {
+        var paging = new OffsetPagination(2);
+        var source = new Query().From("t").OrderBy("id");
+        Assert.Equal(4, paging.CreatePageQuery(source, 2).OffsetValue);
+        var page = paging.CreatePage(new[] { 5, 6, 7 }, 2);
+        Assert.Equal(new[] { 5, 6 }, page.Items);
+        Assert.Equal(6, paging.CreatePageQuery(source, page.NextCursor).OffsetValue);
+        using var table = new DataTable();
+        table.Columns.Add("id", typeof(int));
+        foreach (var id in new[] { 5, 6, 7 }) table.Rows.Add(id);
+        Assert.Equal(6, paging.CreatePageQuery(source, paging.CreatePage(table, 2).NextCursor).OffsetValue);
+        Assert.Throws<ArgumentOutOfRangeException>(() => paging.CreatePage(new[] { 1 }, -1));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void OffsetPage_TerminalPage_StillValidatesCursor(int rowCount)
+    {
+        var paging = new OffsetPagination(2) { SigningKey = new byte[32] };
+        var rows = Enumerable.Range(0, rowCount).ToArray();
+        Assert.Throws<ArgumentException>(() => paging.CreatePage(rows, "invalid"));
+        var keysetCursor = new KeysetPagination(2, KeysetColumn.Asc("id")).CreateCursor(new object?[] { 1 });
+        Assert.Throws<ArgumentException>(() => paging.CreatePage(rows, keysetCursor));
+        var unsigned = new OffsetPagination(2).CreatePage(new[] { 1, 2, 3 }, null).NextCursor;
+        Assert.Throws<ArgumentException>(() => paging.CreatePage(rows, unsigned));
+    }
+
+    [Fact]
+    public void KeysetCursor_OversizedKeys_RejectsBeforeAllocatingEncodedPayload()
+    {
+        var paging = new KeysetPagination(2, KeysetColumn.Asc("key"));
+        foreach (var value in new object[] { new string('x', 1_000_000), new byte[1_000_000], new string('é', 9_000) })
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            Assert.Throws<InvalidOperationException>(() => paging.CreateCursor(new object?[] { value }));
+            Assert.InRange(GC.GetAllocatedBytesForCurrentThread() - before, 0, 200_000);
+        }
+        var multiple = new KeysetPagination(2, KeysetColumn.Asc("a"), KeysetColumn.Asc("b"));
+        Assert.Throws<InvalidOperationException>(() => multiple.CreateCursor(new object?[] { new string('x', 8_000), new string('x', 8_000) }));
+        Assert.Throws<InvalidOperationException>(() => paging.CreateCursor(new object?[] { new string('x', 13_000) }));
+    }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer)]
+    [InlineData(SqlDialect.PostgreSql)]
+    [InlineData(SqlDialect.MySql)]
+    [InlineData(SqlDialect.SQLite)]
+    [InlineData(SqlDialect.Oracle)]
+    public void Compile_TimeSpanMinValue_DoesNotOverflow(SqlDialect dialect)
+    {
+        var sql = new Query().From("t").Where("duration", TimeSpan.MinValue).Compile(dialect);
+        Assert.EndsWith(" = '-10675199 02:48:05.4775808'", sql);
+    }
+
     private static async Task SeedAsync(DBAClientX.SQLite sqlite, string connectionString)
     {
         await sqlite.ExecuteNonQueryWithConnectionStringAsync(

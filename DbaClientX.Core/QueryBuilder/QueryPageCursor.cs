@@ -35,6 +35,7 @@ internal static class QueryPageCursor
             for (var index = 0; index < columns.Count; index++)
             {
                 var value = NormalizeKeyValue(columns[index], values[index], fromCursor: false);
+                ValidateValueSize(value);
                 if (!DbaKeyValueCodec.TryWrite(writer, value))
                 {
                     throw new InvalidOperationException(
@@ -122,7 +123,9 @@ internal static class QueryPageCursor
 
     private static string Encode(byte kind, byte[]? signingKey, Action<BinaryWriter> writeBody)
     {
-        using var stream = new MemoryStream();
+        // Reserve space for the signature before writing; Base64 uses four characters per three bytes.
+        var maximumPayload = ((MaximumCursorLength - Prefix.Length) / 4) * 3;
+        using var stream = new BoundedCursorStream(maximumPayload - (signingKey == null ? 0 : TagLength));
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
             writer.Write(signingKey == null ? kind : (byte)(kind | SignedFlag));
@@ -247,11 +250,12 @@ internal static class QueryPageCursor
     private static byte[] GetBinding(IReadOnlyList<KeysetColumn> columns)
     {
         using var sha = SHA256.Create();
-        using var stream = new MemoryStream();
+        using var stream = new BoundedCursorStream(MaximumCursorLength);
         using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
         {
             foreach (var column in columns)
             {
+                ValidateValueSize(column.Column);
                 writer.Write(column.Column);
                 writer.Write(column.Descending);
             }
@@ -261,6 +265,51 @@ internal static class QueryPageCursor
         var binding = new byte[BindingLength];
         Array.Copy(hash, binding, BindingLength);
         return binding;
+    }
+
+    private static void ValidateValueSize(object? value)
+    {
+        if ((value is string text && Encoding.UTF8.GetByteCount(text) > MaximumCursorLength)
+            || (value is byte[] bytes && bytes.Length > MaximumCursorLength)
+            || (value is DbaArbitraryDecimal number && Encoding.UTF8.GetByteCount(number.CanonicalValue) > MaximumCursorLength))
+        {
+            throw new InvalidOperationException($"The key values are too large for a page cursor (limit {MaximumCursorLength} characters).");
+        }
+    }
+
+    private sealed class BoundedCursorStream : MemoryStream
+    {
+        private readonly int _maximumLength;
+
+        internal BoundedCursorStream(int maximumLength) => _maximumLength = maximumLength;
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            CheckCapacity(count);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void WriteByte(byte value)
+        {
+            CheckCapacity(1);
+            base.WriteByte(value);
+        }
+
+#if NETSTANDARD2_1_OR_GREATER || NET6_0_OR_GREATER
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            CheckCapacity(buffer.Length);
+            base.Write(buffer);
+        }
+#endif
+
+        private void CheckCapacity(int count)
+        {
+            if (Position + count > _maximumLength)
+            {
+                throw new InvalidOperationException($"The key values are too large for a page cursor (limit {MaximumCursorLength} characters).");
+            }
+        }
     }
 
     private static bool FixedTimeEquals(byte[] left, byte[] right)
