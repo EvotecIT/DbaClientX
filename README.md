@@ -634,12 +634,29 @@ Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 var paging = new KeysetPagination(100, KeysetColumn.Desc("CreatedUtc"), KeysetColumn.Asc("Id"));
 var source = new Query().Select("Id", "CreatedUtc", "Message").From("Events").Where("Zone", zone);
 
-var (sql, parameters) = paging.CreatePageQuery(source, cursor).CompileWithParameters(SqlDialect.SQLite);
-var values = parameters.Select((value, index) => (value, index)).ToDictionary(p => "@p" + p.index, p => (object?)p.value);
+// CompileWithNamedParameters returns parameters keyed by placeholder (@p0…, or :p0… for Oracle).
+var (sql, parameters) = paging.CreatePageQuery(source, cursor).CompileWithNamedParameters(SqlDialect.SQLite);
 using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataTable };
-var table = (DataTable)(await sqlite.QueryAsync(path, sql, values))!;
+var table = (DataTable)(await sqlite.QueryAsync(path, sql, parameters))!;
 var page = paging.CreatePage(table); // page.Items, page.NextCursor (null on the last page)
 ```
+
+To read a whole result page by page with bounded memory, let the pagination drive a typed stream. `StreamAsync` yields rows across pages; `ReadPagesAsync` yields pages with their cursors, so a consumer can stop and resume:
+
+```csharp
+var paging = new KeysetPagination(5_000, KeysetColumn.Desc<long>("CreatedUtcMs"), KeysetColumn.Asc<long>("Id"));
+await foreach (var evt in paging.StreamAsync(
+    source,
+    SqlDialect.SQLite,
+    (sql, parameters, ct) => sqlite.QueryStreamAsync(path, sql, DbaRecordMapper.For<EventRow>(), parameters, cancellationToken: ct),
+    evt => new object?[] { evt.CreatedUtcMs, evt.Id })) {
+    // memory stays bounded by the page size
+}
+```
+
+Automatic keyset streaming checks that every row advances, including within a page. Numeric, boolean and temporal keys with matching codec-normalized runtime types use their natural ordering with each column's direction. Mixed numeric storage types (for example, SQLite INTEGER and REAL in one key column), text, GUID, binary and provider-specific keys require a database-specific comparator. For these keys, set `CompareKeys` to compare complete key tuples in the database's ordering; return a positive value when the first tuple comes after the second. This avoids assuming that CLR string or GUID ordering matches the database collation. Floating-point keys containing `NaN` also require `CompareKeys`: PostgreSQL, for example, sorts `NaN` after every other value, whereas CLR comparison puts it first. The default path rejects `NaN` keys, including a single row or a resume cursor, before yielding a page. Cancellation stops both page queries and rows already buffered in the current page.
+
+`QueryParameters.ToDictionary(values, dialect)` converts the positional values from `CompileWithParameters` into the same named shape.
 
 Keyset columns must be unquoted, non-null and unique together (end with the primary key). The source query must not set `ORDER BY` (keyset), `Limit`, `Offset`, `Top`, or `UNION`; offset paging requires `ORDER BY` on a unique column set.
 

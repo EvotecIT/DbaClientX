@@ -185,7 +185,13 @@ public partial class QueryCompiler
     }
 
     private string GetParameterName(int index)
-        => (_dialect == SqlDialect.Oracle ? ":p" : "@p") + index;
+        => GetParameterName(_dialect, index);
+
+    /// <summary>
+    /// Gets the placeholder the compiler emits for the parameter at <paramref name="index"/>.
+    /// </summary>
+    internal static string GetParameterName(SqlDialect dialect, int index)
+        => (dialect == SqlDialect.Oracle ? ":p" : "@p") + index.ToString(CultureInfo.InvariantCulture);
 
     private string FormatValue(object value)
     {
