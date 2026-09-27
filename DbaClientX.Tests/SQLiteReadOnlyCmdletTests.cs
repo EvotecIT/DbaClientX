@@ -31,6 +31,24 @@ public sealed class SQLiteReadOnlyCmdletTests : IDisposable
         Assert.Equal(new object[] { "a", "b" }, table.Rows.Cast<DataRow>().Select(row => row["Name"]).ToArray());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReadOnly_UnsafePath_HonorsErrorAction(bool stop)
+    {
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXSQLite", typeof(CmdletInvokeDbaXSQLite), null));
+        using var ps = PowerShell.Create(state);
+        ps.AddCommand("Invoke-DbaXSQLite").AddParameter("Database", "../unsafe.db").AddParameter("Query", "SELECT 1")
+            .AddParameter("ReadOnly").AddParameter("ErrorAction", stop ? ActionPreference.Stop : ActionPreference.Continue);
+        if (stop) Assert.ThrowsAny<RuntimeException>(() => ps.Invoke());
+        else
+        {
+            Assert.Empty(ps.Invoke());
+            Assert.Contains(ps.Streams.Warning, warning => warning.Message.Contains("unsafe relative path", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     [Fact]
     public void ReadOnly_DefaultReturnType_EmitsPSObjects()
     {

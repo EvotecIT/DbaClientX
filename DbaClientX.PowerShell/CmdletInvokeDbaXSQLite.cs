@@ -93,17 +93,17 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         if (!ShouldProcess(DbaXProviderHelpers.GetSafeSQLiteTarget(Database), "Execute SQLite query")) {
             return;
         }
-        if (ReadOnly.IsPresent)
-        {
-            DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "Invoke-DbaXSQLite -ReadOnly");
-        }
-
         var connectionString = ReadOnly.IsPresent
-            ? DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(Database)
+            ? DbaXProviderHelpers.GetSQLiteConnectionString(Database)
             : DBAClientX.SQLite.BuildConnectionString(Database);
         if (!PowerShellHelpers.TryValidateConnection(this, "sqlite", connectionString, ErrorAction))
         {
             return;
+        }
+        if (ReadOnly.IsPresent)
+        {
+            DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "Invoke-DbaXSQLite -ReadOnly");
+            connectionString = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(Database);
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
