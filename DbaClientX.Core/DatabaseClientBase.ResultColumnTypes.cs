@@ -68,7 +68,13 @@ public abstract partial class DatabaseClientBase
             var adaptedType = ResolveAdaptedColumnType(column.DataType, value, observedValues[i]);
             if (adaptedType != null)
             {
-                ReplaceColumnType(table, i, adaptedType, copyValues: observedValues[i]);
+                var dateTimeMode = value is DateTime dateTime ? dateTime.Kind switch
+                {
+                    DateTimeKind.Utc => DataSetDateTime.Utc,
+                    DateTimeKind.Local => DataSetDateTime.Local,
+                    _ => DataSetDateTime.Unspecified,
+                } : DataSetDateTime.UnspecifiedLocal;
+                ReplaceColumnType(table, i, adaptedType, copyValues: observedValues[i], dateTimeMode);
             }
 
             observedValues[i] = true;
@@ -111,12 +117,17 @@ public abstract partial class DatabaseClientBase
     /// <param name="ordinal">The column ordinal.</param>
     /// <param name="dataType">The replacement column type.</param>
     /// <param name="copyValues">Whether existing values must be copied; <see langword="false"/> when the column only holds nulls.</param>
-    private static void ReplaceColumnType(DataTable table, int ordinal, [DynamicallyAccessedMembers(DataColumnTypeMembers)] Type dataType, bool copyValues)
+    /// <param name="dateTimeMode">Storage mode preserving the kind when an all-null column adopts DateTime values.</param>
+    private static void ReplaceColumnType(DataTable table, int ordinal, [DynamicallyAccessedMembers(DataColumnTypeMembers)] Type dataType, bool copyValues, DataSetDateTime dateTimeMode)
     {
         var existing = table.Columns[ordinal];
         var columnName = existing.ColumnName;
         var temporaryName = "__DbaClientX_" + Guid.NewGuid().ToString("N");
         var replacement = new DataColumn(temporaryName, dataType);
+        if (dataType == typeof(DateTime))
+        {
+            replacement.DateTimeMode = dateTimeMode;
+        }
         table.Columns.Add(replacement);
         if (copyValues)
         {

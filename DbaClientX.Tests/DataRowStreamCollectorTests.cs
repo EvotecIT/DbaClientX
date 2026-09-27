@@ -5,6 +5,43 @@ namespace DbaClientX.Tests;
 
 public class DataRowStreamCollectorTests
 {
+    [Theory]
+    [InlineData(DataSetDateTime.Utc, DateTimeKind.Utc)]
+    [InlineData(DataSetDateTime.Local, DateTimeKind.Local)]
+    public void Add_DateTimeColumn_PreservesModeAndKindWhenWidening(DataSetDateTime mode, DateTimeKind kind)
+    {
+        using var source = new DataTable();
+        source.Columns.Add("Value", typeof(DateTime)).DateTimeMode = mode;
+        var timestamp = new DateTime(2026, 9, 27, 12, 0, 0, kind);
+        source.Rows.Add(timestamp);
+        var detached = source.NewRow();
+        detached[0] = timestamp.AddHours(1);
+        var collector = new DataRowStreamCollector();
+        collector.Add(source.Rows[0]);
+        collector.Add(detached);
+        Assert.Equal(mode, collector.Table!.Columns[0].DateTimeMode);
+        Assert.All(collector.Table.Rows.Cast<DataRow>(), row => Assert.Equal(kind, Assert.IsType<DateTime>(row[0]).Kind));
+        collector.Add(CreateRow(typeof(object), "other"));
+        Assert.Equal(typeof(object), collector.Table.Columns[0].DataType);
+        Assert.Equal(timestamp, collector.Table.Rows[0][0]);
+        Assert.Equal(kind, Assert.IsType<DateTime>(collector.Table.Rows[0][0]).Kind);
+    }
+
+    [Theory]
+    [InlineData(DateTimeKind.Utc)]
+    [InlineData(DateTimeKind.Local)]
+    public void Add_NullsThenDateTime_PreservesObservedKind(DateTimeKind kind)
+    {
+        var collector = new DataRowStreamCollector();
+        collector.Add(CreateRow(typeof(string), DBNull.Value));
+        using var source = new DataTable();
+        source.Columns.Add("Value", typeof(DateTime)).DateTimeMode = kind == DateTimeKind.Utc ? DataSetDateTime.Utc : DataSetDateTime.Local;
+        var row = source.NewRow();
+        row[0] = new DateTime(2026, 9, 27, 12, 0, 0, kind);
+        collector.Add(row);
+        Assert.Equal(kind, Assert.IsType<DateTime>(collector.Table!.Rows[1][0]).Kind);
+    }
+
     [Fact]
     public void Add_DetachedRows_CopiesEveryRow()
     {
