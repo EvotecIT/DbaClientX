@@ -391,10 +391,22 @@ public partial class SqlServer : DatabaseClientBase
         || ex is SqlException sqlEx
             && sqlEx.Number is -2 or 64 or 233 or 10053 or 10054 or 10060;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether <see cref="DateTime"/> parameter values without an explicit type are sent as
+    /// <c>datetime2</c> instead of <c>datetime</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>datetime</c> rounds to 1/300 of a second. Enable this when comparing against <c>datetime2</c> columns, for example
+    /// keyset paging on a <c>datetime2</c> key, where rounding would repeat or skip rows. Leave it off for <c>datetime</c>
+    /// columns, where a <c>datetime2</c> parameter forces a conversion of the column. An explicit parameter type always wins.
+    /// </remarks>
+    public bool UseDateTime2ForDateTimeParameters { get; set; }
+
     /// <inheritdoc />
     protected override void AddParameters(DbCommand command, IDictionary<string, object?>? parameters, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
-        if (command is not SqlCommand sqlCommand || parameterTypes is not SqlServerParameterTypeMap sqlTypes)
+        var sqlTypes = parameterTypes as SqlServerParameterTypeMap;
+        if (command is not SqlCommand sqlCommand || (sqlTypes == null && !UseDateTime2ForDateTimeParameters))
         {
             base.AddParameters(command, parameters, parameterTypes, parameterDirections);
             return;
@@ -414,7 +426,7 @@ public partial class SqlServer : DatabaseClientBase
                 Value = value
             };
 
-            if (TryGetDictionaryValue(sqlTypes.ProviderTypes, pair.Key, out var providerType))
+            if (sqlTypes != null && TryGetDictionaryValue(sqlTypes.ProviderTypes, pair.Key, out var providerType))
             {
                 parameter.SqlDbType = providerType;
             }
@@ -424,7 +436,9 @@ public partial class SqlServer : DatabaseClientBase
             }
             else
             {
-                parameter.DbType = InferParameterDbType(value);
+                parameter.DbType = value is DateTime && UseDateTime2ForDateTimeParameters
+                    ? DbType.DateTime2
+                    : InferParameterDbType(value);
             }
 
             if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
