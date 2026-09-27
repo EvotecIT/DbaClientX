@@ -140,6 +140,8 @@ Invoke-DbaXSQLite -Database '.\app.db' -Query 'select * from users limit 10'
 Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'select count(*) as Probes from ProbeResults' -ReadOnly
 ```
 
+`-Database` accepts a file path or a file-backed connection string with one source key (`Data Source`, `DataSource`, `Filename`, or `FullUri`). Read-only connection strings retain options such as `Password`, `Cache`, and `Default Timeout`; `Mode` and `Pooling` are overridden. Explicit connection options take precedence over file-URI query hints. Conflicting source aliases and in-memory databases are rejected. Validation failures warn and return under `-ErrorAction Continue`, and terminate under `Stop`. Connection options are kept out of confirmation targets and error targets. `VACUUM INTO` can still write a separate output file.
+
 ### Azure Tables
 
 Azure queries expose the provider continuation tokens through `-AsPage`; ordinary use streams all returned entities:

@@ -93,13 +93,14 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteConnectionString_PreservesOneKeyOptionsForValidation()
+    public void GetSQLiteConnectionString_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
         var actual = DbaXProviderHelpers.GetSQLiteConnectionString(connectionString);
 
-        Assert.Equal(connectionString, actual);
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(actual);
+        Assert.Equal(connectionString, builder.DataSource);
     }
 
     [Fact]
@@ -226,6 +227,35 @@ public class DbaXProviderHelpersTests
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
     }
 
+    [Theory]
+    [InlineData("FullUri", "shared", "Private", SqliteCacheMode.Private)]
+    [InlineData("Data Source", "shared", "Private", SqliteCacheMode.Private)]
+    [InlineData("FullUri", "private", "Shared", SqliteCacheMode.Shared)]
+    [InlineData("Data Source", "private", "Shared", SqliteCacheMode.Shared)]
+    public void ReadOnlyUri_ExplicitCacheTakesPrecedence(string sourceKey, string uriCache, string explicitCache, SqliteCacheMode expected)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-explicit-uri-cache.db");
+        var input = sourceKey + "=" + new Uri(path).AbsoluteUri + "?cache=" + uriCache + ";Cache=" + explicitCache;
+        var builder = new SqliteConnectionStringBuilder(DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(input));
+        Assert.Equal(expected, builder.Cache);
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+    }
+
+    [Theory]
+    [InlineData("FullUri")]
+    [InlineData("Data Source")]
+    public void ReadOnlyUri_ExplicitFileModeTakesPrecedenceOverUriMemory(string sourceKey)
+    {
+        var path = Path.Join(Path.GetTempPath(), "dbaclientx-explicit-uri-mode.db");
+        var input = sourceKey + "=" + new Uri(path).AbsoluteUri + "?mode=memory;Mode=ReadWrite";
+        Assert.True(DbaXProviderHelpers.IsSQLiteFileBackedDatabase(input));
+        Assert.Equal(path, DbaXProviderHelpers.GetSQLiteDatabasePath(input, "read-only inspection"));
+        var builder = new SqliteConnectionStringBuilder(DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(input));
+        Assert.Equal(path, builder.DataSource);
+        Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
+    }
+
     [Fact]
     public void GetSQLiteReadOnlyConnectionString_PreservesFullUriMemoryMode()
     {
@@ -271,13 +301,15 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteReadOnlyConnectionString_PreservesOneKeyOptionsForValidation()
+    public void GetSQLiteReadOnlyConnectionString_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
         var actual = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(connectionString);
 
-        Assert.Equal(connectionString, actual);
+        var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(actual);
+        Assert.Equal(connectionString, builder.DataSource);
+        Assert.Equal(Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly, builder.Mode);
     }
 
     [Fact]
@@ -371,13 +403,11 @@ public class DbaXProviderHelpersTests
     }
 
     [Fact]
-    public void GetSQLiteDatabasePath_RejectsConnectionStringsWithoutDatabase()
+    public void GetSQLiteDatabasePath_TreatsOptionLikeFilenameAsPath()
     {
         const string connectionString = "Mode=ReadOnly";
 
-        var exception = Assert.Throws<PSArgumentException>(() => DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
-
-        Assert.Contains("Data Source", exception.Message);
+        Assert.Equal(connectionString, DbaXProviderHelpers.GetSQLiteDatabasePath(connectionString, "SQLite maintenance"));
     }
 
     [Fact]
@@ -423,6 +453,19 @@ public class DbaXProviderHelpersTests
 
         Assert.Contains("does not exist", exception.Message);
         Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void ExecutePing_SQLiteOptionLikeMissingFilename_DoesNotCreateDatabase()
+    {
+        var path = "Mode=Memory;Password=" + Guid.NewGuid().ToString("N");
+        Assert.False(File.Exists(path));
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => DbaXProviderHelpers.ExecutePing(DbaXProvider.SQLite, path));
+            Assert.False(File.Exists(path));
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); File.Delete(path); }
     }
 
     [Fact]

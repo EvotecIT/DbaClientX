@@ -90,15 +90,29 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         using var sqlite = SQLiteFactory();
         sqlite.ReturnType = ReturnType;
         PowerShellHelpers.ApplyQueryTimeout(sqlite, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
-        if (!ShouldProcess(Database, "Execute SQLite query")) {
+        if (!ShouldProcess(DbaXProviderHelpers.GetSafeSQLiteTarget(Database), "Execute SQLite query")) {
             return;
         }
         var connectionString = ReadOnly.IsPresent
-            ? DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "Invoke-DbaXSQLite -ReadOnly"))
+            ? DbaXProviderHelpers.GetSQLiteConnectionString(Database)
             : DBAClientX.SQLite.BuildConnectionString(Database);
         if (!PowerShellHelpers.TryValidateConnection(this, "sqlite", connectionString, ErrorAction))
         {
             return;
+        }
+        if (ReadOnly.IsPresent)
+        {
+            try
+            {
+                DbaXProviderHelpers.GetSQLiteDatabasePath(Database, "Invoke-DbaXSQLite -ReadOnly");
+                connectionString = DbaXProviderHelpers.GetSQLiteReadOnlyConnectionString(Database);
+            }
+            catch (PSArgumentException ex)
+            {
+                if (ErrorAction == ActionPreference.Stop) throw;
+                WriteWarning(ex.Message);
+                return;
+            }
         }
         try {
             var parameters = PowerShellHelpers.ToDictionaryOrNull(Parameters);
@@ -133,7 +147,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
-            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXSQLite", Database));
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXSQLite", DbaXProviderHelpers.GetSafeSQLiteTarget(Database)));
         }
     }
 
