@@ -12,8 +12,10 @@ public sealed partial class KeysetPagination
     /// <remarks>
     /// Return a positive value when the first tuple comes after the second. The comparison must include every key and
     /// respect each column's direction. Automatic streaming uses this to reject duplicate or backward rows. Without a
-    /// callback, numeric, boolean and temporal keys are compared in their natural order, adjusted for column direction.
-    /// Text, GUID, binary and provider-specific keys require a callback because their database ordering can differ from
+    /// callback, numeric, boolean and temporal keys with matching codec-normalized runtime types are compared in their
+    /// natural order, adjusted for column direction.
+    /// Mixed numeric storage types (such as SQLite INTEGER and REAL), text, GUID, binary and provider-specific keys
+    /// require a callback because their database ordering can differ from
     /// CLR ordering. Query creation and manual page materialization do not require this callback.
     /// </remarks>
     public Func<IReadOnlyList<object?>, IReadOnlyList<object?>, int>? CompareKeys { get; init; }
@@ -121,7 +123,7 @@ public sealed partial class KeysetPagination
 #endif
                     ))
             {
-                throw new InvalidOperationException("Configure CompareKeys with the database's ordering for text, GUID, binary or provider-specific keys.");
+                throw new InvalidOperationException("Configure CompareKeys with the database's ordering for mixed numeric storage types, text, GUID, binary or provider-specific keys.");
             }
 
             var comparison = ((IComparable)left).CompareTo(right);

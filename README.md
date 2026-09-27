@@ -654,7 +654,7 @@ await foreach (var evt in paging.StreamAsync(
 }
 ```
 
-Automatic keyset streaming checks that every row advances, including within a page. Numeric, boolean and temporal keys use their natural ordering with each column's direction. For text, GUID, binary or provider-specific keys, set `CompareKeys` to compare complete key tuples in the database's ordering; return a positive value when the first tuple comes after the second. This avoids assuming that CLR string or GUID ordering matches the database collation. Cancellation stops both page queries and rows already buffered in the current page.
+Automatic keyset streaming checks that every row advances, including within a page. Numeric, boolean and temporal keys with matching codec-normalized runtime types use their natural ordering with each column's direction. Mixed numeric storage types (for example, SQLite INTEGER and REAL in one key column), text, GUID, binary and provider-specific keys require a database-specific comparator. For these keys, set `CompareKeys` to compare complete key tuples in the database's ordering; return a positive value when the first tuple comes after the second. This avoids assuming that CLR string or GUID ordering matches the database collation. Cancellation stops both page queries and rows already buffered in the current page.
 
 `QueryParameters.ToDictionary(values, dialect)` converts the positional values from `CompileWithParameters` into the same named shape.
 

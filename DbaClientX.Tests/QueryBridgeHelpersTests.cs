@@ -192,6 +192,47 @@ public class QueryBridgeHelpersTests
         Assert.Throws<ArgumentNullException>(() => paging.StreamAsync<long>(new Query().From("t"), SqlDialect.SQLite, null!, row => new object?[] { row }));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task KeysetReadPagesAsync_SQLiteMixedNumericKeys_RequireComparatorAndResume(bool descending)
+    {
+        using var database = new SharedMemoryDatabase();
+        using var sqlite = new DBAClientX.SQLite();
+        sqlite.ExecuteNonQueryWithConnectionString(database.ConnectionString,
+            "CREATE TABLE mixed_keys (value); INSERT INTO mixed_keys VALUES (1), (1.5), (2), (2.5);");
+        var column = descending ? KeysetColumn.Desc("value") : KeysetColumn.Asc("value");
+        var source = new Query().Select("value").From("mixed_keys");
+        IAsyncEnumerable<object> Execute(string sql, IDictionary<string, object?> parameters, CancellationToken ct)
+            => sqlite.QueryStreamWithConnectionStringAsync(database.ConnectionString, sql, record => record.GetValue(0), parameters, cancellationToken: ct);
+        var paging = new KeysetPagination(1, column);
+        var yielded = 0;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var page in paging.ReadPagesAsync(source, SqlDialect.SQLite, Execute, value => new object?[] { value })) yielded++;
+        });
+        Assert.Contains("mixed numeric", error.Message);
+        Assert.Equal(0, yielded);
+
+        // These fixture values fit exactly in decimal. Applications must choose a comparator for their own database domain.
+        paging = new KeysetPagination(1, column)
+        {
+            CompareKeys = (left, right) => (descending ? -1 : 1) *
+                Convert.ToDecimal(left[0], System.Globalization.CultureInfo.InvariantCulture).CompareTo(
+                    Convert.ToDecimal(right[0], System.Globalization.CultureInfo.InvariantCulture)),
+        };
+        QueryPage<object>? first = null;
+        await foreach (var page in paging.ReadPagesAsync(source, SqlDialect.SQLite, Execute, value => new object?[] { value }))
+        {
+            first = page;
+            break;
+        }
+        Assert.NotNull(first!.NextCursor);
+        var values = new List<object>(first.Items);
+        await foreach (var value in paging.StreamAsync(source, SqlDialect.SQLite, Execute, value => new object?[] { value }, first.NextCursor)) values.Add(value);
+        Assert.Equal(descending ? new object[] { 2.5d, 2L, 1.5d, 1L } : new object[] { 1L, 1.5d, 2L, 2.5d }, values);
+    }
+
     private sealed class SharedMemoryDatabase : IDisposable
     {
         private readonly SqliteConnection _keepAlive;
