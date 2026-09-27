@@ -33,7 +33,6 @@ public abstract partial class DatabaseClientBase
     /// <param name="value">The value about to be stored.</param>
     /// <param name="hasObservedValue">Whether the column already stored a non-null value.</param>
     /// <returns>The replacement column type, or <see langword="null"/> when the current type can store the value.</returns>
-    [UnconditionalSuppressMessage("Trimming", "IL2073", Justification = "Only reached when AdaptResultColumnTypesToValues is enabled (the SQLite provider), where Microsoft.Data.Sqlite materializes long, double, string or byte[]; DataColumn stores these with built-in storage and does not reflect over their members. Every other result is typeof(object) or typeof(double).")]
     [return: DynamicallyAccessedMembers(DataColumnTypeMembers)]
     private static Type? ResolveAdaptedColumnType(Type columnType, object? value, bool hasObservedValue)
     {
@@ -48,13 +47,42 @@ public abstract partial class DatabaseClientBase
             return null;
         }
 
-        return hasObservedValue ? typeof(object) : valueType;
+        // Arbitrary provider subtypes cannot carry DataColumn's trimming metadata from GetType().
+        // Built-in storage types have statically known metadata; other differing types use object storage.
+        if (hasObservedValue)
+        {
+            return typeof(object);
+        }
+
+        return value switch
+        {
+            string => typeof(string),
+            byte[] => typeof(byte[]),
+            bool => typeof(bool),
+            byte => typeof(byte),
+            sbyte => typeof(sbyte),
+            short => typeof(short),
+            ushort => typeof(ushort),
+            int => typeof(int),
+            uint => typeof(uint),
+            long => typeof(long),
+            ulong => typeof(ulong),
+            float => typeof(float),
+            double => typeof(double),
+            decimal => typeof(decimal),
+            char => typeof(char),
+            DateTime => typeof(DateTime),
+            DateTimeOffset => typeof(DateTimeOffset),
+            TimeSpan => typeof(TimeSpan),
+            Guid => typeof(Guid),
+            _ => typeof(object),
+        };
     }
 
     /// <summary>
     /// Adapts populated <paramref name="table"/> columns so the current row values can be stored without losing information.
     /// </summary>
-    private static void AdaptColumnTypesToValues(DataTable table, object?[] values, bool[] observedValues)
+    internal static void AdaptColumnTypesToValues(DataTable table, object?[] values, bool[] observedValues, DataTable? sourceTable = null)
     {
         for (var i = 0; i < values.Length; i++)
         {
@@ -65,15 +93,35 @@ public abstract partial class DatabaseClientBase
             }
 
             var column = table.Columns[i];
+            if (column.DataType == typeof(DateTime) && value is DateTime timestamp)
+            {
+                var incomingMode = sourceTable?.Columns[i].DataType == typeof(DateTime)
+                    ? sourceTable.Columns[i].DateTimeMode
+                    : GetDateTimeMode(timestamp);
+                if (column.DateTimeMode != incomingMode)
+                {
+                    ReplaceColumnType(table, i, observedValues[i] ? typeof(object) : typeof(DateTime),
+                        copyValues: observedValues[i], incomingMode);
+                    column = table.Columns[i];
+                }
+            }
             var adaptedType = ResolveAdaptedColumnType(column.DataType, value, observedValues[i]);
             if (adaptedType != null)
             {
-                ReplaceColumnType(table, i, adaptedType, copyValues: observedValues[i]);
+                var dateTimeMode = value is DateTime dateTime ? GetDateTimeMode(dateTime) : DataSetDateTime.UnspecifiedLocal;
+                ReplaceColumnType(table, i, adaptedType, copyValues: observedValues[i], dateTimeMode);
             }
 
             observedValues[i] = true;
         }
     }
+
+    private static DataSetDateTime GetDateTimeMode(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => DataSetDateTime.Utc,
+        DateTimeKind.Local => DataSetDateTime.Local,
+        _ => DataSetDateTime.Unspecified,
+    };
 
     /// <summary>
     /// Adapts the column type list used by streamed rows so the current row values can be stored without losing information.
@@ -111,12 +159,17 @@ public abstract partial class DatabaseClientBase
     /// <param name="ordinal">The column ordinal.</param>
     /// <param name="dataType">The replacement column type.</param>
     /// <param name="copyValues">Whether existing values must be copied; <see langword="false"/> when the column only holds nulls.</param>
-    private static void ReplaceColumnType(DataTable table, int ordinal, [DynamicallyAccessedMembers(DataColumnTypeMembers)] Type dataType, bool copyValues)
+    /// <param name="dateTimeMode">Storage mode preserving the kind when an all-null column adopts DateTime values.</param>
+    private static void ReplaceColumnType(DataTable table, int ordinal, [DynamicallyAccessedMembers(DataColumnTypeMembers)] Type dataType, bool copyValues, DataSetDateTime dateTimeMode)
     {
         var existing = table.Columns[ordinal];
         var columnName = existing.ColumnName;
         var temporaryName = "__DbaClientX_" + Guid.NewGuid().ToString("N");
         var replacement = new DataColumn(temporaryName, dataType);
+        if (dataType == typeof(DateTime))
+        {
+            replacement.DateTimeMode = dateTimeMode;
+        }
         table.Columns.Add(replacement);
         if (copyValues)
         {
@@ -129,6 +182,33 @@ public abstract partial class DatabaseClientBase
         table.Columns.Remove(existing);
         replacement.SetOrdinal(ordinal);
         replacement.ColumnName = columnName;
+    }
+
+    /// <summary>Preserves provider timestamp kinds without changing tables of rows already yielded.</summary>
+    private static DataTable AdaptStreamDateTimeModes(DataTable table, object?[] values)
+    {
+        var cloned = false;
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (table.Columns[i].DataType != typeof(DateTime) || values[i] is not DateTime timestamp)
+            {
+                continue;
+            }
+
+            var mode = GetDateTimeMode(timestamp);
+            if (table.Columns[i].DateTimeMode == mode)
+            {
+                continue;
+            }
+
+            if (!cloned)
+            {
+                table = table.Clone();
+                cloned = true;
+            }
+            table.Columns[i].DateTimeMode = mode;
+        }
+        return table;
     }
 
     /// <summary>

@@ -248,6 +248,37 @@ public class SQLiteMixedTypeColumnTests
     }
 
     [Fact]
+    public async Task QueryStreamAsync_DuplicateColumnNames_UsesUniqueNamesLikeBufferedQueries()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        var rows = new List<DataRow>();
+
+        await foreach (var row in sqlite.QueryStreamAsync(":memory:", "SELECT 1 AS a, 2 AS a"))
+        {
+            rows.Add(row);
+        }
+
+        var single = Assert.Single(rows);
+        Assert.Equal(new[] { "a", "a1" }, single.Table.Columns.Cast<DataColumn>().Select(column => column.ColumnName).ToArray());
+        Assert.Equal(new object[] { 1L, 2L }, single.ItemArray);
+    }
+
+    [Fact]
+    public async Task Query_DataRowReturnTypeWithDuplicateColumnNames_UsesUniqueNames()
+    {
+        using var sqlite = new DBAClientX.SQLite { ReturnType = ReturnType.DataRow };
+
+        var syncRow = Assert.IsType<DataRow>(sqlite.Query(":memory:", "SELECT 1 AS a, 2 AS A"));
+        var asyncRow = Assert.IsType<DataRow>(await sqlite.QueryAsync(":memory:", "SELECT 1 AS a, 2 AS A"));
+
+        foreach (var row in new[] { syncRow, asyncRow })
+        {
+            Assert.Equal(new[] { "a", "A1" }, row.Table.Columns.Cast<DataColumn>().Select(column => column.ColumnName).ToArray());
+            Assert.Equal(new object[] { 1L, 2L }, row.ItemArray);
+        }
+    }
+
+    [Fact]
     public async Task QueryStreamAsync_PragmaTableInfoWithMixedDefaults_YieldsEveryColumn()
     {
         var path = CreateDatabase();
@@ -293,6 +324,8 @@ public class SQLiteMixedTypeColumnTests
     [InlineData(ReturnType.DataSet, false)]
     [InlineData(ReturnType.DataRow, false)]
     [InlineData(ReturnType.PSObject, true)]
+    [InlineData(ReturnType.DataTable, true)]
+    [InlineData(ReturnType.DataSet, true)]
     [InlineData(ReturnType.DataRow, true)]
     public void InvokeDbaXSQLite_PragmaTableInfoWithMixedDefaults_ReturnsEveryColumn(ReturnType returnType, bool stream)
     {
@@ -348,6 +381,26 @@ public class SQLiteMixedTypeColumnTests
         public bool AdaptsByDefault => AdaptResultColumnTypesToValues;
 
         public static DataTable Read(System.Data.Common.DbDataReader reader, bool adapt) => ReadDataTable(reader, "Table0", adapt);
+    }
+
+    [Theory]
+    [InlineData(ReturnType.DataTable)]
+    [InlineData(ReturnType.DataSet)]
+    public void InvokeDbaXQueryStream_MixedSQLiteStorageClasses_ReconcilesResultSchema(ReturnType returnType)
+    {
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXQueryStream", typeof(CmdletInvokeDbaXQueryStream), helpFileName: null));
+        using var powerShell = PowerShell.Create(state);
+        var results = powerShell.AddCommand("Invoke-DbaXQueryStream")
+            .AddParameter("Provider", DbaXProvider.SQLite)
+            .AddParameter("ConnectionString", "Data Source=:memory:")
+            .AddParameter("Query", MixedUnionSql)
+            .AddParameter("ReturnType", returnType)
+            .AddParameter("ErrorAction", ActionPreference.Stop)
+            .Invoke();
+        var table = GetTable(Assert.Single(results).BaseObject);
+        Assert.Equal(typeof(object), table.Columns["Value"]!.DataType);
+        AssertMixedUnion(table.Rows.Cast<DataRow>().ToList());
     }
 
     private static DataTable GetTable(object? result)

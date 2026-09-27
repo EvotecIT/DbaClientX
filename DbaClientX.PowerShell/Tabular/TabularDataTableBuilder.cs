@@ -460,7 +460,8 @@ internal static class TabularDataTableBuilder {
             }
 
             var sourceColumn = source.Columns[targetColumn.ColumnName]!;
-            if (sourceColumn.DataType != targetColumn.DataType) {
+            if (sourceColumn.DataType != targetColumn.DataType ||
+                (targetColumn.DataType == typeof(DateTime) && sourceColumn.DateTimeMode != targetColumn.DateTimeMode)) {
                 throw new ArgumentException("DataRow inputs must have compatible column schemas.", nameof(source));
             }
         }

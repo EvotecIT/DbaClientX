@@ -401,94 +401,10 @@ public sealed class CmdletIInvokeDbaXQuery : AsyncPSCmdlet {
 #endif
 
     private void WriteRows(IEnumerable<DataRow> rows)
-    {
-        switch (ReturnType)
-        {
-            case ReturnType.DataRow:
-                foreach (var row in rows)
-                {
-                    WriteObject(row);
-                }
-                break;
-            case ReturnType.DataTable:
-                DataTable? table = null;
-                foreach (var row in rows)
-                {
-                    table ??= row.Table.Clone();
-                    table.ImportRow(row);
-                }
-                if (table != null)
-                {
-                    WriteObject(table);
-                }
-                break;
-            case ReturnType.DataSet:
-                DataTable? dataTable = null;
-                foreach (var row in rows)
-                {
-                    dataTable ??= row.Table.Clone();
-                    dataTable.ImportRow(row);
-                }
-                DataSet set = new DataSet();
-                if (dataTable != null)
-                {
-                    set.Tables.Add(dataTable);
-                }
-                WriteObject(set);
-                break;
-            default:
-                foreach (var row in rows)
-                {
-                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
-                }
-                break;
-        }
-    }
+        => DbaXResultWriter.WriteRows(rows, ReturnType, WriteObject);
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
-    private async Task WriteRowsAsync(IAsyncEnumerable<DataRow> rows)
-    {
-        switch (ReturnType)
-        {
-            case ReturnType.DataRow:
-                await foreach (var row in rows.ConfigureAwait(false))
-                {
-                    WriteObject(row);
-                }
-                break;
-            case ReturnType.DataTable:
-                DataTable? table = null;
-                await foreach (var row in rows.ConfigureAwait(false))
-                {
-                    table ??= row.Table.Clone();
-                    table.ImportRow(row);
-                }
-                if (table != null)
-                {
-                    WriteObject(table);
-                }
-                break;
-            case ReturnType.DataSet:
-                DataTable? dataTable = null;
-                await foreach (var row in rows.ConfigureAwait(false))
-                {
-                    dataTable ??= row.Table.Clone();
-                    dataTable.ImportRow(row);
-                }
-                DataSet set = new DataSet();
-                if (dataTable != null)
-                {
-                    set.Tables.Add(dataTable);
-                }
-                WriteObject(set);
-                break;
-            default:
-                await foreach (var row in rows.ConfigureAwait(false))
-                {
-                    WriteObject(PSObjectConverter.DataRowToPSObject(row));
-                }
-                break;
-        }
-    }
+    private Task WriteRowsAsync(IAsyncEnumerable<DataRow> rows)
+        => DbaXResultWriter.WriteRowsAsync(rows, ReturnType, WriteObject);
 #endif
 }
