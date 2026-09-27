@@ -8,6 +8,25 @@ namespace DbaClientX.Tests;
 
 public class TypedStreamingTests
 {
+    public struct StructRow
+    {
+        public int Id { get; set; }
+        public string? Name { get; set; }
+        public int? Optional { get; set; }
+    }
+
+    [Fact]
+    public async Task RecordMapper_StructRows_AssignsAllProperties()
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        var rows = await ToListAsync(sqlite.QueryStreamAsync(":memory:",
+            "SELECT 7 AS Id, 'value' AS Name, NULL AS Optional", DbaRecordMapper.For<StructRow>()));
+        var row = Assert.Single(rows);
+        Assert.Equal(7, row.Id);
+        Assert.Equal("value", row.Name);
+        Assert.Null(row.Optional);
+    }
+
     public enum EventStatus
     {
         Unknown = 0,

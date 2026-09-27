@@ -104,7 +104,8 @@ public static class DbaRecordMapper
                 _binding = binding;
             }
 
-            var item = new T();
+            // Box value types once so every setter updates the same instance.
+            object item = new T();
             for (var index = 0; index < binding.Ordinals.Length; index++)
             {
                 var ordinal = binding.Ordinals[index];
@@ -122,7 +123,7 @@ public static class DbaRecordMapper
                 }
             }
 
-            return item;
+            return (T)item;
         }
 
         private Binding Bind(IDataRecord record)
