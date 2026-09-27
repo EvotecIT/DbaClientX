@@ -41,15 +41,15 @@ public class DataRowStreamCollectorTests
     }
 
     [Fact]
-    public void Add_IntegerThenReal_WidensToDouble()
+    public void Add_IntegerThenReal_PreservesStorageTypes()
     {
         var collector = new DataRowStreamCollector();
 
         collector.Add(CreateRow(typeof(long), 1L));
         collector.Add(CreateRow(typeof(double), 2.5d));
 
-        Assert.Equal(typeof(double), collector.Table!.Columns[0].DataType);
-        Assert.Equal(new object[] { 1d, 2.5d }, Values(collector.Table));
+        Assert.Equal(typeof(object), collector.Table!.Columns[0].DataType);
+        Assert.Equal(new object[] { 1L, 2.5d }, Values(collector.Table));
     }
 
     [Fact]
