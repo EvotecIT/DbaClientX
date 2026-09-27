@@ -431,6 +431,10 @@ internal static class DbaXProviderHelpers
         return string.Equals(left, right!.ToUpperInvariant(), StringComparison.Ordinal);
     }
 
+    /// <summary>Keeps option-bearing SQLite connection strings out of prompts and error targets.</summary>
+    internal static string GetSafeSQLiteTarget(string databaseOrConnectionString)
+        => MayBeConnectionString(databaseOrConnectionString) ? "SQLite database connection" : databaseOrConnectionString;
+
     private static bool MayBeConnectionString(string value)
     {
         foreach (var segment in value.Split(';'))

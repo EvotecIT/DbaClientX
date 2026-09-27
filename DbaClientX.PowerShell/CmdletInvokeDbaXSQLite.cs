@@ -90,7 +90,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
         using var sqlite = SQLiteFactory();
         sqlite.ReturnType = ReturnType;
         PowerShellHelpers.ApplyQueryTimeout(sqlite, QueryTimeout, MyInvocation.BoundParameters.ContainsKey(nameof(QueryTimeout)));
-        if (!ShouldProcess(Database, "Execute SQLite query")) {
+        if (!ShouldProcess(DbaXProviderHelpers.GetSafeSQLiteTarget(Database), "Execute SQLite query")) {
             return;
         }
         if (ReadOnly.IsPresent)
@@ -138,7 +138,7 @@ public sealed class CmdletInvokeDbaXSQLite : AsyncPSCmdlet {
             if (ErrorAction == ActionPreference.Stop) {
                 throw;
             }
-            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXSQLite", Database));
+            WriteError(PowerShellHelpers.CreateSafeErrorRecord(ex, "InvokeDbaXSQLite", DbaXProviderHelpers.GetSafeSQLiteTarget(Database)));
         }
     }
 
