@@ -383,6 +383,26 @@ public class SQLiteMixedTypeColumnTests
         public static DataTable Read(System.Data.Common.DbDataReader reader, bool adapt) => ReadDataTable(reader, "Table0", adapt);
     }
 
+    [Theory]
+    [InlineData(ReturnType.DataTable)]
+    [InlineData(ReturnType.DataSet)]
+    public void InvokeDbaXQueryStream_MixedSQLiteStorageClasses_ReconcilesResultSchema(ReturnType returnType)
+    {
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Invoke-DbaXQueryStream", typeof(CmdletInvokeDbaXQueryStream), helpFileName: null));
+        using var powerShell = PowerShell.Create(state);
+        var results = powerShell.AddCommand("Invoke-DbaXQueryStream")
+            .AddParameter("Provider", DbaXProvider.SQLite)
+            .AddParameter("ConnectionString", "Data Source=:memory:")
+            .AddParameter("Query", MixedUnionSql)
+            .AddParameter("ReturnType", returnType)
+            .AddParameter("ErrorAction", ActionPreference.Stop)
+            .Invoke();
+        var table = GetTable(Assert.Single(results).BaseObject);
+        Assert.Equal(typeof(object), table.Columns["Value"]!.DataType);
+        AssertMixedUnion(table.Rows.Cast<DataRow>().ToList());
+    }
+
     private static DataTable GetTable(object? result)
         => result switch
         {
