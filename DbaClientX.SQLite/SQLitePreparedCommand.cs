@@ -46,7 +46,7 @@ public sealed class SQLitePreparedCommand : IDisposable
         Bind(values);
         try
         {
-            return _command.ExecuteNonQuery();
+            return _client.ExecutePreparedNonQuery(_command);
         }
         catch (SqliteException ex)
         {
@@ -64,7 +64,7 @@ public sealed class SQLitePreparedCommand : IDisposable
         Bind(values);
         try
         {
-            return Normalize(_command.ExecuteScalar());
+            return Normalize(_client.ExecutePreparedScalar(_command));
         }
         catch (SqliteException ex)
         {
@@ -83,7 +83,7 @@ public sealed class SQLitePreparedCommand : IDisposable
         Bind(values);
         try
         {
-            return await _command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return await _client.ExecutePreparedNonQueryAsync(_command, cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException ex)
         {
@@ -102,7 +102,7 @@ public sealed class SQLitePreparedCommand : IDisposable
         Bind(values);
         try
         {
-            return Normalize(await _command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            return Normalize(await _client.ExecutePreparedScalarAsync(_command, cancellationToken).ConfigureAwait(false));
         }
         catch (SqliteException ex)
         {

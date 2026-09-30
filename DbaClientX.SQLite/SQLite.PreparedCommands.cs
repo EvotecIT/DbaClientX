@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 
 namespace DBAClientX;
@@ -88,4 +90,24 @@ public partial class SQLite
 
     internal DbaQueryExecutionException CreatePreparedCommandException(string message, string query, Exception exception)
         => CreateQueryExecutionException(message, query, exception);
+
+    // Reuse the session execution policy without recreating the prepared statement.
+    internal int ExecutePreparedNonQuery(SqliteCommand command)
+        => RetryNonQueryOperations ? ExecuteWithRetry(command.ExecuteNonQuery) : command.ExecuteNonQuery();
+
+    internal object? ExecutePreparedScalar(SqliteCommand command)
+        => ExecuteWithRetry(command.ExecuteScalar);
+
+    internal Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
+    {
+        Task<int> ExecuteAsync() => AwaitWithCallerCancellationAsync(
+            () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken);
+        return RetryNonQueryOperations
+            ? ExecuteWithRetryAsync(ExecuteAsync, cancellationToken)
+            : ExecuteAsync();
+    }
+
+    internal Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
+        => ExecuteWithRetryAsync(() => AwaitWithCallerCancellationAsync(
+            () => command.ExecuteScalarAsync(cancellationToken), cancellationToken), cancellationToken);
 }
