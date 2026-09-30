@@ -86,6 +86,32 @@ public sealed class SQLiteSession : IDisposable
     }
 
     /// <summary>
+    /// Prepares a statement once on this session's connection and transaction for repeated execution.
+    /// </summary>
+    /// <param name="query">SQL text using named parameters such as <c>$name</c> or <c>@name</c>.</param>
+    /// <param name="parameterNames">Parameter names in the order values will be passed to each execution.</param>
+    /// <returns>A prepared command; dispose it before this session ends.</returns>
+    public SQLitePreparedCommand Prepare(string query, params string[] parameterNames)
+    {
+        ThrowIfDisposed();
+        return _client.CreateSessionPreparedCommand(_connection, _transaction, query, parameterNames ?? Array.Empty<string>());
+    }
+
+    /// <summary>
+    /// Prepares an <c>INSERT</c> into <paramref name="table"/> for the given columns; pass one value per column to each execution.
+    /// </summary>
+    /// <param name="table">Destination table (optionally schema-qualified).</param>
+    /// <param name="columns">Destination columns in value order.</param>
+    /// <returns>A prepared command; dispose it before this session ends.</returns>
+    /// <remarks>Use it inside <see cref="RunInTransaction(System.Action{SQLiteSession})"/> to write many rows quickly and atomically.</remarks>
+    public SQLitePreparedCommand PrepareInsert(string table, params string[] columns)
+    {
+        ThrowIfDisposed();
+        (string query, string[] names) = SQLite.BuildPreparedInsert(table, columns);
+        return _client.CreateSessionPreparedCommand(_connection, _transaction, query, names);
+    }
+
+    /// <summary>
     /// Runs a group of operations inside one SQLite transaction using this session's connection.
     /// </summary>
     /// <typeparam name="TResult">The operation result type.</typeparam>

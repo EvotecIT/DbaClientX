@@ -71,6 +71,25 @@ await sq.ExecuteNonQueryWithConnectionStringAsync(
 
 `SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings. File paths containing `=` remain valid paths.
 
+Writing many rows in one transaction with a prepared command (the statement is parsed once; each call rebinds values by position):
+
+```csharp
+var sq = new DBAClientX.SQLite();
+using var session = sq.OpenSession("app.db");
+session.RunInTransaction(tx =>
+{
+    using var insert = tx.PrepareInsert("Users", "Id", "Name", "Status");
+    foreach (var user in users)
+    {
+        insert.ExecuteNonQuery(user.Id, user.Name, user.Status); // null -> NULL, enum -> integer
+    }
+});
+
+// Any statement with named parameters, e.g. an insert that returns the new key:
+using var addRun = session.Prepare("INSERT INTO Runs (RunId) VALUES ($runId); SELECT last_insert_rowid();", "$runId");
+long runKey = (long)addRun.ExecuteScalar("run-42")!;
+```
+
 Graceful shutdown maintenance:
 
 ```csharp
