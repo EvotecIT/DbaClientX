@@ -120,6 +120,9 @@ public partial class QueryCompiler
                     CollectValue(between.Start, parameters);
                     CollectValue(between.End, parameters);
                     break;
+                case ContainsToken contains:
+                    parameters.Add(ContainsParameterValue(contains));
+                    break;
             }
         }
     }

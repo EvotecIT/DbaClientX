@@ -68,7 +68,9 @@ var joined = new Query()
     .Join("Orders", "o", "u.Id", "=", "o.UserId");
 ```
 
-`SelectRaw`, `FromRaw`, `JoinRaw`, `WhereRaw`, `GroupByRaw`, `HavingRaw`, and `OrderByRaw` emit caller-authored SQL. Never pass user input to these methods. The legacy two-string join overloads remain available for migration but are obsolete because they treat both arguments as raw SQL. Comparison operators are limited to the supported safe operator set, and `Limit`, `Offset`, and `Top` reject negative values.
+`SelectRaw`, `FromRaw`, `JoinRaw`, `WhereRaw`, `WhereContainsRaw`, `GroupByRaw`, `HavingRaw`, and `OrderByRaw` emit caller-authored SQL. Never pass user input to these methods. The legacy two-string join overloads remain available for migration but are obsolete because they treat both arguments as raw SQL. Comparison operators are limited to the supported safe operator set, and `Limit`, `Offset`, and `Top` reject negative values.
+
+To put a mapped or user-supplied name into such a fragment, quote it with `SqlIdentifier.Quote(dialect, name)`. `WhereNot(q => ...)` negates a group of conditions, and `WhereContains(column, text, caseInsensitive)` matches text anywhere in a column with every pattern character escaped.
 
 For multipart table or schema names, `DbaIdentifierPath` provides the shared delimiter-aware split and unquote behavior used by bulk operations and table-copy planning.
 

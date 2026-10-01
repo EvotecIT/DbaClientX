@@ -172,6 +172,11 @@ public partial class QueryCompiler
                     case NotGroupStartToken:
                         sb.Append("WNG(").Append('|');
                         break;
+                    case ContainsToken contains:
+                        sb.Append(contains.IsRaw ? "WCTR:" : "WCTI:").Append(contains.CaseInsensitive ? 'I' : 'S').Append(':');
+                        AppendCacheText(sb, contains.Expression);
+                        sb.Append(":P|");
+                        break;
                     case GroupEndToken:
                         sb.Append("WG)").Append('|');
                         break;
@@ -843,6 +848,9 @@ public partial class QueryCompiler
                     break;
                 case NotGroupStartToken:
                     sb.Append("NOT (");
+                    break;
+                case ContainsToken contains:
+                    AppendContains(sb, contains, parameters);
                     break;
                 case GroupEndToken:
                     sb.Append(')');
