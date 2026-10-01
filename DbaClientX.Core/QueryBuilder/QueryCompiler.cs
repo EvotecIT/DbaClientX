@@ -51,6 +51,7 @@ public partial class QueryCompiler
     /// <param name="query">The query to compile.</param>
     /// <returns>The SQL text.</returns>
     /// <exception cref="InvalidOperationException">The query is a keyset page query; use <c>CompileWithParameters</c>.</exception>
+    /// <exception cref="NotSupportedException">A value has no literal SQL form (for example NaN or a type without a literal); use <c>CompileWithParameters</c>.</exception>
     public string Compile(Query query)
         => CompileInternal(query, null);
 
