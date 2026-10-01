@@ -19,16 +19,7 @@ public partial class QueryCompiler
             return identifier;
         }
 
-        var (open, close) = _dialect switch
-        {
-            SqlDialect.SqlServer => ('[', ']'),
-            SqlDialect.MySql => ('`', '`'),
-            SqlDialect.PostgreSql => ('"', '"'),
-            SqlDialect.SQLite => ('"', '"'),
-            SqlDialect.Oracle => ('"', '"'),
-            _ => ('"', '"')
-        };
-
+        // Identifier APIs of the query builder treat dots as schema separators; each part is quoted by SqlIdentifier.
         var parts = identifier.Split('.');
         var builder = new StringBuilder();
         for (var index = 0; index < parts.Length; index++)
@@ -44,8 +35,12 @@ public partial class QueryCompiler
                 continue;
             }
 
-            var escapedPart = parts[index].Replace(close.ToString(), new string(close, 2));
-            builder.Append(open).Append(escapedPart).Append(close);
+            if (parts[index].Length == 0)
+            {
+                throw new ArgumentException($"Identifier '{identifier}' has an empty dotted part.", nameof(identifier));
+            }
+
+            builder.Append(SqlIdentifier.Quote(_dialect, parts[index]));
         }
 
         return builder.ToString();
