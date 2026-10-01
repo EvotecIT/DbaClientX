@@ -16,6 +16,7 @@ public sealed class SqlSargabilityAnalyzerTests
     [InlineData("SELECT * FROM p JOIN (SELECT x FROM s) d ON LOWER(d.x) = p.y", "LOWER(d.x)")]
     [InlineData("SELECT * FROM t WHERE CONVERT(Name USING utf8mb4) = @p AND CONVERT(Created, DATE) = @d", "CONVERT(Name USING utf8mb4)", "CONVERT(Created, DATE)")]
     [InlineData("SELECT * FROM t WHERE EXTRACT(YEAR FROM Seen) = 2026", "EXTRACT(YEAR FROM Seen)")]
+    [InlineData("SELECT * FROM t WHERE instr(dbx_lower(\"Name\"), @p0) > 0 AND DBX_UPPER(t.Code) = @p1", "dbx_lower(\"Name\")", "DBX_UPPER(t.Code)")]
     public void Analyze_ReportsFunctionsWrappedAroundColumnsInConditions(string sql, params string[] expected)
     {
         var findings = SqlSargabilityAnalyzer.Analyze(sql);
@@ -49,4 +50,58 @@ public sealed class SqlSargabilityAnalyzerTests
     [InlineData("CREATE TABLE c (Id INTEGER REFERENCES p (Id) ON DELETE CASCADE, Name TEXT CHECK (LENGTH(Name) > 0))")]
     public void Analyze_IgnoresIndexablePredicatesProjectionsLiteralsAndComments(string sql)
         => Assert.Empty(SqlSargabilityAnalyzer.Analyze(sql));
+
+    [Theory]
+    [InlineData("SELECT * FROM t WHERE \"Name\" COLLATE DBX_NOCASE >= @p0", "\"Name\" COLLATE DBX_NOCASE")]
+    [InlineData("SELECT * FROM t WHERE t.Name COLLATE NOCASE = @p0 AND Id > 1", "t.Name COLLATE NOCASE")]
+    [InlineData("SELECT * FROM t WHERE Name = @p0 COLLATE NOCASE", "Name = @p0 COLLATE NOCASE")]
+    [InlineData("SELECT * FROM t WHERE Name <> 'x' COLLATE \"C\"", "Name <> 'x' COLLATE \"C\"")]
+    [InlineData("SELECT * FROM a JOIN b ON a.Code COLLATE Latin1_General_CI_AS = b.Code", "a.Code COLLATE Latin1_General_CI_AS")]
+    [InlineData("SELECT * FROM t WHERE @p COLLATE NOCASE = t.[Name]", "@p COLLATE NOCASE = t.[Name]")]
+    [InlineData("SELECT * FROM t WHERE Name = @p COLLATE pg_catalog.\"C\"; SELECT 1", "Name = @p COLLATE pg_catalog.\"C\"")]
+    [InlineData("SELECT * FROM t WHERE Id = 1 AND Name COLLATE", null)]
+    [InlineData("SELECT * FROM t WHERE @p COLLATE NOCASE = s.t.Name", "@p COLLATE NOCASE = s.t.Name")]
+    [InlineData("SELECT * FROM t WHERE [dbo].[t].[Name] COLLATE NOCASE = @p", "[dbo].[t].[Name] COLLATE NOCASE")]
+    [InlineData("SELECT * FROM t WHERE Name COLLATE NOCASE NOT NULL AND Code = @p COLLATE pg_catalog.\"default\"", null)]
+    public void Analyze_ReportsCollationsAppliedToColumnComparisons(string sql, string? expected)
+    {
+        if (expected == null)
+        {
+            Assert.Empty(SqlSargabilityAnalyzer.Analyze(sql));
+            return;
+        }
+
+        var finding = Assert.Single(SqlSargabilityAnalyzer.Analyze(sql));
+
+        Assert.Equal(SqlSargabilityFindingKind.CollationOnColumn, finding.Kind);
+        Assert.Equal(expected, finding.Text);
+        Assert.Equal(sql.IndexOf(expected, StringComparison.Ordinal), finding.Position);
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM t ORDER BY Name COLLATE NOCASE")]
+    [InlineData("SELECT Name COLLATE NOCASE FROM t WHERE Id = 1")]
+    [InlineData("SELECT * FROM t WHERE NameFolded COLLATE dbx_nocase > @p AND t.\"NameFolded\" COLLATE DBX_NOCASE < @q")]
+    [InlineData("SELECT * FROM t WHERE x IN (SELECT y FROM u) AND CASE WHEN a = 1 THEN 'a' END COLLATE NOCASE = 'a'")]
+    [InlineData("SELECT \"Site\" COLLATE BINARY, COUNT(*) FROM t WHERE +\"Site\" COLLATE BINARY IS NOT NULL AND \"Name\" COLLATE NOCASE IS NULL GROUP BY 1")]
+    [InlineData("SELECT * FROM t WHERE Name = @p COLLATE BINARY AND Code COLLATE NOCASE NOTNULL AND x IN (@a, @b COLLATE NOCASE)")]
+    public void Analyze_IgnoresCollationsOutsideConditionsAndOnesTheIndexUses(string sql)
+    {
+        var options = new SqlSargabilityOptions();
+        options.ColumnCollations["NameFolded"] = "DBX_NOCASE";
+
+        Assert.Empty(SqlSargabilityAnalyzer.Analyze(sql, options));
+    }
+
+    [Fact]
+    public void Analyze_WithRegisteredFunctions_ReportsThemAroundColumns()
+    {
+        const string sql = "SELECT * FROM t WHERE my_fold(Name) = @p AND Code = my_fold(@q)";
+        var options = new SqlSargabilityOptions();
+        options.Functions.Add("MY_FOLD");
+
+        Assert.Empty(SqlSargabilityAnalyzer.Analyze(sql));
+        Assert.Equal(new[] { "my_fold(Name)" }, SqlSargabilityAnalyzer.Analyze(sql, options).Select(f => f.Text));
+        Assert.Single(SqlSargabilityAnalyzer.Analyze("SELECT * FROM t WHERE Name COLLATE BINARY = @p", new SqlSargabilityOptions { DefaultCollation = null }));
+    }
 }

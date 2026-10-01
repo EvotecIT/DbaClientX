@@ -5,7 +5,8 @@ namespace DBAClientX.QueryPlans;
 
 /// <summary>
 /// Finds predicates in SQL text that an index probably cannot serve: a function wrapped around a column in a
-/// <c>WHERE</c> or <c>ON</c> condition, and <c>LIKE</c>/<c>GLOB</c> patterns that start with a wildcard.
+/// <c>WHERE</c> or <c>ON</c> condition, a <c>COLLATE</c> applied to a comparison with a column, and <c>LIKE</c>/<c>GLOB</c>
+/// patterns that start with a wildcard.
 /// </summary>
 /// <remarks>
 /// <para>This is a heuristic over tokens, not a parser and not a plan: it reports what is worth a look and can be
@@ -22,7 +23,9 @@ public static class SqlSargabilityAnalyzer
         "CAST", "CONVERT", "TRY_CAST", "TRY_CONVERT", "COALESCE", "IFNULL", "ISNULL", "NVL", "NULLIF", "LENGTH", "LEN",
         "DATE", "TIME", "DATETIME", "JULIANDAY", "UNIXEPOCH", "STRFTIME", "YEAR", "MONTH", "DAY", "DATEPART", "DATEADD",
         "DATEDIFF", "DATE_TRUNC", "EXTRACT", "TO_CHAR", "TO_DATE", "ABS", "ROUND", "FLOOR", "CEILING", "CEIL", "HEX",
-        "INSTR", "PRINTF", "FORMAT", "CONCAT", "UNICODE", "TYPEOF"
+        "INSTR", "PRINTF", "FORMAT", "CONCAT", "UNICODE", "TYPEOF",
+        // DbaClientX's Unicode folding functions for SQLite (SQLiteUnicodeText).
+        "DBX_LOWER", "DBX_UPPER"
     };
 
     // Keywords that end a WHERE/ON condition at the same nesting level.
@@ -35,7 +38,17 @@ public static class SqlSargabilityAnalyzer
     /// <summary>Returns the predicates of <paramref name="sql"/> that an index probably cannot serve.</summary>
     /// <param name="sql">One or more SQL statements.</param>
     /// <returns>The findings in text order; empty when none are found.</returns>
-    public static IReadOnlyList<SqlSargabilityFinding> Analyze(string sql)
+    public static IReadOnlyList<SqlSargabilityFinding> Analyze(string sql) => Analyze(sql, options: null);
+
+    /// <summary>
+    /// Returns the predicates of <paramref name="sql"/> that an index probably cannot serve, knowing the functions a
+    /// connection registers and the collations its indexes use.
+    /// </summary>
+    /// <param name="sql">One or more SQL statements.</param>
+    /// <param name="options">Registered functions to treat like built-in ones, and the collation of each column's index;
+    /// <see langword="null"/> for none.</param>
+    /// <returns>The findings in text order; empty when none are found.</returns>
+    public static IReadOnlyList<SqlSargabilityFinding> Analyze(string sql, SqlSargabilityOptions? options)
     {
         if (sql == null)
         {
@@ -91,7 +104,15 @@ public static class SqlSargabilityAnalyzer
                 continue;
             }
 
-            if (token.Kind == SqlTokenKind.Word && WrappingFunctions.Contains(token.Text) &&
+            if (IsWord(token, "COLLATE") && index + 1 < tokens.Count)
+            {
+                var finding = CollationFinding(sql, tokens, index, options);
+                if (finding != null)
+                {
+                    findings.Add(finding);
+                }
+            }
+            else if (token.Kind == SqlTokenKind.Word && IsWrappingFunction(token.Text, options) &&
                 index + 2 < tokens.Count && tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis &&
                 HasColumnArgument(tokens, index + 1, SkipsFirstArgument(token.Text)))
             {
@@ -128,6 +149,129 @@ public static class SqlSargabilityAnalyzer
         return findings;
     }
 
+    private static bool IsWrappingFunction(string name, SqlSargabilityOptions? options)
+        => WrappingFunctions.Contains(name) || (options != null && options.Functions.Contains(name));
+
+    /// <summary>
+    /// A <c>COLLATE</c> at <paramref name="collate"/> that applies to a comparison with a column: after the column
+    /// (<c>Name COLLATE NOCASE = @p</c>) or after the value compared with it (<c>Name = @p COLLATE NOCASE</c> or
+    /// <c>@p COLLATE NOCASE = Name</c>, which SQLite applies to the comparison too). Unless the column's index uses that
+    /// collation, the index cannot serve it. <c>IS [NOT] NULL</c> ignores collations, and a collation equal to the
+    /// column's (from <see cref="SqlSargabilityOptions"/>) is not reported.
+    /// </summary>
+    private static SqlSargabilityFinding? CollationFinding(string sql, IReadOnlyList<SqlToken> tokens, int collate, SqlSargabilityOptions? options)
+    {
+        if (collate == 0 || !IsName(tokens[collate + 1]))
+        {
+            return null;
+        }
+
+        // A schema-qualified collation (pg_catalog."default") is matched by its last part.
+        var last = collate + 1;
+        while (last + 2 < tokens.Count && tokens[last + 1].Text == "." && IsName(tokens[last + 2]))
+        {
+            last += 2;
+        }
+
+        var collation = tokens[last].Value;
+        var after = last + 1;
+        if (after < tokens.Count && (IsWord(tokens[after], "ISNULL") || IsWord(tokens[after], "NOTNULL") ||
+            (IsWord(tokens[after], "NOT") && after + 1 < tokens.Count && IsWord(tokens[after + 1], "NULL")) ||
+            (IsWord(tokens[after], "IS") && after + 1 < tokens.Count && (IsWord(tokens[after + 1], "NULL") ||
+             (IsWord(tokens[after + 1], "NOT") && after + 2 < tokens.Count && IsWord(tokens[after + 2], "NULL"))))))
+        {
+            return null;
+        }
+
+        int first;
+        int end;
+        int column;
+        if (IsValue(tokens[collate - 1]))
+        {
+            var start = collate - 2;
+            while (start >= 0 && IsComparison(tokens[start]))
+            {
+                start--;
+            }
+
+            if (start >= 0 && start < collate - 2)
+            {
+                // Column <op> value COLLATE name.
+                column = start;
+                first = QualifiedStart(tokens, start);
+                end = last;
+            }
+            else
+            {
+                // Value COLLATE name <op> column.
+                var next = after;
+                while (next < tokens.Count && IsComparison(tokens[next]))
+                {
+                    next++;
+                }
+
+                if (next == after || next >= tokens.Count)
+                {
+                    return null;
+                }
+
+                column = next;
+                while (column + 2 < tokens.Count && tokens[column + 1].Text == "." && IsColumnReference(tokens, column + 2))
+                {
+                    column += 2;
+                }
+
+                first = collate - 1;
+                end = column;
+            }
+        }
+        else
+        {
+            column = collate - 1;
+            first = QualifiedStart(tokens, column);
+            end = last;
+        }
+
+        var reference = tokens[column];
+        if (!IsColumnReference(tokens, column) || IsWord(reference, "END") || ClauseKeywords.Contains(reference.Text))
+        {
+            return null;
+        }
+
+        var indexed = options != null && options.ColumnCollations.TryGetValue(reference.Value, out var declared)
+            ? declared
+            : options == null ? SqlSargabilityOptions.SQLiteDefaultCollation : options.DefaultCollation;
+        // PostgreSQL's "default" is the column's own collation.
+        if (string.Equals(indexed, collation, StringComparison.OrdinalIgnoreCase) || string.Equals(collation, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return new SqlSargabilityFinding(
+            SqlSargabilityFindingKind.CollationOnColumn,
+            tokens[first].Position,
+            sql.Substring(tokens[first].Position, tokens[end].Position + tokens[end].Text.Length - tokens[first].Position),
+            $"COLLATE {collation} compares {reference.Value} under a collation its index may not use, and an index serves a comparison only under its own collation; index the column with that collation (or declare it in SqlSargabilityOptions.ColumnCollations), or compare a stored folded column.");
+    }
+
+    private static bool IsName(SqlToken token) => token.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier or SqlTokenKind.String;
+
+    private static bool IsValue(SqlToken token) => token.Kind is SqlTokenKind.Parameter or SqlTokenKind.String or SqlTokenKind.Number;
+
+    private static bool IsComparison(SqlToken token)
+        => (token.Kind == SqlTokenKind.Symbol && token.Text is "=" or "<" or ">" or "!") ||
+           IsWord(token, "IS") || IsWord(token, "NOT") || IsWord(token, "LIKE") || IsWord(token, "GLOB");
+
+    /// <summary>The first token of a column reference ending at <paramref name="column"/> (<c>t.Name</c> starts at <c>t</c>).</summary>
+    private static int QualifiedStart(IReadOnlyList<SqlToken> tokens, int column)
+    {
+        while (column > 1 && tokens[column - 1].Text == "." && IsColumnReference(tokens, column - 2))
+        {
+            column -= 2;
+        }
+
+        return column;
+    }
     private static void SetCondition(Stack<bool> inCondition, bool value) => SetTop(inCondition, value);
 
     private static void SetTop(Stack<bool> stack, bool value)

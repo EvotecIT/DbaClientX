@@ -7,7 +7,13 @@ public enum SqlSargabilityFindingKind
     FunctionOnColumn,
 
     /// <summary>A <c>LIKE</c> or <c>GLOB</c> pattern starts with a wildcard (<c>LIKE '%x'</c>), so an index cannot narrow it.</summary>
-    LeadingWildcard
+    LeadingWildcard,
+
+    /// <summary>
+    /// A <c>COLLATE</c> applies to a comparison with a column (<c>Name COLLATE NOCASE = @p</c>, or SQLite's
+    /// <c>Name = @p COLLATE NOCASE</c>), so an index on the column serves it only if the index uses that collation.
+    /// </summary>
+    CollationOnColumn
 }
 
 /// <summary>A predicate in SQL text that an index probably cannot serve.</summary>
