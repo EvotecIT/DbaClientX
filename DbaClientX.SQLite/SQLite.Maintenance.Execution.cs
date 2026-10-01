@@ -88,6 +88,7 @@ public partial class SQLite
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
+            ApplyConnectionConfiguration(connection);
             using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
             using var command = connection.CreateCommand();
             command.CommandText = fullCheck

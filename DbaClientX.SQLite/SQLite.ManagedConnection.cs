@@ -23,6 +23,7 @@ public partial class SQLite
         {
             connection.Open();
             ApplyManagedConnectionOptions(connection, options);
+            ApplyConnectionConfiguration(connection);
             return connection;
         }
         catch

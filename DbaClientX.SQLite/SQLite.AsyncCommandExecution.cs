@@ -396,6 +396,7 @@ public partial class SQLite
                     connection,
                     ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
                     retryToken).ConfigureAwait(false);
+                ApplyConnectionConfiguration(connection);
                 return (connection, (SqliteTransaction?)null, true);
             }
             catch

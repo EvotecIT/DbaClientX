@@ -110,6 +110,26 @@ var sq = new DBAClientX.SQLite();
 sq.BackupDatabase("app.db", "backups/app.db");
 ```
 
+Unicode case-insensitive search and sort (SQLite's own `lower()`, `LIKE` and `NOCASE` fold ASCII only):
+
+```csharp
+var sq = new DBAClientX.SQLite { ConfigureConnection = SQLiteUnicodeText.Register };
+var rows = await sq.QueryReadOnlyAsListAsync(
+    "app.db",
+    "SELECT Name FROM Hosts WHERE dbx_lower(Name) = dbx_lower(@name) ORDER BY Name COLLATE DBX_NOCASE",
+    reader => reader.GetString(0),
+    new Dictionary<string, object?> { ["@name"] = "ŻÓŁW" });
+```
+
+Read-only streaming, with the running statement interrupted when the token is canceled:
+
+```csharp
+await foreach (var row in sq.QueryReadOnlyStreamAsync("app.db", "SELECT Id, Name FROM Hosts", DbaRecordMapper.Values(), cancellationToken: ct))
+{
+    // one row at a time
+}
+```
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
