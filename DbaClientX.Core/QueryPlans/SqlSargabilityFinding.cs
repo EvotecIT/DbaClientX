@@ -24,13 +24,27 @@ public sealed class SqlSargabilityFinding
     /// <param name="position">The character offset in the SQL text where the predicate starts.</param>
     /// <param name="text">The offending SQL fragment.</param>
     /// <param name="message">A sentence describing the problem.</param>
-    public SqlSargabilityFinding(SqlSargabilityFindingKind kind, int position, string text, string message)
+    /// <param name="column">The column the predicate applies to, unquoted and unqualified, when known.</param>
+    /// <param name="table">The table of that column, when the statement shows it.</param>
+    public SqlSargabilityFinding(SqlSargabilityFindingKind kind, int position, string text, string message, string? column = null, string? table = null)
     {
         Kind = kind;
         Position = position;
         Text = text;
         Message = message;
+        Column = column;
+        Table = table;
     }
+
+    /// <summary>Gets the column the predicate applies to, unquoted and unqualified (the first one a function wraps), when known.</summary>
+    public string? Column { get; }
+
+    /// <summary>
+    /// Gets the table of <see cref="Column"/>: the table its qualifier names (through an alias of the statement), or for an
+    /// unqualified column the one table its query reads; <see langword="null"/> when the text does not tell (several
+    /// tables, a derived table, an alias defined elsewhere).
+    /// </summary>
+    public string? Table { get; }
 
     /// <summary>Gets the kind of predicate.</summary>
     public SqlSargabilityFindingKind Kind { get; }

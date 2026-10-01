@@ -90,7 +90,8 @@ var result = QueryPlanAssert.Check(plan, new QueryPlanRules("ProbeResults")); //
 `WHERE`/`ON` conditions (`LOWER(ProbeName) = @p`, DbaClientX's `dbx_lower` included), a `COLLATE` applied to a comparison with a
 column (`Name COLLATE NOCASE = @p`) and leading-wildcard patterns (`LIKE '%x'`). `Analyze(sql, options)` takes
 `SqlSargabilityOptions`: other registered `Functions` and the collation each column's index uses (`ColumnCollations`,
-`DefaultCollation` = `BINARY`), so a `COLLATE` that matches the index is not reported. Confirm its findings with the plan. Plans depend on data and statistics, so check them on a database shaped like production (run `ANALYZE`).
+`DefaultCollation` = `BINARY`), so a `COLLATE` that matches the index is not reported. Each finding names its `Column` and,
+when the statement shows it, its `Table`. Confirm its findings with the plan. Plans depend on data and statistics, so check them on a database shaped like production (run `ANALYZE`).
 Named large tables must appear in the plan by default (`RequireLargeTablesInPlan`), so a typo or an alias the guard
 cannot resolve fails instead of passing.
 

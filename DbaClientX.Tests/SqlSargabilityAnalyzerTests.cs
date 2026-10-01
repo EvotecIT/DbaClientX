@@ -16,7 +16,12 @@ public sealed class SqlSargabilityAnalyzerTests
     [InlineData("SELECT * FROM p JOIN (SELECT x FROM s) d ON LOWER(d.x) = p.y", "LOWER(d.x)")]
     [InlineData("SELECT * FROM t WHERE CONVERT(Name USING utf8mb4) = @p AND CONVERT(Created, DATE) = @d", "CONVERT(Name USING utf8mb4)", "CONVERT(Created, DATE)")]
     [InlineData("SELECT * FROM t WHERE EXTRACT(YEAR FROM Seen) = 2026", "EXTRACT(YEAR FROM Seen)")]
-    [InlineData("SELECT * FROM t WHERE instr(dbx_lower(\"Name\"), @p0) > 0 AND DBX_UPPER(t.Code) = @p1", "dbx_lower(\"Name\")", "DBX_UPPER(t.Code)")]
+    // The outermost function around the column is the expression an index would need; calls inside it are part of it.
+    [InlineData("SELECT * FROM t WHERE instr(dbx_lower(\"Name\"), @p0) > 0 AND DBX_UPPER(t.Code) = @p1", "instr(dbx_lower(\"Name\"), @p0)", "DBX_UPPER(t.Code)")]
+    [InlineData("SELECT * FROM t WHERE dbx_lower(NULLIF(\"Name\", '')) = @p0", "dbx_lower(NULLIF(\"Name\", ''))")]
+    [InlineData("SELECT * FROM t WHERE my_unknown(LOWER(Name)) = 1 AND ABS(@p - Seen) < 5", "LOWER(Name)", "ABS(@p - Seen)")]
+    [InlineData("SELECT * FROM t WHERE LOWER((SELECT Name FROM u WHERE u.Id = 1)) = 'x' AND ROUND(DATEDIFF(day, Created, @p)) > 1", "ROUND(DATEDIFF(day, Created, @p))")]
+    [InlineData("SELECT * FROM t WHERE LOWER(Zone) = @p AND IFNULL(Zone, x'') = @z AND ABS(@p::int - Seen) < 5 AND CONVERT(NVARCHAR(MAX), Name) = @n", "LOWER(Zone)", "IFNULL(Zone, x'')", "ABS(@p::int - Seen)", "CONVERT(NVARCHAR(MAX), Name)")]
     public void Analyze_ReportsFunctionsWrappedAroundColumnsInConditions(string sql, params string[] expected)
     {
         var findings = SqlSargabilityAnalyzer.Analyze(sql);
@@ -76,6 +81,79 @@ public sealed class SqlSargabilityAnalyzerTests
         Assert.Equal(SqlSargabilityFindingKind.CollationOnColumn, finding.Kind);
         Assert.Equal(expected, finding.Text);
         Assert.Equal(sql.IndexOf(expected, StringComparison.Ordinal), finding.Position);
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM t WHERE CAST(Name AS TEXT) COLLATE NOCASE = @p", "CAST(Name AS TEXT) COLLATE NOCASE")]
+    [InlineData("SELECT * FROM t WHERE CAST(t.Name AS TEXT) = @p COLLATE NOCASE", "CAST(t.Name AS TEXT) = @p COLLATE NOCASE")]
+    [InlineData("SELECT * FROM t WHERE @p COLLATE NOCASE = CAST(t.Name AS TEXT)", "@p COLLATE NOCASE = CAST(t.Name AS TEXT)")]
+    [InlineData("SELECT * FROM t WHERE dbx_lower(NULLIF(Name, '')) COLLATE DBX_NOCASE >= @p", "dbx_lower(NULLIF(Name, '')) COLLATE DBX_NOCASE")]
+    [InlineData("SELECT * FROM t WHERE COALESCE(CASE WHEN t.Name > '' THEN t.Name END, '') COLLATE NOCASE = @p", "COALESCE(CASE WHEN t.Name > '' THEN t.Name END, '') COLLATE NOCASE")]
+    public void Analyze_ReportsTheCollationOfAFunctionAroundAColumnBesidesTheFunction(string sql, string collation)
+    {
+        var findings = SqlSargabilityAnalyzer.Analyze(sql);
+
+        var collated = Assert.Single(findings, f => f.Kind == SqlSargabilityFindingKind.CollationOnColumn);
+        Assert.Equal(collation, collated.Text);
+        Assert.Equal("Name", collated.Column);
+        Assert.Equal("t", collated.Table);
+        Assert.Single(findings, f => f.Kind == SqlSargabilityFindingKind.FunctionOnColumn);
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM ProbeResults p JOIN Agents a ON a.Name = p.Agent WHERE LOWER(p.ProbeName) = @x", "ProbeName", "ProbeResults")]
+    [InlineData("SELECT * FROM main.ProbeResults WHERE EXTRACT(YEAR FROM Seen) = 2026 AND LOWER(ProbeName) = @x", "ProbeName", "ProbeResults")]
+    [InlineData("SELECT * FROM ProbeResults, Agents WHERE LOWER(ProbeName) = @x", "ProbeName", null)]
+    [InlineData("SELECT * FROM t WHERE x IN (SELECT y FROM u WHERE trim(Name) = 'a')", "Name", "u")]
+    [InlineData("SELECT * FROM t o WHERE EXISTS (SELECT 1 FROM u WHERE LOWER(o.Name) = u.Name)", "Name", "t")]
+    [InlineData("SELECT * FROM (SELECT Name FROM t) d WHERE LOWER(Name) = 'x'", "Name", null)]
+    [InlineData("UPDATE ProbeResults AS r SET LatencyMs = 0 WHERE r.Agent::text = 'x'", "Agent", "ProbeResults")]
+    [InlineData("SELECT * FROM a WHERE Name = 'x' UNION SELECT * FROM b WHERE b.Name NOT LIKE '%x'", "Name", "b")]
+    public void Analyze_NamesTheColumnAndItsTable(string sql, string column, string? table)
+    {
+        // The last finding; EXTRACT(YEAR FROM Seen) is one too, and its FROM must not count as a table.
+        var finding = SqlSargabilityAnalyzer.Analyze(sql).Last();
+
+        Assert.Equal(column, finding.Column);
+        Assert.Equal(table, finding.Table);
+        Assert.Contains(table == null ? $"({column})" : $"({table}.{column})", finding.Message);
+    }
+
+    [Theory]
+    [InlineData("WITH d AS (SELECT Name FROM t) SELECT * FROM d WHERE LOWER(Name) = 'x'", null)]
+    [InlineData("SELECT * FROM Agents j WHERE EXISTS (SELECT 1 FROM json_each(@p) j WHERE LOWER(j.value) = 'x')", null)]
+    [InlineData("UPDATE r SET Latency = 0 FROM ProbeResults r WHERE LOWER(r.Agent) = 'x'", "ProbeResults")]
+    [InlineData("SELECT * FROM t WITH (NOLOCK), u WHERE LOWER(Name) = 'x'", null)]
+    [InlineData("INSERT INTO archive SELECT * FROM ProbeResults WHERE LOWER(Agent) = 'x'", "ProbeResults")]
+    [InlineData("DELETE FROM ProbeResults WHERE a IS NOT DISTINCT FROM b AND LOWER(Agent) = 'x'", "ProbeResults")]
+    public void Analyze_TracesTablesOnlyToStoredSources(string sql, string? table)
+    {
+        var finding = SqlSargabilityAnalyzer.Analyze(sql).Last();
+
+        Assert.Equal(SqlSargabilityFindingKind.FunctionOnColumn, finding.Kind);
+        Assert.Equal(table, finding.Table);
+    }
+
+    [Theory]
+    [InlineData("SELECT * FROM t WHERE Name = CONVERT(@p USING utf8mb4) AND Code = CAST(@p AS NVARCHAR(MAX)) AND Raw = CONVERT(NVARCHAR(MAX), @p) AND Z = IFNULL(@p, x'')")]
+    [InlineData("SELECT * FROM t WHERE x = CAST(@p AS DOUBLE PRECISION) AND y = CAST(@p AS TIMESTAMP WITH TIME ZONE)")]
+    [InlineData("SELECT * FROM t WHERE d = DATE_TRUNC('day', @p::timestamptz) AND e = DATE(@p AT TIME ZONE 'UTC')")]
+    [InlineData("SELECT * FROM t WHERE d > DATE(NOW() - INTERVAL 7 DAY) AND s = SUBSTRING(@p FROM 1 FOR 3)")]
+    [InlineData("SELECT * FROM t WHERE n = LOWER(@p COLLATE pg_catalog.\"C\") AND k = CAST(EXISTS (SELECT 1 FROM u WHERE u.Id = t.Id) AS INTEGER)")]
+    [InlineData("SELECT * FROM t WHERE (SELECT Name FROM u LIMIT 1) COLLATE NOCASE = @p AND (CASE WHEN Flag = 1 THEN Name END) COLLATE NOCASE = @q")]
+    public void Analyze_IgnoresKeywordsTypesAndSubqueriesInsideCalls(string sql)
+        => Assert.Empty(SqlSargabilityAnalyzer.Analyze(sql));
+
+    [Fact]
+    public void Analyze_ReportsAColumnUnderAnUnknownFunctionAndTheSubqueriesInsideAReportedCall()
+    {
+        var findings = SqlSargabilityAnalyzer.Analyze(
+            "SELECT * FROM t WHERE LOWER(my_unknown(Name)) = 'x' AND COALESCE((SELECT MAX(v) FROM u WHERE TRIM(u.Code) = 'a'), Seen) > 0 " +
+            "AND ABS(CASE WHEN Flag = 1 THEN Latency ELSE 0 END) > 5 AND Id = 1 AND (Name) COLLATE NOCASE = @p");
+
+        Assert.Equal(
+            new[] { "(Name) COLLATE NOCASE", "ABS(CASE WHEN Flag = 1 THEN Latency ELSE 0 END)", "COALESCE((SELECT MAX(v) FROM u WHERE TRIM(u.Code) = 'a'), Seen)", "LOWER(my_unknown(Name))", "TRIM(u.Code)" },
+            findings.Select(f => f.Text).OrderBy(t => t, StringComparer.Ordinal));
     }
 
     [Theory]
