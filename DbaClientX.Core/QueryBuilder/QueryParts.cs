@@ -32,7 +32,7 @@ internal sealed record RawBetweenToken(string Expression, object Start, object E
 
 internal sealed record RawNotBetweenToken(string Expression, object Start, object End) : IWhereToken;
 
-internal sealed record ContainsToken(string Expression, bool IsRaw, string Text, bool CaseInsensitive) : IWhereToken;
+internal sealed record ContainsToken(string Expression, bool IsRaw, string Text, TextFolding Folding) : IWhereToken;
 
 internal static class QueryComparisonOperator
 {

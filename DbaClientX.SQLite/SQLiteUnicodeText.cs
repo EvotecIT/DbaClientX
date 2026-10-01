@@ -13,7 +13,7 @@ namespace DBAClientX;
 /// Register it on each connection, typically through <see cref="SQLite.ConfigureConnection"/>:
 /// <c>new SQLite { ConfigureConnection = c =&gt; SQLiteUnicodeText.Register(c) }</c>. Then
 /// <c>dbx_lower(Name) = dbx_lower(@p)</c> compares without case, <c>ORDER BY Name COLLATE DBX_NOCASE</c> sorts without
-/// case, and <c>WhereContainsRaw("dbx_lower(Name)", text.ToLowerInvariant())</c> searches without case. The functions
+/// case, and <c>WhereContains("Name", text, TextFolding.Invariant)</c> searches without case. The functions
 /// run in .NET for every row they read, so they cost more than the built-ins on large scans. The collation compares the
 /// stored UTF-8 bytes in place and allocates nothing per comparison (on .NET Framework and .NET Standard builds, text
 /// with characters outside the Basic Multilingual Plane still allocates): a sort of 1,000,000 short texts took about

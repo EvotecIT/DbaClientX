@@ -213,7 +213,7 @@ public partial class QueryCompiler
                         sb.Append("WNG(").Append('|');
                         break;
                     case ContainsToken contains:
-                        sb.Append(contains.IsRaw ? "WCTR:" : "WCTI:").Append(contains.CaseInsensitive ? 'I' : 'S').Append(':');
+                        sb.Append(contains.IsRaw ? "WCTR:" : "WCTI:").Append(contains.Folding switch { TextFolding.Database => 'I', TextFolding.Invariant => 'U', _ => 'S' }).Append(':');
                         AppendCacheText(sb, contains.Expression);
                         sb.Append(":P|");
                         break;

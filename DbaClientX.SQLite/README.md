@@ -129,7 +129,7 @@ var query = new Query().Select("Id", "Name").From("Hosts");
 if (SQLiteTrigramSearch.CanMatch(text))
     query.WhereInRaw(SqlIdentifier.Quote(SqlDialect.SQLite, "Id"), SQLiteTrigramSearch.MatchingKeys("HostsSearch", text));
 else
-    query.WhereContains("Name", text, caseInsensitive: true);
+    query.WhereContains("Name", text, TextFolding.Invariant); // needs SQLiteUnicodeText registered, as above
 ```
 
 Read-only streaming, with the running statement interrupted when the token is canceled:

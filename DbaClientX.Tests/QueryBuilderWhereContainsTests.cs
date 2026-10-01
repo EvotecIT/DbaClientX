@@ -52,11 +52,44 @@ public sealed class QueryBuilderWhereContainsTests
         var sensitive = compiler.CompileWithParameters(new Query().From("t").WhereContains("Name", "a"));
         var insensitive = compiler.CompileWithParameters(new Query().From("t").WhereContains("Name", "a", caseInsensitive: true));
         var raw = compiler.CompileWithParameters(new Query().From("t").OrWhereContainsRaw("lower(Name)", "a"));
+        var invariant = compiler.CompileWithParameters(new Query().From("t").WhereContains("Name", "ŻÓ", TextFolding.Invariant));
+        var invariantAgain = compiler.CompileWithParameters(new Query().From("t").WhereContains("Name", "ĄB", TextFolding.Invariant));
 
         Assert.Equal("SELECT * FROM \"t\" WHERE instr(\"Name\", @p0) > 0", sensitive.Sql);
         Assert.Equal("SELECT * FROM \"t\" WHERE instr(lower(\"Name\"), lower(@p0)) > 0", insensitive.Sql);
         Assert.Equal("SELECT * FROM \"t\" WHERE instr(lower(Name), @p0) > 0", raw.Sql);
+        Assert.Equal("SELECT * FROM \"t\" WHERE instr(dbx_lower(\"Name\"), @p0) > 0", invariant.Sql);
         Assert.Equal(new object[] { "a" }, insensitive.Parameters);
+        Assert.Equal(new object[] { "żó" }, invariant.Parameters);
+        Assert.Equal(new object[] { "ąb" }, invariantAgain.Parameters);
+    }
+
+    [Fact]
+    public void WhereContains_InvariantFolding_FoldsTheTextInDotNetForEveryOverloadAndLiterals()
+    {
+        var query = new Query().From("t").WhereContainsRaw("Owner", "X", TextFolding.Invariant)
+            .OrWhereContains("Name", "Ż'", TextFolding.Invariant).OrWhereContainsRaw("Code", "Ą", TextFolding.Database);
+
+        var (sql, parameters) = query.CompileWithParameters(SqlDialect.SQLite);
+        var literal = query.Compile(SqlDialect.SQLite);
+
+        Assert.Equal("SELECT * FROM \"t\" WHERE instr(dbx_lower(Owner), @p0) > 0 OR instr(dbx_lower(\"Name\"), @p1) > 0 OR instr(lower(Code), lower(@p2)) > 0", sql);
+        Assert.Equal(new object[] { "x", "ż'", "Ą" }, parameters);
+        Assert.Equal("SELECT * FROM \"t\" WHERE instr(dbx_lower(Owner), 'x') > 0 OR instr(dbx_lower(\"Name\"), 'ż''') > 0 OR instr(lower(Code), lower('Ą')) > 0", literal);
+    }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer)]
+    [InlineData(SqlDialect.PostgreSql)]
+    [InlineData(SqlDialect.MySql)]
+    [InlineData(SqlDialect.Oracle)]
+    public void WhereContains_InvariantFoldingOutsideSqlite_IsNotSupported(SqlDialect dialect)
+    {
+        var query = new Query().From("t").WhereContains("Name", "a", TextFolding.Invariant);
+
+        Assert.Throws<NotSupportedException>(() => query.CompileWithParameters(dialect));
+        Assert.Throws<NotSupportedException>(() => query.Compile(dialect));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Query().WhereContains("Name", "a", (TextFolding)7));
     }
 
     [Fact]
@@ -76,14 +109,15 @@ public sealed class QueryBuilderWhereContainsTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task WhereContains_MatchesLikeTheEngineInSqlite(bool caseInsensitive)
+    [InlineData(TextFolding.None)]
+    [InlineData(TextFolding.Database)]
+    [InlineData(TextFolding.Invariant)]
+    public async Task WhereContains_MatchesLikeTheEngineInSqlite(TextFolding folding)
     {
         var path = Path.Combine(Path.GetTempPath(), "dbx-contains-" + Guid.NewGuid().ToString("N") + ".db");
         try
         {
-            using var sqlite = new DBAClientX.SQLite();
+            using var sqlite = new DBAClientX.SQLite { ConfigureConnection = DBAClientX.SQLiteUnicodeText.Register };
             sqlite.ExecuteNonQuery(path, "CREATE TABLE t (Id INTEGER PRIMARY KEY, Name TEXT)");
             for (var i = 0; i < Values.Length; i++)
             {
@@ -93,14 +127,19 @@ public sealed class QueryBuilderWhereContainsTests
             sqlite.ExecuteNonQuery(path, "INSERT INTO t VALUES (100, NULL)");
             foreach (var needle in SqliteNeedles)
             {
-                var (sql, parameters) = new Query().Select("Id").From("t").WhereContains("Name", needle, caseInsensitive).OrderBy("Id")
+                var (sql, parameters) = new Query().Select("Id").From("t").WhereContains("Name", needle, folding).OrderBy("Id")
                     .CompileWithNamedParameters(SqlDialect.SQLite);
                 var actual = await sqlite.QueryReadOnlyAsListAsync(path, sql, reader => (int)reader.GetInt64(0), parameters);
 
-                // SQLite's lower() folds ASCII letters only.
-                static string Fold(string value) => new string(value.Select(c => c < 128 ? char.ToLowerInvariant(c) : c).ToArray());
+                // SQLite's lower() folds ASCII letters only; dbx_lower() folds as .NET does.
+                Func<string, string> fold = folding switch
+                {
+                    TextFolding.Database => value => new string(value.Select(c => c < 128 ? char.ToLowerInvariant(c) : c).ToArray()),
+                    TextFolding.Invariant => value => value.ToLowerInvariant(),
+                    _ => value => value
+                };
                 var expected = Enumerable.Range(0, Values.Length)
-                    .Where(i => caseInsensitive ? Fold(Values[i]).Contains(Fold(needle), StringComparison.Ordinal) : Values[i].Contains(needle, StringComparison.Ordinal))
+                    .Where(i => fold(Values[i]).Contains(fold(needle), StringComparison.Ordinal))
                     .ToArray();
                 Assert.True(expected.SequenceEqual(actual), $"Needle '{needle}': expected [{string.Join(",", expected)}], got [{string.Join(",", actual)}].");
             }
