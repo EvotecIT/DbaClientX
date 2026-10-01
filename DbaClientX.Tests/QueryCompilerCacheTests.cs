@@ -105,6 +105,42 @@ public class QueryCompilerCacheTests
     }
 
     [Fact]
+    public void CacheIsBoundedInCharacters()
+    {
+        QueryCompiler.ClearCache();
+        var compiler = new QueryCompiler(SqlDialect.SqlServer);
+        // Each statement is about 10,000 characters of key and SQL: a thousand of them would hold 10 million.
+        var filler = new string('x', 5000);
+        for (var i = 0; i < 1000; i++)
+        {
+            compiler.CompileWithParameters(new Query().From("t").WhereRaw($"'{filler}{i}' <> ''", "=", 1));
+            Assert.True(QueryCompiler.CacheCharacterCount <= QueryCompiler.CacheCharacterLimit, $"Cache holds {QueryCompiler.CacheCharacterCount} characters.");
+        }
+
+        Assert.InRange(QueryCompiler.CacheCount, 1, QueryCompiler.CacheCharacterLimit / 10000);
+        QueryCompiler.ClearCache();
+        Assert.Equal(0, QueryCompiler.CacheCount);
+        Assert.Equal(0, QueryCompiler.CacheCharacterCount);
+    }
+
+    [Fact]
+    public void StatementAboveTheEntryLimit_IsCompiledButNotCached()
+    {
+        QueryCompiler.ClearCache();
+        var compiler = new QueryCompiler(SqlDialect.PostgreSql);
+        var values = Enumerable.Range(0, 3000).Cast<object>().ToArray();
+
+        var (first, firstParameters) = compiler.CompileWithParameters(new Query().From("t").WhereIn("id", values));
+        var (second, _) = compiler.CompileWithParameters(new Query().From("t").WhereIn("id", values));
+
+        Assert.True(first.Length > QueryCompiler.CacheEntryCharacterLimit);
+        Assert.Equal(first, second);
+        Assert.Equal(3000, firstParameters.Count);
+        Assert.Equal(0, QueryCompiler.CacheCount);
+        Assert.Equal(0, QueryCompiler.CacheCharacterCount);
+    }
+
+    [Fact]
     public void Compile_DoesNotReuseLiteralSqlAcrossDifferentValues()
     {
         QueryCompiler.ClearCache();

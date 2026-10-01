@@ -14,8 +14,11 @@ public partial class QueryCompiler
     private readonly SqlDialect _dialect;
 
     private const int MaxCacheSize = 1000;
+    private const int MaxCacheCharacters = 4 * 1024 * 1024;
+    private const int MaxCacheEntryCharacters = 16 * 1024;
     private static readonly ConcurrentDictionary<string, string> _cache = new();
     private static readonly ConcurrentQueue<string> _cacheOrder = new();
+    private static long _cacheCharacters;
 
     /// <summary>
     /// Gets the maximum number of compiled statements stored in the shared cache.
@@ -23,17 +26,38 @@ public partial class QueryCompiler
     public static int CacheSizeLimit => MaxCacheSize;
 
     /// <summary>
+    /// Gets the maximum number of characters (cache keys plus compiled SQL) the shared cache holds, about 8 MB.
+    /// </summary>
+    /// <remarks>After a statement is added, the oldest statements are evicted until the cache is within the limit.</remarks>
+    public static int CacheCharacterLimit => MaxCacheCharacters;
+
+    /// <summary>
+    /// Gets the largest statement, in characters of cache key plus compiled SQL, that is cached. Larger statements
+    /// (for example long <c>IN</c> lists or raw SQL) are compiled every time.
+    /// </summary>
+    public static int CacheEntryCharacterLimit => MaxCacheEntryCharacters;
+
+    /// <summary>
     /// Gets the current number of cached statements.
     /// </summary>
     public static int CacheCount => _cache.Count;
+
+    /// <summary>
+    /// Gets the characters (cache keys plus compiled SQL) the cached statements hold.
+    /// </summary>
+    public static long CacheCharacterCount => Interlocked.Read(ref _cacheCharacters);
 
     /// <summary>
     /// Clears all cached compiled statements.
     /// </summary>
     public static void ClearCache()
     {
-        _cache.Clear();
-        while (_cacheOrder.TryDequeue(out _)) { }
+        // Remove through the queue so the character count stays exact; a statement being added concurrently is
+        // enqueued after it is stored and evicted later like any other.
+        while (_cacheOrder.TryDequeue(out var key))
+        {
+            RemoveFromCache(key);
+        }
     }
 
     /// <summary>
@@ -78,15 +102,31 @@ public partial class QueryCompiler
         return (sql, parameters);
     }
 
-    private void AddToCache(string key, string sql)
+    private static void AddToCache(string key, string sql)
     {
+        long size = (long)key.Length + sql.Length;
+        if (size > MaxCacheEntryCharacters)
+        {
+            return;
+        }
+
         if (_cache.TryAdd(key, sql))
         {
+            Interlocked.Add(ref _cacheCharacters, size);
             _cacheOrder.Enqueue(key);
-            while (_cache.Count > MaxCacheSize && _cacheOrder.TryDequeue(out var old))
+            while ((_cache.Count > MaxCacheSize || Interlocked.Read(ref _cacheCharacters) > MaxCacheCharacters) &&
+                   _cacheOrder.TryDequeue(out var old))
             {
-                _cache.TryRemove(old, out _);
+                RemoveFromCache(old);
             }
+        }
+    }
+
+    private static void RemoveFromCache(string key)
+    {
+        if (_cache.TryRemove(key, out var sql))
+        {
+            Interlocked.Add(ref _cacheCharacters, -((long)key.Length + sql.Length));
         }
     }
 
