@@ -62,7 +62,7 @@ public partial class SQLite
         SqliteBackupOptions? options = null,
         IProgress<SqliteBackupProgress>? progress = null,
         CancellationToken cancellationToken = default)
-        => StartBackup(sourceDatabase, destinationDatabase, options, progress, holdSourceSnapshot: false, cancellationToken);
+        => StartBackup(sourceDatabase, destinationDatabase, SqliteBackupMethod.Incremental, options, progress, cancellationToken);
 
     /// <summary>
     /// Copies a consistent snapshot of an SQLite database on a dedicated thread using SQLite's online backup API: the
@@ -96,18 +96,19 @@ public partial class SQLite
         SqliteBackupOptions? options = null,
         IProgress<SqliteBackupProgress>? progress = null,
         CancellationToken cancellationToken = default)
-        => StartBackup(sourceDatabase, destinationDatabase, options, progress, holdSourceSnapshot: true, cancellationToken);
+        => StartBackup(sourceDatabase, destinationDatabase, SqliteBackupMethod.Snapshot, options, progress, cancellationToken);
 
     private Task<SqliteBackupResult> StartBackup(
         string sourceDatabase,
         string destinationDatabase,
+        SqliteBackupMethod method,
         SqliteBackupOptions? options,
         IProgress<SqliteBackupProgress>? progress,
-        bool holdSourceSnapshot,
         CancellationToken cancellationToken)
     {
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
+        ValidateBackupMethod(method);
         EnsureNoActiveTransaction();
         SqliteBackupOptions effectiveOptions = SnapshotBackupOptions(options);
         ValidateBackupOptions(effectiveOptions);
@@ -116,9 +117,9 @@ public partial class SQLite
             () => BackupDatabaseCore(
                 sourceDatabase,
                 destinationDatabase,
+                method,
                 effectiveOptions,
                 progress,
-                holdSourceSnapshot,
                 cancellationToken),
             cancellationToken);
     }
@@ -189,9 +190,9 @@ public partial class SQLite
     private SqliteBackupResult BackupDatabaseCore(
         string sourceDatabase,
         string destinationDatabase,
+        SqliteBackupMethod method,
         SqliteBackupOptions options,
         IProgress<SqliteBackupProgress>? progress,
-        bool holdSourceSnapshot,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -205,6 +206,8 @@ public partial class SQLite
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {sourcePath}", sourcePath);
         }
+        SqliteBackupMethod effectiveMethod = ResolveBackupMethod(method, sourcePath);
+        bool holdSourceSnapshot = effectiveMethod == SqliteBackupMethod.Snapshot;
 
         string? destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrWhiteSpace(destinationDirectory))
@@ -337,7 +340,8 @@ public partial class SQLite
                 DestinationDatabase = destinationPath,
                 CopiedPages = totalPages,
                 DestinationLengthBytes = new FileInfo(destinationPath).Length,
-                Elapsed = stopwatch.Elapsed
+                Elapsed = stopwatch.Elapsed,
+                Method = effectiveMethod
             };
         }
         catch (SqliteException ex) when (

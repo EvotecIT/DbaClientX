@@ -110,26 +110,33 @@ var sq = new DBAClientX.SQLite();
 sq.BackupDatabase("app.db", "backups/app.db");
 ```
 
-Backup of a WAL database that is being written (a service's live store):
+Backup of a database that may be written meanwhile (a service's live store), with progress and cancellation:
 
 ```csharp
 var sq = new DBAClientX.SQLite();
-SqliteBackupResult result = await sq.BackupDatabaseSnapshotAsync(
+SqliteBackupResult result = await sq.BackupDatabaseAsync(
     "app.db",
     "backups/app.db",
+    SqliteBackupMethod.Auto,
     new SqliteBackupOptions { OverwriteDestination = true, PagesPerStep = 4096 },
     progress: new Progress<SqliteBackupProgress>(p => Console.WriteLine($"{p.PercentComplete:F0}%")),
     cancellationToken);
+// result.Method is Snapshot for a WAL database and Incremental otherwise.
 ```
 
-`BackupDatabaseSnapshotAsync` copies the database as it was when the backup started and completes while other
-connections write. While it runs, the WAL keeps what is written meanwhile, and a `FULL`, `RESTART` or `TRUNCATE`
-checkpoint waits for it (for the checkpointing connection's busy timeout, with writers waiting behind the checkpoint).
-`BackupDatabaseIncrementalAsync` (and `BackupDatabase`) release the source between steps, but every change by another
-connection restarts the copy: use them for a database in rollback-journal mode (where the snapshot is a shared lock
-that keeps writers from committing until the copy ends), when writes pause long enough for a whole copy, or for a
-database that is not being written. A rollback-journal database that is written continuously needs WAL mode to be
-backed up online.
+`BackupDatabase` and `BackupDatabaseAsync` with `SqliteBackupMethod.Auto` copy a WAL database as a snapshot
+(`BackupDatabaseSnapshotAsync`) and any other database step-wise (`BackupDatabaseIncrementalAsync`), reading the journal
+mode from the database file header. The snapshot copy holds the database as it was when the backup started and
+completes while other connections write. While it runs, the WAL keeps what is written meanwhile, and a `FULL`,
+`RESTART` or `TRUNCATE` checkpoint waits for it (for the checkpointing connection's busy timeout, with writers waiting
+behind the checkpoint). The step-wise copy releases the source between steps, but every change by another connection
+restarts it: it suits a database in rollback-journal mode (where a snapshot is a shared lock that keeps writers from
+committing until the copy ends), writes that pause long enough for a whole copy, or a database that is not being
+written. Pass `SqliteBackupMethod.Snapshot` or `Incremental` to choose. A rollback-journal database that is written
+continuously needs WAL mode to be backed up online.
+
+PowerShell: `Invoke-DbaXSQLiteMaintenance -Database app.db -Action Backup -Destination backups\app.db` uses the same
+choice (`-BackupMethod Auto|Snapshot|Incremental`), shows progress and stops the copy on Ctrl+C.
 
 Unicode case-insensitive search and sort (SQLite's own `lower()`, `LIKE` and `NOCASE` fold ASCII only):
 

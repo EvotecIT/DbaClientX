@@ -25,6 +25,15 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
     [Parameter(Mandatory = false)]
     public string? Destination { get; set; }
 
+    /// <summary>
+    /// How the Backup action reads the source. Auto (the default) copies a WAL database as a held snapshot, which
+    /// completes while other connections write, and any other database step-wise. Snapshot always holds one read
+    /// transaction across the copy (in rollback-journal mode writers wait until it ends). Incremental releases the
+    /// source between steps, so writers never wait for more than one step, but every write restarts the copy.
+    /// </summary>
+    [Parameter(Mandatory = false)]
+    public SqliteBackupMethod BackupMethod { get; set; } = SqliteBackupMethod.Auto;
+
     /// <summary>Checkpoint mode used by Checkpoint and PrepareForShutdown.</summary>
     [Parameter(Mandatory = false)]
     public SqliteCheckpointMode CheckpointMode { get; set; } = SqliteCheckpointMode.Truncate;
@@ -58,6 +67,13 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
 
         if (Action == DbaXSQLiteMaintenanceAction.Backup)
         {
+            if (BusyTimeoutMs == 0)
+            {
+                throw new PSArgumentException(
+                    "BusyTimeoutMs must be positive for SQLite backup maintenance; omit it to use the default busy deadline.",
+                    nameof(BusyTimeoutMs));
+            }
+
             destination = DbaXProviderHelpers.GetSQLiteDatabasePath(Destination!, "SQLite backup destination");
         }
 
@@ -67,10 +83,11 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
         }
 
         using var client = new DBAClientX.SQLite();
+        SqliteBackupResult? backup = null;
         switch (Action)
         {
             case DbaXSQLiteMaintenanceAction.Backup:
-                client.BackupDatabase(database, destination!, BusyTimeoutMs);
+                backup = await BackupAsync(client, database, destination!).ConfigureAwait(false);
                 break;
             case DbaXSQLiteMaintenanceAction.Checkpoint:
                 await client.CheckpointAsync(database, CheckpointMode, CancelToken, BusyTimeoutMs).ConfigureAwait(false);
@@ -92,13 +109,91 @@ public sealed class CmdletInvokeDbaXSQLiteMaintenance : AsyncPSCmdlet
 
         if (PassThru.IsPresent)
         {
-            WriteObject(new PSObject(new
+            var completion = new PSObject(new
             {
                 Database = database,
                 Action,
                 Completed = true,
                 CompletedAt = DateTimeOffset.UtcNow
-            }));
+            });
+            if (backup != null)
+            {
+                completion.Properties.Add(new PSNoteProperty("Destination", backup.DestinationDatabase));
+                completion.Properties.Add(new PSNoteProperty("BackupMethod", backup.Method));
+                completion.Properties.Add(new PSNoteProperty("CopiedPages", backup.CopiedPages));
+                completion.Properties.Add(new PSNoteProperty("DestinationLengthBytes", backup.DestinationLengthBytes));
+                completion.Properties.Add(new PSNoteProperty("Elapsed", backup.Elapsed));
+            }
+
+            WriteObject(completion);
         }
+    }
+
+    private async Task<SqliteBackupResult> BackupAsync(DBAClientX.SQLite client, string database, string destination)
+    {
+        var options = new SqliteBackupOptions();
+        if (BusyTimeoutMs.HasValue)
+        {
+            options.BusyRetryTimeout = TimeSpan.FromMilliseconds(BusyTimeoutMs.Value);
+        }
+
+        var progress = new BackupProgressWriter(this, database);
+        SqliteBackupResult result = await client.BackupDatabaseAsync(
+                database,
+                destination,
+                BackupMethod,
+                options,
+                progress,
+                CancelToken)
+            .ConfigureAwait(false);
+        progress.Complete();
+        return result;
+    }
+
+    /// <summary>
+    /// Writes backup progress as it is reported from the backup thread: when the whole percent changes, at most every
+    /// 200 ms (and always for 100%), so neither a long copy nor a step-wise copy that keeps restarting floods the host
+    /// (Windows PowerShell 5.1 renders every progress record).
+    /// </summary>
+    private sealed class BackupProgressWriter : IProgress<SqliteBackupProgress>
+    {
+        private const int ActivityId = 4;
+        private static readonly TimeSpan MinimumInterval = TimeSpan.FromMilliseconds(200);
+        private readonly CmdletInvokeDbaXSQLiteMaintenance _cmdlet;
+        private readonly string _activity;
+        private readonly System.Diagnostics.Stopwatch _sinceLastRecord = new();
+        private int _lastPercent = -1;
+
+        internal BackupProgressWriter(CmdletInvokeDbaXSQLiteMaintenance cmdlet, string database)
+        {
+            _cmdlet = cmdlet;
+            _activity = $"Backing up {Path.GetFileName(database)}";
+        }
+
+        public void Report(SqliteBackupProgress value)
+        {
+            int percent = Math.Min(100, Math.Max(0, (int)value.PercentComplete));
+            if (percent == _lastPercent ||
+                (percent < 100 && _sinceLastRecord.IsRunning && _sinceLastRecord.Elapsed < MinimumInterval))
+            {
+                return;
+            }
+
+            _lastPercent = percent;
+            _sinceLastRecord.Restart();
+            _cmdlet.WriteProgress(new ProgressRecord(
+                ActivityId,
+                _activity,
+                $"{value.CopiedPages} of {value.TotalPages} page(s) copied")
+            {
+                PercentComplete = percent
+            });
+        }
+
+        internal void Complete()
+            => _cmdlet.WriteProgress(new ProgressRecord(ActivityId, _activity, "Complete")
+            {
+                RecordType = ProgressRecordType.Completed
+            });
     }
 }
