@@ -120,7 +120,10 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     public async Task ExplainQueryPlanAsync_RejectsSeveralStatements()
     {
         await Assert.ThrowsAsync<ArgumentException>(() => _sqlite.ExplainQueryPlanAsync(_database, "SELECT 1; CREATE TEMP TABLE x (a)"));
-        var plan = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT ';' AS semicolon; -- trailing comment");
+        await Assert.ThrowsAsync<ArgumentException>(() => _sqlite.ExplainQueryPlanAsync(_database, "SELECT $a$; SELECT 1; SELECT $a$"));
+        await Assert.ThrowsAsync<ArgumentException>(() => _sqlite.ExplainQueryPlanAsync(_database, "-- nothing to explain\n;"));
+        await Assert.ThrowsAsync<ArgumentException>(() => _sqlite.ExplainQueryPlanAsync(_database, "/* c */ EXPLAIN SELECT 1"));
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database, ";SELECT ';' AS semicolon; -- trailing comment");
         Assert.NotNull(plan);
     }
 

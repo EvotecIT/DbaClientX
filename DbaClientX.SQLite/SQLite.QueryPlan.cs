@@ -21,7 +21,8 @@ public partial class SQLite
     /// value of the right type): SQLite plans the statement as it will run.</param>
     /// <param name="cancellationToken">Stops the work.</param>
     /// <returns>The plan, for <see cref="QueryPlanAssert"/> or inspection.</returns>
-    /// <exception cref="ArgumentException">The text holds more than one statement or starts with <c>EXPLAIN</c>.</exception>
+    /// <exception cref="ArgumentException">The text holds no statement or more than one (<see cref="SqlStatementText.Split(string)"/>),
+    /// or starts with <c>EXPLAIN</c>.</exception>
     /// <exception cref="NotSupportedException">The SQLite library is older than 3.24, whose plan rows this API does not read.</exception>
     /// <remarks>
     /// Needs SQLite 3.24 or later (the bundled library is newer). Connections opened for it run
@@ -37,12 +38,17 @@ public partial class SQLite
         CancellationToken cancellationToken = default)
     {
         ValidateCommandText(query);
-        if (!SqlStatementText.IsSingleStatement(query))
+        var statements = SqlStatementText.Split(query);
+        if (statements.Count != 1)
         {
-            throw new ArgumentException("Explain one statement at a time; the text holds more than one.", nameof(query));
+            throw new ArgumentException(
+                statements.Count == 0 ? "The text holds no statement to explain." : "Explain one statement at a time; the text holds more than one.",
+                nameof(query));
         }
 
-        if (query.TrimStart().StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
+        // Explain the statement without the semicolons and comments around it.
+        var statement = statements[0];
+        if (statement.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Pass the statement without EXPLAIN.", nameof(query));
         }
@@ -55,7 +61,7 @@ public partial class SQLite
 
         var rows = await QueryReadOnlyAsListAsync(
             database,
-            "EXPLAIN QUERY PLAN " + query,
+            "EXPLAIN QUERY PLAN " + statement,
             reader => (reader.GetInt32(0), reader.GetInt32(1), reader.GetString(3)),
             parameters,
             cancellationToken).ConfigureAwait(false);
