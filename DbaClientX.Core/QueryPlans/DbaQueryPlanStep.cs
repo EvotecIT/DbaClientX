@@ -90,10 +90,17 @@ public sealed class DbaQueryPlanStep
     public long? TableRows { get; }
 
     /// <summary>
-    /// Gets how many conditions the step's index search applies (<c>(a=? AND b&gt;?)</c> is two), when the provider tells;
-    /// rules compare it with the conditions of the statement to know whether the index serves them all.
+    /// Gets the columns the step's index search constrains with their operators (<c>(a=? AND b&gt;?)</c> gives
+    /// <c>a =</c> and <c>b &gt;</c>; the rowid also under its alias column's name), when the provider tells; rules compare
+    /// them with the conditions of the statement to know whether the index serves them.
     /// </summary>
-    internal int? IndexConstraintCount { get; private set; }
+    internal IReadOnlyList<(string Column, string Operator)>? IndexConstraintColumns { get; private set; }
+
+    /// <summary>
+    /// Gets, for each key column of the step's index, the average rows that share one value of the key up to and
+    /// including that column, from the statistics; null when not known.
+    /// </summary>
+    internal IReadOnlyList<(string Column, long Rows)>? IndexRowsPerKey { get; private set; }
 
     /// <summary>Returns a copy of this step with another table, alias, operation and estimate.</summary>
     internal DbaQueryPlanStep With(
@@ -103,10 +110,12 @@ public sealed class DbaQueryPlanStep
         long? estimatedRows,
         long? tableRows,
         bool? isOpenEndedRange = null,
-        int? indexConstraintCount = null)
+        IReadOnlyList<(string Column, string Operator)>? indexConstraintColumns = null,
+        IReadOnlyList<(string Column, long Rows)>? indexRowsPerKey = null)
         => new(Id, ParentId, Detail, operation, table, Index, IsCoveringIndex, TempBTreePurpose, alias, isOpenEndedRange ?? IsOpenEndedRange, estimatedRows, tableRows)
         {
-            IndexConstraintCount = indexConstraintCount ?? IndexConstraintCount
+            IndexConstraintColumns = indexConstraintColumns ?? IndexConstraintColumns,
+            IndexRowsPerKey = indexRowsPerKey ?? IndexRowsPerKey
         };
 
     /// <inheritdoc />

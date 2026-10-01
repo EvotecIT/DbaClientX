@@ -32,19 +32,88 @@ internal static class SqliteQueryPlanEstimates
             }
 
             long? tableRows = TableRows(statistics, step.Table);
-            var constraints = SqliteQueryPlanParser.Constraints(step.Detail).Count;
+            var constrained = await ConstraintColumnsAsync(client, database, step, cancellationToken).ConfigureAwait(false);
             if (await IsIndexEndLookupAsync(client, database, step, lookups, cancellationToken).ConfigureAwait(false))
             {
-                steps.Add(step.With(step.Table, step.Alias, DbaQueryPlanOperation.Search, 1, tableRows, isOpenEndedRange: false, indexConstraintCount: constraints));
+                steps.Add(step.With(step.Table, step.Alias, DbaQueryPlanOperation.Search, 1, tableRows, isOpenEndedRange: false, indexConstraintColumns: constrained));
                 continue;
             }
 
             long? rows = step.Operation == DbaQueryPlanOperation.Scan ? tableRows : SearchRows(statistics, step);
-            steps.Add(step.With(step.Table, step.Alias, step.Operation, rows, tableRows, indexConstraintCount: constraints));
+            var rowsPerKey = step.Operation == DbaQueryPlanOperation.Search
+                ? await RowsPerKeyAsync(client, database, statistics, step, cancellationToken).ConfigureAwait(false)
+                : null;
+            steps.Add(step.With(step.Table, step.Alias, step.Operation, rows, tableRows, indexConstraintColumns: constrained, indexRowsPerKey: rowsPerKey));
         }
 
         return new DbaQueryPlan(plan.Sql, steps);
     }
+
+    /// <summary>
+    /// The columns a step's index search constrains, from its constraint list (a row value <c>(a,b)&gt;(?,?)</c> gives both);
+    /// a rowid constraint also under the rowid alias column's name, as statements name it.
+    /// </summary>
+    private static async Task<IReadOnlyList<(string Column, string Operator)>> ConstraintColumnsAsync(SQLite client, string database, DbaQueryPlanStep step, CancellationToken cancellationToken)
+    {
+        var columns = new List<(string Column, string Operator)>();
+        foreach (var (column, op) in SqliteQueryPlanParser.Constraints(step.Detail))
+        {
+            columns.AddRange(column.Trim('(', ')').Split(',').Select(part => part.Trim()).Where(part => part.Length > 0).Select(part => (part, op)));
+        }
+
+        var rowId = columns.Where(column => RowIdNames.Contains(column.Column, StringComparer.OrdinalIgnoreCase)).ToArray();
+        if (rowId.Length > 0)
+        {
+            // A secondary index ends with the rowid too: (Status=? AND rowid>?).
+            var key = await KeyAsync(client, database, RowIdRead(step), cancellationToken).ConfigureAwait(false);
+            if (key.Alias != null)
+            {
+                // A table column named rowid (or oid) is not the rowid; its constraint is that column's.
+                columns.AddRange(rowId.Where(column => !(key.UserColumns?.Contains(column.Column) ?? false)).Select(column => (key.Alias, column.Operator)));
+            }
+        }
+
+        return columns;
+    }
+
+    /// <summary>
+    /// For each key column of a search's index, the rows sharing one value of the key up to that column, from the
+    /// statistics (the rowid is unique); null without statistics for the index.
+    /// </summary>
+    private static async Task<IReadOnlyList<(string Column, long Rows)>?> RowsPerKeyAsync(
+        SQLite client,
+        string database,
+        IReadOnlyList<SqlitePlannerStatistics> statistics,
+        DbaQueryPlanStep step,
+        CancellationToken cancellationToken)
+    {
+        if (step.Index == null)
+        {
+            return null;
+        }
+
+        if (string.Equals(step.Index, "INTEGER PRIMARY KEY", StringComparison.Ordinal))
+        {
+            var rowId = await KeyAsync(client, database, step, cancellationToken).ConfigureAwait(false);
+            return rowId.Columns.Select(column => (column.Name, 1L)).ToArray();
+        }
+
+        string? index = string.Equals(step.Index, "PRIMARY KEY", StringComparison.Ordinal) ? step.Table : step.Index;
+        SqlitePlannerStatistics? row = statistics.FirstOrDefault(candidate =>
+            string.Equals(candidate.Table, step.Table, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(candidate.Index, index, StringComparison.OrdinalIgnoreCase));
+        if (row == null)
+        {
+            return null;
+        }
+
+        var key = await KeyAsync(client, database, step, cancellationToken).ConfigureAwait(false);
+        return key.Columns.Take(row.RowsPerKey.Count).Select((column, position) => (column.Name, row.RowsPerKey[position])).ToArray();
+    }
+
+    /// <summary>A step that reads the same table by its rowid, to look up the rowid alias column.</summary>
+    private static DbaQueryPlanStep RowIdRead(DbaQueryPlanStep step)
+        => new(step.Id, step.ParentId, step.Detail, step.Operation, step.Table, "INTEGER PRIMARY KEY");
 
     /// <summary>The table's rows: its table row, or its largest index (a partial index holds fewer entries).</summary>
     private static long? TableRows(IReadOnlyList<SqlitePlannerStatistics> statistics, string table)

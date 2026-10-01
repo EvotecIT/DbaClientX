@@ -108,7 +108,7 @@ public static class QueryPlanAssert
     {
         var wide = (step.EstimatedRows is { } rows && step.TableRows is > 0 && rows > rules.WideSearchFraction * step.TableRows.Value) ||
                    step.IsOpenEndedRange;
-        return wide && !IsStoppedByLimit(plan, step);
+        return wide && !IsStoppedByLimit(plan, step, rules);
     }
 
     /// <summary>
@@ -117,7 +117,7 @@ public static class QueryPlanAssert
     /// early of its own (<see cref="SqlQueryLevels.HasLimitWhereRead"/>: a <c>LIMIT</c> without an aggregate or
     /// <c>GROUP BY</c>, or an <c>EXISTS</c> subquery).
     /// </summary>
-    private static bool IsStoppedByLimit(DbaQueryPlan plan, DbaQueryPlanStep step)
+    private static bool IsStoppedByLimit(DbaQueryPlan plan, DbaQueryPlanStep step, QueryPlanRules rules)
     {
         var siblings = plan.Steps.Where(other => other.ParentId == step.ParentId).ToArray();
         if (!ReferenceEquals(siblings[0], step))
@@ -125,13 +125,45 @@ public static class QueryPlanAssert
             return false;
         }
 
-        if (siblings.Any(other => other.Operation == DbaQueryPlanOperation.TempBTree && other.TempBTreePurpose != null &&
-                                  (other.TempBTreePurpose.Contains("ORDER BY") || other.TempBTreePurpose.Contains("GROUP BY"))))
+        // A full sort or grouping reads every row first. A sort of the last terms only (RIGHT PART OF ORDER BY, LAST TERM
+        // OF ORDER BY) sorts the rows of each value of the leading ones as they come: cheap, and stopped by the limit, when
+        // the index reads a range of that leading column (few rows per value), not one value of it.
+        var sorts = siblings.Where(other => other.Operation == DbaQueryPlanOperation.TempBTree && other.TempBTreePurpose != null).ToArray();
+        if (sorts.Any(other => other.TempBTreePurpose is "ORDER BY" or "GROUP BY"))
         {
             return false;
         }
 
-        return SqlQueryLevels.HasLimitWhereRead(plan.Sql, step.Table!, nested: step.ParentId != 0, step.IndexConstraintCount);
+        var partialSort = sorts.Any(other => other.TempBTreePurpose!.EndsWith("ORDER BY", StringComparison.Ordinal));
+        return SqlQueryLevels.HasLimitWhereRead(
+            plan.Sql,
+            step.Table!,
+            nested: step.ParentId != 0,
+            step.IndexConstraintColumns,
+            partialSort ? column => SortsFewRowsPerValue(step, column, rules) : null);
+    }
+
+    /// <summary>
+    /// Whether a partial sort by the terms after <paramref name="column"/> sorts few rows at a time: the statistics give
+    /// the index's rows per value of its key up to that column, at most the rules' share of the table (unknown without
+    /// statistics, then assumed small, as for a search).
+    /// </summary>
+    private static bool SortsFewRowsPerValue(DbaQueryPlanStep step, string column, QueryPlanRules rules)
+    {
+        if (step.IndexRowsPerKey == null || step.TableRows is not > 0)
+        {
+            return true;
+        }
+
+        foreach (var (key, rows) in step.IndexRowsPerKey)
+        {
+            if (string.Equals(key, column, StringComparison.OrdinalIgnoreCase))
+            {
+                return rows <= rules.WideSearchFraction * step.TableRows.Value;
+            }
+        }
+
+        return false;
     }
 
     private static IEnumerable<string?> TablesReadWidelyUnder(DbaQueryPlan plan, int parentId, QueryPlanRules rules)

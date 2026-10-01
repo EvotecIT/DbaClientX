@@ -31,9 +31,12 @@ public sealed class QueryPlanRules
     /// A search is wide when the statistics say it reads more than <see cref="WideSearchFraction"/> of the table's rows
     /// (<see cref="DbaQueryPlanStep.EstimatedRows"/>), or when it searches a range bounded on one side only
     /// (<see cref="DbaQueryPlanStep.IsOpenEndedRange"/>), which can read every row; unless a <c>LIMIT</c> stops it: it is
-    /// the first step of its query, nothing sorts or groups the rows first, the query reads that one table, its index
-    /// serves every condition of the <c>WHERE</c>, and the query has a <c>LIMIT</c> of its own without an aggregate or
-    /// <c>GROUP BY</c> (or is an <c>EXISTS</c> subquery). A <c>MIN</c>/<c>MAX</c> that reads one
+    /// the first step of its query, nothing sorts or groups all its rows first (a sort of the last <c>ORDER BY</c> terms
+    /// only while the index reads a range of the first, whose values hold few rows by the statistics), the query reads
+    /// that one table, each term of its <c>WHERE</c> is
+    /// a bare comparison of columns the index search constrains or a keyset seek on the <c>ORDER BY</c> columns that
+    /// names the first while the index reads a range of it, and the query has a <c>LIMIT</c> of its own without an
+    /// aggregate or <c>GROUP BY</c> (or is an <c>EXISTS</c> subquery). A <c>MIN</c>/<c>MAX</c> that reads one
     /// end of an index is a one-row search. <c>col IS NOT NULL</c> prints as a range open on one side, and is reported
     /// even when few rows hold a value.
     /// </summary>

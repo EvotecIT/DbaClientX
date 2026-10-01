@@ -45,10 +45,13 @@ internal static class SqlQueryLevels
     /// <param name="sql">The statement.</param>
     /// <param name="table">The table the plan step reads.</param>
     /// <param name="nested">Whether the plan step is nested (under a subquery or co-routine).</param>
-    /// <param name="indexConstraints">How many conditions the step's index applies. A level counts only when it reads
-    /// one table and its <c>WHERE</c> has exactly that many terms: a condition the index does not serve can make the
-    /// read go on far past the limit, looking for rows that pass it.</param>
-    internal static bool HasLimitWhereRead(string sql, string table, bool nested, int? indexConstraints)
+    /// <param name="indexColumns">The columns the step's index search constrains, with their operators. A level counts
+    /// only when it reads one table and each term of its <c>WHERE</c> is served (see <see cref="ServesEveryCondition"/>):
+    /// another condition can make the read go on far past the limit, looking for rows that pass it.</param>
+    /// <param name="partialSort">Null when the rows come fully ordered; when they are sorted by their last <c>ORDER BY</c>
+    /// terms as they come, tells whether one value of the index key up to a column holds few rows: the index must then
+    /// read a range of the leading <c>ORDER BY</c> column, whose values hold few rows each.</param>
+    internal static bool HasLimitWhereRead(string sql, string table, bool nested, IReadOnlyList<(string Column, string Operator)>? indexColumns, Func<string, bool>? partialSort)
     {
         var tokens = SqlTokenizer.Tokenize(sql);
         var found = false;
@@ -88,7 +91,7 @@ internal static class SqlQueryLevels
 
             found = true;
             var level = LevelAround(tokens, index);
-            if (indexConstraints == null || !StopsEarly(tokens, level) || !ServesEveryCondition(tokens, level, indexConstraints.Value))
+            if (indexColumns == null || !StopsEarly(tokens, level) || !ServesEveryCondition(tokens, level, indexColumns, partialSort))
             {
                 return false;
             }
@@ -331,15 +334,21 @@ internal static class SqlQueryLevels
     }
 
     /// <summary>
-    /// Whether a level reads one table and its <c>WHERE</c> has as many terms as the index applies conditions, so the
-    /// index serves every condition and each row it finds counts toward the limit.
+    /// Whether a level reads one table and every <c>AND</c>-joined term of its <c>WHERE</c> lets each row the index finds
+    /// count toward the limit. Each term must be bare comparisons of columns with values (<c>=</c>, <c>&lt;</c>,
+    /// <c>&gt;</c>, <c>BETWEEN</c>, <c>IS NULL</c>, a one-value <c>IN</c>; no arithmetic, unary sign, <c>NOT</c>, call
+    /// or subquery), and compare only columns the index search constrains, or be a keyset seek: compare only
+    /// <c>ORDER BY</c> columns, the leading one among them, while the index reads a range of that leading column, so the
+    /// seek rejects rows at its boundary only (<c>(Seen &lt; @s) OR (Seen = @s AND Id &gt; @id)</c>). With a partial sort,
+    /// the index must read a range of the leading <c>ORDER BY</c> column too.
     /// </summary>
-    private static bool ServesEveryCondition(IReadOnlyList<SqlToken> tokens, (int Start, int End) level, int indexConstraints)
+    private static bool ServesEveryCondition(IReadOnlyList<SqlToken> tokens, (int Start, int End) level, IReadOnlyList<(string Column, string Operator)> indexColumns, Func<string, bool>? partialSort)
     {
         var sources = 0;
-        var whereTerms = 0;
         var depth = 0;
         var inFromList = false;
+        var where = -1;
+        var orderBy = -1;
         for (var position = level.Start; position < level.End; position++)
         {
             var token = tokens[position];
@@ -360,7 +369,7 @@ internal static class SqlQueryLevels
                 continue;
             }
 
-            if (IsWord(token, "FROM") || IsWord(token, "JOIN") || IsWord(token, "UPDATE"))
+            if ((IsWord(token, "FROM") && !(position > level.Start && IsWord(tokens[position - 1], "DISTINCT"))) || IsWord(token, "JOIN") || IsWord(token, "UPDATE"))
             {
                 sources++;
                 inFromList = IsWord(token, "FROM");
@@ -370,23 +379,289 @@ internal static class SqlQueryLevels
                 // FROM a, b
                 sources++;
             }
-            else if (token.Kind == SqlTokenKind.Word && NotAliases.Contains(token.Text) && !IsWord(token, "AS") && !IsWord(token, "WHERE"))
+            else if (token.Kind == SqlTokenKind.Word && NotAliases.Contains(token.Text) && !IsWord(token, "AS"))
             {
                 inFromList = false;
-            }
-            else if (IsWord(token, "WHERE"))
-            {
-                inFromList = false;
-                whereTerms = CountWhereTerms(tokens, position + 1, out position);
-                position--;
-                if (whereTerms < 0)
-                {
-                    return false;
-                }
+                where = IsWord(token, "WHERE") ? position : where;
+                orderBy = IsWord(token, "ORDER") && position + 1 < level.End && IsWord(tokens[position + 1], "BY") ? position + 2 : orderBy;
             }
         }
 
-        return sources == 1 && whereTerms == indexConstraints;
+        if (sources != 1)
+        {
+            return false;
+        }
+
+        var indexed = new HashSet<string>(indexColumns.Select(constraint => constraint.Column), StringComparer.OrdinalIgnoreCase);
+        var ordered = orderBy < 0 ? new List<string>() : OrderColumns(tokens, orderBy, level.End);
+        var leadingRange = ordered.Count > 0 && indexColumns.Any(constraint =>
+            string.Equals(constraint.Column, ordered[0], StringComparison.OrdinalIgnoreCase) && constraint.Operator is ">" or ">=" or "<" or "<=");
+        if (partialSort != null && !(leadingRange && partialSort(ordered[0])))
+        {
+            return false;
+        }
+
+        if (where < 0)
+        {
+            return true;
+        }
+
+        foreach (var (columns, plain) in WhereTerms(tokens, where + 1, level.End))
+        {
+            var served = columns.All(indexed.Contains);
+            var seek = leadingRange && columns.Contains(ordered[0], StringComparer.OrdinalIgnoreCase) && columns.All(column => ordered.Contains(column, StringComparer.OrdinalIgnoreCase));
+            if (!plain || !(served || seek))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Words in a condition that are not columns.
+    private static readonly HashSet<string> ConditionKeywords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AND", "OR", "NOT", "IN", "IS", "NULL", "BETWEEN", "LIKE", "GLOB", "ESCAPE", "CASE", "WHEN", "THEN", "ELSE", "END",
+        "TRUE", "FALSE", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME", "DISTINCT", "FROM"
+    };
+
+    /// <summary>
+    /// The <c>AND</c>-joined terms of a <c>WHERE</c> from <paramref name="index"/> to the end of its clause: the columns
+    /// each compares (unqualified), and whether it is plain, bare comparisons of columns with values: no function call,
+    /// subquery, arithmetic or unary sign, <c>NOT</c> (other than <c>IS NOT NULL</c>), <c>&lt;&gt;</c>, pattern or
+    /// <c>IN</c> of several values. A <c>COLLATE</c> name is skipped: SQLite lists a constraint only under the index's
+    /// collation.
+    /// </summary>
+    private static IEnumerable<(List<string> Columns, bool Plain)> WhereTerms(IReadOnlyList<SqlToken> tokens, int index, int end)
+    {
+        var columns = new List<string>();
+        var plain = true;
+        var depth = 0;
+        var cases = 0;
+        var between = false;
+        for (; index < end; index++)
+        {
+            var token = tokens[index];
+            var previous = index > 0 ? tokens[index - 1] : default;
+            if (token.Kind == SqlTokenKind.OpenParenthesis)
+            {
+                depth++;
+                plain &= !(index + 1 < end && (IsWord(tokens[index + 1], "SELECT") || IsWord(tokens[index + 1], "WITH") || IsWord(tokens[index + 1], "VALUES")));
+                continue;
+            }
+
+            if (token.Kind == SqlTokenKind.CloseParenthesis)
+            {
+                depth--;
+                continue;
+            }
+
+            if (depth == 0 && (token.Kind == SqlTokenKind.Semicolon || IsWord(token, "LIMIT") || IsWord(token, "ORDER") || IsWord(token, "GROUP") ||
+                               IsWord(token, "HAVING") || IsWord(token, "UNION") || IsWord(token, "EXCEPT") || IsWord(token, "INTERSECT") ||
+                               IsWord(token, "WINDOW") || IsWord(token, "RETURNING")))
+            {
+                break;
+            }
+
+            if (IsWord(token, "CASE"))
+            {
+                cases++;
+                plain = false;
+            }
+            else if (IsWord(token, "END") && cases > 0)
+            {
+                cases--;
+            }
+            else if (depth == 0 && IsWord(token, "BETWEEN"))
+            {
+                between = true;
+            }
+            else if (depth == 0 && cases == 0 && IsWord(token, "AND"))
+            {
+                if (between)
+                {
+                    between = false;
+                    continue;
+                }
+
+                yield return (columns, plain);
+                columns = new List<string>();
+                plain = true;
+                continue;
+            }
+            else if (IsWord(token, "COLLATE"))
+            {
+                index++;
+                continue;
+            }
+            else if (IsWord(token, "IN"))
+            {
+                plain &= IsSingleValueList(tokens, index + 1);
+                continue;
+            }
+            else if ((IsWord(token, "NOT") && !(index + 1 < end && IsWord(tokens[index + 1], "NULL"))) || IsWord(token, "LIKE") ||
+                     IsWord(token, "GLOB") || IsWord(token, "REGEXP") || IsWord(token, "MATCH"))
+            {
+                plain = false;
+                continue;
+            }
+
+            if (token.Kind == SqlTokenKind.Symbol)
+            {
+                // Comparisons and separators are fine, and so is arithmetic on values (Completed > @now - 3600,
+                // BETWEEN -5 AND -1); an operator or sign next to a column (+Completed, Completed % 10, Name || 'x')
+                // changes what the index compares. <> and != cannot seek.
+                var comparison = token.Text is "<" or ">" or "=" or "," or ".";
+                var notEqual = (token.Text == ">" && previous.Kind == SqlTokenKind.Symbol && previous.Text == "<" && previous.Position == token.Position - 1) ||
+                               token.Text == "!";
+                var touchesColumn = IsColumnOperand(tokens, index - 1, end) || IsColumnOperand(tokens, index + 1, end) ||
+                                    (index > 0 && previous.Kind == SqlTokenKind.CloseParenthesis && GroupHasColumn(tokens, FindOpen(tokens, index - 1), index - 1)) ||
+                                    (index + 1 < end && tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis && GroupHasColumn(tokens, index + 1, FindClose(tokens, index + 1, end)));
+                plain &= !notEqual && (comparison || !touchesColumn);
+                continue;
+            }
+
+            if (token.Kind is not (SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier) || (token.Kind == SqlTokenKind.Word && ConditionKeywords.Contains(token.Text)))
+            {
+                continue;
+            }
+
+            if (index + 1 < end && tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis)
+            {
+                // A call over values (unixepoch(), strftime('%s', 'now')) is a value; one over a column is not plain.
+                var close = FindClose(tokens, index + 1, end);
+                for (var inner = index + 2; inner < close; inner++)
+                {
+                    plain &= !IsColumnOperand(tokens, inner, close) && !IsWord(tokens[inner], "SELECT");
+                }
+
+                index = close;
+                continue;
+            }
+
+            if (index + 2 < end && tokens[index + 1].Text == ".")
+            {
+                // A qualifier: the column is the last part.
+                continue;
+            }
+
+            columns.Add(token.Value);
+        }
+
+        yield return (columns, plain);
+    }
+
+    /// <summary>Whether the token at <paramref name="index"/> names a column: an identifier that is not a keyword or a call.</summary>
+    private static bool IsColumnOperand(IReadOnlyList<SqlToken> tokens, int index, int end)
+        => index >= 0 && index < end &&
+           (tokens[index].Kind == SqlTokenKind.QuotedIdentifier ||
+            (tokens[index].Kind == SqlTokenKind.Word && !ConditionKeywords.Contains(tokens[index].Text) &&
+             !(index + 1 < end && tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis)));
+
+    /// <summary>Whether a column appears between the parentheses at <paramref name="open"/> and <paramref name="close"/>.</summary>
+    private static bool GroupHasColumn(IReadOnlyList<SqlToken> tokens, int open, int close)
+    {
+        for (var index = Math.Max(0, open + 1); index < close; index++)
+        {
+            if (IsColumnOperand(tokens, index, close))
+            {
+                return true;
+            }
+        }
+
+        return open < 0;
+    }
+
+    /// <summary>The index of the parenthesis opening the one closed at <paramref name="close"/>, or -1.</summary>
+    private static int FindOpen(IReadOnlyList<SqlToken> tokens, int close)
+    {
+        var depth = 0;
+        for (var index = close; index >= 0; index--)
+        {
+            if (tokens[index].Kind == SqlTokenKind.CloseParenthesis)
+            {
+                depth++;
+            }
+            else if (tokens[index].Kind == SqlTokenKind.OpenParenthesis && --depth == 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The index of the parenthesis closing the one at <paramref name="open"/>, or <paramref name="end"/>.</summary>
+    private static int FindClose(IReadOnlyList<SqlToken> tokens, int open, int end)
+    {
+        var depth = 0;
+        for (var index = open; index < end; index++)
+        {
+            if (tokens[index].Kind == SqlTokenKind.OpenParenthesis)
+            {
+                depth++;
+            }
+            else if (tokens[index].Kind == SqlTokenKind.CloseParenthesis && --depth == 0)
+            {
+                return index;
+            }
+        }
+
+        return end;
+    }
+
+    /// <summary>
+    /// The columns an <c>ORDER BY</c> starting at <paramref name="index"/> sorts by, in order, up to the first item that
+    /// is not a plain column (an expression such as <c>+Seen</c> ends the list: what follows does not order the read).
+    /// </summary>
+    private static List<string> OrderColumns(IReadOnlyList<SqlToken> tokens, int index, int end)
+    {
+        var columns = new List<string>();
+        var depth = 0;
+        var itemStart = true;
+        for (; index < end; index++)
+        {
+            var token = tokens[index];
+            if (token.Kind == SqlTokenKind.OpenParenthesis)
+            {
+                depth++;
+            }
+            else if (token.Kind == SqlTokenKind.CloseParenthesis)
+            {
+                depth--;
+            }
+            else if (depth == 0 && (IsWord(token, "LIMIT") || IsWord(token, "OFFSET") || token.Kind == SqlTokenKind.Semicolon))
+            {
+                break;
+            }
+            else if (depth == 0 && token.Text == ",")
+            {
+                itemStart = true;
+                continue;
+            }
+            else if (depth == 0 && itemStart)
+            {
+                string? name = null;
+                var after = index;
+                if (token.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier)
+                {
+                    name = LastNamePart(tokens, index, out after);
+                }
+
+                if (name == null || !(after >= end || tokens[after].Text == "," || IsWord(tokens[after], "ASC") || IsWord(tokens[after], "DESC") ||
+                                      IsWord(tokens[after], "NULLS") || IsWord(tokens[after], "COLLATE") || IsWord(tokens[after], "LIMIT") || IsWord(tokens[after], "OFFSET")))
+                {
+                    break;
+                }
+
+                columns.Add(name);
+            }
+
+            itemStart = false;
+        }
+
+        return columns;
     }
 
     /// <summary>Whether a query level stops after a few rows (see <see cref="HasLimitWhereRead"/>).</summary>

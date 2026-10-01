@@ -114,6 +114,14 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     [InlineData("SELECT Latency FROM Results WHERE Id IN (SELECT Id FROM Results WHERE Completed < @cutoff) LIMIT 5", false)]
     // A condition the index does not serve can make a limited read go on through every row of the key.
     [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Latency > 5 ORDER BY Completed DESC LIMIT 10", false)]
+    [InlineData("SELECT Id FROM Results WHERE Completed <= @cutoff AND (Latency > 5 OR Id > 5) ORDER BY Completed DESC, Id LIMIT 51", true)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Latency > 5 ORDER BY Completed DESC, Latency LIMIT 10", true)]
+    [InlineData("SELECT Id FROM Results WHERE Completed <= @cutoff AND Id > 5 ORDER BY Completed DESC, Id LIMIT 51", true)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Completed % 100000 = 0 ORDER BY Completed DESC LIMIT 10", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND +Completed < @cutoff ORDER BY Completed DESC LIMIT 10", false)]
+    // A sort of the last ORDER BY term over one value of the leading one sorts every row of that value.
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Status, Latency LIMIT 10", true)]
+    [InlineData("SELECT Id FROM Results WHERE Status >= 1 ORDER BY Status, Latency LIMIT 10", true)]
     // An IN list prints as one equality but MAX reads every row of each value.
     [InlineData("SELECT MAX(Completed) FROM Results WHERE Status IN (1, 2)", false)]
     public async Task UsesIndexes_AWideSearch_FailsAndBlamesTheSortOverIt(string sql, bool sorted)
@@ -127,7 +135,7 @@ public sealed class SQLiteQueryPlanTests : IDisposable
         Assert.Equal("Results", wide.Table);
         Assert.Equal(sorted, result.Violations.Any(v => v.Kind == QueryPlanViolationKind.TempBTree));
         Assert.Equal(1_000_000, wide.Step!.TableRows);
-        if (sql.Contains("Status"))
+        if (sql.Contains("Status = 1") || sql.Contains("Status IN"))
         {
             Assert.Equal(333_334, wide.Step.EstimatedRows);
             Assert.Contains("about 333,334 of 1,000,000 rows", wide.ToString());
@@ -147,6 +155,13 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     // The latest rows of one key read in index order stop at the LIMIT, however many rows the key has.
     [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10", 333_334)]
     [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Completed < @cutoff ORDER BY Completed DESC LIMIT 10", 333_334)]
+    // A keyset seek: its OR compares only the ORDER BY columns, so it rejects rows at the boundary only, and the partial
+    // sort of the tie-breaker (LAST TERM OF ORDER BY) still lets the limit stop the read.
+    [InlineData("SELECT Id FROM Results WHERE Completed <= @cutoff AND ((Completed < @cutoff) OR (Completed = @cutoff AND Id > 5)) ORDER BY Completed DESC, Id LIMIT 51", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE (Completed > @cutoff) OR (Completed = @cutoff AND Id > 5) ORDER BY Completed, Id LIMIT 51", 333_334)]
+    // Arithmetic and calls on the value side are values.
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Completed > @cutoff - 3600 ORDER BY Completed DESC LIMIT 10", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE Completed > abs(@cutoff) - 3600 ORDER BY Completed LIMIT 10", 333_334)]
     // MIN/MAX after equalities or within a range read one row at the end of the index.
     [InlineData("SELECT MAX(Completed) FROM Results WHERE Status = 1", 333_334)]
     [InlineData("SELECT MIN(Id) FROM Results WHERE Id > @cutoff", 333_334)]
@@ -157,6 +172,21 @@ public sealed class SQLiteQueryPlanTests : IDisposable
 
         var plan = await _sqlite.ExplainQueryPlanAsync(_database, sql, new Dictionary<string, object?> { ["@cutoff"] = 100 });
 
+        QueryPlanAssert.UsesIndexes(plan, "Results");
+    }
+
+    [Fact]
+    public async Task UsesIndexes_AKeysetPageWithAPartialSort_PassesBecauseTheLimitStopsTheRange()
+    {
+        await CreateResultsAsync(statusRowsPerKey: 333_334);
+
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database,
+            "SELECT Id FROM Results WHERE Completed <= @cutoff AND ((Completed < @cutoff) OR (Completed = @cutoff AND Id > 5)) ORDER BY Completed DESC, Id LIMIT 51",
+            new Dictionary<string, object?> { ["@cutoff"] = 100 });
+
+        // The search is a range open on one side with a sort of the tie-breaker: wide but for the limit.
+        Assert.Contains(plan.Steps, s => s.Table == "Results" && s.IsOpenEndedRange);
+        Assert.Contains(plan.Steps, s => s.Operation == DbaQueryPlanOperation.TempBTree && s.TempBTreePurpose!.Contains("TERM OF ORDER BY"));
         QueryPlanAssert.UsesIndexes(plan, "Results");
     }
 
