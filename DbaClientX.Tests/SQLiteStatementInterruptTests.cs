@@ -36,7 +36,8 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         "QueryStreamWithConnectionStringAsync",
         "QueryStreamAsyncMapped",
         "QueryStreamWithConnectionStringAsyncMapped",
-        "QueryReaderAsync"
+        "QueryReaderAsync",
+        "QueryReadOnlyStreamAsync"
     };
 
     [Theory]
@@ -202,6 +203,9 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
                 break;
             case "QueryStreamWithConnectionStringAsyncMapped":
                 await foreach (var _ in sqlite.QueryStreamWithConnectionStringAsync(connectionString, query, record => record.GetInt64(0), cancellationToken: token)) { }
+                break;
+            case "QueryReadOnlyStreamAsync":
+                await foreach (var _ in sqlite.QueryReadOnlyStreamAsync(_database, query, record => record.GetInt64(0), cancellationToken: token)) { }
                 break;
             case "QueryReaderAsync":
                 await using (var reader = await sqlite.QueryReaderAsync(_database, query, cancellationToken: token)) { }

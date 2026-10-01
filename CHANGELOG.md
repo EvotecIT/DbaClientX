@@ -19,6 +19,7 @@
 
 ### New features
 
+- **Read-only SQLite streaming** (`SQLite.QueryReadOnlyStreamAsync<T>`). Streams mapped rows from a `Mode=ReadOnly` connection, holding one row at a time: writes fail with `SQLITE_READONLY`, a missing file is reported instead of created, and canceling the token interrupts the running statement (.NET Standard 2.1 or later).
 - **Prepared commands on SQLite sessions** (`SQLiteSession.Prepare`, `SQLiteSession.PrepareInsert`, and the same on `SQLiteAsyncSession`). A statement is prepared once on the session's connection and transaction, and each `ExecuteNonQuery`/`ExecuteScalar` (or async) call only rebinds values by position. Use it inside `RunInTransaction` to write many rows quickly and atomically. `PrepareInsert` quotes the table and column names. `null` is stored as NULL, enums as their underlying integer, and a wrong value count throws `ArgumentException`. Dispose the command before the session ends.
 - **Keyset and offset paging** (`KeysetPagination`, `OffsetPagination`, `QueryPage<T>`). Keyset page queries refuse `Compile()`; compile them with `CompileWithParameters`. Cursors are unsigned by default: declare key types and set `SigningKey` when cursors come from untrusted clients.
 - **`SqlServer.UseDateTime2ForDateTimeParameters`** sends `DateTime` parameters as `datetime2` instead of `datetime`.

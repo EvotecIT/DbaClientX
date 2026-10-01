@@ -136,6 +136,43 @@ public partial class SQLite
         return StreamMappedAsync(normalizedConnectionString, useTransaction, query, map, initialize, parameters, parameterTypes, parameterDirections, busyTimeoutMs: null, cancellationToken);
     }
 
+    /// <summary>
+    /// Streams query results from a read-only connection through a caller-provided mapper, without building a
+    /// <see cref="DataTable"/>.
+    /// </summary>
+    /// <typeparam name="T">The type produced by the row mapping callback.</typeparam>
+    /// <param name="database">Path to an existing SQLite database file; a missing file is reported, not created.</param>
+    /// <param name="query">SQL query to execute.</param>
+    /// <param name="map">Maps the current row. The record is reused for the next row, so copy what is needed.</param>
+    /// <param name="parameters">Optional parameter values.</param>
+    /// <param name="cancellationToken">Stops the stream; a running statement is interrupted.</param>
+    /// <param name="busyTimeoutMs">Optional busy timeout in milliseconds.</param>
+    /// <param name="parameterTypes">Optional provider-specific parameter types.</param>
+    /// <param name="initialize">Optional callback invoked once after the reader opens and before the first row is read.</param>
+    /// <returns>The mapped rows, one at a time.</returns>
+    /// <remarks>
+    /// The connection is opened with <c>Mode=ReadOnly</c>, so a statement that writes fails with <c>SQLITE_READONLY</c>.
+    /// This is the streaming counterpart of <see cref="QueryReadOnlyAsListAsync{T}"/>: only the current row is held in
+    /// memory, and the read does not take a write connection. Like the other streaming APIs, a provider failure is
+    /// thrown as the provider's exception (for example <see cref="SqliteException"/>) rather than wrapped in
+    /// <see cref="DbaQueryExecutionException"/>; cancellation is reported as <see cref="OperationCanceledException"/>.
+    /// </remarks>
+    public virtual IAsyncEnumerable<T> QueryReadOnlyStreamAsync<T>(
+        string database,
+        string query,
+        Func<IDataRecord, T> map,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        int? busyTimeoutMs = null,
+        IDictionary<string, SqliteType>? parameterTypes = null,
+        Action<IDataRecord>? initialize = null)
+    {
+        ValidateCommandText(query);
+        if (map == null) throw new ArgumentNullException(nameof(map));
+
+        return StreamMappedAsync(BuildOperationalConnectionString(database, readOnly: true), useTransaction: false, query, map, initialize, parameters, parameterTypes, parameterDirections: null, busyTimeoutMs, cancellationToken);
+    }
+
     private async IAsyncEnumerable<T> StreamMappedAsync<T>(
         string connectionString,
         bool useTransaction,

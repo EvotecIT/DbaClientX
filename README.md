@@ -556,7 +556,7 @@ await foreach (var chunk in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id,
 }
 ```
 
-`DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryStreamWithConnectionStringAsync<T>` for connection options such as `Mode=ReadOnly`.
+`DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryReadOnlyStreamAsync<T>` for a read-only stream of a database file and `QueryStreamWithConnectionStringAsync<T>` for other connection options. Canceling a SQLite stream interrupts the statement that is running.
 
 ### Bulk Insert
 
