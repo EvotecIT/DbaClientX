@@ -15,6 +15,9 @@ public sealed class QueryBuilderWhereContainsTests
 
     private static readonly string[] Needles = { "%", "0%", "_", "!", "[", "[abc]", "*", "?", "'", "\\", "\\'", "ab", "LAB", "żó", "ŻÓ", "" };
 
+    /// <summary>NUL characters: SQLite's instr() compares them; SQL Server's non-binary collations ignore them.</summary>
+    private static readonly string[] SqliteNeedles = Needles.Concat(new[] { "\0", "b\0" }).ToArray();
+
     [Theory]
     [InlineData(SqlDialect.SqlServer, false, "[Name] LIKE @p0 ESCAPE '!'", "%5![0!%!_!!%")]
     [InlineData(SqlDialect.SqlServer, true, "LOWER([Name]) LIKE LOWER(@p0) ESCAPE '!'", "%5![0!%!_!!%")]
@@ -25,7 +28,7 @@ public sealed class QueryBuilderWhereContainsTests
     [InlineData(SqlDialect.Oracle, false, "\"Name\" LIKE :p0 ESCAPE '!'", "%5[0!%!_!!%")]
     [InlineData(SqlDialect.Oracle, true, "LOWER(\"Name\") LIKE LOWER(:p0) ESCAPE '!'", "%5[0!%!_!!%")]
     [InlineData(SqlDialect.SQLite, false, "instr(\"Name\", @p0) > 0", "5[0%_!")]
-    [InlineData(SqlDialect.SQLite, true, "LOWER(\"Name\") LIKE LOWER(@p0) ESCAPE '!'", "%5[0!%!_!!%")]
+    [InlineData(SqlDialect.SQLite, true, "instr(lower(\"Name\"), lower(@p0)) > 0", "5[0%_!")]
     public void WhereContains_CompilesAnEscapedPatternForEveryDialect(SqlDialect dialect, bool caseInsensitive, string predicate, string parameter)
     {
         QueryCompiler.ClearCache();
@@ -51,9 +54,9 @@ public sealed class QueryBuilderWhereContainsTests
         var raw = compiler.CompileWithParameters(new Query().From("t").OrWhereContainsRaw("lower(Name)", "a"));
 
         Assert.Equal("SELECT * FROM \"t\" WHERE instr(\"Name\", @p0) > 0", sensitive.Sql);
-        Assert.Equal("SELECT * FROM \"t\" WHERE LOWER(\"Name\") LIKE LOWER(@p0) ESCAPE '!'", insensitive.Sql);
+        Assert.Equal("SELECT * FROM \"t\" WHERE instr(lower(\"Name\"), lower(@p0)) > 0", insensitive.Sql);
         Assert.Equal("SELECT * FROM \"t\" WHERE instr(lower(Name), @p0) > 0", raw.Sql);
-        Assert.Equal(new object[] { "%a%" }, insensitive.Parameters);
+        Assert.Equal(new object[] { "a" }, insensitive.Parameters);
     }
 
     [Fact]
@@ -88,7 +91,7 @@ public sealed class QueryBuilderWhereContainsTests
             }
 
             sqlite.ExecuteNonQuery(path, "INSERT INTO t VALUES (100, NULL)");
-            foreach (var needle in Needles)
+            foreach (var needle in SqliteNeedles)
             {
                 var (sql, parameters) = new Query().Select("Id").From("t").WhereContains("Name", needle, caseInsensitive).OrderBy("Id")
                     .CompileWithNamedParameters(SqlDialect.SQLite);
