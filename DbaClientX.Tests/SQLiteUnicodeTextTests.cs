@@ -36,6 +36,82 @@ public sealed class SQLiteUnicodeTextTests : IDisposable
     }
 
     [Fact]
+    public void NoCaseCollation_OrdersStoredUtf8LikeInvariantLowerCaseOrdinal()
+    {
+        // The collation compares the stored UTF-8 bytes, so the order of what is read back must equal the .NET order.
+        var random = new Random(4321);
+        var alphabet = "aAzZżŻóÓéÉßẞıIiİωΩ_%! 1kKKİ".ToCharArray().Select(c => c.ToString()).Concat(new[] { "𐐀", "𐐨", "😀", "Σ", "ς", "σ", "�" }).ToArray();
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        SQLiteUnicodeText.Register(connection);
+        Execute(connection, "CREATE TABLE s (Id INTEGER PRIMARY KEY, Name TEXT)");
+        using (var transaction = connection.BeginTransaction())
+        using (var insert = connection.CreateCommand())
+        {
+            insert.CommandText = "INSERT INTO s (Name) VALUES ($name)";
+            var name = insert.Parameters.Add("$name", SqliteType.Text);
+            for (var row = 0; row < 3000; row++)
+            {
+                // Mostly short texts that share prefixes, some past the 128-character stack buffers.
+                var length = row % 50 == 0 ? random.Next(120, 400) : random.Next(0, 7);
+                name.Value = string.Concat(Enumerable.Range(0, length).Select(_ => alphabet[random.Next(alphabet.Length)]));
+                insert.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        // Invalid UTF-8 decodes to U+FFFD, as the provider reads it.
+        Execute(connection, "INSERT INTO s (Name) VALUES (CAST(X'61C3' AS TEXT)), (CAST(X'61FF62' AS TEXT)), (CAST(X'41EFBFBD' AS TEXT)), (CAST(X'61E08062' AS TEXT)), (CAST(X'F0908041' AS TEXT)), (CAST(X'EDA080C5BB' AS TEXT)), (CAST(X'C5BBF0' AS TEXT))");
+
+        var rows = new List<(long Id, string Name)>();
+        using (var select = connection.CreateCommand())
+        {
+            select.CommandText = "SELECT Id, Name FROM s ORDER BY Name COLLATE DBX_NOCASE, Id";
+            using var reader = select.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add((reader.GetInt64(0), reader.GetString(1)));
+            }
+        }
+
+        var expected = rows
+            .OrderBy(row => row.Name, Comparer<string>.Create((a, b) => string.CompareOrdinal(a.ToLowerInvariant(), b.ToLowerInvariant())))
+            .ThenBy(row => row.Id)
+            .Select(row => row.Id);
+        Assert.Equal(expected, rows.Select(row => row.Id));
+    }
+
+    [Fact]
+    public void Register_WhileAStatementRuns_ThrowsAndKeepsTheConnectionUsable()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+        SQLiteUnicodeText.Register(connection);
+        SQLiteUnicodeText.Register(connection);
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT 1 UNION ALL SELECT 2";
+            using var reader = command.ExecuteReader();
+            Assert.True(reader.Read());
+
+            // SQLite refuses to replace a collation while a statement runs; registering must fail before anything is replaced.
+            Assert.Throws<InvalidOperationException>(() => SQLiteUnicodeText.Register(connection));
+        }
+
+        // Once the statement is done, registering works again (it replaces the probe the refusal left behind).
+        SQLiteUnicodeText.Register(connection);
+        using var sort = connection.CreateCommand();
+        sort.CommandText = "SELECT 'B' < 'a' COLLATE DBX_NOCASE, dbx_lower('Ż')";
+        using var result = sort.ExecuteReader();
+        Assert.True(result.Read());
+        Assert.Equal(0L, result.GetInt64(0));
+        Assert.Equal("ż", result.GetString(1));
+        using var closed = new SqliteConnection("Data Source=:memory:");
+        Assert.Throws<InvalidOperationException>(() => SQLiteUnicodeText.Register(closed));
+    }
+
+    [Fact]
     public async Task ConfigureConnection_RegistersUnicodeFoldingForQueriesSortsAndContains()
     {
         using var sqlite = new SQLite { ConfigureConnection = connection => SQLiteUnicodeText.Register(connection) };
@@ -120,6 +196,13 @@ public sealed class SQLiteUnicodeTextTests : IDisposable
         var exception = await Assert.ThrowsAsync<DbaQueryExecutionException>(() => sqlite.QueryReadOnlyAsListAsync(_database, "SELECT 1", reader => reader.GetInt64(0)));
 
         Assert.Equal(typeof(InvalidOperationException).FullName, exception.ProviderExceptionType);
+    }
+
+    private static void Execute(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
     }
 
     public void Dispose()
