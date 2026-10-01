@@ -88,9 +88,7 @@ public partial class SQLite
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
-            using CancellationTokenRegistration registration = cancellationToken.Register(
-                static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                connection);
+            using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
             using var command = connection.CreateCommand();
             command.CommandText = fullCheck
                 ? $"PRAGMA integrity_check({maxIssues});"
@@ -180,12 +178,8 @@ public partial class SQLite
                 using var destination = new SqliteConnection(BuildOperationalConnectionString(workingPath));
                 source.Open();
                 destination.Open();
-                using CancellationTokenRegistration sourceRegistration = cancellationToken.Register(
-                    static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                    source);
-                using CancellationTokenRegistration destinationRegistration = cancellationToken.Register(
-                    static state => raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                    destination);
+                using CancellationTokenRegistration sourceRegistration = RegisterStatementInterrupt(source, cancellationToken);
+                using CancellationTokenRegistration destinationRegistration = RegisterStatementInterrupt(destination, cancellationToken);
 
                 sqlite3_backup? backup = raw.sqlite3_backup_init(destination.Handle, "main", source.Handle, "main");
                 if (backup == null || backup.IsInvalid)

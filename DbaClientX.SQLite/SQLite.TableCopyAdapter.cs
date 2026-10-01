@@ -68,7 +68,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         command.Transaction = _readTransaction;
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
-        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return await RunInterruptibleAsync(connection, () => command.ExecuteScalarAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -86,9 +86,12 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         command.Transaction = _readTransaction;
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
-        using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var fields = new SqliteCopyFieldReader(reader);
-        return await DbaTableCopyPageReader.ReadAsync(reader, null, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
+        return await RunInterruptibleAsync(connection, async () =>
+        {
+            using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var fields = new SqliteCopyFieldReader(reader);
+            return await DbaTableCopyPageReader.ReadAsync(reader, null, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -99,7 +102,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await RunInterruptibleAsync(connection, () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
     private string ResolveSQLiteConnectionString()

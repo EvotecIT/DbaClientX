@@ -199,9 +199,7 @@ public partial class SQLite
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
-            using CancellationTokenRegistration registration = cancellationToken.Register(
-                static state => SQLitePCL.raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                connection);
+            using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
 
             using var command = connection.CreateCommand();
             command.CommandText = pragma;

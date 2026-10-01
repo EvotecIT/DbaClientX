@@ -18,6 +18,7 @@ public partial class SQLite
     /// SQLite columns can mix storage classes across rows. When a later row needs a different column type (for example a
     /// TEXT value after INTEGER values), rows from that point are created from a new <see cref="DataTable"/> with the adapted
     /// schema, so do not assume every streamed row shares the schema of the first row's <see cref="DataRow.Table"/>.
+    /// Canceling the token interrupts a running statement unless it runs inside the client's transaction.
     /// </remarks>
     public virtual async IAsyncEnumerable<DataRow> QueryStreamAsync(
         string database,
@@ -30,31 +31,11 @@ public partial class SQLite
     {
         ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
-
-        SqliteConnection? connection = null;
-        SqliteTransaction? transaction = null;
-        var dispose = false;
-
-        if (useTransaction)
-        {
-            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, true, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, false, cancellationToken).ConfigureAwait(false);
-        }
-
-        var dbTypes = ConvertParameterTypes(parameterTypes);
-        if (connection == null)
-        {
-            throw CreateQueryExecutionException(
-                "Failed to resolve connection for streaming.",
-                query,
-                new InvalidOperationException("The SQLite connection could not be resolved."));
-        }
-
+        var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
         try
         {
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             await foreach (var row in base.ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
             {
                 yield return row;
@@ -62,14 +43,8 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            interrupt.Dispose();
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
@@ -80,6 +55,7 @@ public partial class SQLite
     /// SQLite columns can mix storage classes across rows. When a later row needs a different column type (for example a
     /// TEXT value after INTEGER values), rows from that point are created from a new <see cref="DataTable"/> with the adapted
     /// schema, so do not assume every streamed row shares the schema of the first row's <see cref="DataRow.Table"/>.
+    /// Canceling the token interrupts a running statement unless it runs inside the client's transaction.
     /// </remarks>
     public virtual async IAsyncEnumerable<DataRow> QueryStreamWithConnectionStringAsync(
         string connectionString,
@@ -92,31 +68,11 @@ public partial class SQLite
     {
         ValidateCommandText(query);
         var normalizedConnectionString = NormalizeConnectionString(connectionString);
-
-        SqliteConnection? connection = null;
-        SqliteTransaction? transaction = null;
-        var dispose = false;
-
-        if (useTransaction)
-        {
-            (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, true, cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, false, cancellationToken).ConfigureAwait(false);
-        }
-
-        var dbTypes = ConvertParameterTypes(parameterTypes);
-        if (connection == null)
-        {
-            throw CreateQueryExecutionException(
-                "Failed to resolve connection for streaming.",
-                query,
-                new InvalidOperationException("The SQLite connection could not be resolved."));
-        }
-
+        var (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
         try
         {
+            var dbTypes = ConvertParameterTypes(parameterTypes);
             await foreach (var row in base.ExecuteQueryStreamAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
             {
                 yield return row;
@@ -124,20 +80,17 @@ public partial class SQLite
         }
         finally
         {
-            if (dispose)
-            {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                connection.Dispose();
-#endif
-            }
+            interrupt.Dispose();
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 
     /// <summary>
     /// Streams query results asynchronously through a caller-provided mapper.
     /// </summary>
+    /// <remarks>
+    /// Canceling the token interrupts a running statement unless it runs inside the client's transaction.
+    /// </remarks>
     public virtual IAsyncEnumerable<T> QueryStreamAsync<T>(
         string database,
         string query,
@@ -152,38 +105,7 @@ public partial class SQLite
         ValidateCommandText(query);
         if (map == null) throw new ArgumentNullException(nameof(map));
 
-        return Stream();
-
-        async IAsyncEnumerable<T> Stream()
-        {
-            var connectionString = BuildOperationalConnectionString(database);
-
-            SqliteConnection? connection = null;
-            SqliteTransaction? transaction = null;
-            var dispose = false;
-
-            (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-
-            var dbTypes = ConvertParameterTypes(parameterTypes);
-            try
-            {
-                await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
-                {
-                    yield return row;
-                }
-            }
-            finally
-            {
-                if (dispose)
-                {
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                    await connection.DisposeAsync().ConfigureAwait(false);
-#else
-                    connection.Dispose();
-#endif
-                }
-            }
-        }
+        return StreamMappedAsync(BuildOperationalConnectionString(database), useTransaction, query, map, initialize, parameters, parameterTypes, parameterDirections, busyTimeoutMs: null, cancellationToken);
     }
 
     /// <summary>
@@ -193,7 +115,8 @@ public partial class SQLite
     /// <remarks>
     /// Use this overload for connection options that a database path cannot express, such as <c>Mode=ReadOnly</c> or a
     /// shared in-memory database. Only the current row is held in memory; <paramref name="map"/> must copy what it needs
-    /// because the record is reused for the next row.
+    /// because the record is reused for the next row. Canceling the token interrupts a running statement unless it runs
+    /// inside the client's transaction.
     /// </remarks>
     public virtual IAsyncEnumerable<T> QueryStreamWithConnectionStringAsync<T>(
         string connectionString,
@@ -210,26 +133,35 @@ public partial class SQLite
         if (map == null) throw new ArgumentNullException(nameof(map));
         var normalizedConnectionString = NormalizeConnectionString(connectionString);
 
-        return Stream();
+        return StreamMappedAsync(normalizedConnectionString, useTransaction, query, map, initialize, parameters, parameterTypes, parameterDirections, busyTimeoutMs: null, cancellationToken);
+    }
 
-        async IAsyncEnumerable<T> Stream()
+    private async IAsyncEnumerable<T> StreamMappedAsync<T>(
+        string connectionString,
+        bool useTransaction,
+        string query,
+        Func<IDataRecord, T> map,
+        Action<IDataRecord>? initialize,
+        IDictionary<string, object?>? parameters,
+        IDictionary<string, SqliteType>? parameterTypes,
+        IDictionary<string, ParameterDirection>? parameterDirections,
+        int? busyTimeoutMs,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var dbTypes = ConvertParameterTypes(parameterTypes);
+        var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+        try
         {
-            var dbTypes = ConvertParameterTypes(parameterTypes);
-            var (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            try
+            await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
             {
-                await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))
-                {
-                    yield return row;
-                }
+                yield return row;
             }
-            finally
-            {
-                if (dispose)
-                {
-                    await connection.DisposeAsync().ConfigureAwait(false);
-                }
-            }
+        }
+        finally
+        {
+            interrupt.Dispose();
+            await DisposeOwnedResourceAsync(connection, dispose, DisposeSQLiteConnectionAsync).ConfigureAwait(false);
         }
     }
 }
