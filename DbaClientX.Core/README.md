@@ -94,6 +94,21 @@ column (`Name COLLATE NOCASE = @p`) and leading-wildcard patterns (`LIKE '%x'`).
 Named large tables must appear in the plan by default (`RequireLargeTablesInPlan`), so a typo or an alias the guard
 cannot resolve fails instead of passing.
 
+A search can read most of a table too. Steps carry the rows the statistics expect (`EstimatedRows`, `TableRows`), and
+`UsesIndexes`/`Check` report a `WideSearch` when a search reads more than `WideSearchFraction` (a tenth) of the rows, or
+searches a range open on one side (`CompletedUtcMs < @cutoff`) that no `LIMIT` in index order stops; a temporary
+B-tree that sorts such rows (a top-N `ORDER BY … LIMIT` over a non-selective key) is reported as well. A `MIN`/`MAX`
+that reads one end of an index is a one-row search. Seed the statistics of a small test database so it plans like the
+large one:
+
+```csharp
+await sqlite.WritePlannerStatisticsAsync("test.db", await sqlite.ReadPlannerStatisticsAsync("fixture-L.db"));
+// or chosen values: a million rows, a third of them per Status value
+await sqlite.WritePlannerStatisticsAsync("test.db", new[] { new SqlitePlannerStatistics("ProbeResults", "IX_Status", 1_000_000, new long[] { 333_334 }) });
+```
+
+`SqlStatementText.Split(script)` splits a script into statements to explain one at a time.
+
 ## Retry behavior
 
 Provider clients and streaming-reader startup use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt, `RetryDelay` is the exponential-backoff base, and non-query retries remain disabled by default to avoid replaying a write that may already have succeeded.

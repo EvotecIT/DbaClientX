@@ -85,9 +85,11 @@ internal static class SqliteQueryPlanParser
             return new DbaQueryPlanStep(id, parentId, detail, unconstrained ? DbaQueryPlanOperation.Scan : DbaQueryPlanOperation.VirtualTable, table);
         }
 
+        var openEnded = constrained && IsOpenEnded(Constraints(rest));
         if (rest.StartsWith("USING INTEGER PRIMARY KEY", StringComparison.Ordinal) || rest.StartsWith("USING PRIMARY KEY", StringComparison.Ordinal))
         {
-            return new DbaQueryPlanStep(id, parentId, detail, isScan || !constrained ? DbaQueryPlanOperation.Scan : DbaQueryPlanOperation.Search, table, rest.Substring("USING ".Length).Split('(')[0].Trim());
+            var search = !isScan && constrained;
+            return new DbaQueryPlanStep(id, parentId, detail, search ? DbaQueryPlanOperation.Search : DbaQueryPlanOperation.Scan, table, rest.Substring("USING ".Length).Split('(')[0].Trim(), isOpenEndedRange: search && openEnded);
         }
 
         var index = UsingIndex.Match(rest);
@@ -97,11 +99,57 @@ internal static class SqliteQueryPlanParser
                 ? DbaQueryPlanOperation.AutomaticIndex
                 : isScan || !constrained ? DbaQueryPlanOperation.Scan : DbaQueryPlanOperation.Search;
             var name = index.Groups["index"].Success ? index.Groups["index"].Value.Trim() : null;
-            return new DbaQueryPlanStep(id, parentId, detail, operation, table, name, index.Groups["covering"].Success);
+            return new DbaQueryPlanStep(id, parentId, detail, operation, table, name, index.Groups["covering"].Success, isOpenEndedRange: operation == DbaQueryPlanOperation.Search && openEnded);
         }
 
         return new DbaQueryPlanStep(id, parentId, detail, isScan || !constrained ? DbaQueryPlanOperation.Scan : DbaQueryPlanOperation.Search, table);
     }
+
+    /// <summary>
+    /// The terms of a search's constraint list (<c>(ProbeName=? AND Seen&gt;?)</c>) in index column order: the column (or
+    /// expression) and the operator, <c>=</c> for equality and <c>IN</c>, <c>ANY</c> for a skip-scan column.
+    /// </summary>
+    internal static IReadOnlyList<(string Column, string Operator)> Constraints(string rest)
+    {
+        var open = rest.IndexOf('(');
+        var close = rest.LastIndexOf(')');
+        var terms = new List<(string, string)>();
+        if (open < 0 || close <= open)
+        {
+            return terms;
+        }
+
+        foreach (var term in rest.Substring(open + 1, close - open - 1).Split(new[] { " AND " }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var text = term.Trim();
+            if (text.StartsWith("ANY(", StringComparison.Ordinal) && text.EndsWith(")", StringComparison.Ordinal))
+            {
+                terms.Add((text.Substring(4, text.Length - 5), "ANY"));
+                continue;
+            }
+
+            var match = ConstraintTerm.Match(text);
+            terms.Add(match.Success ? (match.Groups["column"].Value, match.Groups["op"].Value) : (text, "?"));
+        }
+
+        return terms;
+    }
+
+    /// <summary>Whether the terms bound a range on one side only, with no equality before it.</summary>
+    internal static bool IsOpenEnded(IReadOnlyList<(string Column, string Operator)> terms)
+    {
+        if (terms.Count == 0 || terms.Any(term => term.Operator == "="))
+        {
+            return false;
+        }
+
+        var lower = terms.Any(term => term.Operator is ">" or ">=");
+        var upper = terms.Any(term => term.Operator is "<" or "<=");
+        return lower != upper;
+    }
+
+    // column=? or, for row values, (a,b)>(?,?).
+    private static readonly Regex ConstraintTerm = new(@"^(?<column>.+?)(?<op>>=|<=|=|>|<)(?:\?|\(\?(?:,\?)*\))$", RegexOptions.CultureInvariant | RegexOptions.Singleline);
 
     /// <summary>The table name without a schema prefix (<c>main.</c>, <c>temp.</c> or an attached database).</summary>
     private static string TableName(string name)

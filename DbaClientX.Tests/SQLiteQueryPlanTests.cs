@@ -57,7 +57,7 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     public async Task UsesIndexes_ReportsATempBTreeOverAScannedTableButNotOverNarrowedRows()
     {
         var scanned = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT Id FROM ProbeResults AS r ORDER BY r.LatencyMs");
-        var narrowed = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT Id FROM ProbeResults AS r WHERE r.Id > 10 ORDER BY r.LatencyMs");
+        var narrowed = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT Id FROM ProbeResults AS r WHERE r.Id BETWEEN 10 AND 20 ORDER BY r.LatencyMs");
 
         var result = QueryPlanAssert.Check(scanned, new QueryPlanRules("ProbeResults"));
 
@@ -65,6 +65,147 @@ public sealed class SQLiteQueryPlanTests : IDisposable
         Assert.Equal("ORDER BY", result.Violations.Single(v => v.Kind == QueryPlanViolationKind.TempBTree).Step!.TempBTreePurpose);
         Assert.Contains(narrowed.Steps, s => s.Table == "ProbeResults" && s.Alias == "r" && s.Index == "INTEGER PRIMARY KEY");
         Assert.True(QueryPlanAssert.Check(narrowed, new QueryPlanRules("ProbeResults")).IsSuccess);
+    }
+
+    [Theory]
+    [InlineData("SELECT MAX(Seen) FROM Samples", "Samples")]
+    [InlineData("SELECT MIN(s.\"Seen\") AS first FROM Samples AS s", "Samples")]
+    [InlineData("SELECT COALESCE(MAX(Seen), 0) FROM main.Samples", "Samples")]
+    [InlineData("SELECT MAX(Id) FROM Samples", "Samples")]
+    [InlineData("SELECT MAX(rowid) FROM Samples", "Samples")]
+    [InlineData("SELECT MAX(K) FROM Keys", "Keys")]
+    [InlineData("SELECT Name FROM Samples WHERE Seen = (SELECT MAX(Seen) FROM Samples)", "Samples")]
+    public async Task UsesIndexes_AMinOrMaxThatReadsOneEndOfAnIndex_Passes(string sql, string table)
+    {
+        CreateSamples();
+
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database, sql);
+
+        QueryPlanAssert.UsesIndexes(plan, table);
+        Assert.Contains(plan.Steps, s => s.Table == table && s.Operation == DbaQueryPlanOperation.Search && s.EstimatedRows == 1);
+    }
+
+    [Theory]
+    [InlineData("SELECT MAX(Latency) FROM Samples", "Samples")]
+    [InlineData("SELECT MAX(Seen) FROM Samples WHERE LOWER(Name) = 'x'", "Samples")]
+    [InlineData("SELECT MAX(Seen), MIN(Seen) FROM Samples", "Samples")]
+    [InlineData("SELECT MAX(Name) FROM Samples", "Samples")]
+    [InlineData("SELECT MAX(V) FROM Keys", "Keys")]
+    public async Task NoFullScan_AMinOrMaxThatReadsEveryEntry_Fails(string sql, string table)
+    {
+        // SQLite prints these as an unconstrained SEARCH too (or a SCAN): no index starts with the column, a condition
+        // the index cannot narrow makes it walk the index, or the index orders the column under another collation.
+        CreateSamples();
+
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database, sql);
+
+        var violation = Assert.Single(Assert.Throws<QueryPlanViolationException>(() => QueryPlanAssert.NoFullScan(plan, table)).Result.Violations);
+        Assert.Equal(QueryPlanViolationKind.FullScan, violation.Kind);
+    }
+
+    [Theory]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Latency DESC LIMIT 10", true)]
+    [InlineData("SELECT Id FROM Results WHERE Completed < @cutoff", false)]
+    [InlineData("DELETE FROM Results WHERE Completed < @cutoff", false)]
+    [InlineData("SELECT Id FROM Results WHERE Completed > @cutoff ORDER BY Latency LIMIT 10", true)]
+    [InlineData("SELECT COUNT(*) FROM Results WHERE Completed > @cutoff LIMIT 1", false)]
+    [InlineData("SELECT Id FROM Results WHERE Completed > @cutoff LIMIT -1", false)]
+    [InlineData("SELECT Latency FROM Results WHERE Id IN (SELECT Id FROM Results WHERE Completed < @cutoff) LIMIT 5", false)]
+    // A condition the index does not serve can make a limited read go on through every row of the key.
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Latency > 5 ORDER BY Completed DESC LIMIT 10", false)]
+    // An IN list prints as one equality but MAX reads every row of each value.
+    [InlineData("SELECT MAX(Completed) FROM Results WHERE Status IN (1, 2)", false)]
+    public async Task UsesIndexes_AWideSearch_FailsAndBlamesTheSortOverIt(string sql, bool sorted)
+    {
+        await CreateResultsAsync(statusRowsPerKey: 333_334);
+
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database, sql, new Dictionary<string, object?> { ["@cutoff"] = 100 });
+        var result = QueryPlanAssert.Check(plan, new QueryPlanRules("Results"));
+
+        var wide = Assert.Single(result.Violations, v => v.Kind == QueryPlanViolationKind.WideSearch);
+        Assert.Equal("Results", wide.Table);
+        Assert.Equal(sorted, result.Violations.Any(v => v.Kind == QueryPlanViolationKind.TempBTree));
+        Assert.Equal(1_000_000, wide.Step!.TableRows);
+        if (sql.Contains("Status"))
+        {
+            Assert.Equal(333_334, wide.Step.EstimatedRows);
+            Assert.Contains("about 333,334 of 1,000,000 rows", wide.ToString());
+        }
+        else
+        {
+            Assert.True(wide.Step.IsOpenEndedRange);
+        }
+    }
+
+    [Theory]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Latency DESC LIMIT 10", 10)]
+    [InlineData("SELECT Id FROM Results WHERE Completed > @cutoff ORDER BY Completed LIMIT 50", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE Completed BETWEEN @cutoff AND @cutoff + 10", 333_334)]
+    [InlineData("DELETE FROM Results WHERE Id IN (SELECT Id FROM Results WHERE Completed < @cutoff ORDER BY Completed LIMIT 100)", 333_334)]
+    [InlineData("SELECT EXISTS (SELECT 1 FROM Results WHERE Completed < @cutoff)", 333_334)]
+    // The latest rows of one key read in index order stop at the LIMIT, however many rows the key has.
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Completed < @cutoff ORDER BY Completed DESC LIMIT 10", 333_334)]
+    // MIN/MAX after equalities or within a range read one row at the end of the index.
+    [InlineData("SELECT MAX(Completed) FROM Results WHERE Status = 1", 333_334)]
+    [InlineData("SELECT MIN(Id) FROM Results WHERE Id > @cutoff", 333_334)]
+    [InlineData("SELECT MAX(Completed) FROM Results WHERE Completed < @cutoff", 333_334)]
+    public async Task UsesIndexes_ASelectiveBoundedOrLimitedSearch_Passes(string sql, long statusRowsPerKey)
+    {
+        await CreateResultsAsync(statusRowsPerKey);
+
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database, sql, new Dictionary<string, object?> { ["@cutoff"] = 100 });
+
+        QueryPlanAssert.UsesIndexes(plan, "Results");
+    }
+
+    [Fact]
+    public async Task ExplainQueryPlanAsync_FillsEstimatesFromTheStatistics()
+    {
+        CreateSamples();
+        await CreateResultsAsync(statusRowsPerKey: 333_334);
+
+        var keys = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT V FROM Keys WHERE K = 'probe1'");
+        var scan = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT * FROM Samples WHERE Latency > 1");
+        var range = await _sqlite.ExplainQueryPlanAsync(_database, "SELECT Id FROM Results WHERE Completed < 5");
+
+        // A WITHOUT ROWID table's primary key statistics are stored under the table's name.
+        var key = Assert.Single(keys.Steps, s => s.Table == "Keys");
+        Assert.Equal((1L, 50L), (key.EstimatedRows, key.TableRows));
+        var full = Assert.Single(scan.Steps, s => s.Table == "Samples");
+        Assert.Equal((DbaQueryPlanOperation.Scan, 2000L, 2000L), (full.Operation, full.EstimatedRows, full.TableRows));
+        var open = Assert.Single(range.Steps, s => s.Table == "Results");
+        Assert.True(open.IsOpenEndedRange);
+        Assert.Null(open.EstimatedRows);
+
+        // NoFullScan keeps to full scans.
+        QueryPlanAssert.NoFullScan(range, "Results");
+    }
+
+    private void CreateSamples()
+        => _sqlite.ExecuteNonQuery(_database,
+            "CREATE TABLE Samples (Id INTEGER PRIMARY KEY, Seen INTEGER NOT NULL, Name TEXT, Latency REAL);" +
+            "CREATE INDEX IX_Samples_Seen ON Samples (Seen);" +
+            "CREATE INDEX IX_Samples_Name ON Samples (Name COLLATE NOCASE);" +
+            "INSERT INTO Samples (Seen, Name, Latency) SELECT SeenUnixMs, ProbeName, LatencyMs FROM ProbeResults;" +
+            "CREATE TABLE Keys (K TEXT PRIMARY KEY, V INTEGER) WITHOUT ROWID;" +
+            "INSERT INTO Keys SELECT DISTINCT ProbeName, 1 FROM ProbeResults;" +
+            "ANALYZE;");
+
+    private async Task CreateResultsAsync(long statusRowsPerKey)
+    {
+        // A few rows, planned as a million through seeded statistics.
+        _sqlite.ExecuteNonQuery(_database,
+            "CREATE TABLE Results (Id INTEGER PRIMARY KEY, Status INTEGER NOT NULL, Latency REAL, Completed INTEGER NOT NULL);" +
+            "CREATE INDEX IX_Results_Status ON Results (Status, Completed);" +
+            "CREATE INDEX IX_Results_Completed ON Results (Completed);" +
+            "INSERT INTO Results (Status, Latency, Completed) SELECT Id % 3, LatencyMs, SeenUnixMs FROM ProbeResults WHERE Id <= 30;");
+        await _sqlite.WritePlannerStatisticsAsync(_database, new[]
+        {
+            new SqlitePlannerStatistics("Results", "IX_Results_Status", 1_000_000, new[] { statusRowsPerKey, 1 }),
+            new SqlitePlannerStatistics("Results", "IX_Results_Completed", 1_000_000, new long[] { 1 })
+        });
     }
 
     [Theory]

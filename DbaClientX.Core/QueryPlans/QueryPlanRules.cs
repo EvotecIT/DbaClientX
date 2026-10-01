@@ -20,10 +20,39 @@ public sealed class QueryPlanRules
     public bool ForbidFullScans { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets whether sorting or grouping in a temporary B-tree, in a query step that reads a large table, is a
-    /// violation. Defaults to <see langword="true"/>.
+    /// Gets or sets whether sorting or grouping in a temporary B-tree, in a query step that reads a large table in full or
+    /// through a wide search (as <see cref="ForbidWideSearches"/> defines it, whether or not that rule is on), is a
+    /// violation: a top-N <c>ORDER BY … LIMIT</c> sorts every row the search finds. Defaults to <see langword="true"/>.
     /// </summary>
     public bool ForbidTempBTrees { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets whether a search that reads much of a large table is a violation. Defaults to <see langword="true"/>.
+    /// A search is wide when the statistics say it reads more than <see cref="WideSearchFraction"/> of the table's rows
+    /// (<see cref="DbaQueryPlanStep.EstimatedRows"/>), or when it searches a range bounded on one side only
+    /// (<see cref="DbaQueryPlanStep.IsOpenEndedRange"/>), which can read every row; unless a <c>LIMIT</c> stops it: it is
+    /// the first step of its query, nothing sorts or groups the rows first, the query reads that one table, its index
+    /// serves every condition of the <c>WHERE</c>, and the query has a <c>LIMIT</c> of its own without an aggregate or
+    /// <c>GROUP BY</c> (or is an <c>EXISTS</c> subquery). A <c>MIN</c>/<c>MAX</c> that reads one
+    /// end of an index is a one-row search. <c>col IS NOT NULL</c> prints as a range open on one side, and is reported
+    /// even when few rows hold a value.
+    /// </summary>
+    public bool ForbidWideSearches { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the share of a table's rows above which a search counts as wide (see <see cref="ForbidWideSearches"/>).
+    /// Defaults to 0.1: an index that leaves more than a tenth of the rows costs about as much as reading them all.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not between 0 and 1.</exception>
+    public double WideSearchFraction
+    {
+        get => _wideSearchFraction;
+        set => _wideSearchFraction = value is > 0 and <= 1
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(value), "The fraction must be above 0 and at most 1.");
+    }
+
+    private double _wideSearchFraction = 0.1;
 
     /// <summary>
     /// Gets or sets whether an automatic (statement-only) index on a large table is a violation: the database builds

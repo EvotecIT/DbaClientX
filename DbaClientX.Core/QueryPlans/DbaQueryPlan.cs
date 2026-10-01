@@ -28,7 +28,7 @@ public sealed class DbaQueryPlan
         Steps = aliases.Count == 0
             ? steps
             : steps.Select(step => step.Table != null && step.Alias == null && aliases.TryGetValue(step.Table, out var table)
-                    ? new DbaQueryPlanStep(step.Id, step.ParentId, step.Detail, step.Operation, table, step.Index, step.IsCoveringIndex, step.TempBTreePurpose, step.Table)
+                    ? step.With(table, step.Table, step.Operation, step.EstimatedRows, step.TableRows)
                     : step)
                 .ToArray();
     }

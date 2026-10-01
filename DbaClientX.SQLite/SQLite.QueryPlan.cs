@@ -28,8 +28,17 @@ public partial class SQLite
     /// Needs SQLite 3.24 or later (the bundled library is newer). Connections opened for it run
     /// <see cref="ConfigureConnection"/>, so statements using registered functions or collations can be explained. A
     /// plan reflects the current data and statistics: run <c>ANALYZE</c> on a database shaped like production before
-    /// asserting on it. SQLite prints full index scans and one-row aggregates (such as <c>MAX</c>, even a cheap
-    /// <c>MAX</c> of an indexed column) as an unconstrained <c>SEARCH</c>; such steps are reported as scans.
+    /// asserting on it, or seed its statistics (<see cref="WritePlannerStatisticsAsync"/>).
+    /// <para>Steps carry what the plan text leaves out. <see cref="DbaQueryPlanStep.EstimatedRows"/> and
+    /// <see cref="DbaQueryPlanStep.TableRows"/> come from <c>sqlite_stat1</c>: a scan reads the table's rows, and a search
+    /// the average rows per key of the index columns its equality constraints cover (unknown for a range alone).
+    /// SQLite prints a <c>MIN</c>/<c>MAX</c> that reads one row at the end of an index and one that walks it alike (as a
+    /// <c>SEARCH</c>, unconstrained when nothing narrows it, which is otherwise a full index scan). Such a step is a
+    /// <see cref="DbaQueryPlanOperation.Search"/> of one row when the statement looks up one column of the table
+    /// (<c>SELECT MAX(Seen) FROM t [WHERE …]</c>, also inside <c>COALESCE</c>/<c>IFNULL</c> or a subquery), the index
+    /// (primary key or rowid) serves every condition of its <c>WHERE</c> (an <c>IN</c> of several values does not
+    /// count), the column is the index column after the equalities or the one a range bounds, and the index orders it
+    /// under the column's own collation; otherwise an unconstrained one is a scan.</para>
     /// </remarks>
     public virtual async Task<DbaQueryPlan> ExplainQueryPlanAsync(
         string database,
@@ -65,6 +74,35 @@ public partial class SQLite
             reader => (reader.GetInt32(0), reader.GetInt32(1), reader.GetString(3)),
             parameters,
             cancellationToken).ConfigureAwait(false);
-        return new DbaQueryPlan(query, SqliteQueryPlanParser.ParseAll(rows));
+        var plan = new DbaQueryPlan(query, SqliteQueryPlanParser.ParseAll(rows));
+        return await SqliteQueryPlanEstimates.ApplyAsync(this, database, plan, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The collation a table column of the main database is declared with (<c>BINARY</c> by default), or null when the
+    /// column does not exist or the SQLite library cannot tell (built without column metadata).
+    /// </summary>
+    internal string? GetColumnCollation(string database, string table, string column)
+    {
+        try
+        {
+            using var connection = new Microsoft.Data.Sqlite.SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
+            connection.Open();
+            int resultCode = SQLitePCL.raw.sqlite3_table_column_metadata(
+                connection.Handle,
+                "main",
+                table,
+                column,
+                out string _,
+                out string collation,
+                out int _,
+                out int _,
+                out int _);
+            return resultCode == SQLitePCL.raw.SQLITE_OK ? collation : null;
+        }
+        catch (Exception exception) when (exception is EntryPointNotFoundException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            return null;
+        }
     }
 }

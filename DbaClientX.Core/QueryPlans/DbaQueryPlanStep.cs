@@ -13,6 +13,10 @@ public sealed class DbaQueryPlanStep
     /// <param name="isCoveringIndex">Whether the index holds every column the step needs.</param>
     /// <param name="tempBTreePurpose">For <see cref="DbaQueryPlanOperation.TempBTree"/>, what the temporary B-tree sorts or groups (for example <c>ORDER BY</c>).</param>
     /// <param name="alias">The alias the statement gave the table, when the database reported the alias.</param>
+    /// <param name="isOpenEndedRange">For a <see cref="DbaQueryPlanOperation.Search"/>, whether the index is searched by a range
+    /// bounded on one side only, with no equality before it (<c>CompletedUtcMs &lt; ?</c>).</param>
+    /// <param name="estimatedRows">The rows the step reads according to the database's statistics, when known.</param>
+    /// <param name="tableRows">The rows of the step's table according to the database's statistics, when known.</param>
     public DbaQueryPlanStep(
         int id,
         int parentId,
@@ -22,7 +26,10 @@ public sealed class DbaQueryPlanStep
         string? index = null,
         bool isCoveringIndex = false,
         string? tempBTreePurpose = null,
-        string? alias = null)
+        string? alias = null,
+        bool isOpenEndedRange = false,
+        long? estimatedRows = null,
+        long? tableRows = null)
     {
         Alias = alias;
         Id = id;
@@ -33,6 +40,9 @@ public sealed class DbaQueryPlanStep
         Index = index;
         IsCoveringIndex = isCoveringIndex;
         TempBTreePurpose = tempBTreePurpose;
+        IsOpenEndedRange = isOpenEndedRange;
+        EstimatedRows = estimatedRows;
+        TableRows = tableRows;
     }
 
     /// <summary>Gets the step identifier the database reported.</summary>
@@ -61,6 +71,43 @@ public sealed class DbaQueryPlanStep
 
     /// <summary>Gets what a temporary B-tree is for (<c>ORDER BY</c>, <c>GROUP BY</c>, <c>DISTINCT</c>), or <see langword="null"/>.</summary>
     public string? TempBTreePurpose { get; }
+
+    /// <summary>
+    /// Gets whether the step searches an index by a range bounded on one side only, with no equality before it
+    /// (<c>CompletedUtcMs &lt; ?</c>): it reads from one end of the index to the bound, which can be no rows or all of
+    /// them. The plan does not show which.
+    /// </summary>
+    public bool IsOpenEndedRange { get; }
+
+    /// <summary>
+    /// Gets the rows the step reads according to the database's statistics, or <see langword="null"/> when they are not
+    /// known (no statistics, or a range whose width the statistics cannot tell). For a search that also narrows by a
+    /// range, it is the rows its equality constraints match, an upper bound.
+    /// </summary>
+    public long? EstimatedRows { get; }
+
+    /// <summary>Gets the rows of the step's table according to the database's statistics, or <see langword="null"/> when not known.</summary>
+    public long? TableRows { get; }
+
+    /// <summary>
+    /// Gets how many conditions the step's index search applies (<c>(a=? AND b&gt;?)</c> is two), when the provider tells;
+    /// rules compare it with the conditions of the statement to know whether the index serves them all.
+    /// </summary>
+    internal int? IndexConstraintCount { get; private set; }
+
+    /// <summary>Returns a copy of this step with another table, alias, operation and estimate.</summary>
+    internal DbaQueryPlanStep With(
+        string? table,
+        string? alias,
+        DbaQueryPlanOperation operation,
+        long? estimatedRows,
+        long? tableRows,
+        bool? isOpenEndedRange = null,
+        int? indexConstraintCount = null)
+        => new(Id, ParentId, Detail, operation, table, Index, IsCoveringIndex, TempBTreePurpose, alias, isOpenEndedRange ?? IsOpenEndedRange, estimatedRows, tableRows)
+        {
+            IndexConstraintCount = indexConstraintCount ?? IndexConstraintCount
+        };
 
     /// <inheritdoc />
     public override string ToString() => Detail;
