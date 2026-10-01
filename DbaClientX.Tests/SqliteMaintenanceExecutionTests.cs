@@ -236,6 +236,102 @@ public sealed class SqliteMaintenanceExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BackupDatabase_WhileAnotherConnectionWrites_SnapshotCopiesTheStartState(bool snapshot)
+    {
+        string source = CreateDatabase(rowCount: 256);
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-concurrent-{Guid.NewGuid():N}.sqlite");
+        await using var writer = new SqliteConnection(SQLite.BuildConnectionString(source));
+        try
+        {
+            await writer.OpenAsync();
+            await using (SqliteCommand wal = writer.CreateCommand())
+            {
+                wal.CommandText = "PRAGMA journal_mode = WAL;";
+                await wal.ExecuteNonQueryAsync();
+            }
+
+            // Another connection commits a row after each of the first steps, as a service writing during the backup.
+            int writes = 0;
+            var progress = new InlineProgress<SqliteBackupProgress>(value =>
+            {
+                if (writes < 5 && value.RemainingPages > 0)
+                {
+                    using SqliteCommand insert = writer.CreateCommand();
+                    insert.CommandText = "INSERT INTO backup_contract(payload) VALUES(randomblob(4096));";
+                    insert.ExecuteNonQuery();
+                    writes++;
+                }
+            });
+            using var sqlite = new SQLite();
+            var options = new SqliteBackupOptions { PagesPerStep = 16 };
+
+            SqliteBackupResult result = snapshot
+                ? await sqlite.BackupDatabaseSnapshotAsync(source, destination, options, progress)
+                : await sqlite.BackupDatabaseIncrementalAsync(source, destination, options, progress);
+
+            // The snapshot copy holds the rows of its start; the step-wise copy started over after each write.
+            Assert.Equal(5, writes);
+            Assert.Equal(snapshot ? 256 : 261, await CountRowsAsync(destination));
+            Assert.Equal(261, await CountRowsAsync(source));
+            Assert.True(result.CopiedPages > 0);
+        }
+        finally
+        {
+            await writer.CloseAsync();
+            SqliteConnection.ClearAllPools();
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Fact]
+    public async Task BackupDatabaseSnapshotAsync_CanceledBackup_DeletesDestinationAndReleasesTheSnapshot()
+    {
+        string source = CreateDatabase(rowCount: 256);
+        string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-snapshot-canceled-{Guid.NewGuid():N}.sqlite");
+        await using var writer = new SqliteConnection(SQLite.BuildConnectionString(source));
+        using var cancellationSource = new CancellationTokenSource();
+        try
+        {
+            await writer.OpenAsync();
+            await ExecuteAsync(writer, "PRAGMA journal_mode = WAL;");
+            using var sqlite = new SQLite();
+            var progress = new InlineProgress<SqliteBackupProgress>(value =>
+            {
+                if (value.CopiedPages > 0)
+                {
+                    cancellationSource.Cancel();
+                }
+            });
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.BackupDatabaseSnapshotAsync(
+                source,
+                destination,
+                new SqliteBackupOptions { PagesPerStep = 8 },
+                progress,
+                cancellationSource.Token));
+
+            // A TRUNCATE checkpoint completes only when no reader holds an older snapshot.
+            Assert.False(File.Exists(destination));
+            await ExecuteAsync(writer, "INSERT INTO backup_contract(payload) VALUES(randomblob(16));");
+            await using SqliteCommand checkpoint = writer.CreateCommand();
+            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await using SqliteDataReader reader = await checkpoint.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(0L, reader.GetInt64(0));
+        }
+        finally
+        {
+            await writer.CloseAsync();
+            SqliteConnection.ClearAllPools();
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
     [Fact]
     public async Task BackupDatabaseIncrementalAsync_CanceledBackup_DeletesIncompleteDestination()
     {
@@ -393,8 +489,10 @@ public sealed class SqliteMaintenanceExecutionTests
         }
     }
 
-    [Fact]
-    public async Task BackupDatabaseIncrementalAsync_LockedSource_EnforcesExplicitBusyDeadline()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BackupDatabase_LockedSource_EnforcesExplicitBusyDeadline(bool snapshot)
     {
         string source = CreateDatabase();
         string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-busy-deadline-{Guid.NewGuid():N}.sqlite");
@@ -408,14 +506,16 @@ public sealed class SqliteMaintenanceExecutionTests
             using var sqlite = new SQLite();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            await Assert.ThrowsAsync<TimeoutException>(() => sqlite.BackupDatabaseIncrementalAsync(
-                source,
-                destination,
-                new SqliteBackupOptions
-                {
-                    BusyRetryDelay = TimeSpan.FromMilliseconds(20),
-                    BusyRetryTimeout = TimeSpan.FromMilliseconds(100)
-                }));
+            var options = new SqliteBackupOptions
+            {
+                BusyRetryDelay = TimeSpan.FromMilliseconds(20),
+                BusyRetryTimeout = TimeSpan.FromMilliseconds(100)
+            };
+
+            await Assert.ThrowsAsync<TimeoutException>(() => snapshot
+                ? sqlite.BackupDatabaseSnapshotAsync(source, destination, options)
+                : sqlite.BackupDatabaseIncrementalAsync(source, destination, options));
+            Assert.False(File.Exists(destination));
 
             stopwatch.Stop();
             Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"Busy deadline took {stopwatch.Elapsed}.");
@@ -521,6 +621,10 @@ public sealed class SqliteMaintenanceExecutionTests
                 source,
                 destination,
                 cancellationToken: cancellationSource.Token));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.BackupDatabaseSnapshotAsync(
+                source,
+                destination,
+                cancellationToken: cancellationSource.Token));
 
             Assert.False(File.Exists(destination));
         }
@@ -553,6 +657,13 @@ public sealed class SqliteMaintenanceExecutionTests
         }
         transaction.Commit();
         return path;
+    }
+
+    private static async Task ExecuteAsync(SqliteConnection connection, string sql)
+    {
+        await using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
     }
 
     private static async Task<long> CountRowsAsync(string database)

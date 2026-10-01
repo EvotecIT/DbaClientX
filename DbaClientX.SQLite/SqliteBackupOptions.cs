@@ -1,14 +1,16 @@
 namespace DBAClientX;
 
 /// <summary>
-/// Controls an incremental SQLite online backup operation.
+/// Controls an SQLite online backup (<c>SQLite.BackupDatabaseIncrementalAsync</c> or
+/// <c>SQLite.BackupDatabaseSnapshotAsync</c>).
 /// </summary>
 public sealed class SqliteBackupOptions
 {
     /// <summary>
-    /// Gets or sets the number of database pages copied by each online-backup step.
-    /// Smaller values release the source read lock more frequently. Values above 4096 are rejected so cancellation
-    /// remains responsive while native backup work is in progress.
+    /// Gets or sets the number of database pages copied by each online-backup step; progress is reported and
+    /// cancellation checked after each step. An incremental backup releases the source read lock between steps, so
+    /// smaller values let writers in more often; a snapshot backup holds its snapshot across steps. Values above 4096
+    /// are rejected so cancellation remains responsive while native backup work is in progress.
     /// </summary>
     public int PagesPerStep { get; set; } = 256;
 

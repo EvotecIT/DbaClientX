@@ -110,6 +110,27 @@ var sq = new DBAClientX.SQLite();
 sq.BackupDatabase("app.db", "backups/app.db");
 ```
 
+Backup of a WAL database that is being written (a service's live store):
+
+```csharp
+var sq = new DBAClientX.SQLite();
+SqliteBackupResult result = await sq.BackupDatabaseSnapshotAsync(
+    "app.db",
+    "backups/app.db",
+    new SqliteBackupOptions { OverwriteDestination = true, PagesPerStep = 4096 },
+    progress: new Progress<SqliteBackupProgress>(p => Console.WriteLine($"{p.PercentComplete:F0}%")),
+    cancellationToken);
+```
+
+`BackupDatabaseSnapshotAsync` copies the database as it was when the backup started and completes while other
+connections write. While it runs, the WAL keeps what is written meanwhile, and a `FULL`, `RESTART` or `TRUNCATE`
+checkpoint waits for it (for the checkpointing connection's busy timeout, with writers waiting behind the checkpoint).
+`BackupDatabaseIncrementalAsync` (and `BackupDatabase`) release the source between steps, but every change by another
+connection restarts the copy: use them for a database in rollback-journal mode (where the snapshot is a shared lock
+that keeps writers from committing until the copy ends), when writes pause long enough for a whole copy, or for a
+database that is not being written. A rollback-journal database that is written continuously needs WAL mode to be
+backed up online.
+
 Unicode case-insensitive search and sort (SQLite's own `lower()`, `LIKE` and `NOCASE` fold ASCII only):
 
 ```csharp

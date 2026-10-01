@@ -35,7 +35,9 @@ public partial class SQLite
     /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
     /// <remarks>
     /// The source database is opened read-only. The destination is created when it does not exist and is replaced
-    /// atomically only when <paramref name="overwriteDestination"/> is true.
+    /// atomically only when <paramref name="overwriteDestination"/> is true. The copy runs step-wise like
+    /// <see cref="BackupDatabaseIncrementalAsync"/>, so changes by other connections restart it; back up a WAL database
+    /// that is being written with <see cref="BackupDatabaseSnapshotAsync"/>.
     /// </remarks>
     public virtual void BackupDatabase(
         string sourceDatabase,
