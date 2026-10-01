@@ -74,6 +74,24 @@ To put a mapped or user-supplied name into such a fragment, quote it with `SqlId
 
 For multipart table or schema names, `DbaIdentifierPath` provides the shared delimiter-aware split and unquote behavior used by bulk operations and table-copy planning.
 
+## Query plan guard
+
+`DBAClientX.QueryPlans` catches statements that read every row of a large table before they reach production.
+`SQLite.ExplainQueryPlanAsync(database, sql, parameters)` returns the plan as `DbaQueryPlan` steps (operation, table,
+index, temporary B-trees), and `QueryPlanAssert` checks it in any test framework:
+
+```csharp
+var plan = await sqlite.ExplainQueryPlanAsync("monitoring.db", sql, parameters);
+QueryPlanAssert.NoFullScan(plan, "ProbeResults");          // throws QueryPlanViolationException with the SQL and plan
+var result = QueryPlanAssert.Check(plan, new QueryPlanRules("ProbeResults")); // or inspect result.Violations
+```
+
+`SqlSargabilityAnalyzer.Analyze(sql)` is a heuristic over SQL text that reports functions wrapped around columns in
+`WHERE`/`ON` conditions (`LOWER(ProbeName) = @p`) and leading-wildcard patterns (`LIKE '%x'`); confirm its findings
+with the plan. Plans depend on data and statistics, so check them on a database shaped like production (run `ANALYZE`).
+Named large tables must appear in the plan by default (`RequireLargeTablesInPlan`), so a typo or an alias the guard
+cannot resolve fails instead of passing.
+
 ## Retry behavior
 
 Provider clients and streaming-reader startup use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt, `RetryDelay` is the exponential-backoff base, and non-query retries remain disabled by default to avoid replaying a write that may already have succeeded.
