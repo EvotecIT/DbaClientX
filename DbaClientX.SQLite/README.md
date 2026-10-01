@@ -121,6 +121,17 @@ var rows = await sq.QueryReadOnlyAsListAsync(
     new Dictionary<string, object?> { ["@name"] = "ŻÓŁW" });
 ```
 
+Indexed substring search for large, rarely written tables (FTS5 trigram index kept current by triggers):
+
+```csharp
+await sq.CreateTrigramIndexAsync("app.db", "HostsSearch", "Hosts", "Id", new[] { "Name", "Owner" });
+var query = new Query().Select("Id", "Name").From("Hosts");
+if (SQLiteTrigramSearch.CanMatch(text))
+    query.WhereInRaw(SqlIdentifier.Quote(SqlDialect.SQLite, "Id"), SQLiteTrigramSearch.MatchingKeys("HostsSearch", text));
+else
+    query.WhereContains("Name", text, caseInsensitive: true);
+```
+
 Read-only streaming, with the running statement interrupted when the token is canceled:
 
 ```csharp
