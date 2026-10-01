@@ -12,8 +12,8 @@ namespace DBAClientX;
 /// <remarks>
 /// <para>Create the index with <see cref="SQLite.CreateTrigramIndexAsync"/>: an FTS5 table holding a copy of chosen
 /// text columns, kept current by triggers. A query then finds the keys of matching rows through
-/// <see cref="MatchingKeys"/> instead of scanning every row:
-/// <c>query.WhereInRaw(SqlIdentifier.Quote(SqlDialect.SQLite, "Id"), SQLiteTrigramSearch.MatchingKeys("HostsSearch", text))</c>.</para>
+/// <see cref="MatchingKeys(string, string, string[])"/> instead of scanning every row:
+/// <c>query.WhereInRaw(SqlIdentifier.Quote(SqlDialect.SQLite, "Id"), SQLiteTrigramSearch.MatchingKeys("HostsSearch", text))</c>, or for chosen columns and any of several texts <c>MatchingKeys("HostsSearch", new[] { a, b }, "Name", "Owner")</c>.</para>
 /// <para>Matching ignores case with SQLite's Unicode case folding (close to, but not the same as, .NET's
 /// <c>ToLowerInvariant</c>; accents are kept) and treats every character, including <c>%</c>, <c>_</c> and quotes,
 /// literally. The text must hold at least three characters (<see cref="CanMatch"/>); shorter text cannot use the index,
@@ -85,27 +85,81 @@ public static class SQLiteTrigramSearch
     /// </summary>
     /// <param name="indexName">The trigram index created by <see cref="SQLite.CreateTrigramIndexAsync"/>.</param>
     /// <param name="text">The text to find, at least three characters (see <see cref="CanMatch"/>).</param>
-    /// <param name="column">One indexed column to search, or <see langword="null"/> for all of them.</param>
-    /// <returns>A query selecting <c>rowid</c>; the text is a parameter.</returns>
+    /// <param name="columns">The indexed columns to search by name; none (or a null array) for all of them. A column the index does not hold fails when the query runs.</param>
+    /// <returns>A query selecting <c>rowid</c>; the text and the column filter are one parameter.</returns>
     /// <exception cref="ArgumentException">The text is shorter than three characters or contains a NUL character, or a
-    /// name is empty.</exception>
-    public static Query MatchingKeys(string indexName, string text, string? column = null)
+    /// name is null, empty, repeated or contains a NUL character.</exception>
+    public static Query MatchingKeys(string indexName, string text, params string[] columns)
     {
-        var index = SqlIdentifier.Quote(SqlDialect.SQLite, indexName);
         if (!CanMatch(text))
         {
             throw new ArgumentException($"The trigram index needs at least {MinimumLength} characters; use WhereContains for shorter text.", nameof(text));
         }
 
-        if (column != null && column.Length == 0)
-        {
-            throw new ArgumentException("Column cannot be empty.", nameof(column));
-        }
-
-        var match = column == null ? Phrase(text) : Phrase(column) + " : " + Phrase(text);
-        return new Query().SelectRaw("rowid").FromRaw(index).WhereRaw(index, "MATCH", match);
+        return MatchingKeys(indexName, new[] { text }, columns);
     }
 
+    /// <summary>
+    /// Creates a query of the keys (rowids) of the rows whose indexed text contains any of <paramref name="texts"/>, for
+    /// <c>WhereInRaw</c>, <c>WhereNotInRaw</c> or a join.
+    /// </summary>
+    /// <param name="indexName">The trigram index created by <see cref="SQLite.CreateTrigramIndexAsync"/>.</param>
+    /// <param name="texts">The texts to find, each at least three characters (see <see cref="CanMatch"/>).</param>
+    /// <param name="columns">The indexed columns to search by name; none (or a null array) for all of them. A column the index does not hold fails when the query runs.</param>
+    /// <returns>
+    /// A query selecting <c>rowid</c>; the FTS5 query is one parameter: the texts as phrases joined with <c>OR</c>,
+    /// behind a column filter (<c>"Name" : ...</c> or <c>{"Name" "Owner"} : (...)</c>) when columns are given.
+    /// </returns>
+    /// <exception cref="ArgumentException">There is no text, a text is shorter than three characters or contains a NUL
+    /// character, or a name is null, empty, repeated or contains a NUL character.</exception>
+    /// <remarks>The work of the index grows with the length and number of texts; the exact test that follows decides each
+    /// row, so asking the index for the start of a long text is enough.</remarks>
+    public static Query MatchingKeys(string indexName, IReadOnlyCollection<string> texts, params string[] columns)
+    {
+        var index = SqlIdentifier.Quote(SqlDialect.SQLite, indexName);
+        if (texts == null || texts.Count == 0)
+        {
+            throw new ArgumentException("At least one text is required.", nameof(texts));
+        }
+
+        foreach (var text in texts)
+        {
+            if (!CanMatch(text))
+            {
+                throw new ArgumentException($"The trigram index needs at least {MinimumLength} characters; use WhereContains for shorter text.", nameof(texts));
+            }
+        }
+
+        var phrases = texts.Count == 1 ? Phrase(texts.First()) : "(" + string.Join(" OR ", texts.Select(Phrase)) + ")";
+        return new Query().SelectRaw("rowid").FromRaw(index).WhereRaw(index, "MATCH", ColumnFilter(columns) + phrases);
+    }
+
+    /// <summary>The FTS5 column filter for the columns, with a trailing <c>" : "</c>; empty for all columns.</summary>
+    private static string ColumnFilter(string[]? columns)
+    {
+        if (columns == null || columns.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        foreach (var column in columns)
+        {
+            if (string.IsNullOrEmpty(column) || column.IndexOf('\0') >= 0)
+            {
+                throw new ArgumentException("Column cannot be null or empty or contain a NUL character.", nameof(columns));
+            }
+        }
+
+        // FTS5 compares column names without ASCII case.
+        if (columns.Distinct(StringComparer.OrdinalIgnoreCase).Count() != columns.Length)
+        {
+            throw new ArgumentException("Columns must be distinct.", nameof(columns));
+        }
+
+        return columns.Length == 1
+            ? Phrase(columns[0]) + " : "
+            : "{" + string.Join(" ", columns.Select(Phrase)) + "} : ";
+    }
     /// <summary>Builds the statements that create a trigram index, its triggers, and fill it from its table.</summary>
     /// <remarks>
     /// The FTS5 table keeps its own copy of the indexed text, keyed by the table's rowid, and every trigger removes

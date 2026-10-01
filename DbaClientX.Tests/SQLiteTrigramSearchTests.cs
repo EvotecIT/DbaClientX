@@ -55,6 +55,19 @@ public sealed class SQLiteTrigramSearchTests : IDisposable
     }
 
     [Fact]
+    public async Task MatchingKeys_WithSeveralColumnsAndTexts_FindsAnyTextInThoseColumns()
+    {
+        await _sqlite.CreateTrigramIndexAsync(_database, Index, Table, Key, new[] { Name, Site });
+        var texts = new[] { "erl", "warsaw", "\"hi\"" };
+
+        Assert.Equal(new long[] { 0, 1, 5 }, await KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, texts, Name)));
+        Assert.Equal(new long[] { 0, 2, 4, 6, 8 }, await KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, texts, Site)));
+        Assert.Equal(new long[] { 0, 1, 2, 4, 5, 6, 8 }, await KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, texts, Site, Name)));
+        Assert.Equal(new long[] { 0, 1, 2, 4, 5, 6, 8 }, await KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, texts)));
+        Assert.Equal(new long[] { 0, 1 }, await KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, new[] { "warsaw" }, Site, Name)));
+    }
+
+    [Fact]
     public async Task Triggers_KeepTheIndexCurrentOnInsertUpdateAndDelete()
     {
         await _sqlite.CreateTrigramIndexAsync(_database, Index, Table, Key, new[] { Name, Site });
@@ -216,12 +229,22 @@ public sealed class SQLiteTrigramSearchTests : IDisposable
         Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", "ab"));
         Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", "abc\0"));
         Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", "abc", string.Empty));
+
+        var (several, severalParameters) = SQLiteTrigramSearch.MatchingKeys("idx", new[] { "abc", "x\"y}z" }, "a", "b}\" c").CompileWithParameters(SqlDialect.SQLite);
+        Assert.Equal("SELECT rowid FROM \"idx\" WHERE \"idx\" MATCH @p0", several);
+        Assert.Equal(new object[] { "{\"a\" \"b}\"\" c\"} : (\"abc\" OR \"x\"\"y}z\")" }, severalParameters);
+        Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", Array.Empty<string>()));
+        Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", new[] { "abc", "ab" }));
+        Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", "abc", "a", "A"));
+        Assert.Throws<ArgumentException>(() => SQLiteTrigramSearch.MatchingKeys("idx", "abc", "a", null!));
     }
 
-    private async Task<long[]> KeysAsync(string needle, string? column = null)
+    private Task<long[]> KeysAsync(string needle, params string[] columns) => KeysAsync(SQLiteTrigramSearch.MatchingKeys(Index, needle, columns));
+
+    private async Task<long[]> KeysAsync(Query keys)
     {
         var (sql, parameters) = new Query().SelectRaw(Q(Key)).FromRaw(Q(Table))
-            .WhereInRaw(Q(Key), SQLiteTrigramSearch.MatchingKeys(Index, needle, column))
+            .WhereInRaw(Q(Key), keys)
             .OrderByRaw(Q(Key))
             .CompileWithNamedParameters(SqlDialect.SQLite);
         return (await _sqlite.QueryReadOnlyAsListAsync(_database, sql, reader => reader.GetInt64(0), parameters)).ToArray();

@@ -10,7 +10,7 @@ public partial class SQLite
 {
     /// <summary>
     /// Creates an FTS5 trigram index over text columns of a table, fills it, and adds triggers that keep it current, so
-    /// substring searches (<see cref="SQLiteTrigramSearch.MatchingKeys"/>) read the index instead of every row.
+    /// substring searches (<see cref="SQLiteTrigramSearch.MatchingKeys(string, string, string[])"/>) read the index instead of every row.
     /// </summary>
     /// <param name="database">Path to the SQLite database file.</param>
     /// <param name="indexName">Name of the FTS5 table to create; its triggers are named <c>{indexName}_ai</c>,
