@@ -169,6 +169,9 @@ public partial class QueryCompiler
                     case GroupStartToken:
                         sb.Append("WG(").Append('|');
                         break;
+                    case NotGroupStartToken:
+                        sb.Append("WNG(").Append('|');
+                        break;
                     case GroupEndToken:
                         sb.Append("WG)").Append('|');
                         break;
@@ -252,6 +255,9 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, nbt.End);
                         sb.Append('|');
                         break;
+                    default:
+                        // A token missing from the key would let two different statements share cached SQL.
+                        throw new NotSupportedException($"WHERE token '{token.GetType().Name}' is not supported by the compiler.");
                 }
             }
         }
@@ -835,6 +841,9 @@ public partial class QueryCompiler
                 case GroupStartToken:
                     sb.Append('(');
                     break;
+                case NotGroupStartToken:
+                    sb.Append("NOT (");
+                    break;
                 case GroupEndToken:
                     sb.Append(')');
                     break;
@@ -894,6 +903,8 @@ public partial class QueryCompiler
                     sb.Append(" AND ");
                     AppendValue(sb, nbt.End, parameters);
                     break;
+                default:
+                    throw new NotSupportedException($"WHERE token '{token.GetType().Name}' is not supported by the compiler.");
             }
         }
     }

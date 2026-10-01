@@ -57,8 +57,11 @@ internal static class QueryComparisonOperator
         "SIMILAR TO",
         "NOT SIMILAR TO",
         "REGEXP",
+        "NOT REGEXP",
         "RLIKE",
+        "NOT RLIKE",
         "GLOB",
+        "NOT GLOB",
         "MATCH",
         "IS DISTINCT FROM",
         "IS NOT DISTINCT FROM"
