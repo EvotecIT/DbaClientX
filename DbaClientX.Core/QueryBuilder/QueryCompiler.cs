@@ -192,6 +192,17 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, cond.Value);
                         sb.Append('|');
                         break;
+                    case CollatedConditionToken cond:
+                        sb.Append("WCC:");
+                        AppendCacheText(sb, cond.Column);
+                        sb.Append(':');
+                        AppendCacheText(sb, cond.Collation);
+                        sb.Append(':');
+                        AppendCacheText(sb, cond.Operator);
+                        sb.Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
+                        break;
                     case RawConditionToken cond:
                         sb.Append("WCR:");
                         AppendCacheText(sb, cond.Expression);
@@ -359,7 +370,9 @@ public partial class QueryCompiler
             {
                 sb.Append(expression.IsRaw ? "OR:" : "OI:");
                 AppendCacheText(sb, expression.Text);
-                sb.Append(':').Append(expression.Descending).Append('|');
+                sb.Append(':').Append(expression.Descending).Append(':');
+                AppendCacheText(sb, expression.Collation ?? string.Empty);
+                sb.Append('|');
             }
         }
         if (query.GroupByExpressions.Count > 0)
@@ -665,6 +678,11 @@ public partial class QueryCompiler
                 }
                 var expression = query.OrderByExpressions[index];
                 sb.Append(expression.IsRaw ? expression.Text : QuoteIdentifier(expression.Text));
+                if (expression.Collation != null)
+                {
+                    AppendCollation(sb, expression.Collation);
+                }
+
                 if (expression.Descending)
                 {
                     sb.Append(" DESC");
@@ -881,6 +899,12 @@ public partial class QueryCompiler
                     break;
                 case RawConditionToken cond:
                     sb.Append(cond.Expression).Append(' ').Append(cond.Operator).Append(' ');
+                    AppendValue(sb, cond.Value, parameters);
+                    break;
+                case CollatedConditionToken cond:
+                    sb.Append(QuoteIdentifier(cond.Column));
+                    AppendCollation(sb, cond.Collation);
+                    sb.Append(' ').Append(cond.Operator).Append(' ');
                     AppendValue(sb, cond.Value, parameters);
                     break;
                 case GroupStartToken:

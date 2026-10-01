@@ -92,6 +92,9 @@ public partial class QueryCompiler
                 case RawConditionToken condition:
                     CollectValue(condition.Value, parameters);
                     break;
+                case CollatedConditionToken condition:
+                    CollectValue(condition.Value, parameters);
+                    break;
                 case InToken values:
                     CollectValues(values.Values, parameters);
                     break;

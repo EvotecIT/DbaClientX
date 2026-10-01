@@ -44,7 +44,10 @@ public sealed partial class KeysetPagination
     /// Initializes a new keyset pagination.
     /// </summary>
     /// <param name="pageSize">Maximum number of rows per page.</param>
-    /// <param name="columns">Key columns in sort order. Together they must identify a row uniquely.</param>
+    /// <param name="columns">Key columns in sort order. Together they must identify a row uniquely; the last one must be a
+    /// plain column without a collation (see <see cref="KeysetColumn.Expression"/> and
+    /// <see cref="KeysetColumn.WithCollation"/>).</param>
+    /// <exception cref="ArgumentException">No key, a null key, or a last key that is an expression or has a collation.</exception>
     public KeysetPagination(int pageSize, params KeysetColumn[] columns)
     {
         if (pageSize < 1 || pageSize == int.MaxValue)
@@ -57,8 +60,56 @@ public sealed partial class KeysetPagination
             throw new ArgumentException("At least one non-null key column is required.", nameof(columns));
         }
 
+        if (columns[columns.Length - 1].CanTieDistinctValues)
+        {
+            throw new ArgumentException(
+                "The last key must be a plain column without a collation that identifies a row: an expression or a collation can make different rows equal, so pages would skip or repeat them. End the key with a unique column.",
+                nameof(columns));
+        }
+
         PageSize = pageSize;
         _columns = (KeysetColumn[])columns.Clone();
+    }
+
+    /// <summary>
+    /// Initializes a new keyset pagination that sorts by <paramref name="sortKeys"/> and breaks their ties with
+    /// <paramref name="uniqueKey"/>.
+    /// </summary>
+    /// <param name="pageSize">Maximum number of rows per page.</param>
+    /// <param name="sortKeys">The keys that give the order, which may repeat across rows, be expressions or have
+    /// collations; may be empty.</param>
+    /// <param name="uniqueKey">A plain column without a collation that identifies a row (the primary key), compared last.</param>
+    /// <exception cref="ArgumentException">A key is null, or <paramref name="uniqueKey"/> is an expression or has a collation.</exception>
+    public KeysetPagination(int pageSize, IEnumerable<KeysetColumn> sortKeys, KeysetColumn uniqueKey)
+        : this(pageSize, WithUniqueKey(sortKeys, uniqueKey))
+    {
+    }
+
+    private static KeysetColumn[] WithUniqueKey(IEnumerable<KeysetColumn> sortKeys, KeysetColumn uniqueKey)
+    {
+        if (sortKeys == null)
+        {
+            throw new ArgumentNullException(nameof(sortKeys));
+        }
+
+        if (uniqueKey == null)
+        {
+            throw new ArgumentNullException(nameof(uniqueKey));
+        }
+
+        var keys = sortKeys.ToList();
+        if (keys.Any(static key => key == null))
+        {
+            throw new ArgumentException("Sort keys cannot be null.", nameof(sortKeys));
+        }
+
+        if (uniqueKey.CanTieDistinctValues)
+        {
+            throw new ArgumentException("The unique key must be a plain column without a collation: an expression or a collation can make different rows equal.", nameof(uniqueKey));
+        }
+
+        keys.Add(uniqueKey);
+        return keys.ToArray();
     }
 
     /// <summary>Gets the maximum number of rows per page.</summary>

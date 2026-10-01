@@ -46,6 +46,23 @@ public partial class QueryCompiler
         return builder.ToString();
     }
 
+    /// <summary>
+    /// Appends <c> COLLATE name</c>. The name holds only ASCII letters, digits and underscores (checked again here, so no
+    /// text reaches the SQL unchecked); PostgreSQL quotes it because its collation names keep their case.
+    /// </summary>
+    private void AppendCollation(StringBuilder builder, string collation)
+    {
+        foreach (var character in collation)
+        {
+            if (!(character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_'))
+            {
+                throw new ArgumentException($"Collation '{collation}' is not a plain collation name.", nameof(collation));
+            }
+        }
+
+        builder.Append(" COLLATE ").Append(_dialect == SqlDialect.PostgreSql ? SqlIdentifier.Quote(_dialect, collation) : collation);
+    }
+
     private string QuoteSelectColumn(string identifier, bool allowStandaloneLiterals)
     {
         if (allowStandaloneLiterals && LooksLikeStandaloneLiteral(identifier))

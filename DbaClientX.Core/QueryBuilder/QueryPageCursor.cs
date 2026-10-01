@@ -258,6 +258,12 @@ internal static class QueryPageCursor
                 ValidateValueSize(column.Column);
                 writer.Write(column.Column);
                 writer.Write(column.Descending);
+                // Only keys that have them write these, so cursors of plain column keys keep their binding.
+                if (column.IsExpression || column.Collation != null)
+                {
+                    writer.Write(column.IsExpression ? "\0expression" : "\0column");
+                    writer.Write(column.Collation ?? string.Empty);
+                }
             }
         }
 

@@ -5,7 +5,7 @@ namespace DBAClientX.QueryBuilder;
 
 internal readonly record struct QueryExpression(string Text, bool IsRaw);
 
-internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending);
+internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending, string? Collation = null);
 
 internal sealed record QueryJoinClause(
     string Type,
@@ -31,6 +31,9 @@ internal sealed record RawNotInToken(string Expression, IReadOnlyList<object> Va
 internal sealed record RawBetweenToken(string Expression, object Start, object End) : IWhereToken;
 
 internal sealed record RawNotBetweenToken(string Expression, object Start, object End) : IWhereToken;
+
+/// <summary>A comparison of a column under a collation, <c>column COLLATE name op value</c>; keyset paging writes it.</summary>
+internal sealed record CollatedConditionToken(string Column, string Collation, string Operator, object Value) : IWhereToken;
 
 internal sealed record ContainsToken(string Expression, bool IsRaw, string Text, TextFolding Folding) : IWhereToken;
 
