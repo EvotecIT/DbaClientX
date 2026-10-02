@@ -10,6 +10,7 @@ public sealed class QueryCompoundProjectionTests
     [InlineData("[Id]", "Id")]
     [InlineData("Id OutputId", "OutputId")]
     [InlineData("Id 'OutputId'", "OutputId")]
+    [InlineData("Date OutputId", "OutputId")]
     [InlineData("Id AS [Output.Id]", "Output.Id")]
     [InlineData("OutputId = Id", "OutputId")]
     [InlineData("Id + 1 OutputId", "OutputId")]
@@ -22,7 +23,7 @@ public sealed class QueryCompoundProjectionTests
     {
         string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
         Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_SQLSERVER_TEST_CONNECTION to a SQL Server database.");
-        Query Operand() => new Query().SelectRaw(expression).FromRaw("(SELECT 1 AS Id, 'sample' AS Title) AS numbers");
+        Query Operand() => new Query().SelectRaw(expression).FromRaw("(SELECT 1 AS Id, 1 AS Date, 'sample' AS Title) AS numbers");
         using var client = new DBAClientX.SqlServer();
         var baseline = await client.QueryAsListAsync(connection!, Operand().Compile(), row => (row.GetName(0), row.GetValue(0)));
         var wrapped = await client.QueryAsListAsync(connection!, Operand().Union(Operand()).Limit(1).Compile(), row => (row.GetName(0), row.GetValue(0)));
@@ -82,6 +83,100 @@ public sealed class QueryCompoundProjectionTests
         Assert.Equal(first.Sql, second.Sql);
         Assert.Equal(new object[] { 4, 5 }, second.Parameters);
     }
+
+    [Theory]
+    [InlineData("8 DIV divisor")]
+    [InlineData("8 MOD divisor")]
+    [InlineData("BINARY Name")]
+    [InlineData("Created + INTERVAL 1 DAY")]
+    [InlineData("Created + INTERVAL (divisor + 1) HOUR")]
+    [InlineData("Name REGEXP _utf8mb4'x'")]
+    [InlineData("Name RLIKE _utf8mb4'x'")]
+    [InlineData("DATE '2026-10-03'")]
+    [InlineData("X'78'")]
+    [InlineData("B'01'")]
+    public void MySqlExpressionTails_AreNotInventedAliases(string expression)
+    {
+        string sql = BuildExpressionTail(expression).Compile(SqlDialect.MySql);
+        Assert.Contains("SELECT `dbx_column_0`, `dbx_column_1` AS `divisor`", sql);
+    }
+
+    [Theory]
+    [InlineData("8 DIV divisor OutputValue")]
+    [InlineData("Name REGEXP _utf8mb4'x' OutputValue")]
+    [InlineData("Created + INTERVAL 1 DAY OutputValue")]
+    [InlineData("Created + INTERVAL 1 DAY DAY")]
+    public void MySqlExpressionTails_KeepRealImplicitAliases(string expression)
+    {
+        string sql = BuildExpressionTail(expression).Compile(SqlDialect.MySql);
+        Assert.DoesNotContain("WITH ", sql); // Both genuine aliases are unique; renaming is unnecessary.
+    }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer)]
+    [InlineData(SqlDialect.MySql)]
+    public void SyntheticProjectionNames_AvoidExplicitOutputNames(SqlDialect dialect)
+    {
+        var query = BuildSyntheticCollision();
+        string sql = query.Compile(dialect);
+        Assert.Contains(SqlIdentifier.Quote(dialect, "dbx_column_1") + " AS " + SqlIdentifier.Quote(dialect, "dbx_column_1_1"), sql);
+    }
+
+    [Theory]
+    [InlineData("8 DIV divisor")]
+    [InlineData("8 MOD divisor")]
+    [InlineData("BINARY Name")]
+    [InlineData("Created + INTERVAL 1 DAY")]
+    [InlineData("Created + INTERVAL (divisor + 1) HOUR")]
+    [InlineData("Name REGEXP _utf8mb4'x'")]
+    [InlineData("Name RLIKE _utf8mb4'x'")]
+    [InlineData("DATE '2026-10-03'")]
+    [InlineData("X'78'")]
+    [InlineData("B'01'")]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlUnnamedExpressionWrapper_RemainsComposable(string expression)
+    {
+        string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_MYSQL_TEST_CONNECTION to a MySQL database.");
+        using var client = new DBAClientX.MySql();
+        var query = new Query().Select("q.divisor").From(BuildExpressionTail(expression), "q");
+        var rows = await client.QueryAsListAsync(connection!, query.Compile(SqlDialect.MySql), row => Convert.ToInt64(row.GetValue(0)));
+        Assert.Equal(2L, Assert.Single(rows));
+    }
+
+    [Theory]
+    [InlineData(SqlDialect.SqlServer)]
+    [InlineData(SqlDialect.MySql)]
+    [Trait("Category", "LiveProvider")]
+    public async Task SyntheticProjectionNames_RemainComposable(SqlDialect dialect)
+    {
+        string? connection = Environment.GetEnvironmentVariable(dialect == SqlDialect.SqlServer
+            ? "DBACLIENTX_SQLSERVER_TEST_CONNECTION" : "DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set the provider's test connection.");
+        var query = new Query().Select("q.dbx_column_1").From(BuildSyntheticCollision(), "q");
+        if (dialect == SqlDialect.SqlServer)
+        {
+            using var client = new DBAClientX.SqlServer();
+            var rows = await client.QueryAsListAsync(connection!, query.Compile(dialect), row => Convert.ToInt64(row.GetValue(0)));
+            Assert.Equal(1L, Assert.Single(rows));
+        }
+        else
+        {
+            using var client = new DBAClientX.MySql();
+            var rows = await client.QueryAsListAsync(connection!, query.Compile(dialect), row => Convert.ToInt64(row.GetValue(0)));
+            Assert.Equal(1L, Assert.Single(rows));
+        }
+    }
+
+    private static Query BuildExpressionTail(string expression)
+    {
+        Query Operand() => new Query().SelectRaw(expression + ", divisor")
+            .FromRaw("(SELECT 2 AS divisor, 'x' AS Name, '2026-10-03' AS Created) AS n");
+        return Operand().Union(Operand()).Intersect(Operand());
+    }
+
+    private static Query BuildSyntheticCollision() => new Query().SelectRaw("1 AS dbx_column_1, 2")
+        .Union(new Query().SelectRaw("3, 4")).Intersect(new Query().SelectRaw("1, 2"));
 
     [Theory]
     [InlineData("literal")]

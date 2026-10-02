@@ -15,7 +15,19 @@ public partial class QueryCompiler
 
     private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AND", "OR", "XOR", "NOT", "IS", "LIKE", "REGEXP", "RLIKE", "ZONE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
+        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
+    };
+
+    private static readonly HashSet<string> MySqlProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "XOR", "REGEXP", "RLIKE", "DIV", "MOD", "BINARY"
+    };
+
+    private static readonly HashSet<string> IntervalUnits = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "MICROSECOND", "SECOND", "MINUTE", "HOUR", "DAY", "WEEK", "MONTH", "QUARTER", "YEAR",
+        "SECOND_MICROSECOND", "MINUTE_MICROSECOND", "MINUTE_SECOND", "HOUR_MICROSECOND", "HOUR_SECOND",
+        "HOUR_MINUTE", "DAY_MICROSECOND", "DAY_SECOND", "DAY_MINUTE", "DAY_HOUR", "YEAR_MONTH"
     };
 
     private void AppendDerivedSelect(StringBuilder sb, string sql, string alias, Query query, int? top = null)
@@ -29,13 +41,14 @@ public partial class QueryCompiler
         if (!rename) sb.Append('*');
         else
         {
+            var outputNames = GetDerivedOutputNames(names!);
             for (int index = 0; index < names!.Count; index++)
             {
                 if (index > 0) sb.Append(", ");
                 string internalName = "dbx_column_" + index;
                 sb.Append(SqlIdentifier.Quote(_dialect, internalName));
-                if (names[index] is { } outputName)
-                    sb.Append(" AS ").Append(SqlIdentifier.Quote(_dialect, outputName));
+                if (!string.Equals(internalName, outputNames[index], StringComparison.Ordinal))
+                    sb.Append(" AS ").Append(SqlIdentifier.Quote(_dialect, outputNames[index]));
             }
         }
         if (rename && _dialect == SqlDialect.MySql)
@@ -53,6 +66,25 @@ public partial class QueryCompiler
             }
             sb.Append(')');
         }
+    }
+
+    private static IReadOnlyList<string> GetDerivedOutputNames(IReadOnlyList<string?> names)
+    {
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in names) if (name != null) used.Add(name);
+        var result = new string[names.Count];
+        for (int index = 0; index < names.Count; index++)
+        {
+            if (names[index] is { } explicitName) result[index] = explicitName;
+            else
+            {
+                string baseName = "dbx_column_" + index;
+                string name = baseName;
+                for (int suffix = 1; !used.Add(name); suffix++) name = baseName + "_" + suffix;
+                result[index] = name;
+            }
+        }
+        return result;
     }
 
     private void AppendMySqlNamedSource(StringBuilder sb, string sql, string alias, int columnCount)
@@ -130,6 +162,7 @@ public partial class QueryCompiler
             return tokens[first].Value;
         if (end - first >= 3 && string.Equals(tokens[end - 2].Text, "AS", StringComparison.OrdinalIgnoreCase))
             return last.Value.Length > 0 ? last.Value : null;
+        if (_dialect == SqlDialect.MySql && IsMySqlExpressionTail(tokens, first, end)) return null;
         // Plain identifiers, including a table qualifier, carry the final identifier's name.
         bool identifier = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
         for (int index = first; index < end && identifier; index++)
@@ -145,8 +178,35 @@ public partial class QueryCompiler
         {
             var previous = tokens[end - 2];
             if (previous.Kind is SqlTokenKind.CloseParenthesis or SqlTokenKind.String or SqlTokenKind.Number or SqlTokenKind.QuotedIdentifier ||
-                previous.Kind == SqlTokenKind.Word && !ProjectionOperators.Contains(previous.Text)) return last.Value;
+                previous.Kind == SqlTokenKind.Word && !ProjectionOperators.Contains(previous.Text)
+                && !(_dialect == SqlDialect.MySql && MySqlProjectionOperators.Contains(previous.Text))
+                && !(_dialect == SqlDialect.SqlServer && previous.Text.Equals("ZONE", StringComparison.OrdinalIgnoreCase))) return last.Value;
         }
         return null;
+    }
+
+    private static bool IsMySqlExpressionTail(IReadOnlyList<SqlToken> tokens, int first, int end)
+    {
+        var last = tokens[end - 1];
+        if (end - first >= 2 && last.Kind == SqlTokenKind.String && tokens[end - 2].Kind == SqlTokenKind.Word)
+        {
+            string prefix = tokens[end - 2].Text;
+            if (prefix.StartsWith("_", StringComparison.Ordinal) || prefix.Equals("X", StringComparison.OrdinalIgnoreCase)
+                || prefix.Equals("B", StringComparison.OrdinalIgnoreCase) || prefix.Equals("DATE", StringComparison.OrdinalIgnoreCase)
+                || prefix.Equals("TIME", StringComparison.OrdinalIgnoreCase) || prefix.Equals("TIMESTAMP", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        if (last.Kind != SqlTokenKind.Word || !IntervalUnits.Contains(last.Text)) return false;
+        int depth = 0, interval = -1;
+        for (int index = first; index < end - 1; index++)
+        {
+            if (tokens[index].Kind == SqlTokenKind.OpenParenthesis) depth++;
+            else if (tokens[index].Kind == SqlTokenKind.CloseParenthesis) depth--;
+            else if (depth == 0 && tokens[index].Kind == SqlTokenKind.Word
+                     && tokens[index].Text.Equals("INTERVAL", StringComparison.OrdinalIgnoreCase)) interval = index;
+        }
+        // A trailing unit belongs to INTERVAL's expression. An alias may itself be a unit word,
+        // but then the expression already ends with its own unit (INTERVAL 1 DAY DAY).
+        return interval >= 0 && !(end - 2 > interval + 1 && tokens[end - 2].Kind == SqlTokenKind.Word
+            && IntervalUnits.Contains(tokens[end - 2].Text));
     }
 }
