@@ -558,6 +558,16 @@ await foreach (var chunk in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id,
 
 `DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryReadOnlyStreamAsync<T>` for a read-only stream of a database file and `QueryStreamWithConnectionStringAsync<T>` for other connection options. Canceling a SQLite stream interrupts the statement that is running.
 
+`DbaRecordMapper.Bind<T>(schema)` resolves column ordinals once per result. It uses the same conversions and null handling as `For<T>()`, without checking every column name on every row. Bind before reading values, and bind again after `NextResult()` or any change to the column layout. The delegate retains column metadata and can be reused with independent readers that have that same layout. Use `For<T>()` when one delegate must automatically adapt to different layouts.
+
+```csharp
+Func<System.Data.IDataRecord, EventRow>? map = null;
+var events = await sqlite.QueryAsListAsync(
+    "monitoring.db", "SELECT Id, Zone, CreatedUtc FROM Events",
+    row => map!(row),
+    initialize: schema => map = DbaRecordMapper.Bind<EventRow>(schema));
+```
+
 ### Bulk Insert
 
 ```csharp
