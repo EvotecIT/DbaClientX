@@ -121,8 +121,7 @@ public partial class QueryCompiler
         {
             string body = sb.ToString();
             sb.Clear();
-            sb.Append("SELECT TOP ").Append(query.LimitValue!.Value).Append(" * FROM (").Append(body).Append(')');
-            AppendAlias(sb, "dbx_compound");
+            AppendDerivedSelect(sb, body, "dbx_compound", query, query.LimitValue.GetValueOrDefault());
         }
 
         if (query.OrderByExpressions.Count > 0)
@@ -218,7 +217,7 @@ public partial class QueryCompiler
             {
                 string left = sb.ToString();
                 sb.Clear();
-                AppendDerivedSelect(sb, left, "dbx_left_" + index);
+                AppendDerivedSelect(sb, left, "dbx_left_" + index, query);
             }
             sb.Append(' ').Append(type).Append(' ');
 
@@ -229,7 +228,7 @@ public partial class QueryCompiler
                 if (_dialect == SqlDialect.SqlServer && operand.OrderByExpressions.Count > 0 &&
                     !operand.LimitValue.HasValue && !operand.OffsetValue.HasValue)
                     throw new InvalidOperationException("SQL Server ORDER BY in a compound operand requires Limit or Offset. Order the combined query instead.");
-                AppendDerivedSelect(sb, CompileInternal(operand, parameters), "dbx_operand_" + index);
+                AppendDerivedSelect(sb, CompileInternal(operand, parameters), "dbx_operand_" + index, operand);
             }
             else
                 sb.Append(CompileInternal(operand, parameters));
@@ -237,9 +236,4 @@ public partial class QueryCompiler
         }
     }
 
-    private void AppendDerivedSelect(StringBuilder sb, string sql, string alias)
-    {
-        sb.Append("SELECT * FROM (").Append(sql).Append(')');
-        AppendAlias(sb, alias);
-    }
 }

@@ -76,6 +76,8 @@ For multipart table or schema names, `DbaIdentifierPath` provides the shared del
 
 Compound queries keep their scope: `OrderBy`, `Limit`, `Top` and `Offset` on the root query apply to the combined result, while clauses on a `Union`, `UnionAll` or `Intersect` operand stay inside that operand. Mixed operators compose from left to right, and nested operands preserve their grouping. Order the combined result by its output column names. SQL Server requires a local ordered operand to include a limit or offset.
 
+Generated subqueries assign unique internal names to explicit projections on SQL Server and MySQL, preserving duplicate result names by position. Unnamed expressions receive stable names such as `dbx_column_0` when naming is required; use `SelectRaw("COUNT(*) AS Total")` to choose a result name. Wildcards have an unknown column count during compilation, so their resulting names must satisfy the provider's subquery rules. For joins that expose duplicate names through `*`, select the columns explicitly. MySQL compound subqueries use MySQL 8's derived-column list syntax.
+
 ```csharp
 var recent = new Query().Select("Id").From("CurrentRuns")
     .Union(new Query().Select("Id").From("ArchivedRuns"))
