@@ -15,13 +15,13 @@ public partial class QueryCompiler
 
     private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AND", "OR", "XOR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
+        "AND", "OR", "XOR", "NOT", "IS", "LIKE", "REGEXP", "RLIKE", "ZONE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
     };
 
     private void AppendDerivedSelect(StringBuilder sb, string sql, string alias, Query query, int? top = null)
     {
-        // SQL Server requires named derived columns; it and MySQL require unique names. An explicit
-        // derived column list preserves positional set semantics without rewriting trusted expressions.
+        // SQL Server requires named derived columns; it and MySQL require unique names. Naming
+        // columns by ordinal preserves positional set semantics without rewriting trusted expressions.
         var names = _dialect is SqlDialect.SqlServer or SqlDialect.MySql ? GetProjectionNames(query) : null;
         bool rename = names != null && RequiresDerivedNames(names);
         sb.Append("SELECT ");
@@ -38,9 +38,12 @@ public partial class QueryCompiler
                     sb.Append(" AS ").Append(SqlIdentifier.Quote(_dialect, outputName));
             }
         }
-        sb.Append(" FROM (").Append(sql).Append(')');
+        if (rename && _dialect == SqlDialect.MySql)
+            AppendMySqlNamedSource(sb, sql, alias, names!.Count);
+        else
+            sb.Append(" FROM (").Append(sql).Append(')');
         AppendAlias(sb, alias);
-        if (rename)
+        if (rename && _dialect != SqlDialect.MySql)
         {
             sb.Append(" (");
             for (int index = 0; index < names!.Count; index++)
@@ -50,6 +53,24 @@ public partial class QueryCompiler
             }
             sb.Append(')');
         }
+    }
+
+    private void AppendMySqlNamedSource(StringBuilder sb, string sql, string alias, int columnCount)
+    {
+        // Correlation column lists require MariaDB 11.7. A scoped CTE works with MySQL 8 and MariaDB 10.2,
+        // preserves local ordering/paging and does not rewrite trusted projection expressions.
+        string baseName = alias + "_source";
+        string name = baseName;
+        for (int suffix = 1; sql.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0; suffix++)
+            name = baseName + "_" + suffix;
+        string quotedName = SqlIdentifier.Quote(_dialect, name);
+        sb.Append(" FROM (WITH ").Append(quotedName).Append(" (");
+        for (int index = 0; index < columnCount; index++)
+        {
+            if (index > 0) sb.Append(", ");
+            sb.Append(SqlIdentifier.Quote(_dialect, "dbx_column_" + index));
+        }
+        sb.Append(") AS (").Append(sql).Append(") SELECT * FROM ").Append(quotedName).Append(')');
     }
 
     private static bool RequiresDerivedNames(IReadOnlyList<string?> names)

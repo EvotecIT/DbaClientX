@@ -36,6 +36,7 @@ public sealed class QueryCompoundProjectionTests
     [InlineData("CURRENT_USER")]
     [InlineData("CASE WHEN 1 > 0 THEN 1 ELSE 0 END")]
     [InlineData("CAST('sample' AS varchar(10)) COLLATE Latin1_General_100_BIN2")]
+    [InlineData("CAST('2026-10-03T12:00:00' AS datetime2) AT TIME ZONE 'UTC'")]
     [Trait("Category", "LiveProvider")]
     public async Task SqlServerGeneratedWrapper_AcceptsUnnamedKeywordsAndExpressions(string expression)
     {
@@ -63,6 +64,23 @@ public sealed class QueryCompoundProjectionTests
     {
         string sql = Build("literal").Compile(SqlDialect.SqlServer);
         Assert.Equal("SELECT TOP 1 [dbx_column_0] FROM (SELECT 1 UNION SELECT 2) AS [dbx_compound] ([dbx_column_0]) ORDER BY 1", sql);
+    }
+
+    [Fact]
+    public void MySqlScopedProjectionNames_PreserveSourceReferencesAndParameterOrder()
+    {
+        Query Build(int first, int second) => new Query().SelectRaw("Id AS Value, Id AS Value")
+            .From("dbx_left_1_source").Where("Id", first)
+            .Union(new Query().SelectRaw("Id AS Value, Id AS Value").From("other").Where("Id", second))
+            .Intersect(new Query().SelectRaw("3, 3"));
+        var first = Build(1, 2).CompileWithParameters(SqlDialect.MySql);
+        var second = Build(4, 5).CompileWithParameters(SqlDialect.MySql);
+        Assert.Contains("WITH `dbx_left_1_source_1` (`dbx_column_0`, `dbx_column_1`)", first.Sql);
+        Assert.Contains("FROM `dbx_left_1_source` WHERE `Id` = @p0", first.Sql);
+        Assert.Contains("FROM `other` WHERE `Id` = @p1", first.Sql);
+        Assert.Equal(new object[] { 1, 2 }, first.Parameters);
+        Assert.Equal(first.Sql, second.Sql);
+        Assert.Equal(new object[] { 4, 5 }, second.Parameters);
     }
 
     [Theory]
@@ -94,6 +112,7 @@ public sealed class QueryCompoundProjectionTests
     [InlineData("mixed")]
     [InlineData("null")]
     [InlineData("implicit")]
+    [InlineData("regex")]
     [Trait("Category", "LiveProvider")]
     public async Task MySqlCompiledCompound_PreservesValuesAndProjectionShape(string shape)
     {
@@ -122,12 +141,20 @@ public sealed class QueryCompoundProjectionTests
             .Union(new Query().Select("2")).Limit(1).OrderBy("OutputId"),
         "assignment" => new Query().SelectRaw("OutputId = Id").FromRaw("(SELECT 1 AS Id) AS numbers")
             .Union(new Query().Select("2")).Limit(1).OrderBy("OutputId"),
+        "regex" => new Query().SelectRaw("Name REGEXP 'x', Code RLIKE 'x'").FromRaw("(SELECT 'x' AS Name, 'x' AS Code) AS numbers")
+            .Union(new Query().SelectRaw("1, 1")).Intersect(new Query().SelectRaw("1, 1")),
         _ => throw new ArgumentOutOfRangeException(nameof(shape))
     };
 
     private static void AssertRows(string shape, IReadOnlyList<ProjectionRow> rows)
     {
-        if (shape is "duplicate" or "nested")
+        if (shape == "regex")
+        {
+            var row = Assert.Single(rows);
+            Assert.Equal(new[] { "dbx_column_0", "dbx_column_1" }, row.Names);
+            Assert.Equal(new long?[] { 1, 1 }, row.Values);
+        }
+        else if (shape is "duplicate" or "nested")
         {
             Assert.Equal(shape == "nested" ? 2 : 1, rows.Count);
             Assert.Equal(new[] { "Id", "Id" }, rows[0].Names);
