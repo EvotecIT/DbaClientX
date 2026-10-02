@@ -52,7 +52,7 @@ internal static class SqlTokenizer
         while (index < sql.Length)
         {
             var character = sql[index];
-            if (char.IsWhiteSpace(character))
+            if (char.IsWhiteSpace(character) || character == '\uFEFF')
             {
                 index++;
             }

@@ -34,28 +34,34 @@ public partial class SQLite
     /// <c>sqlite3_interrupt</c> is safe to call from another thread and stops the running statement with
     /// <c>SQLITE_INTERRUPT</c>, which the cancellation normalization reports as <see cref="OperationCanceledException"/>.
     /// An interrupt that arrives when no statement runs does not affect the next statement. Dispose the registration
-    /// before the connection is closed or reused. Register only while an operation exclusively uses a connection outside a
-    /// transaction: an interrupted write inside
-    /// an explicit transaction rolls the whole transaction back.
+    /// before the connection is closed or reused. Register only while an operation exclusively uses a connection and
+    /// interruption is known to be safe. SELECT-only adapter read transactions may be interrupted; arbitrary write
+    /// commands must use the guarded command registration because an interrupted write rolls the whole transaction back.
     /// </remarks>
     /// <param name="connection">An open connection owned by the current operation.</param>
     /// <param name="cancellationToken">The caller's token.</param>
-    /// <param name="commandText">Optional SQL text; batches that start a transaction retain cooperative cancellation.</param>
     /// <returns>The registration to dispose when the operation ends.</returns>
     internal static CancellationTokenRegistration RegisterStatementInterrupt(
         SqliteConnection connection,
-        CancellationToken cancellationToken,
-        string? commandText = null)
+        CancellationToken cancellationToken)
     {
         if (connection == null)
         {
             throw new ArgumentNullException(nameof(connection));
         }
 
-        return cancellationToken.CanBeCanceled && IsInAutoCommitMode(connection) && !StartsSqlTransaction(commandText)
+        return cancellationToken.CanBeCanceled
             ? cancellationToken.Register(static state => InterruptStatement((SqliteConnection)state!), connection)
             : default;
     }
+
+    /// <summary>Protects existing native transactions and transactions started by an arbitrary SQL batch.</summary>
+    private static CancellationTokenRegistration RegisterCommandInterrupt(
+        SqliteConnection connection,
+        CancellationToken cancellationToken,
+        string commandText)
+        => cancellationToken.CanBeCanceled && IsInAutoCommitMode(connection) && !StartsSqlTransaction(commandText)
+            ? RegisterStatementInterrupt(connection, cancellationToken) : default;
 
     /// <summary>Registers <see cref="RegisterStatementInterrupt"/> only when the operation owns the connection.</summary>
     /// <remarks>
@@ -67,7 +73,7 @@ public partial class SQLite
         bool ownsConnection,
         CancellationToken cancellationToken,
         string commandText)
-        => ownsConnection ? RegisterStatementInterrupt(connection, cancellationToken, commandText) : default;
+        => ownsConnection ? RegisterCommandInterrupt(connection, cancellationToken, commandText) : default;
 
     private static void InterruptStatement(SqliteConnection connection)
     {

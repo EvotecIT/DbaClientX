@@ -94,6 +94,8 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
     [InlineData("SAVEPOINT unit", true, false)]
     [InlineData("/* leading comment */ BEGIN IMMEDIATE", false, true)]
     [InlineData("SAVEPOINT unit", true, true)]
+    [InlineData("\uFEFFBEGIN IMMEDIATE", false, true)]
+    [InlineData("\uFEFF/* comment */ SAVEPOINT unit", true, true)]
     public async Task SessionWrite_InSqlManagedTransaction_CancellationPreservesEarlierWrites(string begin, bool prepared, bool transactionStartsInBatch)
     {
         using var sqlite = new DBAClientX.SQLite();
@@ -186,6 +188,28 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         using var cancellation = new CancellationTokenSource(CancelAfter);
 
         await AssertCanceledWithinWatchdogAsync(() => adapter.CountRowsAsync(definition, cancellation.Token), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Snapshot, false)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Snapshot, true)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Serializable, false)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Serializable, true)]
+    public async Task TableCopyReadSession_WhenCanceled_InterruptsTheReadAndRemainsUsable(DBAClientX.DataMovement.DbaTableCopyReadConsistency consistency, bool readPage)
+    {
+        CreateSlowView();
+        var adapter = new DBAClientX.SQLiteTableCopyAdapter(_database) { ReadConsistency = consistency };
+        var definition = new DBAClientX.DataMovement.DbaTableCopyDefinition("SlowRows", "Target", new[] { "Id" });
+        using var readSession = await adapter.OpenReadSessionAsync();
+        using var cancellation = new CancellationTokenSource(CancelAfter);
+
+        await AssertCanceledWithinWatchdogAsync(
+            () => readPage
+                ? adapter.ReadPageAsync(new DBAClientX.DataMovement.DbaTableCopyPageRequest(definition, null, 100), cancellation.Token)
+                : (Task)adapter.CountRowsAsync(definition, cancellation.Token), cancellation.Token);
+
+        var ordinaryTable = new DBAClientX.DataMovement.DbaTableCopyDefinition("Numbers", "Target", new[] { "Value" });
+        Assert.Equal(0L, await adapter.CountRowsAsync(ordinaryTable));
     }
 
     private void CreateSlowView()

@@ -101,7 +101,7 @@ public partial class SQLite
     internal async Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
         using var interrupt = command.Transaction == null
-            ? RegisterStatementInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
+            ? RegisterCommandInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
         return await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken),
@@ -112,7 +112,7 @@ public partial class SQLite
     internal async Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
         using var interrupt = command.Transaction == null
-            ? RegisterStatementInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
+            ? RegisterCommandInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
         return await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteScalarAsync(cancellationToken), cancellationToken),
