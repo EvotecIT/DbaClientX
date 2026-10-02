@@ -7,10 +7,10 @@ namespace DBAClientX.QueryPlans;
 public sealed class QueryPlanRules
 {
     /// <summary>Creates rules for the named large tables, with every check on.</summary>
-    /// <param name="largeTables">Tables too large to read in full; names compare without case. Empty means every table.</param>
+    /// <param name="largeTables">Tables too large to read in full; SQLite name comparison ignores ASCII case and keeps other characters distinct. Empty means every table.</param>
     public QueryPlanRules(params string[] largeTables)
     {
-        LargeTables = new HashSet<string>(largeTables ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        LargeTables = new HashSet<string>(largeTables ?? Array.Empty<string>(), SqliteIdentifierComparer.Instance);
     }
 
     /// <summary>Gets the tables too large to read in full. When empty, the rules apply to every table.</summary>

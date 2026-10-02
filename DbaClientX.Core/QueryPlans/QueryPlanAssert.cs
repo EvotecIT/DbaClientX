@@ -36,7 +36,7 @@ public static class QueryPlanAssert
         var violations = new List<QueryPlanViolation>();
         if (rules.RequireLargeTablesInPlan)
         {
-            foreach (var table in rules.LargeTables.Where(table => !plan.Steps.Any(step => plan.TablesOf(step).Contains(table, StringComparer.OrdinalIgnoreCase))))
+            foreach (var table in rules.LargeTables.Where(table => !plan.Steps.Any(step => plan.TablesOf(step).Contains(table, SqliteIdentifierComparer.Instance))))
             {
                 violations.Add(new QueryPlanViolation(QueryPlanViolationKind.TableNotInPlan, table, null));
             }
@@ -71,7 +71,7 @@ public static class QueryPlanAssert
                     // A temporary B-tree sorts the rows of its query step: blame the large tables that step (or a
                     // co-routine or subquery under it) reads in full or through a wide search. Rows a selective search
                     // narrows are cheap to sort.
-                    foreach (var table in TablesReadWidelyUnder(plan, step.ParentId, rules).Where(rules.AppliesTo).Distinct(StringComparer.OrdinalIgnoreCase))
+                    foreach (var table in TablesReadWidelyUnder(plan, step.ParentId, rules).Where(rules.AppliesTo).Distinct(SqliteIdentifierComparer.Instance))
                     {
                         violations.Add(new QueryPlanViolation(QueryPlanViolationKind.TempBTree, table!, step));
                     }
@@ -158,7 +158,7 @@ public static class QueryPlanAssert
 
         foreach (var (key, rows) in step.IndexRowsPerKey)
         {
-            if (string.Equals(key, column, StringComparison.OrdinalIgnoreCase))
+            if (SqliteIdentifierComparer.Instance.Equals(key, column))
             {
                 return rows <= rules.WideSearchFraction * step.TableRows.Value;
             }

@@ -10,6 +10,48 @@ namespace DbaClientX.Tests;
 public sealed class SqliteBackupMethodTests
 {
     [Theory]
+    [InlineData(SqliteBackupMethod.Auto, false)]
+    [InlineData(SqliteBackupMethod.Incremental, true)]
+    [InlineData(SqliteBackupMethod.Snapshot, true)]
+    public async Task BackupDatabaseAsync_CanceledByFinalProgress_DoesNotPublishAndReleasesSource(SqliteBackupMethod method, bool overwrite)
+    {
+        string source = CreateDatabase(2, wal: true);
+        string destination = overwrite ? CreateDatabase(1, wal: false) : NewDestination();
+        using var cancellation = new CancellationTokenSource();
+        bool finalStep = false;
+        try
+        {
+            using var sqlite = new SQLite();
+            var progress = new InlineProgress<SqliteBackupProgress>(value =>
+            {
+                if (value.CopiedPages > 0 && value.RemainingPages == 0)
+                {
+                    finalStep = true;
+                    cancellation.Cancel();
+                }
+            });
+            var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sqlite.BackupDatabaseAsync(
+                source, destination, method,
+                new SqliteBackupOptions { PagesPerStep = 4096, OverwriteDestination = overwrite },
+                progress, cancellation.Token));
+
+            Assert.True(finalStep);
+            Assert.Equal(cancellation.Token, error.CancellationToken);
+            if (overwrite) Assert.Equal(1, await CountRowsAsync(destination));
+            else Assert.False(File.Exists(destination));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(destination)!, Path.GetFileName(destination) + ".*.partial"));
+            sqlite.ExecuteNonQuery(source, "INSERT INTO backup_contract(payload) VALUES(randomblob(16))");
+            Assert.Equal(3, await CountRowsAsync(source));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Cleanup(source);
+            Cleanup(destination);
+        }
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task BackupDatabaseAsync_AutoWhileAnotherConnectionWrites_PicksTheMethodFromTheJournalMode(bool wal)

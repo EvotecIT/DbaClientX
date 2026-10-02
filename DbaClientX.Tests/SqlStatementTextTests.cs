@@ -5,6 +5,17 @@ namespace DbaClientX.Tests;
 
 public sealed class SqlStatementTextTests
 {
+    [Theory]
+    [InlineData("SELECT 1--2; SELECT 3", "SELECT 1--2", "SELECT 3")]
+    [InlineData("SELECT 1; -- comment; ignored\nSELECT 2", "SELECT 1", "SELECT 2")]
+    [InlineData("SELECT 1; --\tcomment; ignored\nSELECT 2", "SELECT 1", "SELECT 2")]
+    [InlineData("SELECT 1; # comment; ignored\nSELECT 2", "SELECT 1", "SELECT 2")]
+    [InlineData("SELECT '#;--'; SELECT 2", "SELECT '#;--'", "SELECT 2")]
+    public void Split_MySqlCommentsAndSubtraction_PreserveStatementBoundaries(string sql, string first, string second)
+    {
+        Assert.Equal(new[] { first, second }, SqlStatementText.Split(sql, SqlDialect.MySql));
+    }
+
     [Fact]
     public void Split_ReturnsEachStatementWithoutSeparatorsOrSurroundingComments()
     {

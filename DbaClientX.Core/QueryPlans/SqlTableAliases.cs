@@ -12,7 +12,7 @@ namespace DBAClientX.QueryPlans;
 /// </summary>
 internal static class SqlTableAliases
 {
-    private static readonly HashSet<string> NotAliases = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> NotAliases = new(SqliteIdentifierComparer.Instance)
     {
         "WHERE", "JOIN", "LEFT", "RIGHT", "FULL", "INNER", "OUTER", "CROSS", "NATURAL", "ON", "USING", "GROUP", "ORDER",
         "LIMIT", "OFFSET", "UNION", "INTERSECT", "EXCEPT", "WINDOW", "HAVING", "SET", "VALUES", "RETURNING", "INDEXED",
@@ -21,9 +21,15 @@ internal static class SqlTableAliases
 
     /// <summary>Returns the aliases with one table, and the aliases defined for several tables with all of them.</summary>
     internal static (IReadOnlyDictionary<string, string> Resolved, IReadOnlyDictionary<string, IReadOnlyList<string>> Ambiguous) Find(string sql)
+        => Find(sql, includeSourceNames: false);
+
+    internal static (IReadOnlyDictionary<string, string> Resolved, IReadOnlyDictionary<string, IReadOnlyList<string>> Ambiguous) FindSourceNames(string sql)
+        => Find(sql, includeSourceNames: true);
+
+    private static (IReadOnlyDictionary<string, string> Resolved, IReadOnlyDictionary<string, IReadOnlyList<string>> Ambiguous) Find(string sql, bool includeSourceNames)
     {
-        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var ambiguous = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var aliases = new Dictionary<string, string>(SqliteIdentifierComparer.Instance);
+        var ambiguous = new Dictionary<string, List<string>>(SqliteIdentifierComparer.Instance);
         var tokens = SqlTokenizer.Tokenize(sql);
         for (var index = 0; index < tokens.Count; index++)
         {
@@ -38,7 +44,7 @@ internal static class SqlTableAliases
             var position = index + 1;
             while (true)
             {
-                position = ReadTableReference(tokens, position, aliases, ambiguous);
+                position = ReadTableReference(tokens, position, aliases, ambiguous, includeSourceNames);
                 if (!isFrom || position >= tokens.Count || tokens[position].Text != ",")
                 {
                     break;
@@ -53,7 +59,7 @@ internal static class SqlTableAliases
             aliases.Remove(alias);
         }
 
-        var candidates = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new Dictionary<string, IReadOnlyList<string>>(SqliteIdentifierComparer.Instance);
         foreach (var pair in ambiguous)
         {
             candidates[pair.Key] = pair.Value;
@@ -63,7 +69,7 @@ internal static class SqlTableAliases
     }
 
     /// <summary>Reads <c>[schema.]table [[AS] alias]</c> at <paramref name="position"/> and returns the position after it.</summary>
-    private static int ReadTableReference(IReadOnlyList<SqlToken> tokens, int position, Dictionary<string, string> aliases, Dictionary<string, List<string>> ambiguous)
+    private static int ReadTableReference(IReadOnlyList<SqlToken> tokens, int position, Dictionary<string, string> aliases, Dictionary<string, List<string>> ambiguous, bool includeSourceNames)
     {
         if (position >= tokens.Count)
         {
@@ -90,17 +96,21 @@ internal static class SqlTableAliases
             return SkipAlias(tokens, position);
         }
 
-        if (!IsName(tokens[position]) || NotAliases.Contains(tokens[position].Value))
+        if (!IsName(tokens[position]) || IsKeyword(tokens[position]))
         {
             return position;
         }
 
         var table = tokens[position].Value;
+        var displayedName = table;
         while (position + 2 < tokens.Count && tokens[position + 1].Text == "." && IsName(tokens[position + 2]))
         {
             position += 2;
             table = tokens[position].Value;
+            displayedName += "." + table;
         }
+
+        if (includeSourceNames) AddName(displayedName, table, aliases, ambiguous);
 
         position++;
         if (position < tokens.Count && Is(tokens[position], "AS"))
@@ -108,29 +118,34 @@ internal static class SqlTableAliases
             position++;
         }
 
-        if (position < tokens.Count && IsName(tokens[position]) && !NotAliases.Contains(tokens[position].Value))
+        if (position < tokens.Count && IsName(tokens[position]) && !IsKeyword(tokens[position]))
         {
             var alias = tokens[position].Value;
-            if (ambiguous.TryGetValue(alias, out var tables))
-            {
-                if (!tables.Contains(table, StringComparer.OrdinalIgnoreCase))
-                {
-                    tables.Add(table);
-                }
-            }
-            else if (aliases.TryGetValue(alias, out var known) && !string.Equals(known, table, StringComparison.OrdinalIgnoreCase))
-            {
-                ambiguous[alias] = new List<string> { known, table };
-            }
-            else
-            {
-                aliases[alias] = table;
-            }
-
+            AddName(alias, table, aliases, ambiguous);
             position++;
         }
 
         return position;
+    }
+
+    private static void AddName(string alias, string table, Dictionary<string, string> aliases, Dictionary<string, List<string>> ambiguous)
+    {
+        if (ambiguous.TryGetValue(alias, out var tables))
+        {
+            if (!tables.Contains(table, SqliteIdentifierComparer.Instance))
+            {
+                tables.Add(table);
+            }
+        }
+        else if (aliases.TryGetValue(alias, out var known) && !SqliteIdentifierComparer.Instance.Equals(known, table))
+        {
+            ambiguous[alias] = new List<string> { known, table };
+        }
+        else
+        {
+            aliases[alias] = table;
+        }
+
     }
 
     private static int SkipAlias(IReadOnlyList<SqlToken> tokens, int position)
@@ -140,12 +155,15 @@ internal static class SqlTableAliases
             position++;
         }
 
-        return position < tokens.Count && IsName(tokens[position]) && !NotAliases.Contains(tokens[position].Value) ? position + 1 : position;
+        return position < tokens.Count && IsName(tokens[position]) && !IsKeyword(tokens[position]) ? position + 1 : position;
     }
 
     private static bool Is(SqlToken token, string word)
-        => token.Kind == SqlTokenKind.Word && string.Equals(token.Text, word, StringComparison.OrdinalIgnoreCase);
+        => token.Kind == SqlTokenKind.Word && SqliteIdentifierComparer.Instance.Equals(token.Text, word);
 
     private static bool IsName(SqlToken token)
         => token.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
+
+    private static bool IsKeyword(SqlToken token)
+        => token.Kind == SqlTokenKind.Word && NotAliases.Contains(token.Value);
 }

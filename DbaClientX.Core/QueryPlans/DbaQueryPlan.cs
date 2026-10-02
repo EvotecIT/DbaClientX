@@ -23,24 +23,26 @@ public sealed class DbaQueryPlan
             throw new ArgumentNullException(nameof(steps));
         }
 
-        var (aliases, ambiguous) = SqlTableAliases.Find(sql);
+        var (aliases, _) = SqlTableAliases.Find(sql);
+        var (names, ambiguous) = SqlTableAliases.FindSourceNames(sql);
         AmbiguousAliases = ambiguous;
-        Steps = aliases.Count == 0
+        Steps = names.Count == 0
             ? steps
-            : steps.Select(step => step.Table != null && step.Alias == null && aliases.TryGetValue(step.Table, out var table)
-                    ? step.With(table, step.Table, step.Operation, step.EstimatedRows, step.TableRows)
+            : steps.Select(step => step.Table != null && step.Alias == null && names.TryGetValue(step.Table, out var table)
+                    ? step.With(table, aliases.ContainsKey(step.Table) ? step.Table : null, step.Operation, step.EstimatedRows, step.TableRows)
                     : step)
                 .ToArray();
     }
 
     /// <summary>
-    /// Gets the aliases the statement defines for more than one table (for example <c>p</c> in two subqueries), with
+    /// Gets plan labels that can name more than one table: aliases (for example <c>p</c> in two subqueries) or
+    /// colliding displayed source names (for example <c>main.events</c> and a quoted table of that name), with
     /// every candidate table. Steps that name such an alias keep it in <see cref="DbaQueryPlanStep.Table"/>, and
     /// <see cref="QueryPlanAssert"/> treats them as reading each candidate.
     /// </summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> AmbiguousAliases { get; }
 
-    /// <summary>Returns the tables a step may read: its table, or every candidate of an ambiguous alias.</summary>
+    /// <summary>Returns the tables a step may read: its table, or every candidate of an ambiguous plan label.</summary>
     /// <param name="step">A step of this plan.</param>
     /// <returns>The candidate table names; empty when the step reads no table.</returns>
     public IReadOnlyList<string> TablesOf(DbaQueryPlanStep step)
@@ -52,6 +54,16 @@ public sealed class DbaQueryPlan
 
         return AmbiguousAliases.TryGetValue(step.Table, out var candidates) ? candidates : new[] { step.Table };
     }
+
+    private DbaQueryPlan(DbaQueryPlan source, IReadOnlyList<DbaQueryPlanStep> steps)
+    {
+        Sql = source.Sql;
+        Steps = steps;
+        AmbiguousAliases = source.AmbiguousAliases;
+    }
+
+    /// <summary>Replaces enriched steps without interpreting their already resolved table names as raw plan labels.</summary>
+    internal DbaQueryPlan WithSteps(IReadOnlyList<DbaQueryPlanStep> steps) => new(this, steps);
 
     /// <summary>Gets the statement that was explained.</summary>
     public string Sql { get; }

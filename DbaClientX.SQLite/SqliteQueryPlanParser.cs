@@ -61,7 +61,7 @@ internal static class SqliteQueryPlanParser
         // RIGHT and FULL joins scan the right table again for rows that matched nothing.
         if (detail.StartsWith(RightJoinPrefix, StringComparison.Ordinal))
         {
-            return new DbaQueryPlanStep(id, parentId, detail, DbaQueryPlanOperation.Scan, TableName(detail.Substring(RightJoinPrefix.Length)));
+            return new DbaQueryPlanStep(id, parentId, detail, DbaQueryPlanOperation.Scan, detail.Substring(RightJoinPrefix.Length));
         }
 
         // SQLite 3.39 and later mark the inner side of LEFT and FULL joins with a suffix.
@@ -72,7 +72,7 @@ internal static class SqliteQueryPlanParser
             return new DbaQueryPlanStep(id, parentId, detail, DbaQueryPlanOperation.Other);
         }
 
-        var table = TableName(match.Groups["table"].Value);
+        var table = match.Groups["table"].Value;
         var rest = match.Groups["rest"].Success ? match.Groups["rest"].Value : string.Empty;
         var isScan = match.Groups["op"].Value == "SCAN";
         var constrained = rest.IndexOf('(') >= 0;
@@ -151,10 +151,4 @@ internal static class SqliteQueryPlanParser
     // column=? or, for row values, (a,b)>(?,?).
     private static readonly Regex ConstraintTerm = new(@"^(?<column>.+?)(?<op>>=|<=|=|>|<)(?:\?|\(\?(?:,\?)*\))$", RegexOptions.CultureInvariant | RegexOptions.Singleline);
 
-    /// <summary>The table name without a schema prefix (<c>main.</c>, <c>temp.</c> or an attached database).</summary>
-    private static string TableName(string name)
-    {
-        var dot = name.IndexOf('.');
-        return dot > 0 && dot < name.Length - 1 ? name.Substring(dot + 1) : name;
-    }
 }

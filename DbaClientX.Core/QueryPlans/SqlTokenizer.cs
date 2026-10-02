@@ -56,7 +56,9 @@ internal static class SqlTokenizer
             {
                 index++;
             }
-            else if (character == '-' && Next(sql, index) == '-')
+            else if (character == '-' && Next(sql, index) == '-' &&
+                (!backslashStrings || index + 2 < sql.Length && (char.IsWhiteSpace(sql[index + 2]) || char.IsControl(sql[index + 2])))
+                || backslashStrings && character == '#')
             {
                 while (index < sql.Length && sql[index] != '\n')
                 {

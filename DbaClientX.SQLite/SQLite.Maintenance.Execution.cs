@@ -269,6 +269,7 @@ public partial class SQLite
                         totalPages = raw.sqlite3_backup_pagecount(backup);
                         remainingPages = raw.sqlite3_backup_remaining(backup);
                         ReportBackupProgress(progress, totalPages, remainingPages, stopwatch.Elapsed);
+                        cancellationToken.ThrowIfCancellationRequested();
 
                         if (resultCode == raw.SQLITE_DONE)
                         {

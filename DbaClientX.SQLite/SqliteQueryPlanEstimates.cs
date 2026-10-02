@@ -46,7 +46,7 @@ internal static class SqliteQueryPlanEstimates
             steps.Add(step.With(step.Table, step.Alias, step.Operation, rows, tableRows, indexConstraintColumns: constrained, indexRowsPerKey: rowsPerKey));
         }
 
-        return new DbaQueryPlan(plan.Sql, steps);
+        return plan.WithSteps(steps);
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ internal static class SqliteQueryPlanEstimates
             columns.AddRange(column.Trim('(', ')').Split(',').Select(part => part.Trim()).Where(part => part.Length > 0).Select(part => (part, op)));
         }
 
-        var rowId = columns.Where(column => RowIdNames.Contains(column.Column, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var rowId = columns.Where(column => RowIdNames.Contains(column.Column, SqliteIdentifierComparer.Instance)).ToArray();
         if (rowId.Length > 0)
         {
             // A secondary index ends with the rowid too: (Status=? AND rowid>?).
@@ -100,8 +100,8 @@ internal static class SqliteQueryPlanEstimates
 
         string? index = string.Equals(step.Index, "PRIMARY KEY", StringComparison.Ordinal) ? step.Table : step.Index;
         SqlitePlannerStatistics? row = statistics.FirstOrDefault(candidate =>
-            string.Equals(candidate.Table, step.Table, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(candidate.Index, index, StringComparison.OrdinalIgnoreCase));
+            SqliteIdentifierComparer.Instance.Equals(candidate.Table, step.Table) &&
+            SqliteIdentifierComparer.Instance.Equals(candidate.Index, index));
         if (row == null)
         {
             return null;
@@ -119,7 +119,7 @@ internal static class SqliteQueryPlanEstimates
     private static long? TableRows(IReadOnlyList<SqlitePlannerStatistics> statistics, string table)
     {
         long? rows = null;
-        foreach (SqlitePlannerStatistics row in statistics.Where(row => string.Equals(row.Table, table, StringComparison.OrdinalIgnoreCase)))
+        foreach (SqlitePlannerStatistics row in statistics.Where(row => SqliteIdentifierComparer.Instance.Equals(row.Table, table)))
         {
             if (row.Index == null)
             {
@@ -153,8 +153,8 @@ internal static class SqliteQueryPlanEstimates
         // A WITHOUT ROWID table's primary key is stored under the table's own name.
         string? index = string.Equals(step.Index, "PRIMARY KEY", StringComparison.Ordinal) ? step.Table : step.Index;
         SqlitePlannerStatistics? row = statistics.FirstOrDefault(candidate =>
-            string.Equals(candidate.Table, step.Table, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(candidate.Index, index, StringComparison.OrdinalIgnoreCase));
+            SqliteIdentifierComparer.Instance.Equals(candidate.Table, step.Table) &&
+            SqliteIdentifierComparer.Instance.Equals(candidate.Index, index));
         return row != null && row.RowsPerKey.Count >= equalities ? row.RowsPerKey[equalities - 1] : null;
     }
 
@@ -180,7 +180,7 @@ internal static class SqliteQueryPlanEstimates
 
         var terms = SqliteQueryPlanParser.Constraints(step.Detail);
         var nested = step.ParentId != 0;
-        foreach (SqlMinMaxLookup lookup in lookups.Where(lookup => lookup.Nested == nested && string.Equals(lookup.Table, step.Table, StringComparison.OrdinalIgnoreCase)).ToArray())
+        foreach (SqlMinMaxLookup lookup in lookups.Where(lookup => lookup.Nested == nested && SqliteIdentifierComparer.Instance.Equals(lookup.Table, step.Table)).ToArray())
         {
             if (lookup.WhereTerms != terms.Count)
             {
@@ -201,7 +201,7 @@ internal static class SqliteQueryPlanEstimates
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 string? collation = client.GetColumnCollation(database, step.Table!, key.Columns[equalities].Name);
-                if (collation == null || !string.Equals(collation, key.Columns[equalities].Collation, StringComparison.OrdinalIgnoreCase))
+                if (collation == null || !SqliteIdentifierComparer.Instance.Equals(collation, key.Columns[equalities].Collation))
                 {
                     continue;
                 }
@@ -235,9 +235,9 @@ internal static class SqliteQueryPlanEstimates
                 "SELECT count(*) FROM pragma_index_list(@table) WHERE origin = 'pk'",
                 reader => reader.GetInt64(0), parameters, cancellationToken).ConfigureAwait(false);
             // INTEGER PRIMARY KEY DESC has a separate index and is not an alias for the rowid.
-            string? alias = keys.Length == 1 && string.Equals(keys[0].Type.Trim(), "INTEGER", StringComparison.OrdinalIgnoreCase) &&
+            string? alias = keys.Length == 1 && SqliteIdentifierComparer.Instance.Equals(keys[0].Type.Trim(), "INTEGER") &&
                 primaryKeyIndexes[0] == 0 ? keys[0].Name : null;
-            var shadowed = new HashSet<string>(columns.Select(candidate => candidate.Name), StringComparer.OrdinalIgnoreCase);
+            var shadowed = new HashSet<string>(columns.Select(candidate => candidate.Name), SqliteIdentifierComparer.Instance);
             return new IndexKey(new[] { (alias ?? "rowid", "BINARY") }, RowId: true, alias, shadowed);
         }
 
@@ -264,12 +264,12 @@ internal static class SqliteQueryPlanEstimates
         /// </summary>
         internal bool Matches(int position, string name)
         {
-            if (string.Equals(Columns[position].Name, name, StringComparison.OrdinalIgnoreCase))
+            if (SqliteIdentifierComparer.Instance.Equals(Columns[position].Name, name))
             {
                 return true;
             }
 
-            return RowId && RowIdNames.Contains(name, StringComparer.OrdinalIgnoreCase) && !(UserColumns?.Contains(name) ?? false);
+            return RowId && RowIdNames.Contains(name, SqliteIdentifierComparer.Instance) && !(UserColumns?.Contains(name) ?? false);
         }
     }
 }

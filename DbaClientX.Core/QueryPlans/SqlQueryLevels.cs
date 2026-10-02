@@ -84,8 +84,8 @@ internal static partial class SqlQueryLevels
             }
 
             // The step names the table, or (for an alias defined for several tables) the alias.
-            if (!string.Equals(name, table, StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(AliasAt(tokens, after), table, StringComparison.OrdinalIgnoreCase))
+            if (!SqliteIdentifierComparer.Instance.Equals(name, table) &&
+                !SqliteIdentifierComparer.Instance.Equals(AliasAt(tokens, after), table))
             {
                 continue;
             }
@@ -393,10 +393,10 @@ internal static partial class SqlQueryLevels
             return false;
         }
 
-        var indexed = new HashSet<string>(indexColumns.Select(constraint => constraint.Column), StringComparer.OrdinalIgnoreCase);
+        var indexed = new HashSet<string>(indexColumns.Select(constraint => constraint.Column), SqliteIdentifierComparer.Instance);
         var ordered = orderBy < 0 ? new List<string>() : OrderColumns(tokens, orderBy, level.End);
         var leadingRange = ordered.Count > 0 && indexColumns.Any(constraint =>
-            string.Equals(constraint.Column, ordered[0], StringComparison.OrdinalIgnoreCase) && constraint.Operator is ">" or ">=" or "<" or "<=");
+            SqliteIdentifierComparer.Instance.Equals(constraint.Column, ordered[0]) && constraint.Operator is ">" or ">=" or "<" or "<=");
         if (partialSort != null && !(leadingRange && partialSort(ordered[0])))
         {
             return false;
@@ -410,7 +410,7 @@ internal static partial class SqlQueryLevels
         foreach (var (columns, plain) in WhereTerms(tokens, where + 1, level.End))
         {
             var served = columns.All(indexed.Contains);
-            var seek = leadingRange && columns.Contains(ordered[0], StringComparer.OrdinalIgnoreCase) && columns.All(column => ordered.Contains(column, StringComparer.OrdinalIgnoreCase));
+            var seek = leadingRange && columns.Contains(ordered[0], SqliteIdentifierComparer.Instance) && columns.All(column => ordered.Contains(column, SqliteIdentifierComparer.Instance));
             if (!plain || !(served || seek))
             {
                 return false;

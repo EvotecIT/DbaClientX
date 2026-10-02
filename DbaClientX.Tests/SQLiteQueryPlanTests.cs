@@ -347,7 +347,7 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     [InlineData("RIGHT-JOIN Big", DbaQueryPlanOperation.Scan, "Big", null, false)]
     [InlineData("SEARCH W USING PRIMARY KEY", DbaQueryPlanOperation.Scan, "W", "PRIMARY KEY", false)]
     [InlineData("SEARCH W USING PRIMARY KEY (ProbeName=?)", DbaQueryPlanOperation.Search, "W", "PRIMARY KEY", false)]
-    [InlineData("SCAN main.ProbeResults", DbaQueryPlanOperation.Scan, "ProbeResults", null, false)]
+    [InlineData("SCAN main.ProbeResults", DbaQueryPlanOperation.Scan, "main.ProbeResults", null, false)]
     [InlineData("SCAN TABLE ProbeResults", DbaQueryPlanOperation.Scan, "ProbeResults", null, false)]
     [InlineData("SCAN 3-ROW VALUES CLAUSE", DbaQueryPlanOperation.Other, null, null, false)]
     [InlineData("SCAN F VIRTUAL TABLE INDEX 0:", DbaQueryPlanOperation.Scan, "F", null, false)]

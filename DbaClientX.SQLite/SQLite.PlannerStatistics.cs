@@ -37,7 +37,8 @@ public partial class SQLite
         {
             try
             {
-                statistics[(row.Table.ToUpperInvariant(), row.Index?.ToUpperInvariant() ?? string.Empty)] = SqlitePlannerStatistics.Parse(row.Table, row.Index, row.Stat);
+                statistics[(DataMovement.DbaIdentifierPath.NormalizeSqliteIdentifier(row.Table),
+                    row.Index == null ? string.Empty : DataMovement.DbaIdentifierPath.NormalizeSqliteIdentifier(row.Index))] = SqlitePlannerStatistics.Parse(row.Table, row.Index, row.Stat);
             }
             catch (Exception exception) when (exception is FormatException or ArgumentException)
             {
