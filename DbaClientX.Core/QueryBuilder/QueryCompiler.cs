@@ -212,6 +212,9 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, cond.Value);
                         sb.Append('|');
                         break;
+                    case FunctionConditionToken function:
+                        AppendFunctionCacheKey(sb, function);
+                        break;
                     case OperatorToken op:
                         sb.Append("WO:");
                         AppendCacheText(sb, op.Operator);
@@ -900,6 +903,9 @@ public partial class QueryCompiler
                 case RawConditionToken cond:
                     sb.Append(cond.Expression).Append(' ').Append(cond.Operator).Append(' ');
                     AppendValue(sb, cond.Value, parameters);
+                    break;
+                case FunctionConditionToken function:
+                    AppendFunctionCondition(sb, function, parameters);
                     break;
                 case CollatedConditionToken cond:
                     sb.Append(QuoteIdentifier(cond.Column));

@@ -20,6 +20,8 @@ internal readonly record struct QueryHavingClause(string Expression, string Oper
 
 internal sealed record RawConditionToken(string Expression, string Operator, object Value) : IWhereToken;
 
+internal sealed record FunctionConditionToken(string Function, string Expression, string Operator, object Value, IReadOnlyList<object> Arguments) : IWhereToken;
+
 internal sealed record RawNullToken(string Expression) : IWhereToken;
 
 internal sealed record RawNotNullToken(string Expression) : IWhereToken;

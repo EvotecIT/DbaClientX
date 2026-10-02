@@ -92,6 +92,10 @@ public partial class QueryCompiler
                 case RawConditionToken condition:
                     CollectValue(condition.Value, parameters);
                     break;
+                case FunctionConditionToken function:
+                    foreach (var argument in function.Arguments) CollectValue(argument, parameters);
+                    CollectValue(function.Value, parameters);
+                    break;
                 case CollatedConditionToken condition:
                     CollectValue(condition.Value, parameters);
                     break;

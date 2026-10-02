@@ -44,7 +44,8 @@ internal static class SqlTokenizer
 {
     /// <param name="sql">The SQL text.</param>
     /// <param name="dollarQuotes">Whether <c>$$ … $$</c> and <c>$tag$ … $tag$</c> are strings, as in PostgreSQL; in SQLite they are parameter names.</param>
-    internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false)
+    /// <param name="backslashStrings">Whether ordinary strings use MySQL's default backslash escapes.</param>
+    internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false)
     {
         var tokens = new List<SqlToken>();
         var index = 0;
@@ -70,7 +71,7 @@ internal static class SqlTokenizer
             else if (character == '\'' || ((character is 'N' or 'n' or 'E' or 'e') && Next(sql, index) == '\''))
             {
                 var start = index;
-                var escapes = character is 'E' or 'e';
+                var escapes = backslashStrings || character is 'E' or 'e';
                 if (character != '\'')
                 {
                     index++;
@@ -82,7 +83,7 @@ internal static class SqlTokenizer
             else if (character is '"' or '`' or '[')
             {
                 var start = index;
-                var value = ReadQuoted(sql, ref index, character == '[' ? ']' : character, backslashEscapes: false);
+                var value = ReadQuoted(sql, ref index, character == '[' ? ']' : character, backslashEscapes: backslashStrings && character == '"');
                 tokens.Add(new SqlToken(SqlTokenKind.QuotedIdentifier, sql.Substring(start, index - start), value, start));
             }
             else if (char.IsLetter(character) || character == '_')

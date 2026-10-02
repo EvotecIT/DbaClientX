@@ -140,7 +140,8 @@ public static class QueryPlanAssert
             step.Table!,
             nested: step.ParentId != 0,
             step.IndexConstraintColumns,
-            partialSort ? column => SortsFewRowsPerValue(step, column, rules) : null);
+            partialSort ? column => SortsFewRowsPerValue(step, column, rules) : null,
+            step.TableRows is > 0 ? step.TableRows.Value * rules.WideSearchFraction : null);
     }
 
     /// <summary>

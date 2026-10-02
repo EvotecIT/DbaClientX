@@ -105,6 +105,14 @@ public sealed class SQLiteQueryPlanTests : IDisposable
 
     [Theory]
     [InlineData("SELECT Id FROM Results WHERE Status = 1", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10 OFFSET 300000", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 300000, 10", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10 OFFSET @cutoff", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 300000", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10 + 300000", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10 OFFSET 0 + 300000", false)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 0 + 300000, 10", false)]
+    [InlineData("SELECT Id FROM ProbeResults WHERE EXISTS (SELECT 1 FROM Results WHERE Status = 1 LIMIT 10 OFFSET 300000)", false)]
     [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Latency DESC LIMIT 10", true)]
     [InlineData("SELECT Id FROM Results WHERE Completed < @cutoff", false)]
     [InlineData("DELETE FROM Results WHERE Completed < @cutoff", false)]
@@ -154,6 +162,8 @@ public sealed class SQLiteQueryPlanTests : IDisposable
     [InlineData("SELECT EXISTS (SELECT 1 FROM Results WHERE Completed < @cutoff)", 333_334)]
     // The latest rows of one key read in index order stop at the LIMIT, however many rows the key has.
     [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 10 OFFSET 20", 333_334)]
+    [InlineData("SELECT Id FROM Results WHERE Status = 1 ORDER BY Completed DESC LIMIT 20, 10", 333_334)]
     [InlineData("SELECT Id FROM Results WHERE Status = 1 AND Completed < @cutoff ORDER BY Completed DESC LIMIT 10", 333_334)]
     // A keyset seek: its OR compares only the ORDER BY columns, so it rejects rows at the boundary only, and the partial
     // sort of the tie-breaker (LAST TERM OF ORDER BY) still lets the limit stop the read.
@@ -222,6 +232,20 @@ public sealed class SQLiteQueryPlanTests : IDisposable
             "CREATE TABLE Keys (K TEXT PRIMARY KEY, V INTEGER) WITHOUT ROWID;" +
             "INSERT INTO Keys SELECT DISTINCT ProbeName, 1 FROM ProbeResults;" +
             "ANALYZE;");
+
+    [Fact]
+    public async Task UsesIndexes_IntegerPrimaryKeyDesc_DoesNotTreatItsFilterAsARowIdConstraint()
+    {
+        _sqlite.ExecuteNonQuery(_database,
+            "CREATE TABLE DescKeys (Id INTEGER PRIMARY KEY DESC, Value TEXT);" +
+            "INSERT INTO DescKeys SELECT Id, 'value' FROM ProbeResults LIMIT 30;");
+        var plan = await _sqlite.ExplainQueryPlanAsync(_database,
+            "SELECT Value FROM DescKeys NOT INDEXED WHERE rowid > 0 AND Id = 999999999 LIMIT 10");
+
+        var result = QueryPlanAssert.Check(plan, new QueryPlanRules("DescKeys"));
+
+        Assert.Contains(result.Violations, violation => violation.Kind == QueryPlanViolationKind.WideSearch);
+    }
 
     private async Task CreateResultsAsync(long statusRowsPerKey)
     {

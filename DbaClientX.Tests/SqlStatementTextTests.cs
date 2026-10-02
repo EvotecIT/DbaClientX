@@ -54,6 +54,15 @@ public sealed class SqlStatementTextTests
     }
 
     [Theory]
+    [InlineData("SELECT 'a\\';b'; SELECT 2;", "SELECT 'a\\';b'")]
+    [InlineData("SELECT \"a\\\";b\"; SELECT 2;", "SELECT \"a\\\";b\"")]
+    [InlineData("SELECT N'a\\';b'; SELECT 2;", "SELECT N'a\\';b'")]
+    public void Split_MySqlBackslashEscapes_KeepsSemicolonsInsideStrings(string sql, string first)
+    {
+        Assert.Equal(new[] { first, "SELECT 2" }, SqlStatementText.Split(sql, SqlDialect.MySql));
+    }
+
+    [Theory]
     [InlineData("", 0)]
     [InlineData(" ;; -- nothing\n/* here */ ", 0)]
     [InlineData("SELECT 1", 1)]

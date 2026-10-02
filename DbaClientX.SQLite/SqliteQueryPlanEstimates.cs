@@ -230,7 +230,13 @@ internal static class SqliteQueryPlanEstimates
                 parameters,
                 cancellationToken).ConfigureAwait(false);
             var keys = columns.Where(candidate => candidate.Key > 0).ToArray();
-            string? alias = keys.Length == 1 && string.Equals(keys[0].Type, "INTEGER", StringComparison.OrdinalIgnoreCase) ? keys[0].Name : null;
+            var primaryKeyIndexes = await client.QueryReadOnlyAsListAsync(
+                database,
+                "SELECT count(*) FROM pragma_index_list(@table) WHERE origin = 'pk'",
+                reader => reader.GetInt64(0), parameters, cancellationToken).ConfigureAwait(false);
+            // INTEGER PRIMARY KEY DESC has a separate index and is not an alias for the rowid.
+            string? alias = keys.Length == 1 && string.Equals(keys[0].Type.Trim(), "INTEGER", StringComparison.OrdinalIgnoreCase) &&
+                primaryKeyIndexes[0] == 0 ? keys[0].Name : null;
             var shadowed = new HashSet<string>(columns.Select(candidate => candidate.Name), StringComparer.OrdinalIgnoreCase);
             return new IndexKey(new[] { (alias ?? "rowid", "BINARY") }, RowId: true, alias, shadowed);
         }

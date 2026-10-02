@@ -16,7 +16,7 @@ internal readonly record struct SqlMinMaxLookup(string Table, string Column, int
 /// what a table's own query does: whether a <c>LIMIT</c> stops it, and whether it is a <c>MIN</c>/<c>MAX</c> lookup. A
 /// heuristic over tokens, not a parser.
 /// </summary>
-internal static class SqlQueryLevels
+internal static partial class SqlQueryLevels
 {
     private static readonly HashSet<string> SourceKeywords = new(StringComparer.OrdinalIgnoreCase) { "FROM", "JOIN", "UPDATE", "INTO" };
 
@@ -51,7 +51,8 @@ internal static class SqlQueryLevels
     /// <param name="partialSort">Null when the rows come fully ordered; when they are sorted by their last <c>ORDER BY</c>
     /// terms as they come, tells whether one value of the index key up to a column holds few rows: the index must then
     /// read a range of the leading <c>ORDER BY</c> column, whose values hold few rows each.</param>
-    internal static bool HasLimitWhereRead(string sql, string table, bool nested, IReadOnlyList<(string Column, string Operator)>? indexColumns, Func<string, bool>? partialSort)
+    /// <param name="maximumRows">The largest limited read considered narrow, when table statistics are available.</param>
+    internal static bool HasLimitWhereRead(string sql, string table, bool nested, IReadOnlyList<(string Column, string Operator)>? indexColumns, Func<string, bool>? partialSort, double? maximumRows)
     {
         var tokens = SqlTokenizer.Tokenize(sql);
         var found = false;
@@ -91,7 +92,7 @@ internal static class SqlQueryLevels
 
             found = true;
             var level = LevelAround(tokens, index);
-            if (indexColumns == null || !StopsEarly(tokens, level) || !ServesEveryCondition(tokens, level, indexColumns, partialSort))
+            if (indexColumns == null || !StopsEarly(tokens, level, maximumRows) || !ServesEveryCondition(tokens, level, indexColumns, partialSort))
             {
                 return false;
             }
@@ -665,7 +666,7 @@ internal static class SqlQueryLevels
     }
 
     /// <summary>Whether a query level stops after a few rows (see <see cref="HasLimitWhereRead"/>).</summary>
-    private static bool StopsEarly(IReadOnlyList<SqlToken> tokens, (int Start, int End) level)
+    private static bool StopsEarly(IReadOnlyList<SqlToken> tokens, (int Start, int End) level, double? maximumRows)
     {
         var depth = 0;
         var limited = level.Start >= 2 && tokens[level.Start - 1].Kind == SqlTokenKind.OpenParenthesis && IsWord(tokens[level.Start - 2], "EXISTS");
@@ -695,7 +696,11 @@ internal static class SqlQueryLevels
                 return false;
             }
 
-            limited |= (IsWord(token, "LIMIT") && !(next.Kind == SqlTokenKind.Symbol && next.Text == "-")) ||
+            if (IsWord(token, "LIMIT")) {
+                limited = LimitReadsFewRows(tokens, position + 1, level.End, maximumRows);
+                continue;
+            }
+            limited |=
                        (IsWord(token, "FETCH") && (IsWord(next, "FIRST") || IsWord(next, "NEXT"))) ||
                        (IsWord(token, "TOP") && position > 0 && (IsWord(tokens[position - 1], "SELECT") || IsWord(tokens[position - 1], "DISTINCT")) &&
                         next.Kind is SqlTokenKind.Number or SqlTokenKind.Parameter or SqlTokenKind.OpenParenthesis);
