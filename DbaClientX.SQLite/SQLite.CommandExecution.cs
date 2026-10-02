@@ -180,7 +180,7 @@ public partial class SQLite
         }
     }
 
-    private (SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose) ResolveConnection(string connectionString, bool useTransaction, int? busyTimeoutMs = null)
+    private (SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose) ResolveConnection(string connectionString, bool useTransaction, int? busyTimeoutMs = null, bool retainTimeoutUpdates = false)
     {
         if (useTransaction)
         {
@@ -208,7 +208,7 @@ public partial class SQLite
             {
                 connection.Open();
                 ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
-                ApplyConnectionConfiguration(connection);
+                ApplyConnectionConfiguration(connection, retainTimeoutUpdates: retainTimeoutUpdates);
                 return (connection, (SqliteTransaction?)null, true);
             }
             catch

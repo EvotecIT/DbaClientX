@@ -115,27 +115,23 @@ public sealed class SQLiteConnectionProfileTests : IDisposable
     [Fact]
     public void ExplicitClientTimeout_AppliesToProviderCommandsAndResetRestoresConnectionStringDefault()
     {
-        int inheritedTimeout = -1;
+        SqliteConnection? connection = null;
         using var client = new SQLite
         {
-            ConfigureConnection = connection =>
-            {
-                using var command = connection.CreateCommand();
-                inheritedTimeout = command.CommandTimeout;
-            }
+            ConfigureConnection = value => connection = value
         };
         string connectionString = SQLite.BuildConnectionString(_database) + ";Default Timeout=9";
         client.ExecuteScalarWithConnectionString(connectionString, "SELECT 1");
-        Assert.Equal(9, inheritedTimeout);
+        Assert.Equal(9, connection!.DefaultTimeout);
         client.CommandTimeout = 1;
         client.ExecuteScalarWithConnectionString(connectionString, "SELECT 1");
-        Assert.Equal(1, inheritedTimeout);
+        Assert.Equal(1, connection!.DefaultTimeout);
         client.CommandTimeout = 0;
         client.ExecuteScalarWithConnectionString(connectionString, "SELECT 1");
-        Assert.Equal(0, inheritedTimeout);
+        Assert.Equal(0, connection!.DefaultTimeout);
         client.ResetCommandTimeout();
         client.ExecuteScalarWithConnectionString(connectionString, "SELECT 1");
-        Assert.Equal(9, inheritedTimeout);
+        Assert.Equal(9, connection!.DefaultTimeout);
     }
 
     [Theory]
@@ -163,6 +159,43 @@ public sealed class SQLiteConnectionProfileTests : IDisposable
             using (var command = connection.CreateCommand()) Assert.Equal(4, command.CommandTimeout);
             client.ResetCommandTimeout();
             using (var command = connection.CreateCommand()) Assert.Equal(30, command.CommandTimeout);
+        }
+        finally
+        {
+            if (path == "Transaction") client.Rollback();
+            session?.Dispose();
+            if (asyncSession != null) await asyncSession.DisposeAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("SyncSession", false)]
+    [InlineData("AsyncSession", false)]
+    [InlineData("Transaction", false)]
+    [InlineData("Managed", false)]
+    [InlineData("SyncSession", true)]
+    [InlineData("AsyncSession", true)]
+    [InlineData("Transaction", true)]
+    [InlineData("Managed", true)]
+    public async Task CallbackDefault_IsPreservedUnlessClientTimeoutIsExplicitAndRestoredOnReset(string path, bool explicitTimeout)
+    {
+        SqliteConnection? connection = null;
+        using var client = new SQLite { ConfigureConnection = value => { value.DefaultTimeout = 7; connection = value; } };
+        if (explicitTimeout) client.CommandTimeout = 0;
+        IDisposable? session = null;
+        IAsyncDisposable? asyncSession = null;
+        try
+        {
+            if (path == "SyncSession") session = client.OpenSession(_database);
+            else if (path == "AsyncSession") asyncSession = await client.OpenSessionAsync(_database);
+            else if (path == "Transaction") client.BeginTransaction(_database);
+            else session = client.OpenDbConnection(_database);
+            Assert.NotNull(connection);
+            Assert.Equal(explicitTimeout ? 0 : 7, connection.DefaultTimeout);
+            client.CommandTimeout = 4;
+            using (var command = connection.CreateCommand()) Assert.Equal(4, command.CommandTimeout);
+            client.ResetCommandTimeout();
+            using (var command = connection.CreateCommand()) Assert.Equal(7, command.CommandTimeout);
         }
         finally
         {

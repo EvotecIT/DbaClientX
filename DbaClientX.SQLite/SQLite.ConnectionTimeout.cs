@@ -10,10 +10,9 @@ public partial class SQLite
     private readonly List<ConnectionTimeoutState> _connectionTimeouts = new();
     private int _timeoutRegistrations;
 
-    private SqliteConnection ConfigureConnectionTimeout(SqliteConnection connection)
+    private void ConfigureConnectionTimeout(SqliteConnection connection)
     {
         if (TryGetCommandTimeout(out int timeout)) connection.DefaultTimeout = timeout;
-        return connection;
     }
 
     private void RetainConnectionTimeout(SqliteConnection connection)
@@ -27,8 +26,7 @@ public partial class SQLite
                 _timeoutRegistrations = 0;
             }
             _connectionTimeouts.Add(new ConnectionTimeoutState(connection));
-            connection.DefaultTimeout = TryGetCommandTimeout(out int timeout)
-                ? timeout : new SqliteConnectionStringBuilder(connection.ConnectionString).DefaultTimeout;
+            if (TryGetCommandTimeout(out int timeout)) connection.DefaultTimeout = timeout;
         }
     }
 
@@ -54,7 +52,7 @@ public partial class SQLite
         public ConnectionTimeoutState(SqliteConnection connection)
         {
             Connection = new WeakReference<SqliteConnection>(connection);
-            OriginalTimeout = new SqliteConnectionStringBuilder(connection.ConnectionString).DefaultTimeout;
+            OriginalTimeout = connection.DefaultTimeout;
         }
 
         public WeakReference<SqliteConnection> Connection { get; }

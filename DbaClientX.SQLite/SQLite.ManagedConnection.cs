@@ -23,8 +23,7 @@ public partial class SQLite
         {
             connection.Open();
             ApplyManagedConnectionOptions(connection, options);
-            ApplyConnectionConfiguration(connection, applyProfile: false);
-            RetainConnectionTimeout(connection);
+            ApplyConnectionConfiguration(connection, applyProfile: false, retainTimeoutUpdates: true);
             return connection;
         }
         catch

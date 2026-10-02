@@ -47,18 +47,20 @@ public partial class SQLite
         set => _configureConnection = value;
     }
 
-    private void ApplyConnectionConfiguration(SqliteConnection connection, bool applyProfile = true)
+    private void ApplyConnectionConfiguration(SqliteConnection connection, bool applyProfile = true, bool retainTimeoutUpdates = false)
     {
         if (applyProfile && _connectionOptions is { } options)
             ApplyManagedConnectionOptions(connection, options, applyBusyTimeout: false);
         _configureConnection?.Invoke(connection);
+        if (retainTimeoutUpdates) RetainConnectionTimeout(connection);
+        else ConfigureConnectionTimeout(connection);
     }
 
     internal SqliteConnection CreateConfiguredConnection(string connectionString, SQLiteConnectionOptions? options = null)
     {
         options ??= _connectionOptions;
         if (options == null || !options.ReadOnly && !options.Pooling.HasValue)
-            return ConfigureConnectionTimeout(new SqliteConnection(connectionString));
+            return new SqliteConnection(connectionString);
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         if (options?.ReadOnly == true)
@@ -68,7 +70,7 @@ public partial class SQLite
             builder.Mode = SqliteOpenMode.ReadOnly;
         }
         if (options?.Pooling is { } pooling) builder.Pooling = pooling;
-        return ConfigureConnectionTimeout(new SqliteConnection(builder.ConnectionString));
+        return new SqliteConnection(builder.ConnectionString);
     }
 
     internal async Task OpenConfiguredConnectionAsync(SqliteConnection connection, CancellationToken cancellationToken)

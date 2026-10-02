@@ -363,7 +363,7 @@ public partial class SQLite
         }
     }
 
-    private async Task<(SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken, int? busyTimeoutMs = null)
+    private async Task<(SqliteConnection Connection, SqliteTransaction? Transaction, bool Dispose)> ResolveConnectionAsync(string connectionString, bool useTransaction, CancellationToken cancellationToken, int? busyTimeoutMs = null, bool retainTimeoutUpdates = false)
     {
         if (useTransaction)
         {
@@ -396,7 +396,7 @@ public partial class SQLite
                     connection,
                     ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
                     retryToken).ConfigureAwait(false);
-                ApplyConnectionConfiguration(connection);
+                ApplyConnectionConfiguration(connection, retainTimeoutUpdates: retainTimeoutUpdates);
                 return (connection, (SqliteTransaction?)null, true);
             }
             catch

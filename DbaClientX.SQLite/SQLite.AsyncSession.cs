@@ -18,8 +18,7 @@ public partial class SQLite {
             (connection, _, _) = await ResolveConnectionAsync(
                 connectionString,
                 useTransaction: false,
-                cancellationToken).ConfigureAwait(false);
-            RetainConnectionTimeout(connection);
+                cancellationToken, retainTimeoutUpdates: true).ConfigureAwait(false);
             return new SQLiteAsyncSession(this, connection);
         } catch {
             if (connection is not null) {
