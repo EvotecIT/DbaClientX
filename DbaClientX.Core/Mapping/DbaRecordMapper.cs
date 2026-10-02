@@ -49,6 +49,26 @@ public static class DbaRecordMapper
         => new PropertyMapper<T>().Map;
 
     /// <summary>
+    /// Binds writable properties to a result's column ordinals once, avoiding column-name checks on each row.
+    /// </summary>
+    /// <typeparam name="T">Target type with a public parameterless constructor.</typeparam>
+    /// <param name="schema">A record exposing the result's column names; no values are read while binding.</param>
+    /// <returns>A mapper for rows with the same column layout, using the conversions supported by <see cref="For{T}"/>.</returns>
+    /// <remarks>
+    /// Bind again for each new result, including after NextResult or reuse of a provider reader. Column count is
+    /// checked on each call, but names are deliberately not rechecked. The mapper retains only column metadata,
+    /// never the record or connection, and can be shared between independent readers with the same layout.
+    /// Use <see cref="For{T}"/> when the same delegate must automatically adapt to different layouts.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="schema"/> is null.</exception>
+    public static Func<IDataRecord, T> Bind<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(IDataRecord schema)
+        where T : new()
+    {
+        if (schema == null) throw new ArgumentNullException(nameof(schema));
+        return new PropertyMapper<T>().BindResult(schema);
+    }
+
+    /// <summary>
     /// Creates a mapper that copies each row into a new value array, with <see cref="DBNull"/> replaced by <see langword="null"/>.
     /// </summary>
     /// <returns>A mapper for <c>QueryStreamAsync&lt;object?[]&gt;</c>, useful for building columnar chunks.</returns>
@@ -71,12 +91,12 @@ public static class DbaRecordMapper
     private sealed class PropertyMapper<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>
         where T : new()
     {
-        private readonly Dictionary<string, PropertyInfo> _properties;
-        private Binding? _binding;
+        private readonly Dictionary<string, PropertyBinding> _properties;
+        private volatile Binding? _binding;
 
         public PropertyMapper()
         {
-            _properties = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+            _properties = new Dictionary<string, PropertyBinding>(StringComparer.OrdinalIgnoreCase);
             foreach (var property in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (!property.CanWrite || property.SetMethod is not { IsPublic: true } || property.GetIndexParameters().Length != 0)
@@ -86,15 +106,16 @@ public static class DbaRecordMapper
 
                 // A property hidden with 'new' appears once per declaring type; keep the most derived one.
                 if (!_properties.TryGetValue(property.Name, out var existing)
-                    || property.DeclaringType!.IsSubclassOf(existing.DeclaringType!))
+                    || property.DeclaringType!.IsSubclassOf(existing.Property.DeclaringType!))
                 {
-                    _properties[property.Name] = property;
+                    _properties[property.Name] = new PropertyBinding(property);
                 }
             }
         }
 
         public T Map(IDataRecord record)
         {
+            if (record == null) throw new ArgumentNullException(nameof(record));
             // Providers can reuse one reader object for several queries (Npgsql does per connection), so the binding is
             // validated against the column names rather than the reader identity.
             var binding = _binding;
@@ -104,13 +125,32 @@ public static class DbaRecordMapper
                 _binding = binding;
             }
 
+            return Map(record, binding);
+        }
+
+        public Func<IDataRecord, T> BindResult(IDataRecord schema)
+        {
+            var binding = Bind(schema);
+            return record =>
+            {
+                if (record == null) throw new ArgumentNullException(nameof(record));
+                if (record.FieldCount != binding.Columns.Length)
+                    throw new ArgumentException("The row's column count differs from the bound result. Bind a mapper for this result's schema.", nameof(record));
+                return Map(record, binding);
+            };
+        }
+
+        private static T Map(IDataRecord record, Binding binding)
+        {
+
             // Box value types once so every setter updates the same instance.
             object item = new T();
             for (var index = 0; index < binding.Ordinals.Length; index++)
             {
                 var ordinal = binding.Ordinals[index];
-                var property = binding.Properties[index];
-                var value = record.IsDBNull(ordinal) ? null : Convert(record.GetValue(ordinal), property, binding.Columns[ordinal]);
+                var metadata = binding.Properties[index];
+                var property = metadata.Property;
+                var value = record.IsDBNull(ordinal) ? null : Convert(record.GetValue(ordinal), metadata, binding.Columns[ordinal]);
                 try
                 {
                     property.SetValue(item, value);
@@ -130,7 +170,7 @@ public static class DbaRecordMapper
         {
             var columns = new string[record.FieldCount];
             var ordinals = new List<int>();
-            var properties = new List<PropertyInfo>();
+            var properties = new List<PropertyBinding>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             for (var ordinal = 0; ordinal < columns.Length; ordinal++)
             {
@@ -146,9 +186,10 @@ public static class DbaRecordMapper
             return new Binding(columns, ordinals.ToArray(), properties.ToArray());
         }
 
-        private static object Convert(object value, PropertyInfo property, string column)
+        private static object Convert(object value, PropertyBinding metadata, string column)
         {
-            var target = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            var property = metadata.Property;
+            var target = metadata.TargetType;
             if (target.IsInstanceOfType(value))
             {
                 return value;
@@ -181,7 +222,7 @@ public static class DbaRecordMapper
 
         private sealed class Binding
         {
-            public Binding(string[] columns, int[] ordinals, PropertyInfo[] properties)
+            public Binding(string[] columns, int[] ordinals, PropertyBinding[] properties)
             {
                 Columns = columns;
                 Ordinals = ordinals;
@@ -192,7 +233,7 @@ public static class DbaRecordMapper
 
             public int[] Ordinals { get; }
 
-            public PropertyInfo[] Properties { get; }
+            public PropertyBinding[] Properties { get; }
 
             public bool Matches(IDataRecord record)
             {
@@ -211,6 +252,18 @@ public static class DbaRecordMapper
 
                 return true;
             }
+        }
+
+        private sealed class PropertyBinding
+        {
+            public PropertyBinding(PropertyInfo property)
+            {
+                Property = property;
+                TargetType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+            }
+
+            public PropertyInfo Property { get; }
+            public Type TargetType { get; }
         }
     }
 }
