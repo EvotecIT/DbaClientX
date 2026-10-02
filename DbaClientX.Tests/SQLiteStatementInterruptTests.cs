@@ -87,6 +87,45 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         Assert.Equal(7L, await session.ExecuteScalarAsync("SELECT Value FROM Numbers"));
     }
 
+    [Theory]
+    [InlineData("BEGIN IMMEDIATE", false, false)]
+    [InlineData("BEGIN IMMEDIATE", true, false)]
+    [InlineData("SAVEPOINT unit", false, false)]
+    [InlineData("SAVEPOINT unit", true, false)]
+    [InlineData("/* leading comment */ BEGIN IMMEDIATE", false, true)]
+    [InlineData("SAVEPOINT unit", true, true)]
+    public async Task SessionWrite_InSqlManagedTransaction_CancellationPreservesEarlierWrites(string begin, bool prepared, bool transactionStartsInBatch)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        if (!transactionStartsInBatch)
+        {
+            await session.ExecuteNonQueryAsync(begin);
+            await session.ExecuteNonQueryAsync("INSERT INTO Numbers (Value) VALUES (-1)");
+        }
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
+            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+        if (transactionStartsInBatch)
+            insert = begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
+        try
+        {
+            if (prepared)
+            {
+                using var command = session.Prepare(insert);
+                await command.ExecuteNonQueryAsync(Array.Empty<object?>(), cancellation.Token);
+            }
+            else
+                await session.ExecuteNonQueryAsync(insert, cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
+        await session.ExecuteNonQueryAsync("COMMIT");
+        Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
+    }
+
     [Fact]
     public async Task QueryWithConnectionStringAsync_AfterAnInterruptedQuery_PooledConnectionRunsTheNextQuery()
     {

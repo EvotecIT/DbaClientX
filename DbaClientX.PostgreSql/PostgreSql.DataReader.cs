@@ -38,6 +38,7 @@ public partial class PostgreSql
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
+                connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
             return new DbaDataReader(

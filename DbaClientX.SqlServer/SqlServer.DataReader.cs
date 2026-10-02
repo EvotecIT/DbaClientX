@@ -189,7 +189,7 @@ public partial class SqlServer
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ExecuteCommandWithRetry(
-            () => command.ExecuteReader(CommandBehavior.SequentialAccess), command.Transaction);
+            () => command.ExecuteReader(CommandBehavior.SequentialAccess), command.Connection!, command.Transaction);
     }
 
     private Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CancellationToken cancellationToken)
@@ -197,5 +197,6 @@ public partial class SqlServer
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
+                command.Connection!,
                 command.Transaction, cancellationToken);
 }

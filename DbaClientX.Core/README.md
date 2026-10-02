@@ -128,7 +128,7 @@ using var reads = new DBAClientX.SQLite
 var total = await reads.ExecuteScalarAsync("app.db", "SELECT COUNT(*) FROM Users");
 ```
 
-`RetryNonQueryOperations` remains available as a nonquery-only opt-in. Neither opt-in replays an individual command inside an explicit or library-owned transaction. Roll back the failed transaction and decide whether the entire unit of work can be repeated. Streaming never replays rows after enumeration starts.
+`RetryNonQueryOperations` remains available as a nonquery-only opt-in. Neither opt-in replays an individual command inside an explicit, ambient or library-owned transaction. SQLite also checks native transaction state for SQL `BEGIN` and `SAVEPOINT`. Roll back the failed transaction and decide whether the entire unit of work can be repeated. Streaming never replays rows after enumeration starts.
 
 ## Notes
 - Ship a per-provider package alongside Core for ADO.NET specifics (see provider READMEs).

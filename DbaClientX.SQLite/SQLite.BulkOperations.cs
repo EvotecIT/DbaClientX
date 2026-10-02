@@ -62,7 +62,7 @@ public partial class SQLite
                     }
 
                     ApplyBatchValues(command, columns, table, offset, currentRows);
-                    ExecuteCommandWithRetry(() => command.ExecuteNonQuery(), command.Transaction, returnsResults: false);
+                    ExecuteCommandWithRetry(() => command.ExecuteNonQuery(), command.Connection!, command.Transaction, returnsResults: false);
                 }
             }
             finally
@@ -350,6 +350,7 @@ public partial class SQLite
                 await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 return 0;
             },
+            command.Connection!,
             command.Transaction,
             cancellationToken,
             returnsResults: false);

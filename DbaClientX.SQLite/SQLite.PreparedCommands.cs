@@ -93,28 +93,30 @@ public partial class SQLite
 
     // Apply the same replay and cancellation policy as ordinary/session execution.
     internal int ExecutePreparedNonQuery(SqliteCommand command)
-        => ExecuteCommandWithRetry(command.ExecuteNonQuery, command.Transaction, returnsResults: false);
+        => ExecuteCommandWithRetry(command.ExecuteNonQuery, command.Connection!, command.Transaction, returnsResults: false);
 
     internal object? ExecutePreparedScalar(SqliteCommand command)
-        => ExecuteCommandWithRetry(command.ExecuteScalar, command.Transaction);
+        => ExecuteCommandWithRetry(command.ExecuteScalar, command.Connection!, command.Transaction);
 
     internal async Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
         using var interrupt = command.Transaction == null
-            ? RegisterStatementInterrupt(command.Connection!, cancellationToken) : default;
+            ? RegisterStatementInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
         return await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken),
+            command.Connection!,
             command.Transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
     }
 
     internal async Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
         using var interrupt = command.Transaction == null
-            ? RegisterStatementInterrupt(command.Connection!, cancellationToken) : default;
+            ? RegisterStatementInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
         return await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteScalarAsync(cancellationToken), cancellationToken),
+            command.Connection!,
             command.Transaction, cancellationToken).ConfigureAwait(false);
     }
 }

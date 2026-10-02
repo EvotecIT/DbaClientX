@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 
@@ -39,17 +40,19 @@ public partial class SQLite
     /// </remarks>
     /// <param name="connection">An open connection owned by the current operation.</param>
     /// <param name="cancellationToken">The caller's token.</param>
+    /// <param name="commandText">Optional SQL text; batches that start a transaction retain cooperative cancellation.</param>
     /// <returns>The registration to dispose when the operation ends.</returns>
     internal static CancellationTokenRegistration RegisterStatementInterrupt(
         SqliteConnection connection,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? commandText = null)
     {
         if (connection == null)
         {
             throw new ArgumentNullException(nameof(connection));
         }
 
-        return cancellationToken.CanBeCanceled
+        return cancellationToken.CanBeCanceled && IsInAutoCommitMode(connection) && !StartsSqlTransaction(commandText)
             ? cancellationToken.Register(static state => InterruptStatement((SqliteConnection)state!), connection)
             : default;
     }
@@ -62,15 +65,44 @@ public partial class SQLite
     private static CancellationTokenRegistration RegisterOwnedStatementInterrupt(
         SqliteConnection connection,
         bool ownsConnection,
-        CancellationToken cancellationToken)
-        => ownsConnection ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+        CancellationToken cancellationToken,
+        string commandText)
+        => ownsConnection ? RegisterStatementInterrupt(connection, cancellationToken, commandText) : default;
 
     private static void InterruptStatement(SqliteConnection connection)
     {
         var handle = connection.Handle;
         if (handle != null)
         {
+            // Never query transaction state here: sqlite3_get_autocommit can wait for the running
+            // statement's mutex. Only sqlite3_interrupt is safe for cancellation from another thread.
             raw.sqlite3_interrupt(handle);
         }
     }
+
+    // SQL BEGIN and SAVEPOINT do not create a managed SqliteTransaction. Query native state so both
+    // cancellation and replay protect earlier writes regardless of how a transaction was started.
+    private static bool IsInAutoCommitMode(SqliteConnection connection)
+        => connection.Handle is { } handle && raw.sqlite3_get_autocommit(handle) != 0;
+
+    /// <inheritdoc />
+    protected override bool CanRetryCommand(DbConnection connection, DbTransaction? transaction, bool returnsResults)
+        => base.CanRetryCommand(connection, transaction, returnsResults)
+           && connection is SqliteConnection sqliteConnection && IsInAutoCommitMode(sqliteConnection);
+
+    private static bool StartsSqlTransaction(string? commandText)
+    {
+        if (commandText == null ||
+            (commandText.IndexOf("BEGIN", StringComparison.OrdinalIgnoreCase) < 0 &&
+             commandText.IndexOf("SAVEPOINT", StringComparison.OrdinalIgnoreCase) < 0)) return false;
+
+        foreach (string statement in QueryPlans.SqlStatementText.Split(commandText))
+            if (StartsWithKeyword(statement, "BEGIN") || StartsWithKeyword(statement, "SAVEPOINT")) return true;
+        return false;
+    }
+
+    private static bool StartsWithKeyword(string statement, string keyword)
+        => statement.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) &&
+           (statement.Length == keyword.Length ||
+            !(char.IsLetterOrDigit(statement[keyword.Length]) || statement[keyword.Length] is '_' or '$'));
 }

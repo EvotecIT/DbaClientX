@@ -36,7 +36,7 @@ public partial class SQLite {
         CancellationToken cancellationToken) {
         ValidateCommandText(query);
         try {
-            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken, query) : default;
             return await base.ExecuteNonQueryAsync(
                 connection,
                 transaction,
@@ -56,7 +56,7 @@ public partial class SQLite {
         CancellationToken cancellationToken) {
         ValidateCommandText(query);
         try {
-            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken, query) : default;
             return await base.ExecuteScalarAsync(
                 connection,
                 transaction,
@@ -82,7 +82,7 @@ public partial class SQLite {
         }
 
         try {
-            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+            using var interrupt = transaction == null ? RegisterStatementInterrupt(connection, cancellationToken, query) : default;
             return await ExecuteMappedQueryAsync(
                 connection,
                 transaction,

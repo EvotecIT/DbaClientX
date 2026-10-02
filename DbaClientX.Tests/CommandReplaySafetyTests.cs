@@ -117,6 +117,49 @@ public sealed class CommandReplaySafetyTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("BEGIN IMMEDIATE", false, false)]
+    [InlineData("BEGIN IMMEDIATE", true, false)]
+    [InlineData("SAVEPOINT unit", false, false)]
+    [InlineData("SAVEPOINT unit", true, false)]
+    [InlineData("/* comment */ BEGIN IMMEDIATE", false, true)]
+    [InlineData("SAVEPOINT unit", true, true)]
+    public async Task SqlManagedTransaction_EvenWithReplayEnabled_DoesNotReplay(string begin, bool prepared, bool transactionStartsInBatch)
+    {
+        _sqlite.CommandRetryMode = CommandRetryMode.ReplaySafe;
+        _sqlite.RetryNonQueryOperations = true;
+        _sqlite.ConfigureConnection = connection => connection.CreateFunction<long>("transient_failure", () =>
+        {
+            _calls++;
+            throw new SqliteException("injected transient failure", 1);
+        });
+        using var session = _sqlite.OpenSession(_database);
+        if (!transactionStartsInBatch)
+        {
+            session.ExecuteNonQuery(begin);
+            session.ExecuteNonQuery("INSERT INTO writes DEFAULT VALUES");
+        }
+        string sql = transactionStartsInBatch
+            ? begin + "; INSERT INTO writes DEFAULT VALUES; SELECT transient_failure()"
+            : "SELECT transient_failure()";
+        try
+        {
+            if (prepared)
+            {
+                using var command = session.Prepare(sql);
+                await Assert.ThrowsAsync<DbaQueryExecutionException>(() => command.ExecuteScalarAsync(Array.Empty<object?>()));
+            }
+            else
+                Assert.Throws<DbaQueryExecutionException>(() => session.ExecuteScalar(sql));
+
+            Assert.Equal(1, _calls);
+        }
+        finally
+        {
+            session.ExecuteNonQuery("ROLLBACK");
+        }
+    }
+
     public void Dispose()
     {
         _sqlite.Dispose();

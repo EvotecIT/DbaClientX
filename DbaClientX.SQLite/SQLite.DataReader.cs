@@ -65,7 +65,7 @@ public partial class SQLite
             (connection, var transaction, dispose) = resolved;
             // The opening token stays attached to an owned connection until the reader closes: canceling it stops
             // the statement while it is opened and while its rows are read.
-            interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+            interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
             command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
@@ -75,6 +75,7 @@ public partial class SQLite
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
+                connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
             var lease = interrupt;

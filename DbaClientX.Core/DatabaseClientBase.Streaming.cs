@@ -51,6 +51,7 @@ public abstract partial class DatabaseClientBase
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                 cancellationToken),
+            connection,
             transaction,
             cancellationToken).ConfigureAwait(false);
 
@@ -140,6 +141,7 @@ public abstract partial class DatabaseClientBase
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
                 cancellationToken),
+            connection,
             transaction,
             cancellationToken).ConfigureAwait(false);
         initialize?.Invoke(reader);

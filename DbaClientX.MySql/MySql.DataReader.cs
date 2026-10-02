@@ -37,6 +37,7 @@ public partial class MySql
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
+                connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
             return new DbaDataReader(

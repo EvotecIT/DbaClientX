@@ -81,7 +81,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return result;
-        }, transaction);
+        }, connection, transaction);
     }
 
     /// <summary>
@@ -133,7 +133,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return rows;
-        }, transaction);
+        }, connection, transaction);
     }
 
     /// <summary>
@@ -162,7 +162,7 @@ public abstract partial class DatabaseClientBase
             return affected;
         }
 
-        return ExecuteCommandWithRetry(ExecuteOperation, transaction, returnsResults: false);
+        return ExecuteCommandWithRetry(ExecuteOperation, connection, transaction, returnsResults: false);
     }
 
     /// <summary>
@@ -188,7 +188,7 @@ public abstract partial class DatabaseClientBase
             var result = command.ExecuteScalar();
             UpdateOutputParameters(command, parameters);
             return result;
-        }, transaction);
+        }, connection, transaction);
     }
 
     /// <summary>
@@ -266,7 +266,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return result;
-        }, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -324,7 +324,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return (IReadOnlyList<T>)rows;
-        }, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -364,7 +364,7 @@ public abstract partial class DatabaseClientBase
         }
 
         return await ExecuteCommandWithRetryAsync(
-            ExecuteOperationAsync, transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
+            ExecuteOperationAsync, connection, transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -394,6 +394,6 @@ public abstract partial class DatabaseClientBase
                 cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return result;
-        }, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, cancellationToken).ConfigureAwait(false);
     }
 }

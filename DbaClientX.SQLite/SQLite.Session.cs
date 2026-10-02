@@ -104,7 +104,7 @@ public partial class SQLite
 
                 UpdateOutputParameters(command, parameters);
                 return (IReadOnlyList<T>)results;
-            }, transaction);
+            }, connection, transaction);
         }
         catch (SqliteException ex)
         {

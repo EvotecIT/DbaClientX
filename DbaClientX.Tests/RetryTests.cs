@@ -233,6 +233,21 @@ public class RetryTests
         Assert.Equal(2, connection.Attempts);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteScalar_InsideAmbientTransaction_DoesNotReplay(bool asynchronous)
+    {
+        using var client = new RetryClient { CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe, MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(2);
+        using var scope = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+
+        if (asynchronous) await Assert.ThrowsAsync<TransientTestException>(() => client.RunAsync(connection));
+        else Assert.Throws<TransientTestException>(() => client.Run(connection));
+
+        Assert.Equal(1, connection.Attempts);
+    }
+
     [Fact]
     public async Task ExecuteScalarAsync_RetriesTransientErrors()
     {
