@@ -74,6 +74,18 @@ To put a mapped or user-supplied name into such a fragment, quote it with `SqlId
 
 For multipart table or schema names, `DbaIdentifierPath` provides the shared delimiter-aware split and unquote behavior used by bulk operations and table-copy planning.
 
+Compound queries keep their scope: `OrderBy`, `Limit`, `Top` and `Offset` on the root query apply to the combined result, while clauses on a `Union`, `UnionAll` or `Intersect` operand stay inside that operand. Mixed operators compose from left to right, and nested operands preserve their grouping. Order the combined result by its output column names. SQL Server requires a local ordered operand to include a limit or offset.
+
+```csharp
+var recent = new Query().Select("Id").From("CurrentRuns")
+    .Union(new Query().Select("Id").From("ArchivedRuns"))
+    .OrderByDescending("Id")
+    .Limit(20).Offset(40);
+var (sql, parameters) = recent.CompileWithNamedParameters(SqlDialect.SQLite);
+```
+
+An offset without a limit returns every remaining row. SQLite and MySQL receive their dialect's unlimited-limit form; PostgreSQL, SQL Server and Oracle use standalone offset syntax. SQL Server still requires ordering for a nonempty offset page. A zero limit returns no rows.
+
 ## Query plan guard
 
 `DBAClientX.QueryPlans` catches statements that read every row of a large table before they reach production.

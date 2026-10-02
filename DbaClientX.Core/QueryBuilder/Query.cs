@@ -632,6 +632,10 @@ public partial class Query
     /// </summary>
     /// <param name="query">The query to union.</param>
     /// <returns>The current <see cref="Query"/> instance.</returns>
+    /// <remarks>
+    /// Ordering and paging on this query apply to the combined result. Ordering or paging on an operand stays local
+    /// to that operand. Mixed set operators compose from left to right; nested queries preserve their own grouping.
+    /// </remarks>
     public Query Union(Query query)
     {
         if (query == null)
