@@ -7,6 +7,17 @@ namespace DBAClientX.QueryBuilder;
 
 public partial class QueryCompiler
 {
+    private static readonly HashSet<string> BareProjectionExpressions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "NULL", "TRUE", "FALSE", "CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME",
+        "CURRENT_USER", "SESSION_USER", "SYSTEM_USER", "USER", "LOCALTIME", "LOCALTIMESTAMP"
+    };
+
+    private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AND", "OR", "XOR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
+    };
+
     private void AppendDerivedSelect(StringBuilder sb, string sql, string alias, Query query, int? top = null)
     {
         // SQL Server requires named derived columns; it and MySQL require unique names. An explicit
@@ -88,24 +99,33 @@ public partial class QueryCompiler
         => end > first && tokens[end - 1].Text == "*" &&
            (end - first == 1 || end - first >= 3 && tokens[end - 2].Text == ".");
 
-    private static string? GetRawProjectionName(IReadOnlyList<SqlToken> tokens, int first, int end)
+    private string? GetRawProjectionName(IReadOnlyList<SqlToken> tokens, int first, int end)
     {
         if (end <= first) return null;
         var last = tokens[end - 1];
-        bool name = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
+        bool name = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier or SqlTokenKind.String;
+        if (_dialect == SqlDialect.SqlServer && end - first >= 3 && tokens[first + 1].Text == "=" &&
+            tokens[first].Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier or SqlTokenKind.String)
+            return tokens[first].Value;
         if (end - first >= 3 && string.Equals(tokens[end - 2].Text, "AS", StringComparison.OrdinalIgnoreCase))
-            return last.Value;
+            return last.Value.Length > 0 ? last.Value : null;
         // Plain identifiers, including a table qualifier, carry the final identifier's name.
-        bool identifier = name;
+        bool identifier = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
         for (int index = first; index < end && identifier; index++)
             identifier = (index - first) % 2 == 0
                 ? tokens[index].Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier
                 : tokens[index].Text == ".";
-        if (identifier) return last.Value;
-        // A common implicit alias after a function or literal; other expressions can use explicit AS.
-        if (name && !string.Equals(last.Text, "END", StringComparison.OrdinalIgnoreCase) &&
-            end - first >= 2 && tokens[end - 2].Kind is
-            SqlTokenKind.CloseParenthesis or SqlTokenKind.String or SqlTokenKind.Number) return last.Value;
+        if (identifier && !(end - first == 1 && last.Kind == SqlTokenKind.Word && BareProjectionExpressions.Contains(last.Text)))
+            return last.Value;
+        // An implicit alias follows an expression's final value, not a SQL operator or CASE's END.
+        if (name && !(last.Kind == SqlTokenKind.Word &&
+                      (BareProjectionExpressions.Contains(last.Text) || last.Text.Equals("END", StringComparison.OrdinalIgnoreCase))) &&
+            end - first >= 2)
+        {
+            var previous = tokens[end - 2];
+            if (previous.Kind is SqlTokenKind.CloseParenthesis or SqlTokenKind.String or SqlTokenKind.Number or SqlTokenKind.QuotedIdentifier ||
+                previous.Kind == SqlTokenKind.Word && !ProjectionOperators.Contains(previous.Text)) return last.Value;
+        }
         return null;
     }
 }
