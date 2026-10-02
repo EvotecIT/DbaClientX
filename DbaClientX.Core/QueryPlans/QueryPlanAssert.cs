@@ -71,7 +71,7 @@ public static class QueryPlanAssert
                     // A temporary B-tree sorts the rows of its query step: blame the large tables that step (or a
                     // co-routine or subquery under it) reads in full or through a wide search. Rows a selective search
                     // narrows are cheap to sort.
-                    foreach (var table in TablesReadWidelyUnder(plan, step.ParentId, rules).Where(rules.AppliesTo).Distinct(SqliteIdentifierComparer.Instance))
+                    foreach (var table in TablesReadWidelyUnder(plan, step.ParentId, rules).OfType<string>().Where(rules.AppliesTo).Distinct(SqliteIdentifierComparer.Instance))
                     {
                         violations.Add(new QueryPlanViolation(QueryPlanViolationKind.TempBTree, table!, step));
                     }
