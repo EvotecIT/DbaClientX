@@ -35,6 +35,7 @@ public abstract partial class DatabaseClientBase
                 _commandTimeout = value;
                 _commandTimeoutConfigured = true;
             }
+            OnCommandTimeoutChanged();
         }
     }
 
@@ -49,7 +50,14 @@ public abstract partial class DatabaseClientBase
             _commandTimeout = 0;
             _commandTimeoutConfigured = false;
         }
+        OnCommandTimeoutChanged();
     }
+
+    /// <summary>
+    /// Allows providers to synchronize defaults for retained connections after a timeout is set or reset.
+    /// </summary>
+    /// <remarks>Called outside the client state lock. Read the current value with <see cref="TryGetCommandTimeout"/>.</remarks>
+    protected virtual void OnCommandTimeoutChanged() { }
 
     /// <summary>
     /// Applies the explicitly configured timeout to a command. Commands are left

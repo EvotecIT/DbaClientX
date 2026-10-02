@@ -138,6 +138,40 @@ public sealed class SQLiteConnectionProfileTests : IDisposable
         Assert.Equal(9, inheritedTimeout);
     }
 
+    [Theory]
+    [InlineData("SyncSession")]
+    [InlineData("AsyncSession")]
+    [InlineData("Transaction")]
+    [InlineData("Managed")]
+    public async Task ResetTimeout_RestoresDefaultsForCommandsOnRetainedConnections(string path)
+    {
+        SqliteConnection? connection = null;
+        using var client = new SQLite { CommandTimeout = 0, ConfigureConnection = value => connection = value };
+        IDisposable? session = null;
+        IAsyncDisposable? asyncSession = null;
+        try
+        {
+            if (path == "SyncSession") session = client.OpenSession(_database);
+            else if (path == "AsyncSession") asyncSession = await client.OpenSessionAsync(_database);
+            else if (path == "Transaction") client.BeginTransaction(_database);
+            else session = client.OpenDbConnection(_database);
+            Assert.NotNull(connection);
+            using (var command = connection.CreateCommand()) Assert.Equal(0, command.CommandTimeout);
+            client.ResetCommandTimeout();
+            using (var command = connection.CreateCommand()) Assert.Equal(30, command.CommandTimeout);
+            client.CommandTimeout = 4;
+            using (var command = connection.CreateCommand()) Assert.Equal(4, command.CommandTimeout);
+            client.ResetCommandTimeout();
+            using (var command = connection.CreateCommand()) Assert.Equal(30, command.CommandTimeout);
+        }
+        finally
+        {
+            if (path == "Transaction") client.Rollback();
+            session?.Dispose();
+            if (asyncSession != null) await asyncSession.DisposeAsync();
+        }
+    }
+
     [Fact]
     public async Task CopyAdapter_OrdinaryPageWrite_UsesAdapterCommandTimeout()
     {

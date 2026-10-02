@@ -24,6 +24,7 @@ public partial class SQLite
             connection.Open();
             ApplyManagedConnectionOptions(connection, options);
             ApplyConnectionConfiguration(connection, applyProfile: false);
+            RetainConnectionTimeout(connection);
             return connection;
         }
         catch

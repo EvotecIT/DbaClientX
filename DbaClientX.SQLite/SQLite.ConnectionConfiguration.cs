@@ -57,12 +57,10 @@ public partial class SQLite
     internal SqliteConnection CreateConfiguredConnection(string connectionString, SQLiteConnectionOptions? options = null)
     {
         options ??= _connectionOptions;
-        bool hasTimeout = TryGetCommandTimeout(out int commandTimeout);
-        if (!hasTimeout && (options == null || !options.ReadOnly && !options.Pooling.HasValue))
-            return new SqliteConnection(connectionString);
+        if (options == null || !options.ReadOnly && !options.Pooling.HasValue)
+            return ConfigureConnectionTimeout(new SqliteConnection(connectionString));
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
-        if (hasTimeout) builder.DefaultTimeout = commandTimeout;
         if (options?.ReadOnly == true)
         {
             if (builder.Mode == SqliteOpenMode.Memory || builder.DataSource == ":memory:")
@@ -70,7 +68,7 @@ public partial class SQLite
             builder.Mode = SqliteOpenMode.ReadOnly;
         }
         if (options?.Pooling is { } pooling) builder.Pooling = pooling;
-        return new SqliteConnection(builder.ConnectionString);
+        return ConfigureConnectionTimeout(new SqliteConnection(builder.ConnectionString));
     }
 
     internal async Task OpenConfiguredConnectionAsync(SqliteConnection connection, CancellationToken cancellationToken)

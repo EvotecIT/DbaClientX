@@ -513,6 +513,7 @@ public partial class SQLite
                 transaction = isolationLevel.HasValue
                     ? connection.BeginTransaction(isolationLevel.Value)
                     : connection.BeginTransaction();
+                RetainConnectionTimeout(connection);
                 return (connection, transaction);
             }
             catch
@@ -549,6 +550,7 @@ public partial class SQLite
                     ? connection.BeginTransaction(isolationLevel.Value)
                     : connection.BeginTransaction();
 #endif
+                RetainConnectionTimeout(connection);
                 return (connection, transaction);
             }
             catch

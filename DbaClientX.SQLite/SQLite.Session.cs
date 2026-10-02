@@ -23,6 +23,7 @@ public partial class SQLite
         try
         {
             (connection, _, _) = ResolveConnection(connectionString, useTransaction: false);
+            RetainConnectionTimeout(connection);
             return new SQLiteSession(this, connection);
         }
         catch (Exception exception)
