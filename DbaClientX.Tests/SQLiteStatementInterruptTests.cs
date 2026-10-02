@@ -128,6 +128,37 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
     }
 
+    [Theory]
+    [InlineData("$item(O'Reilly)", "BEGIN IMMEDIATE", false)]
+    [InlineData("$scope::item(a;'/*--\"[)", "SAVEPOINT unit", true)]
+    [InlineData("@item(O'Reilly)", "BEGIN IMMEDIATE", true)]
+    [InlineData(":item(O'Reilly)", "SAVEPOINT unit", false)]
+    public async Task SessionBatch_WithSqliteParameterSuffix_CancellationPreservesTransaction(string parameter, string begin, bool prepared)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
+            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+        var batch = "SELECT " + parameter + "; " + begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        try
+        {
+            if (prepared)
+            {
+                using var command = session.Prepare(batch, parameter);
+                await command.ExecuteNonQueryAsync(new object?[] { 0 }, cancellation.Token);
+            }
+            else
+                await session.ExecuteNonQueryAsync(batch, new Dictionary<string, object?> { [parameter] = 0 }, cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
+        await session.ExecuteNonQueryAsync("COMMIT");
+        Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
+    }
+
     [Fact]
     public async Task QueryWithConnectionStringAsync_AfterAnInterruptedQuery_PooledConnectionRunsTheNextQuery()
     {
