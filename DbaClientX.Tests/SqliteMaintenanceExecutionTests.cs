@@ -492,7 +492,8 @@ public sealed class SqliteMaintenanceExecutionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task BackupDatabase_LockedSource_EnforcesExplicitBusyDeadline(bool snapshot)
+    [InlineData(null)]
+    public async Task BackupDatabase_LockedSource_EnforcesExplicitBusyDeadline(bool? snapshot)
     {
         string source = CreateDatabase();
         string destination = Path.Combine(Path.GetTempPath(), $"dbaclientx-busy-deadline-{Guid.NewGuid():N}.sqlite");
@@ -512,9 +513,14 @@ public sealed class SqliteMaintenanceExecutionTests
                 BusyRetryTimeout = TimeSpan.FromMilliseconds(100)
             };
 
-            await Assert.ThrowsAsync<TimeoutException>(() => snapshot
-                ? sqlite.BackupDatabaseSnapshotAsync(source, destination, options)
-                : sqlite.BackupDatabaseIncrementalAsync(source, destination, options));
+            if (snapshot.HasValue) {
+                await Assert.ThrowsAsync<TimeoutException>(() => snapshot.Value
+                    ? sqlite.BackupDatabaseSnapshotAsync(source, destination, options)
+                    : sqlite.BackupDatabaseIncrementalAsync(source, destination, options));
+            } else {
+                var failure = await Assert.ThrowsAsync<DbaQueryExecutionException>(() => sqlite.BackupDatabaseAsync(source, destination, options: options));
+                Assert.IsType<TimeoutException>(failure.InnerException);
+            }
             Assert.False(File.Exists(destination));
 
             stopwatch.Stop();

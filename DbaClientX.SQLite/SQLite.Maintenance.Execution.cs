@@ -206,8 +206,7 @@ public partial class SQLite
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {sourcePath}", sourcePath);
         }
-        SqliteBackupMethod effectiveMethod = ResolveBackupMethod(method, sourcePath);
-        bool holdSourceSnapshot = effectiveMethod == SqliteBackupMethod.Snapshot;
+        SqliteBackupMethod effectiveMethod = method;
 
         string? destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrWhiteSpace(destinationDirectory))
@@ -240,7 +239,8 @@ public partial class SQLite
                 using CancellationTokenRegistration sourceRegistration = RegisterStatementInterrupt(source, cancellationToken);
                 using CancellationTokenRegistration destinationRegistration = RegisterStatementInterrupt(destination, cancellationToken);
                 TimeSpan cumulativeBusyDuration = TimeSpan.Zero;
-                using SourceSnapshot? sourceSnapshot = holdSourceSnapshot
+                effectiveMethod = ResolveBackupMethod(method, source, options, ref cumulativeBusyDuration, cancellationToken);
+                using SourceSnapshot? sourceSnapshot = effectiveMethod == SqliteBackupMethod.Snapshot
                     ? BeginSourceSnapshot(source, options, ref cumulativeBusyDuration, cancellationToken)
                     : null;
 

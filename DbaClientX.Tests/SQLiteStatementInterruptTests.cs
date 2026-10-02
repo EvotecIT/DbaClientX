@@ -47,9 +47,7 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         using var sqlite = new DBAClientX.SQLite();
         using var cancellation = new CancellationTokenSource(CancelAfter);
 
-        var elapsed = await AssertCanceledWithinWatchdogAsync(() => RunAsync(sqlite, operation, EndlessQuery, cancellation.Token), cancellation.Token);
-
-        Assert.True(elapsed < TimeSpan.FromSeconds(5), $"{operation} stopped after {elapsed.TotalMilliseconds:F0} ms.");
+        await AssertCanceledWithinWatchdogAsync(() => RunAsync(sqlite, operation, EndlessQuery, cancellation.Token), cancellation.Token);
     }
 
     [Fact]

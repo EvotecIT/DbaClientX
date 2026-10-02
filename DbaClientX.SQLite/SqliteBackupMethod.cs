@@ -7,7 +7,7 @@ public enum SqliteBackupMethod
 {
     /// <summary>
     /// Uses <see cref="Snapshot"/> for a database in WAL mode and <see cref="Incremental"/> otherwise, as read from the
-    /// database file header when the backup starts.
+    /// source connection's <c>PRAGMA journal_mode</c> when the backup starts.
     /// </summary>
     Auto,
 

@@ -126,7 +126,7 @@ SqliteBackupResult result = await sq.BackupDatabaseAsync(
 
 `BackupDatabase` and `BackupDatabaseAsync` with `SqliteBackupMethod.Auto` copy a WAL database as a snapshot
 (`BackupDatabaseSnapshotAsync`) and any other database step-wise (`BackupDatabaseIncrementalAsync`), reading the journal
-mode from the database file header. The snapshot copy holds the database as it was when the backup started and
+mode through SQLite's `PRAGMA journal_mode`, respecting cancellation and the busy deadline. The snapshot copy holds the database as it was when the backup started and
 completes while other connections write. While it runs, the WAL keeps what is written meanwhile, and a `FULL`,
 `RESTART` or `TRUNCATE` checkpoint waits for it (for the checkpointing connection's busy timeout, with writers waiting
 behind the checkpoint). The step-wise copy releases the source between steps, but every change by another connection

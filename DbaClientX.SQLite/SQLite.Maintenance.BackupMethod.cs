@@ -1,13 +1,11 @@
 using Microsoft.Data.Sqlite;
+using SQLitePCL;
+using System.Diagnostics;
 
 namespace DBAClientX;
 
 public partial class SQLite
 {
-    private const int DatabaseHeaderLength = 20;
-    private const byte WalFileFormatVersion = 2;
-    private static readonly byte[] DatabaseHeaderMagic = System.Text.Encoding.ASCII.GetBytes("SQLite format 3\0");
-
     /// <summary>
     /// Copies an SQLite database on a dedicated thread using SQLite's online backup API with the selected method; by
     /// default a WAL database is copied as a held snapshot, which completes while other connections write, and any
@@ -16,7 +14,7 @@ public partial class SQLite
     /// <param name="sourceDatabase">Source SQLite database path.</param>
     /// <param name="destinationDatabase">Destination SQLite database path.</param>
     /// <param name="method">How the source is read: <see cref="SqliteBackupMethod.Auto"/> (the default) picks
-    /// <see cref="SqliteBackupMethod.Snapshot"/> when the source file header says WAL mode and
+    /// <see cref="SqliteBackupMethod.Snapshot"/> when SQLite reports WAL mode and
     /// <see cref="SqliteBackupMethod.Incremental"/> otherwise.</param>
     /// <param name="options">Backup behavior options.</param>
     /// <param name="progress">Optional page-based progress observer.</param>
@@ -24,11 +22,12 @@ public partial class SQLite
     /// <returns>A task containing the completed backup details, including the method that was used.</returns>
     /// <remarks>
     /// The two methods behave as <see cref="BackupDatabaseSnapshotAsync"/> and
-    /// <see cref="BackupDatabaseIncrementalAsync"/> describe. <see cref="SqliteBackupMethod.Auto"/> reads the file
-    /// format versions of the source header without taking a lock, so a rollback-journal database keeps the step-wise
+    /// <see cref="BackupDatabaseIncrementalAsync"/> describe. <see cref="SqliteBackupMethod.Auto"/> reads
+    /// <c>PRAGMA journal_mode</c> through the source connection under the same busy deadline and cancellation as the copy,
+    /// so a rollback-journal database keeps the step-wise
     /// copy that never blocks its writers for longer than one step; select <see cref="SqliteBackupMethod.Snapshot"/>
-    /// explicitly to copy a rollback-journal database whose writers may wait for the whole copy. A file whose header
-    /// is not a plain SQLite header (an encrypted database, for example) is treated as not WAL.
+    /// explicitly to copy a rollback-journal database whose writers may wait for the whole copy. The source file is
+    /// accessed only through SQLite so that other connections' operating-system locks remain intact.
     /// <para>Invalid arguments, an active client transaction and an existing destination without
     /// <see cref="SqliteBackupOptions.OverwriteDestination"/> throw before the copy starts (the last as
     /// <see cref="IOException"/>). Cancellation surfaces as <see cref="OperationCanceledException"/>, and any other
@@ -95,50 +94,46 @@ public partial class SQLite
     }
 
     /// <summary>
-    /// Turns <see cref="SqliteBackupMethod.Auto"/> into the method used for <paramref name="sourcePath"/>; the other
+    /// Turns <see cref="SqliteBackupMethod.Auto"/> into the method used for <paramref name="source"/>; the other
     /// methods are returned unchanged.
     /// </summary>
-    internal static SqliteBackupMethod ResolveBackupMethod(SqliteBackupMethod method, string sourcePath)
+    private static SqliteBackupMethod ResolveBackupMethod(SqliteBackupMethod method, SqliteConnection source,
+        SqliteBackupOptions options, ref TimeSpan busy, CancellationToken cancellationToken)
     {
         if (method != SqliteBackupMethod.Auto)
         {
             return method;
         }
 
-        return IsWalDatabaseFile(sourcePath) ? SqliteBackupMethod.Snapshot : SqliteBackupMethod.Incremental;
-    }
-
-    /// <summary>
-    /// Whether the database file header records WAL mode. Bytes 18 and 19 of the header are the file format write and
-    /// read versions, which SQLite sets to 2 when a database is switched to WAL and to 1 when it leaves it. The header
-    /// is read with full sharing and no SQLite lock, so a writer holding the database does not delay the decision.
-    /// </summary>
-    internal static bool IsWalDatabaseFile(string path)
-    {
-        var header = new byte[DatabaseHeaderLength];
-        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        sqlite3 handle = source.Handle!;
+        while (true)
         {
-            int read = 0;
-            while (read < header.Length)
+            cancellationToken.ThrowIfCancellationRequested();
+            var attempt = Stopwatch.StartNew();
+            int resultCode = raw.sqlite3_prepare_v2(handle, "PRAGMA journal_mode;", out sqlite3_stmt statement);
+            using (statement)
             {
-                int count = stream.Read(header, read, header.Length - read);
-                if (count == 0)
+                if (resultCode == raw.SQLITE_OK) resultCode = raw.sqlite3_step(statement);
+                if (resultCode == raw.SQLITE_ROW)
                 {
-                    return false;
+                    string journalMode = raw.sqlite3_column_text(statement, 0).utf8_to_string();
+                    return string.Equals(journalMode, "wal", StringComparison.OrdinalIgnoreCase)
+                        ? SqliteBackupMethod.Snapshot : SqliteBackupMethod.Incremental;
                 }
-
-                read += count;
             }
-        }
-
-        for (int index = 0; index < DatabaseHeaderMagic.Length; index++)
-        {
-            if (header[index] != DatabaseHeaderMagic[index])
+            if (!IsBusyResult(resultCode))
             {
-                return false;
+                if ((resultCode & 0xFF) == raw.SQLITE_INTERRUPT && cancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(cancellationToken);
+                throw CreateBackupProviderException("Failed to determine the SQLite backup journal mode.",
+                    new InvalidOperationException(raw.sqlite3_errmsg(handle).utf8_to_string()), resultCode);
             }
+            busy += attempt.Elapsed;
+            ThrowIfBusyRetryTimeoutExceeded(busy, options.BusyRetryTimeout);
+            var delay = Stopwatch.StartNew();
+            WaitWithCancellation(options.BusyRetryDelay, cancellationToken);
+            busy += delay.Elapsed;
+            ThrowIfBusyRetryTimeoutExceeded(busy, options.BusyRetryTimeout);
         }
-
-        return header[18] == WalFileFormatVersion && header[19] == WalFileFormatVersion;
     }
 }
