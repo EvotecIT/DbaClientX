@@ -280,7 +280,7 @@ public partial class SQLite : DatabaseClientBase
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)
     {
-        var effectiveTimeout = busyTimeoutMs ?? BusyTimeoutMs;
+        var effectiveTimeout = busyTimeoutMs ?? _connectionOptions?.BusyTimeoutMs ?? BusyTimeoutMs;
         if (effectiveTimeout < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout cannot be negative.");
@@ -289,12 +289,14 @@ public partial class SQLite : DatabaseClientBase
         return effectiveTimeout;
     }
 
-    private static int? ResolveConnectionBusyTimeout(string connectionString, int? busyTimeoutMs)
+    private int? ResolveConnectionBusyTimeout(string connectionString, int? busyTimeoutMs)
     {
         if (busyTimeoutMs.HasValue)
         {
             return busyTimeoutMs;
         }
+
+        if (_connectionOptions?.BusyTimeoutMs is { } profileTimeout) return profileTimeout;
 
         var builder = new DbConnectionStringBuilder
         {

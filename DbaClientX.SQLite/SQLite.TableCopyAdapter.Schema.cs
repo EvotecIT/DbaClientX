@@ -10,8 +10,8 @@ public sealed partial class SQLiteTableCopyAdapter : IDbaTableCopySchemaPrefligh
     /// <inheritdoc />
     public async Task ValidateSchemaAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
-        using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        using var connection = CreateConnection();
+        await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await ValidateSchemaAsync(connection, definition, page, cancellationToken).ConfigureAwait(false);
     }
 
@@ -25,7 +25,7 @@ public sealed partial class SQLiteTableCopyAdapter : IDbaTableCopySchemaPrefligh
         if (parts.Length is < 1 or > 2) throw new ArgumentException("SQLite table-copy destinations support table or schema.table names.", nameof(definition));
         string schema = parts.Length == 2 ? parts[0] : "main";
         if (string.Equals(schema, "main", StringComparison.OrdinalIgnoreCase)) schema = "main";
-        using var sqlite = new SQLite { CommandTimeout = CommandTimeout };
+        using var sqlite = CreateClient();
         IReadOnlyList<DbaColumnInfo> columns = await sqlite.GetTableCopyColumnsAsync(connection, schema, parts[parts.Length - 1], cancellationToken).ConfigureAwait(false);
         DbaTableCopySchemaValidator.Validate(definition.DestinationName, page.Columns.Cast<DataColumn>().Select(column => column.ColumnName).ToArray(),
             columns, DbaIdentifierPath.NormalizeSqliteIdentifier, requirePreservedIdentity: false, keepIdentity: true);

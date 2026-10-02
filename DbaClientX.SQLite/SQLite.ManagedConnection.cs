@@ -16,14 +16,14 @@ public partial class SQLite
     /// </remarks>
     public virtual DbConnection OpenDbConnection(string database, SQLiteConnectionOptions? options = null)
     {
-        options ??= new SQLiteConnectionOptions();
+        options = (options ?? _connectionOptions ?? new SQLiteConnectionOptions()).Snapshot();
         var connectionString = BuildOperationalConnectionString(database, options.ReadOnly);
-        var connection = new SqliteConnection(connectionString);
+        var connection = CreateConfiguredConnection(connectionString, options);
         try
         {
             connection.Open();
             ApplyManagedConnectionOptions(connection, options);
-            ApplyConnectionConfiguration(connection);
+            ApplyConnectionConfiguration(connection, applyProfile: false);
             return connection;
         }
         catch
@@ -69,25 +69,26 @@ public partial class SQLite
         };
     }
 
-    private void ApplyManagedConnectionOptions(SqliteConnection connection, SQLiteConnectionOptions options)
+    private void ApplyManagedConnectionOptions(SqliteConnection connection, SQLiteConnectionOptions options, bool applyBusyTimeout = true)
     {
-        int busyTimeout = ResolveBusyTimeoutMs(options.BusyTimeoutMs);
+        int busyTimeout = options.BusyTimeoutMs ?? BusyTimeoutMs;
         using var command = connection.CreateCommand();
         ApplyCommandTimeout(command);
         var sql = new System.Text.StringBuilder();
-        if (busyTimeout > 0)
+        bool readOnly = new SqliteConnectionStringBuilder(connection.ConnectionString).Mode == SqliteOpenMode.ReadOnly;
+        if (applyBusyTimeout && busyTimeout > 0)
         {
             sql.Append("PRAGMA busy_timeout = ").Append(busyTimeout).AppendLine(";");
         }
-        if (!options.ReadOnly && options.EnableWriteAheadLogging)
+        if (!readOnly && options.EnableWriteAheadLogging)
         {
             sql.AppendLine("PRAGMA journal_mode = WAL;");
         }
-        if (!options.ReadOnly && options.UseNormalSynchronousMode)
+        if (!readOnly && options.UseNormalSynchronousMode)
         {
             sql.AppendLine("PRAGMA synchronous = NORMAL;");
         }
-        if (!options.ReadOnly && options.WalAutoCheckpointPages > 0)
+        if (!readOnly && options.WalAutoCheckpointPages > 0)
         {
             sql.Append("PRAGMA wal_autocheckpoint = ").Append(options.WalAutoCheckpointPages).AppendLine(";");
         }

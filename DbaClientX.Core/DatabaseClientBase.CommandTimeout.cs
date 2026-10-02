@@ -63,17 +63,23 @@ public abstract partial class DatabaseClientBase
             throw new ArgumentNullException(nameof(command));
         }
 
-        int commandTimeout;
-        bool commandTimeoutConfigured;
+        if (TryGetCommandTimeout(out int commandTimeout))
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+    }
+
+    /// <summary>
+    /// Retrieves an explicit timeout for provider operations that create their own commands,
+    /// such as starting a transaction. Returns false when provider defaults remain in effect.
+    /// </summary>
+    /// <param name="commandTimeout">The configured timeout in seconds, or zero when not configured.</param>
+    protected bool TryGetCommandTimeout(out int commandTimeout)
+    {
         lock (_syncRoot)
         {
             commandTimeout = _commandTimeout;
-            commandTimeoutConfigured = _commandTimeoutConfigured;
-        }
-
-        if (commandTimeoutConfigured)
-        {
-            command.CommandTimeout = commandTimeout;
+            return _commandTimeoutConfigured;
         }
     }
 }

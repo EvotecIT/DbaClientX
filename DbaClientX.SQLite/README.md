@@ -69,7 +69,42 @@ await sq.ExecuteNonQueryWithConnectionStringAsync(
     cancellationToken: ct);
 ```
 
-`SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings. File paths containing `=` remain valid paths.
+`SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings unless an explicit client profile or timeout overrides them. File paths containing `=` remain valid paths.
+
+Use a connection profile to apply the same settings to commands, sessions, transactions, bulk operations and diagnostics:
+
+```csharp
+var sq = new DBAClientX.SQLite
+{
+    CommandTimeout = 15,
+    ConnectionOptions = new SQLiteConnectionOptions
+    {
+        Pooling = true,
+        BusyTimeoutMs = 1000,
+        EnableWriteAheadLogging = true,
+        UseNormalSynchronousMode = true,
+        EnableForeignKeys = true
+    },
+    ConfigureConnection = SQLiteUnicodeText.Register
+};
+```
+
+Profiles are copied when assigned or retrieved. Configure a client before starting operations; to change future connections, modify a copy and assign it back. A null profile retains ordinary command defaults. `OpenDbConnection` retains its managed defaults when neither a profile nor explicit options are provided; explicit options on that method take precedence over the profile. Read-only profiles require a file-backed database and skip journal, synchronous and checkpoint write pragmas. Pooling remains controlled by the connection string when the profile's `Pooling` is null.
+
+An explicit method busy timeout takes precedence over the profile's `BusyTimeoutMs`, which takes precedence over the client's legacy `BusyTimeoutMs`. A connection-string timeout is retained when neither the method nor the profile supplies a busy timeout. `CommandTimeout` applies in seconds to statements and provider-created transaction commands; zero disables it, and `ResetCommandTimeout()` restores provider or connection-string defaults. SQLite lock waits can still block synchronously for a native busy-timeout interval, so choose a busy timeout appropriate to the application's response budget. Native database backups retain their dedicated backup options and unpooled connections.
+
+For table copies, configure both the source and destination adapter as needed. Every adapter connection receives the profile and callback, including schema preflight, snapshot reads and atomic checkpoint commits:
+
+```csharp
+var adapter = new SQLiteTableCopyAdapter("app.db")
+{
+    CommandTimeout = 15,
+    ConnectionOptions = sq.ConnectionOptions,
+    ConfigureConnection = SQLiteUnicodeText.Register
+};
+```
+
+Register functions or collations used by expression indexes, views or triggers on every connection that accesses them, including external tools. The callback runs after operational pragmas and before the first caller command; it must be thread-safe if the client or adapter opens connections concurrently.
 
 Writing many rows in one transaction with a prepared command (the statement is parsed once; each call rebinds values by position):
 

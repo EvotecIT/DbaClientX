@@ -15,10 +15,10 @@ public sealed partial class SQLiteTableCopyAdapter :
         DbaTableCopyOptions options,
         CancellationToken cancellationToken)
     {
-        var connection = new SqliteConnection(ResolveSQLiteConnectionString());
+        var connection = CreateConnection();
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             await ValidateSchemaAsync(connection, definition, firstPage, cancellationToken).ConfigureAwait(false);
             var session = new SQLiteSchemaPreflightSession(
                 this, connection, connection.BeginTransaction(), definition, options);
@@ -52,10 +52,10 @@ public sealed partial class SQLiteTableCopyAdapter :
         if (definitions.Count == 0 || definitions.Count != firstPages.Count)
             throw new ArgumentException("Coordinated schema preflight requires one first-page slot per definition.", nameof(firstPages));
 
-        var connection = new SqliteConnection(ResolveSQLiteConnectionString());
+        var connection = CreateConnection();
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             for (var index = 0; index < definitions.Count; index++)
             {
                 if (firstPages[index] is DataTable page)

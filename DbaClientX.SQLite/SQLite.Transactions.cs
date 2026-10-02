@@ -506,7 +506,7 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
+                connection = CreateConfiguredConnection(connectionString);
                 connection.Open();
                 ApplyBusyTimeout(connection);
                 ApplyConnectionConfiguration(connection);
@@ -534,7 +534,7 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
+                connection = CreateConfiguredConnection(connectionString);
                 await AwaitWithCallerCancellationAsync(
                     () => connection.OpenAsync(retryToken),
                     retryToken).ConfigureAwait(false);

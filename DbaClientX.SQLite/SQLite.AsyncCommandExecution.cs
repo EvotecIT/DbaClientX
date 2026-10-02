@@ -386,7 +386,7 @@ public partial class SQLite
 
         return await SqliteTransientRetry.RunAsync(async retryToken =>
         {
-            var connection = new SqliteConnection(connectionString);
+            var connection = CreateConfiguredConnection(connectionString);
             try
             {
                 await AwaitWithCallerCancellationAsync(

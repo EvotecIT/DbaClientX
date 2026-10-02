@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
 
 namespace DBAClientX;
@@ -6,6 +8,23 @@ namespace DBAClientX;
 public partial class SQLite
 {
     private volatile Action<SqliteConnection>? _configureConnection;
+    private volatile SQLiteConnectionOptions? _connectionOptions;
+
+    /// <summary>Gets or sets the operational profile for connections this client opens to execute SQL.</summary>
+    /// <remarks>
+    /// Null retains the existing command defaults. Assign a profile to use the same pragmas and pooling across
+    /// commands, transactions, sessions, bulk operations and diagnostics. Profiles are copied on assignment and
+    /// retrieval; modify a copy and assign it to change future connections. Configure the client before starting
+    /// operations. Explicit method busy-timeout arguments take precedence over the profile. Read-only connections
+    /// never apply journal, synchronous or checkpoint write pragmas. OpenDbConnection's explicit options override
+    /// this profile and retain its established managed defaults when neither is supplied. Native database backup
+    /// connections retain the dedicated backup policy and unpooled file lifetime.
+    /// </remarks>
+    public SQLiteConnectionOptions? ConnectionOptions
+    {
+        get => _connectionOptions?.Snapshot();
+        set => _connectionOptions = value?.Snapshot();
+    }
 
     /// <summary>
     /// Gets or sets a callback that configures every connection this client opens to run SQL, after it is opened and its
@@ -28,6 +47,36 @@ public partial class SQLite
         set => _configureConnection = value;
     }
 
-    private void ApplyConnectionConfiguration(SqliteConnection connection)
-        => _configureConnection?.Invoke(connection);
+    private void ApplyConnectionConfiguration(SqliteConnection connection, bool applyProfile = true)
+    {
+        if (applyProfile && _connectionOptions is { } options)
+            ApplyManagedConnectionOptions(connection, options, applyBusyTimeout: false);
+        _configureConnection?.Invoke(connection);
+    }
+
+    internal SqliteConnection CreateConfiguredConnection(string connectionString, SQLiteConnectionOptions? options = null)
+    {
+        options ??= _connectionOptions;
+        bool hasTimeout = TryGetCommandTimeout(out int commandTimeout);
+        if (!hasTimeout && (options == null || !options.ReadOnly && !options.Pooling.HasValue))
+            return new SqliteConnection(connectionString);
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        if (hasTimeout) builder.DefaultTimeout = commandTimeout;
+        if (options?.ReadOnly == true)
+        {
+            if (builder.Mode == SqliteOpenMode.Memory || builder.DataSource == ":memory:")
+                throw new ArgumentException("A read-only SQLite profile requires a file-backed database.", nameof(connectionString));
+            builder.Mode = SqliteOpenMode.ReadOnly;
+        }
+        if (options?.Pooling is { } pooling) builder.Pooling = pooling;
+        return new SqliteConnection(builder.ConnectionString);
+    }
+
+    internal async Task OpenConfiguredConnectionAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await AwaitWithCallerCancellationAsync(() => connection.OpenAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+        await ApplyBusyTimeoutAsync(connection, ResolveConnectionBusyTimeout(connection.ConnectionString, null), cancellationToken).ConfigureAwait(false);
+        ApplyConnectionConfiguration(connection);
+    }
 }

@@ -191,7 +191,7 @@ public partial class SQLite
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var connection = new SqliteConnection(BuildOperationalConnectionString(database));
+            using var connection = CreateConfiguredConnection(BuildOperationalConnectionString(database));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
             ApplyConnectionConfiguration(connection);

@@ -140,7 +140,7 @@ public partial class SQLite
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
+            using var connection = CreateConfiguredConnection(BuildOperationalConnectionString(database, readOnly: true));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
             ApplyConnectionConfiguration(connection);

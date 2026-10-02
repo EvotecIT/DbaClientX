@@ -203,7 +203,7 @@ public partial class SQLite
 
         return SqliteTransientRetry.Run(() =>
         {
-            var connection = new SqliteConnection(connectionString);
+            var connection = CreateConfiguredConnection(connectionString);
             try
             {
                 connection.Open();
