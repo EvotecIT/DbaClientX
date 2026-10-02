@@ -110,6 +110,65 @@ var sq = new DBAClientX.SQLite();
 sq.BackupDatabase("app.db", "backups/app.db");
 ```
 
+Backup of a database that may be written meanwhile (a service's live store), with progress and cancellation:
+
+```csharp
+var sq = new DBAClientX.SQLite();
+SqliteBackupResult result = await sq.BackupDatabaseAsync(
+    "app.db",
+    "backups/app.db",
+    SqliteBackupMethod.Auto,
+    new SqliteBackupOptions { OverwriteDestination = true, PagesPerStep = 4096 },
+    progress: new Progress<SqliteBackupProgress>(p => Console.WriteLine($"{p.PercentComplete:F0}%")),
+    cancellationToken);
+// result.Method is Snapshot for a WAL database and Incremental otherwise.
+```
+
+`BackupDatabase` and `BackupDatabaseAsync` with `SqliteBackupMethod.Auto` copy a WAL database as a snapshot
+(`BackupDatabaseSnapshotAsync`) and any other database step-wise (`BackupDatabaseIncrementalAsync`), reading the journal
+mode through SQLite's `PRAGMA journal_mode`, respecting cancellation and the busy deadline. The snapshot copy holds the database as it was when the backup started and
+completes while other connections write. While it runs, the WAL keeps what is written meanwhile, and a `FULL`,
+`RESTART` or `TRUNCATE` checkpoint waits for it (for the checkpointing connection's busy timeout, with writers waiting
+behind the checkpoint). The step-wise copy releases the source between steps, but every change by another connection
+restarts it: it suits a database in rollback-journal mode (where a snapshot is a shared lock that keeps writers from
+committing until the copy ends), writes that pause long enough for a whole copy, or a database that is not being
+written. Pass `SqliteBackupMethod.Snapshot` or `Incremental` to choose. A rollback-journal database that is written
+continuously needs WAL mode to be backed up online.
+
+PowerShell: `Invoke-DbaXSQLiteMaintenance -Database app.db -Action Backup -Destination backups\app.db` uses the same
+choice (`-BackupMethod Auto|Snapshot|Incremental`), shows progress and stops the copy on Ctrl+C.
+
+Unicode case-insensitive search and sort (SQLite's own `lower()`, `LIKE` and `NOCASE` fold ASCII only):
+
+```csharp
+var sq = new DBAClientX.SQLite { ConfigureConnection = SQLiteUnicodeText.Register };
+var rows = await sq.QueryReadOnlyAsListAsync(
+    "app.db",
+    "SELECT Name FROM Hosts WHERE dbx_lower(Name) = dbx_lower(@name) ORDER BY Name COLLATE DBX_NOCASE",
+    reader => reader.GetString(0),
+    new Dictionary<string, object?> { ["@name"] = "ŻÓŁW" });
+```
+
+Indexed substring search for large, rarely written tables (FTS5 trigram index kept current by triggers):
+
+```csharp
+await sq.CreateTrigramIndexAsync("app.db", "HostsSearch", "Hosts", "Id", new[] { "Name", "Owner" });
+var query = new Query().Select("Id", "Name").From("Hosts");
+if (SQLiteTrigramSearch.CanMatch(text))
+    query.WhereInRaw(SqlIdentifier.Quote(SqlDialect.SQLite, "Id"), SQLiteTrigramSearch.MatchingKeys("HostsSearch", text));
+else
+    query.WhereContains("Name", text, TextFolding.Invariant); // needs SQLiteUnicodeText registered, as above
+```
+
+Read-only streaming, with the running statement interrupted when the token is canceled:
+
+```csharp
+await foreach (var row in sq.QueryReadOnlyStreamAsync("app.db", "SELECT Id, Name FROM Hosts", DbaRecordMapper.Values(), cancellationToken: ct))
+{
+    // one row at a time
+}
+```
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`

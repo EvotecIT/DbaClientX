@@ -14,8 +14,11 @@ public partial class QueryCompiler
     private readonly SqlDialect _dialect;
 
     private const int MaxCacheSize = 1000;
+    private const int MaxCacheCharacters = 4 * 1024 * 1024;
+    private const int MaxCacheEntryCharacters = 16 * 1024;
     private static readonly ConcurrentDictionary<string, string> _cache = new();
     private static readonly ConcurrentQueue<string> _cacheOrder = new();
+    private static long _cacheCharacters;
 
     /// <summary>
     /// Gets the maximum number of compiled statements stored in the shared cache.
@@ -23,17 +26,38 @@ public partial class QueryCompiler
     public static int CacheSizeLimit => MaxCacheSize;
 
     /// <summary>
+    /// Gets the maximum number of characters (cache keys plus compiled SQL) the shared cache holds, about 8 MB.
+    /// </summary>
+    /// <remarks>After a statement is added, the oldest statements are evicted until the cache is within the limit.</remarks>
+    public static int CacheCharacterLimit => MaxCacheCharacters;
+
+    /// <summary>
+    /// Gets the largest statement, in characters of cache key plus compiled SQL, that is cached. Larger statements
+    /// (for example long <c>IN</c> lists or raw SQL) are compiled every time.
+    /// </summary>
+    public static int CacheEntryCharacterLimit => MaxCacheEntryCharacters;
+
+    /// <summary>
     /// Gets the current number of cached statements.
     /// </summary>
     public static int CacheCount => _cache.Count;
+
+    /// <summary>
+    /// Gets the characters (cache keys plus compiled SQL) the cached statements hold.
+    /// </summary>
+    public static long CacheCharacterCount => Interlocked.Read(ref _cacheCharacters);
 
     /// <summary>
     /// Clears all cached compiled statements.
     /// </summary>
     public static void ClearCache()
     {
-        _cache.Clear();
-        while (_cacheOrder.TryDequeue(out _)) { }
+        // Remove through the queue so the character count stays exact; a statement being added concurrently is
+        // enqueued after it is stored and evicted later like any other.
+        while (_cacheOrder.TryDequeue(out var key))
+        {
+            RemoveFromCache(key);
+        }
     }
 
     /// <summary>
@@ -51,6 +75,7 @@ public partial class QueryCompiler
     /// <param name="query">The query to compile.</param>
     /// <returns>The SQL text.</returns>
     /// <exception cref="InvalidOperationException">The query is a keyset page query; use <c>CompileWithParameters</c>.</exception>
+    /// <exception cref="NotSupportedException">A value has no literal SQL form (for example NaN or a type without a literal); use <c>CompileWithParameters</c>.</exception>
     public string Compile(Query query)
         => CompileInternal(query, null);
 
@@ -77,15 +102,31 @@ public partial class QueryCompiler
         return (sql, parameters);
     }
 
-    private void AddToCache(string key, string sql)
+    private static void AddToCache(string key, string sql)
     {
+        long size = (long)key.Length + sql.Length;
+        if (size > MaxCacheEntryCharacters)
+        {
+            return;
+        }
+
         if (_cache.TryAdd(key, sql))
         {
+            Interlocked.Add(ref _cacheCharacters, size);
             _cacheOrder.Enqueue(key);
-            while (_cache.Count > MaxCacheSize && _cacheOrder.TryDequeue(out var old))
+            while ((_cache.Count > MaxCacheSize || Interlocked.Read(ref _cacheCharacters) > MaxCacheCharacters) &&
+                   _cacheOrder.TryDequeue(out var old))
             {
-                _cache.TryRemove(old, out _);
+                RemoveFromCache(old);
             }
+        }
+    }
+
+    private static void RemoveFromCache(string key)
+    {
+        if (_cache.TryRemove(key, out var sql))
+        {
+            Interlocked.Add(ref _cacheCharacters, -((long)key.Length + sql.Length));
         }
     }
 
@@ -151,6 +192,17 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, cond.Value);
                         sb.Append('|');
                         break;
+                    case CollatedConditionToken cond:
+                        sb.Append("WCC:");
+                        AppendCacheText(sb, cond.Column);
+                        sb.Append(':');
+                        AppendCacheText(sb, cond.Collation);
+                        sb.Append(':');
+                        AppendCacheText(sb, cond.Operator);
+                        sb.Append(':');
+                        AppendCacheValueShape(sb, cond.Value);
+                        sb.Append('|');
+                        break;
                     case RawConditionToken cond:
                         sb.Append("WCR:");
                         AppendCacheText(sb, cond.Expression);
@@ -160,6 +212,9 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, cond.Value);
                         sb.Append('|');
                         break;
+                    case FunctionConditionToken function:
+                        AppendFunctionCacheKey(sb, function);
+                        break;
                     case OperatorToken op:
                         sb.Append("WO:");
                         AppendCacheText(sb, op.Operator);
@@ -167,6 +222,14 @@ public partial class QueryCompiler
                         break;
                     case GroupStartToken:
                         sb.Append("WG(").Append('|');
+                        break;
+                    case NotGroupStartToken:
+                        sb.Append("WNG(").Append('|');
+                        break;
+                    case ContainsToken contains:
+                        sb.Append(contains.IsRaw ? "WCTR:" : "WCTI:").Append(contains.Folding switch { TextFolding.Database => 'I', TextFolding.Invariant => 'U', _ => 'S' }).Append(':');
+                        AppendCacheText(sb, contains.Expression);
+                        sb.Append(":P|");
                         break;
                     case GroupEndToken:
                         sb.Append("WG)").Append('|');
@@ -251,6 +314,9 @@ public partial class QueryCompiler
                         AppendCacheValueShape(sb, nbt.End);
                         sb.Append('|');
                         break;
+                    default:
+                        // A token missing from the key would let two different statements share cached SQL.
+                        throw new NotSupportedException($"WHERE token '{token.GetType().Name}' is not supported by the compiler.");
                 }
             }
         }
@@ -307,7 +373,9 @@ public partial class QueryCompiler
             {
                 sb.Append(expression.IsRaw ? "OR:" : "OI:");
                 AppendCacheText(sb, expression.Text);
-                sb.Append(':').Append(expression.Descending).Append('|');
+                sb.Append(':').Append(expression.Descending).Append(':');
+                AppendCacheText(sb, expression.Collation ?? string.Empty);
+                sb.Append('|');
             }
         }
         if (query.GroupByExpressions.Count > 0)
@@ -613,6 +681,11 @@ public partial class QueryCompiler
                 }
                 var expression = query.OrderByExpressions[index];
                 sb.Append(expression.IsRaw ? expression.Text : QuoteIdentifier(expression.Text));
+                if (expression.Collation != null)
+                {
+                    AppendCollation(sb, expression.Collation);
+                }
+
                 if (expression.Descending)
                 {
                     sb.Append(" DESC");
@@ -831,8 +904,23 @@ public partial class QueryCompiler
                     sb.Append(cond.Expression).Append(' ').Append(cond.Operator).Append(' ');
                     AppendValue(sb, cond.Value, parameters);
                     break;
+                case FunctionConditionToken function:
+                    AppendFunctionCondition(sb, function, parameters);
+                    break;
+                case CollatedConditionToken cond:
+                    sb.Append(QuoteIdentifier(cond.Column));
+                    AppendCollation(sb, cond.Collation);
+                    sb.Append(' ').Append(cond.Operator).Append(' ');
+                    AppendValue(sb, cond.Value, parameters);
+                    break;
                 case GroupStartToken:
                     sb.Append('(');
+                    break;
+                case NotGroupStartToken:
+                    sb.Append("NOT (");
+                    break;
+                case ContainsToken contains:
+                    AppendContains(sb, contains, parameters);
                     break;
                 case GroupEndToken:
                     sb.Append(')');
@@ -893,6 +981,8 @@ public partial class QueryCompiler
                     sb.Append(" AND ");
                     AppendValue(sb, nbt.End, parameters);
                     break;
+                default:
+                    throw new NotSupportedException($"WHERE token '{token.GetType().Name}' is not supported by the compiler.");
             }
         }
     }

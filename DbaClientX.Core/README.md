@@ -68,9 +68,47 @@ var joined = new Query()
     .Join("Orders", "o", "u.Id", "=", "o.UserId");
 ```
 
-`SelectRaw`, `FromRaw`, `JoinRaw`, `WhereRaw`, `GroupByRaw`, `HavingRaw`, and `OrderByRaw` emit caller-authored SQL. Never pass user input to these methods. The legacy two-string join overloads remain available for migration but are obsolete because they treat both arguments as raw SQL. Comparison operators are limited to the supported safe operator set, and `Limit`, `Offset`, and `Top` reject negative values.
+`SelectRaw`, `FromRaw`, `JoinRaw`, `WhereRaw`, `WhereContainsRaw`, `GroupByRaw`, `HavingRaw`, and `OrderByRaw` emit caller-authored SQL. Never pass user input to these methods. The legacy two-string join overloads remain available for migration but are obsolete because they treat both arguments as raw SQL. Comparison operators are limited to the supported safe operator set, and `Limit`, `Offset`, and `Top` reject negative values.
+
+To put a mapped or user-supplied name into such a fragment, quote it with `SqlIdentifier.Quote(dialect, name)`. `WhereNot(q => ...)` negates a group of conditions, and `WhereContains(column, text, folding)` matches text anywhere in a column with every pattern character escaped (`TextFolding.None`, `Database`, or `Invariant` for .NET's Unicode folding on SQLite with `SQLiteUnicodeText` registered).
 
 For multipart table or schema names, `DbaIdentifierPath` provides the shared delimiter-aware split and unquote behavior used by bulk operations and table-copy planning.
+
+## Query plan guard
+
+`DBAClientX.QueryPlans` catches statements that read every row of a large table before they reach production.
+`SQLite.ExplainQueryPlanAsync(database, sql, parameters)` returns the plan as `DbaQueryPlan` steps (operation, table,
+index, temporary B-trees), and `QueryPlanAssert` checks it in any test framework:
+
+```csharp
+var plan = await sqlite.ExplainQueryPlanAsync("monitoring.db", sql, parameters);
+QueryPlanAssert.NoFullScan(plan, "ProbeResults");          // throws QueryPlanViolationException with the SQL and plan
+var result = QueryPlanAssert.Check(plan, new QueryPlanRules("ProbeResults")); // or inspect result.Violations
+```
+
+`SqlSargabilityAnalyzer.Analyze(sql)` is a heuristic over SQL text that reports functions wrapped around columns in
+`WHERE`/`ON` conditions (`LOWER(ProbeName) = @p`, DbaClientX's `dbx_lower` included), a `COLLATE` applied to a comparison with a
+column (`Name COLLATE NOCASE = @p`) and leading-wildcard patterns (`LIKE '%x'`). `Analyze(sql, options)` takes
+`SqlSargabilityOptions`: other registered `Functions` and the collation each column's index uses (`ColumnCollations`,
+`DefaultCollation` = `BINARY`), so a `COLLATE` that matches the index is not reported. Each finding names its `Column` and,
+when the statement shows it, its `Table`. Confirm its findings with the plan. Plans depend on data and statistics, so check them on a database shaped like production (run `ANALYZE`).
+Named large tables must appear in the plan by default (`RequireLargeTablesInPlan`), so a typo or an alias the guard
+cannot resolve fails instead of passing.
+
+A search can read most of a table too. Steps carry the rows the statistics expect (`EstimatedRows`, `TableRows`), and
+`UsesIndexes`/`Check` report a `WideSearch` when a search reads more than `WideSearchFraction` (a tenth) of the rows, or
+searches a range open on one side (`CompletedUtcMs < @cutoff`) that no `LIMIT` in index order stops; a temporary
+B-tree that sorts such rows (a top-N `ORDER BY … LIMIT` over a non-selective key) is reported as well. A `MIN`/`MAX`
+that reads one end of an index is a one-row search. Seed the statistics of a small test database so it plans like the
+large one:
+
+```csharp
+await sqlite.WritePlannerStatisticsAsync("test.db", await sqlite.ReadPlannerStatisticsAsync("fixture-L.db"));
+// or chosen values: a million rows, a third of them per Status value
+await sqlite.WritePlannerStatisticsAsync("test.db", new[] { new SqlitePlannerStatistics("ProbeResults", "IX_Status", 1_000_000, new long[] { 333_334 }) });
+```
+
+`SqlStatementText.Split(script)` splits a script into statements to explain one at a time.
 
 ## Retry behavior
 

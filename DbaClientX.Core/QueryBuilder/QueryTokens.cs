@@ -18,6 +18,9 @@ public sealed record OperatorToken(string Operator) : IWhereToken;
 /// <summary>Marks the start of a grouped condition.</summary>
 public sealed record GroupStartToken() : IWhereToken;
 
+/// <summary>Marks the start of a negated grouped condition, <c>NOT (</c>; a <see cref="GroupEndToken"/> closes it.</summary>
+public sealed record NotGroupStartToken() : IWhereToken;
+
 /// <summary>Marks the end of a grouped condition.</summary>
 public sealed record GroupEndToken() : IWhereToken;
 

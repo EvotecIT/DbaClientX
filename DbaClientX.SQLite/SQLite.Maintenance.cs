@@ -18,7 +18,8 @@ public partial class SQLite
     /// <remarks>
     /// The source database is opened read-only and the destination is created when it does not exist. This is
     /// intended for backup-first maintenance workflows that need a provider-owned copy operation without exposing
-    /// <c>Microsoft.Data.Sqlite</c> objects to consumer projects.
+    /// <c>Microsoft.Data.Sqlite</c> objects to consumer projects. A WAL database is copied as a held snapshot and any
+    /// other database step-wise (<see cref="SqliteBackupMethod.Auto"/>).
     /// </remarks>
     public virtual void BackupDatabase(
         string sourceDatabase,
@@ -35,31 +36,40 @@ public partial class SQLite
     /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
     /// <remarks>
     /// The source database is opened read-only. The destination is created when it does not exist and is replaced
-    /// atomically only when <paramref name="overwriteDestination"/> is true.
+    /// atomically only when <paramref name="overwriteDestination"/> is true. A WAL database is copied as a held snapshot,
+    /// which completes while other connections write, and any other database step-wise
+    /// (<see cref="SqliteBackupMethod.Auto"/>, see <see cref="BackupDatabaseAsync"/>).
     /// </remarks>
     public virtual void BackupDatabase(
         string sourceDatabase,
         string destinationDatabase,
         bool overwriteDestination,
         int? busyTimeoutMs = null)
+        => BackupDatabase(sourceDatabase, destinationDatabase, overwriteDestination, SqliteBackupMethod.Auto, busyTimeoutMs);
+
+    /// <summary>
+    /// Copies a SQLite database into a destination database using SQLite's online backup API and the selected method.
+    /// </summary>
+    /// <param name="sourceDatabase">Absolute or relative path of the source SQLite database file.</param>
+    /// <param name="destinationDatabase">Absolute or relative path of the destination SQLite database file.</param>
+    /// <param name="overwriteDestination">Whether an existing destination may be atomically replaced.</param>
+    /// <param name="method">How the source is read; <see cref="SqliteBackupMethod.Incremental"/> keeps the step-wise copy
+    /// for a rollback-journal database whose writers must not wait for the whole copy.</param>
+    /// <param name="busyTimeoutMs">Optional positive busy timeout in milliseconds applied to both connections.</param>
+    /// <remarks>
+    /// Blocks the calling thread until the copy ends; use <see cref="BackupDatabaseAsync"/> for progress and
+    /// cancellation. Errors are reported as <see cref="BackupDatabaseAsync"/> reports them.
+    /// </remarks>
+    public virtual void BackupDatabase(
+        string sourceDatabase,
+        string destinationDatabase,
+        bool overwriteDestination,
+        SqliteBackupMethod method,
+        int? busyTimeoutMs = null)
     {
-        ValidateDatabasePath(sourceDatabase);
-        ValidateDatabasePath(destinationDatabase);
-        EnsureNoActiveTransaction();
         if (busyTimeoutMs is <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(busyTimeoutMs), "Busy timeout must be positive when specified.");
-        }
-
-        string sourcePath = Path.GetFullPath(sourceDatabase);
-        string destinationPath = Path.GetFullPath(destinationDatabase);
-        if (AreSameBackupPath(sourcePath, destinationPath))
-        {
-            throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
-        }
-        if (File.Exists(sourcePath) && !overwriteDestination && File.Exists(destinationPath))
-        {
-            throw new IOException($"SQLite backup destination already exists: {destinationPath}");
         }
 
         var options = new SqliteBackupOptions
@@ -70,25 +80,10 @@ public partial class SQLite
         {
             options.BusyRetryTimeout = TimeSpan.FromMilliseconds(busyTimeoutMs.Value);
         }
-        try
-        {
-            BackupDatabaseIncrementalAsync(sourceDatabase, destinationDatabase, options)
-                .GetAwaiter()
-                .GetResult();
-        }
-        catch (DbaQueryExecutionException)
-        {
-            throw;
-        }
-        catch (Exception exception) when (
-            exception is SqliteException or IOException or UnauthorizedAccessException or
-            InvalidOperationException or NotSupportedException or TimeoutException)
-        {
-            throw CreateQueryExecutionException(
-                "Failed to back up SQLite database.",
-                "SQLite online backup",
-                exception);
-        }
+
+        BackupDatabaseAsync(sourceDatabase, destinationDatabase, method, options)
+            .GetAwaiter()
+            .GetResult();
     }
 
     /// <summary>
@@ -199,9 +194,8 @@ public partial class SQLite
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database));
             connection.Open();
             ApplyBusyTimeout(connection, busyTimeoutMs);
-            using CancellationTokenRegistration registration = cancellationToken.Register(
-                static state => SQLitePCL.raw.sqlite3_interrupt(((SqliteConnection)state!).Handle),
-                connection);
+            ApplyConnectionConfiguration(connection);
+            using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
 
             using var command = connection.CreateCommand();
             command.CommandText = pragma;

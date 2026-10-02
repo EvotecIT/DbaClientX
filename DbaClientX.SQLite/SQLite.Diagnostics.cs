@@ -43,6 +43,7 @@ public partial class SQLite
                 () => connection.OpenAsync(cancellationToken),
                 cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
+            ApplyConnectionConfiguration(connection);
 
             diagnostics.CanConnect = true;
             diagnostics.SQLiteVersion = Convert.ToString(

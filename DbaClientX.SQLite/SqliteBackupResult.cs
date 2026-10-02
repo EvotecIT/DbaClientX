@@ -19,4 +19,10 @@ public sealed class SqliteBackupResult
 
     /// <summary>Gets the elapsed backup duration.</summary>
     public TimeSpan Elapsed { get; set; }
+
+    /// <summary>
+    /// Gets the method the backup used: <see cref="SqliteBackupMethod.Snapshot"/> or
+    /// <see cref="SqliteBackupMethod.Incremental"/>, never <see cref="SqliteBackupMethod.Auto"/>.
+    /// </summary>
+    public SqliteBackupMethod Method { get; set; }
 }

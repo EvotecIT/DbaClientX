@@ -556,7 +556,7 @@ await foreach (var chunk in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id,
 }
 ```
 
-`DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryStreamWithConnectionStringAsync<T>` for connection options such as `Mode=ReadOnly`.
+`DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryReadOnlyStreamAsync<T>` for a read-only stream of a database file and `QueryStreamWithConnectionStringAsync<T>` for other connection options. Canceling a SQLite stream interrupts the statement that is running.
 
 ### Bulk Insert
 
@@ -659,6 +659,8 @@ Automatic keyset streaming checks that every row advances, including within a pa
 `QueryParameters.ToDictionary(values, dialect)` converts the positional values from `CompileWithParameters` into the same named shape.
 
 Keyset columns must be unquoted, non-null and unique together (end with the primary key). The source query must not set `ORDER BY` (keyset), `Limit`, `Offset`, `Top`, or `UNION`; offset paging requires `ORDER BY` on a unique column set.
+
+A key can sort under a collation or by an expression, in both the seek condition and `ORDER BY`: `KeysetColumn.Asc("Name").WithCollation("DBX_NOCASE")` sorts without case (with `SQLiteUnicodeText` registered), and `KeysetColumn.Expression("+\"Seen\"", "Seen", descending: true)` sorts by a column while SQLite's unary plus keeps that column's index from choosing the plan. Expressions are trusted SQL. Both can make different rows equal, so the last key must be a plain unique column: `new KeysetPagination(100, new[] { KeysetColumn.Asc("Name").WithCollation("NOCASE") }, KeysetColumn.Asc("Id"))`.
 
 - Keyset page queries must be compiled with `CompileWithParameters`; `Compile()` throws, because literal SQL loses precision such as fractional seconds.
 - Cursors are unsigned by default, so treat them as untrusted input. Declare key types (`KeysetColumn.Asc<long>("Id")`, matching the CLR type the provider returns) to reject cursor values of another type, and set `SigningKey` (32 random bytes kept on the server and used only for paging) to reject any modified cursor. Signing proves the server issued a cursor; it does not authorize access, so keep applying the caller's filters. For offset paging, also cap the offset you accept.

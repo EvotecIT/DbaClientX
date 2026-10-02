@@ -376,7 +376,7 @@ public partial class SQLite
             throw new ArgumentException("Identifier cannot be null or whitespace.", nameof(identifier));
         }
 
-        return "\"" + identifier.Replace("\"", "\"\"") + "\"";
+        return DBAClientX.QueryBuilder.SqlIdentifier.Quote(DBAClientX.QueryBuilder.SqlDialect.SQLite, identifier);
     }
 
     private static string QuoteIdentifierPath(string identifierPath)

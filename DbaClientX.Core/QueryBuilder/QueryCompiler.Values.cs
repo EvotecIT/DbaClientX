@@ -92,6 +92,13 @@ public partial class QueryCompiler
                 case RawConditionToken condition:
                     CollectValue(condition.Value, parameters);
                     break;
+                case FunctionConditionToken function:
+                    foreach (var argument in function.Arguments) CollectValue(argument, parameters);
+                    CollectValue(function.Value, parameters);
+                    break;
+                case CollatedConditionToken condition:
+                    CollectValue(condition.Value, parameters);
+                    break;
                 case InToken values:
                     CollectValues(values.Values, parameters);
                     break;
@@ -119,6 +126,9 @@ public partial class QueryCompiler
                 case RawNotBetweenToken between:
                     CollectValue(between.Start, parameters);
                     CollectValue(between.End, parameters);
+                    break;
+                case ContainsToken contains:
+                    parameters.Add(ContainsParameterValue(contains));
                     break;
             }
         }
@@ -193,23 +203,86 @@ public partial class QueryCompiler
     internal static string GetParameterName(SqlDialect dialect, int index)
         => (dialect == SqlDialect.Oracle ? ":p" : "@p") + index.ToString(CultureInfo.InvariantCulture);
 
+    /// <summary>Formats a value as a literal of the dialect.</summary>
+    /// <remarks>
+    /// Only types with a known literal form are written; any other value would have to be emitted through
+    /// <see cref="object.ToString"/>, unquoted, which lets text reach the SQL as code. Such values throw
+    /// <see cref="NotSupportedException"/>: compile them with parameters instead.
+    /// </remarks>
     private string FormatValue(object value)
     {
         return value switch
         {
-            string text => $"'{text.Replace("'", "''")}'",
+            string text => FormatStringLiteral(text),
+            char character => FormatStringLiteral(character.ToString()),
             null => "NULL",
+            DBNull => "NULL",
             bool boolean => FormatBooleanLiteral(boolean),
             DateTime dateTime => $"'{dateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}'",
             DateTimeOffset dateTimeOffset => $"'{dateTimeOffset.ToString("yyyy-MM-ddTHH:mm:ss.fffffffzzz", CultureInfo.InvariantCulture)}'",
+#if NET6_0_OR_GREATER
+            DateOnly date => $"'{date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}'",
+            TimeOnly time => $"'{time.ToString("HH:mm:ss.fffffff", CultureInfo.InvariantCulture)}'",
+#endif
             decimal number => number.ToString(CultureInfo.InvariantCulture),
-            double number => number.ToString(CultureInfo.InvariantCulture),
-            float number => number.ToString(CultureInfo.InvariantCulture),
+            double number => FormatFloatingLiteral(number, number.ToString(CultureInfo.InvariantCulture)),
+            float number => FormatFloatingLiteral(number, number.ToString(CultureInfo.InvariantCulture)),
+            Enum enumeration => Convert.ToString(Convert.ChangeType(enumeration, Enum.GetUnderlyingType(enumeration.GetType()), CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)!,
+            sbyte or byte or short or ushort or int or uint or long or ulong => ((IFormattable)value).ToString(null, CultureInfo.InvariantCulture),
             Guid guid => $"'{guid.ToString("D", CultureInfo.InvariantCulture)}'",
             TimeSpan time => FormatTimeSpanLiteral(time),
             byte[] bytes => FormatBinaryLiteral(bytes),
-            _ => value.ToString() ?? string.Empty
+            _ => throw new NotSupportedException(
+                $"A value of type '{value.GetType().FullName}' has no literal SQL form. Use CompileWithParameters.")
         };
+    }
+
+    private static string FormatFloatingLiteral(double number, string text)
+    {
+        if (double.IsNaN(number) || double.IsInfinity(number))
+        {
+            throw new NotSupportedException("NaN and infinity have no literal SQL form. Use CompileWithParameters.");
+        }
+
+        return text;
+    }
+
+    /// <summary>
+    /// Formats a string literal that cannot end early, whatever the server's escaping settings.
+    /// </summary>
+    /// <remarks>
+    /// Doubling single quotes is enough where a backslash is an ordinary character. MySQL reads a backslash as an
+    /// escape unless <c>NO_BACKSLASH_ESCAPES</c> is set, so <c>\'</c> would end the literal early; text with a
+    /// backslash is written as a <c>_utf8mb4</c> hex literal, which reads the same in every SQL mode. PostgreSQL treats
+    /// backslashes as escapes when <c>standard_conforming_strings</c> is off, so such text uses an <c>E'…'</c> literal,
+    /// which always does. Literal text is not always stored exactly: SQL Server converts a non-<c>N</c> literal to the
+    /// database code page and reads a backslash before a line break as a line continuation, and the MySQL hex form
+    /// takes the server's default utf8mb4 collation. Use parameters when exact values matter.
+    /// </remarks>
+    private string FormatStringLiteral(string text)
+    {
+        var quoted = text.Replace("'", "''");
+        if (text.IndexOf('\\') < 0)
+        {
+            return "'" + quoted + "'";
+        }
+
+        switch (_dialect)
+        {
+            case SqlDialect.MySql:
+                var bytes = Encoding.UTF8.GetBytes(text);
+                var hex = new StringBuilder(bytes.Length * 2 + 11).Append("_utf8mb4 0x");
+                foreach (var value in bytes)
+                {
+                    hex.Append(value.ToString("X2", CultureInfo.InvariantCulture));
+                }
+
+                return hex.ToString();
+            case SqlDialect.PostgreSql:
+                return "E'" + quoted.Replace("\\", "\\\\") + "'";
+            default:
+                return "'" + quoted + "'";
+        }
     }
 
     /// <summary>

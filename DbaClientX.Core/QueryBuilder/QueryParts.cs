@@ -5,7 +5,7 @@ namespace DBAClientX.QueryBuilder;
 
 internal readonly record struct QueryExpression(string Text, bool IsRaw);
 
-internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending);
+internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending, string? Collation = null);
 
 internal sealed record QueryJoinClause(
     string Type,
@@ -20,6 +20,8 @@ internal readonly record struct QueryHavingClause(string Expression, string Oper
 
 internal sealed record RawConditionToken(string Expression, string Operator, object Value) : IWhereToken;
 
+internal sealed record FunctionConditionToken(string Function, string Expression, string Operator, object Value, IReadOnlyList<object> Arguments) : IWhereToken;
+
 internal sealed record RawNullToken(string Expression) : IWhereToken;
 
 internal sealed record RawNotNullToken(string Expression) : IWhereToken;
@@ -31,6 +33,11 @@ internal sealed record RawNotInToken(string Expression, IReadOnlyList<object> Va
 internal sealed record RawBetweenToken(string Expression, object Start, object End) : IWhereToken;
 
 internal sealed record RawNotBetweenToken(string Expression, object Start, object End) : IWhereToken;
+
+/// <summary>A comparison of a column under a collation, <c>column COLLATE name op value</c>; keyset paging writes it.</summary>
+internal sealed record CollatedConditionToken(string Column, string Collation, string Operator, object Value) : IWhereToken;
+
+internal sealed record ContainsToken(string Expression, bool IsRaw, string Text, TextFolding Folding) : IWhereToken;
 
 internal static class QueryComparisonOperator
 {
@@ -57,8 +64,11 @@ internal static class QueryComparisonOperator
         "SIMILAR TO",
         "NOT SIMILAR TO",
         "REGEXP",
+        "NOT REGEXP",
         "RLIKE",
+        "NOT RLIKE",
         "GLOB",
+        "NOT GLOB",
         "MATCH",
         "IS DISTINCT FROM",
         "IS NOT DISTINCT FROM"

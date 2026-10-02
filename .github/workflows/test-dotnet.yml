@@ -167,7 +167,7 @@ jobs:
           --verbosity normal
         env:
           DBACLIENTX_POSTGRESQL_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=dbax;Username=dbax;Password=dbax-test-password;SSL Mode=Require
-          DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=Required;AllowLoadLocalInfile=true
+          DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=Required
 
   package-contracts:
     name: NuGet API compatibility

@@ -45,10 +45,13 @@ public sealed partial class SQLiteTableCopyAdapter
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Key, parameter.Value ?? DBNull.Value);
-        using var registration = cancellationToken.Register(() => command.Cancel());
-        using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var fields = new SqliteCopyFieldReader(reader);
-        return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
+        // SqliteCommand.Cancel does nothing; interrupting the connection stops a page query that is running.
+        return await RunInterruptibleAsync(connection, async () =>
+        {
+            using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var fields = new SqliteCopyFieldReader(reader);
+            return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, fields.GetPayloadBytes, fields.ReadValue, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

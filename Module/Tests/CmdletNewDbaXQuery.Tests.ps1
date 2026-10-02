@@ -25,6 +25,21 @@ Describe 'New-DbaXQuery builder' {
         $query | Should -Be 'SELECT * FROM [users] WHERE [deleted_at] IS NULL'
     }
 
+    It 'Quotes values that PowerShell wrapped with note properties' {
+        $wrapped = "x' OR 1=1 --" | Add-Member -NotePropertyName Source -NotePropertyValue 'file' -PassThru
+        $query = New-DbaXQuery -TableName users -Where @{ name = $wrapped } -Compile
+        $query | Should -Be "SELECT * FROM [users] WHERE [name] = 'x'' OR 1=1 --'"
+    }
+
+    It 'Maps DBNull Where values to IS NULL predicates' {
+        $query = New-DbaXQuery -TableName users -Where @{ deleted_at = [DBNull]::Value } -Compile
+        $query | Should -Be 'SELECT * FROM [users] WHERE [deleted_at] IS NULL'
+    }
+
+    It 'Rejects values without a literal SQL form instead of emitting them raw' {
+        { New-DbaXQuery -TableName users -Where @{ name = [pscustomobject]@{ Text = '1 OR 1=1' } } -Compile } | Should -Throw
+    }
+
     It 'Compiles INSERT from a hashtable through the core builder' {
         $query = New-DbaXQuery -Action Insert -TableName users -Values ([ordered]@{ id = 1; name = 'Ada' }) -Compile
         $query | Should -Be "INSERT INTO [users] ([id], [name]) VALUES (1, 'Ada')"

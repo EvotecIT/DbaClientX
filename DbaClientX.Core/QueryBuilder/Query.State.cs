@@ -54,7 +54,7 @@ public partial class Query
 
     /// <summary>Gets the column expressions used for ordering.</summary>
     public IReadOnlyList<string> OrderByColumns => _orderBy
-        .Select(static expression => expression.Text + (expression.Descending ? " DESC" : string.Empty))
+        .Select(static expression => expression.Text + (expression.Collation != null ? " COLLATE " + expression.Collation : string.Empty) + (expression.Descending ? " DESC" : string.Empty))
         .ToArray();
 
     internal IReadOnlyList<QueryOrderExpression> OrderByExpressions => _orderBy;

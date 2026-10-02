@@ -144,7 +144,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, 'preserved')");
 
             var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
-            var destination = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var destination = new MySqlTableCopyAdapter(MySqlBulkConnectionString(mySqlConnectionString!));
             var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
 
             var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
@@ -186,7 +186,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, '[99]')");
 
             var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
-            var destination = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var destination = new MySqlTableCopyAdapter(MySqlBulkConnectionString(mySqlConnectionString!));
             var definition = new DbaTableCopyDefinition(
                 sourceTable,
                 destinationTable,
@@ -301,7 +301,7 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             await ExecuteAsync(mySqlConnection, $"INSERT INTO `{destinationTable}` VALUES (99, '2026-01-01', '2026-01-01 00:00:00')");
 
             var source = new PostgreSqlTableCopyAdapter(postgreSqlConnectionString!, new[] { "id" });
-            var destination = new MySqlTableCopyAdapter(mySqlConnectionString!);
+            var destination = new MySqlTableCopyAdapter(MySqlBulkConnectionString(mySqlConnectionString!));
             var definition = new DbaTableCopyDefinition(sourceTable, destinationTable, new[] { "id" });
 
             var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
@@ -2617,6 +2617,9 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
             Completed = false
         };
 
+    private static string MySqlBulkConnectionString(string connectionString)
+        => new MySqlConnectionStringBuilder(connectionString) { AllowLoadLocalInfile = true }.ConnectionString;
+
     private static DbaProviderTableCopyAdapterBase CreateAdapter(
         DbaTableCopyProvider provider,
         string connectionString,
@@ -2626,7 +2629,10 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
         var options = new DbaProviderTableCopyAdapterOptions
         {
             Provider = provider,
-            ConnectionString = connectionString,
+            // This fixture explicitly exercises bulk-copy capability; ordinary live-query connections stay flag-free.
+            ConnectionString = provider == DbaTableCopyProvider.MySql
+                ? MySqlBulkConnectionString(connectionString)
+                : connectionString,
             DefaultOrderByColumns = orderBy,
             ReadConsistency = readConsistency
         };

@@ -57,11 +57,15 @@ public partial class SQLite
         ValidateCommandText(query);
         SqliteConnection? connection = null;
         SqliteCommand? command = null;
+        CancellationTokenRegistration interrupt = default;
         var dispose = false;
         try
         {
             var resolved = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             (connection, var transaction, dispose) = resolved;
+            // The opening token stays attached to an owned connection until the reader closes: canceling it stops
+            // the statement while it is opened and while its rows are read.
+            interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
@@ -72,20 +76,40 @@ public partial class SQLite
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
                 cancellationToken).ConfigureAwait(false);
+            var lease = interrupt;
             return new DbaDataReader(
                 reader,
                 command,
                 connection,
                 dispose,
-                resource => resource.Dispose(),
-                () => UpdateOutputParameters(command, parameters),
-                resource => DisposeSQLiteConnectionAsync((SqliteConnection)resource),
+                // The lease is only registered on an owned connection, whose disposal runs in a finally block even
+                // when closing the provider reader throws; end the lease there before the handle closes.
+                resource =>
+                {
+                    lease.Dispose();
+                    resource.Dispose();
+                },
+                () =>
+                {
+                    lease.Dispose();
+                    UpdateOutputParameters(command, parameters);
+                },
+                resource =>
+                {
+                    lease.Dispose();
+                    return DisposeSQLiteConnectionAsync((SqliteConnection)resource);
+                },
                 afterReaderDisposedAsync: null,
+                // A row read with another token can still be stopped by the opening token's interrupt.
                 consumptionExceptionFactory: (exception, token) => CreateQueryExecutionOrCancellationException(
-                    "Failed while consuming query reader.", query, exception, token));
+                    "Failed while consuming query reader.",
+                    query,
+                    exception,
+                    token.IsCancellationRequested || !cancellationToken.IsCancellationRequested ? token : cancellationToken));
         }
         catch (Exception ex)
         {
+            interrupt.Dispose();
             command?.Dispose();
             if (connection != null && dispose)
             {

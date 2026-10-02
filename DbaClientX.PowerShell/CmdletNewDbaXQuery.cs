@@ -253,7 +253,8 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
         }
 
         foreach (var pair in GetPairs(Where, nameof(Where), allowNullValues: true)) {
-            if (pair.Value == null) {
+            // A DataRow hands back DBNull for empty values; compare it the way $null is compared.
+            if (pair.Value == null || pair.Value is DBNull) {
                 query.WhereNull(pair.Column);
             } else {
                 query.Where(pair.Column, pair.Value);
@@ -376,7 +377,14 @@ public sealed class CmdletNewDbaXQuery : PSCmdlet {
                 throw new PSArgumentException($"{parameterName} cannot contain null values.", parameterName);
             }
 
-            pairs.Add((column!, entry.Value));
+            // PowerShell often wraps values (for example Get-Content lines carry note properties); the query
+            // builder needs the underlying value to choose its literal or parameter type.
+            var value = entry.Value;
+            while (value is PSObject wrapped && !ReferenceEquals(wrapped.BaseObject, wrapped)) {
+                value = wrapped.BaseObject;
+            }
+
+            pairs.Add((column!, value));
         }
 
         return pairs;

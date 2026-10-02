@@ -36,7 +36,7 @@ public partial class Query
 
         foreach (var column in columns)
         {
-            page._orderBy.Add(new QueryOrderExpression(column.Column, IsRaw: false, column.Descending));
+            page._orderBy.Add(new QueryOrderExpression(column.Column, column.IsExpression, column.Descending, column.Collation));
         }
 
         return page.Limit(fetch);
@@ -102,11 +102,11 @@ public partial class Query
 
         if (columns.Count == 1)
         {
-            Where(columns[0].Column, columns[0].Descending ? "<" : ">", after[0]);
+            WhereKey(columns[0], columns[0].Descending ? "<" : ">", after[0]);
             return;
         }
 
-        Where(columns[0].Column, columns[0].Descending ? "<=" : ">=", after[0]);
+        WhereKey(columns[0], columns[0].Descending ? "<=" : ">=", after[0]);
         BeginGroup();
         for (var index = 0; index < columns.Count; index++)
         {
@@ -118,14 +118,35 @@ public partial class Query
             BeginGroup();
             for (var previous = 0; previous < index; previous++)
             {
-                Where(columns[previous].Column, "=", after[previous]);
+                WhereKey(columns[previous], "=", after[previous]);
             }
 
-            Where(columns[index].Column, columns[index].Descending ? "<" : ">", after[index]);
+            WhereKey(columns[index], columns[index].Descending ? "<" : ">", after[index]);
             EndGroup();
         }
 
         EndGroup();
+    }
+
+    /// <summary>
+    /// Adds <c>key op value</c> for one key: a quoted column, the column under its collation, or the trusted expression
+    /// written as is. The value is always a parameter (keyset page queries refuse literal compilation).
+    /// </summary>
+    private void WhereKey(KeysetColumn key, string op, object value)
+    {
+        if (key.IsExpression)
+        {
+            AddCondition(key.Column, op, value, isRawExpression: true);
+        }
+        else if (key.Collation != null)
+        {
+            AddLogicalOperator(null);
+            _where.Add(new CollatedConditionToken(key.Column, key.Collation, op, value));
+        }
+        else
+        {
+            Where(key.Column, op, value);
+        }
     }
 
     private Query CloneForPaging()

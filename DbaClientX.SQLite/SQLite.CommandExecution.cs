@@ -208,6 +208,7 @@ public partial class SQLite
             {
                 connection.Open();
                 ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
+                ApplyConnectionConfiguration(connection);
                 return (connection, (SqliteTransaction?)null, true);
             }
             catch

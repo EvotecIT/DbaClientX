@@ -31,6 +31,7 @@ public partial class SQLite
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteResolvedQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -65,6 +66,7 @@ public partial class SQLite
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteResolvedQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -121,6 +123,7 @@ public partial class SQLite
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteMappedQueryAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -154,6 +157,7 @@ public partial class SQLite
         try
         {
             (connection, _, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await ExecuteResolvedQueryAsync(connection, null, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -204,6 +208,7 @@ public partial class SQLite
         try
         {
             (connection, _, dispose) = await ResolveConnectionAsync(connectionString, useTransaction: false, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
 
             var list = await ExecuteWithRetryAsync(async () =>
@@ -309,6 +314,7 @@ public partial class SQLite
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteNonQueryAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -343,6 +349,7 @@ public partial class SQLite
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
+            using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
             return await base.ExecuteScalarAsync(connection, transaction, query, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false);
         }
@@ -389,6 +396,7 @@ public partial class SQLite
                     connection,
                     ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs),
                     retryToken).ConfigureAwait(false);
+                ApplyConnectionConfiguration(connection);
                 return (connection, (SqliteTransaction?)null, true);
             }
             catch
