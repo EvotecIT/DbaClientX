@@ -93,13 +93,14 @@ public class SqliteTests
     public void NormalizeConnectionString_PreservesFullUriModeAndCacheOptions()
     {
         var path = Path.Join(Path.GetTempPath(), "dbaclientx-fulluri-options.db");
-        var connectionString = InvokeNormalizeConnectionString("FullUri=" + new Uri(path).AbsoluteUri + "?mode=ro&cache=shared");
+        var connectionString = InvokeNormalizeConnectionString("FullUri=" + new Uri(path).AbsoluteUri + "?mode=ro&cache=shared&vfs=win32");
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
 
         Assert.Equal(path, builder.DataSource);
         Assert.Equal(SqliteOpenMode.ReadOnly, builder.Mode);
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
+        Assert.Equal("win32", builder.Vfs);
     }
 
     [Fact]

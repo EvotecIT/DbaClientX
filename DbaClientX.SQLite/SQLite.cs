@@ -112,6 +112,7 @@ public partial class SQLite : DatabaseClientBase
             builder.DefaultTimeout = Math.Max(1, (int)Math.Ceiling(busyTimeoutMs.Value / 1000d));
         }
 
+        ApplyWindowsFilePath(builder);
         return builder.ConnectionString;
     }
 
@@ -138,6 +139,7 @@ public partial class SQLite : DatabaseClientBase
             builder.Pooling = false;
         }
 
+        ApplyWindowsFilePath(builder);
         return builder.ToString();
     }
 
@@ -236,6 +238,15 @@ public partial class SQLite : DatabaseClientBase
 
     private static void ApplySQLiteFullUriOption(DbConnectionStringBuilder builder, string key, string value)
     {
+        if (string.Equals(key, "vfs", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!builder.ContainsKey("Vfs"))
+            {
+                builder["Vfs"] = value;
+            }
+            return;
+        }
+
         if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
         {
             if (builder.ContainsKey("Mode"))

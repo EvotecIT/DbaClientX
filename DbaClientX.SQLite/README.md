@@ -6,6 +6,8 @@ Also includes SQLite maintenance helpers for online database backup, WAL checkpo
 - Target Frameworks: `net472` (win-x64), `netstandard2.1`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
 
+On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session and table-copy entrypoints. Short paths, memory databases and other platforms keep their existing handling; an explicit connection-string or file-URI `vfs` choice takes precedence.
+
 ## Install
 
 ```bash
