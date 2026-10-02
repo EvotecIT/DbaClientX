@@ -423,4 +423,3 @@ public partial class QueryCompiler
     }
 
 }
-
