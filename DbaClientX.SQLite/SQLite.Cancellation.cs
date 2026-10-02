@@ -33,7 +33,8 @@ public partial class SQLite
     /// <c>sqlite3_interrupt</c> is safe to call from another thread and stops the running statement with
     /// <c>SQLITE_INTERRUPT</c>, which the cancellation normalization reports as <see cref="OperationCanceledException"/>.
     /// An interrupt that arrives when no statement runs does not affect the next statement. Dispose the registration
-    /// before the connection is closed. Register only on connections the operation owns: an interrupted write inside
+    /// before the connection is closed or reused. Register only while an operation exclusively uses a connection outside a
+    /// transaction: an interrupted write inside
     /// an explicit transaction rolls the whole transaction back.
     /// </remarks>
     /// <param name="connection">An open connection owned by the current operation.</param>

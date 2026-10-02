@@ -187,45 +187,15 @@ public partial class SqlServer
 
     private DbDataReader ExecuteReader(DbCommand command, CancellationToken cancellationToken)
     {
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-        while (true)
-        {
-            try
-            {
-                return command.ExecuteReader(CommandBehavior.SequentialAccess);
-            }
-            catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-            {
-                var delay = ComputeBackoffDelay(attempt);
-                if (delay > TimeSpan.Zero)
-                {
-                    cancellationToken.WaitHandle.WaitOne(delay);
-                }
-            }
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return ExecuteCommandWithRetry(
+            () => command.ExecuteReader(CommandBehavior.SequentialAccess), command.Transaction);
     }
 
-    private async Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CancellationToken cancellationToken)
-    {
-        var maxAttempts = MaxRetryAttempts < 1 ? 1 : MaxRetryAttempts;
-        var attempt = 0;
-        while (true)
-        {
-            try
-            {
-                return await AwaitWithCallerCancellationAsync(
+    private Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CancellationToken cancellationToken)
+        => ExecuteCommandWithRetryAsync(
+                () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (IsTransient(ex) && ++attempt < maxAttempts)
-            {
-                var delay = ComputeBackoffDelay(attempt);
-                if (delay > TimeSpan.Zero)
-                {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                }
-            }
-        }
-    }
+                    cancellationToken),
+                command.Transaction, cancellationToken);
 }

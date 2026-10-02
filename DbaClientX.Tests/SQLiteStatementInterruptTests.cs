@@ -37,7 +37,10 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         "QueryStreamAsyncMapped",
         "QueryStreamWithConnectionStringAsyncMapped",
         "QueryReaderAsync",
-        "QueryReadOnlyStreamAsync"
+        "QueryReadOnlyStreamAsync",
+        "SessionScalarAsync",
+        "SessionMappedAsync",
+        "PreparedScalarAsync"
     };
 
     [Theory]
@@ -60,6 +63,28 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         await AssertCanceledWithinWatchdogAsync(() => sqlite.ExecuteNonQueryAsync(_database, insert, cancellationToken: cancellation.Token), cancellation.Token);
 
         Assert.Equal(0L, Convert.ToInt64(sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SessionWrite_WhenInterrupted_RollsBackStatementAndAllowsNextCommand(bool prepared)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery.Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal);
+        using var cancellation = new CancellationTokenSource(CancelAfter);
+        if (prepared)
+        {
+            using var command = session.Prepare(insert);
+            await AssertCanceledWithinWatchdogAsync(() => command.ExecuteNonQueryAsync(Array.Empty<object?>(), cancellation.Token), cancellation.Token);
+        }
+        else
+            await AssertCanceledWithinWatchdogAsync(() => session.ExecuteNonQueryAsync(insert, cancellationToken: cancellation.Token), cancellation.Token);
+
+        Assert.Equal(0L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers"));
+        Assert.Equal(1, await session.ExecuteNonQueryAsync("INSERT INTO Numbers (Value) VALUES (7)"));
+        Assert.Equal(7L, await session.ExecuteScalarAsync("SELECT Value FROM Numbers"));
     }
 
     [Fact]
@@ -207,6 +232,19 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
                 break;
             case "QueryReaderAsync":
                 await using (var reader = await sqlite.QueryReaderAsync(_database, query, cancellationToken: token)) { }
+                break;
+            case "SessionScalarAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                    await session.ExecuteScalarAsync(query, cancellationToken: token);
+                break;
+            case "SessionMappedAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                    await session.QueryAsListAsync(query, row => row.GetInt64(0), cancellationToken: token);
+                break;
+            case "PreparedScalarAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                using (var command = session.Prepare(query))
+                    await command.ExecuteScalarAsync(Array.Empty<object?>(), token);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(operation), operation, null);

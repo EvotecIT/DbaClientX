@@ -85,7 +85,7 @@ public partial class SQLite
 
         try
         {
-            return ExecuteWithRetry(() =>
+            return ExecuteCommandWithRetry(() =>
             {
                 using var command = connection.CreateCommand();
                 command.Transaction = transaction;
@@ -104,7 +104,7 @@ public partial class SQLite
 
                 UpdateOutputParameters(command, parameters);
                 return (IReadOnlyList<T>)results;
-            });
+            }, transaction);
         }
         catch (SqliteException ex)
         {

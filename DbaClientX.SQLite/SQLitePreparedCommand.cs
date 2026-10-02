@@ -16,6 +16,7 @@ namespace DBAClientX;
 /// or their <see cref="SQLiteAsyncSession"/> equivalents. Values are bound by position in the order the parameter names
 /// were given; <see langword="null"/> is stored as NULL and enums as their underlying integer. Dispose the command before
 /// the session (or its transaction) ends.
+/// Commands sharing a session must not execute concurrently or be disposed during execution.
 /// </remarks>
 public sealed class SQLitePreparedCommand : IDisposable
 {

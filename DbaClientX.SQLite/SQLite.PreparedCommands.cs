@@ -91,23 +91,30 @@ public partial class SQLite
     internal DbaQueryExecutionException CreatePreparedCommandException(string message, string query, Exception exception)
         => CreateQueryExecutionException(message, query, exception);
 
-    // Reuse the session execution policy without recreating the prepared statement.
+    // Apply the same replay and cancellation policy as ordinary/session execution.
     internal int ExecutePreparedNonQuery(SqliteCommand command)
-        => RetryNonQueryOperations ? ExecuteWithRetry(command.ExecuteNonQuery) : command.ExecuteNonQuery();
+        => ExecuteCommandWithRetry(command.ExecuteNonQuery, command.Transaction, returnsResults: false);
 
     internal object? ExecutePreparedScalar(SqliteCommand command)
-        => ExecuteWithRetry(command.ExecuteScalar);
+        => ExecuteCommandWithRetry(command.ExecuteScalar, command.Transaction);
 
-    internal Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
+    internal async Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
-        Task<int> ExecuteAsync() => AwaitWithCallerCancellationAsync(
-            () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken);
-        return RetryNonQueryOperations
-            ? ExecuteWithRetryAsync(ExecuteAsync, cancellationToken)
-            : ExecuteAsync();
+        using var interrupt = command.Transaction == null
+            ? RegisterStatementInterrupt(command.Connection!, cancellationToken) : default;
+        return await ExecuteCommandWithRetryAsync(
+            () => AwaitWithCallerCancellationAsync(
+                () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken),
+            command.Transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
     }
 
-    internal Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
-        => ExecuteWithRetryAsync(() => AwaitWithCallerCancellationAsync(
-            () => command.ExecuteScalarAsync(cancellationToken), cancellationToken), cancellationToken);
+    internal async Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
+    {
+        using var interrupt = command.Transaction == null
+            ? RegisterStatementInterrupt(command.Connection!, cancellationToken) : default;
+        return await ExecuteCommandWithRetryAsync(
+            () => AwaitWithCallerCancellationAsync(
+                () => command.ExecuteScalarAsync(cancellationToken), cancellationToken),
+            command.Transaction, cancellationToken).ConfigureAwait(false);
+    }
 }

@@ -211,7 +211,7 @@ public partial class SQLite
             using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
             var dbTypes = ConvertParameterTypes(parameterTypes);
 
-            var list = await ExecuteWithRetryAsync(async () =>
+            var list = await ExecuteCommandWithRetryAsync(async () =>
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = query;
@@ -233,7 +233,7 @@ public partial class SQLite
 
                 UpdateOutputParameters(command, parameters);
                 return (IReadOnlyList<T>)results;
-            }, cancellationToken).ConfigureAwait(false);
+            }, transaction: null, cancellationToken).ConfigureAwait(false);
 
             return list;
         }

@@ -217,7 +217,7 @@ public class RetryTests
     [Fact]
     public void ExecuteScalar_RetriesTransientErrors()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(2);
         var result = client.Run(connection);
         Assert.Equal(1, result);
@@ -227,7 +227,7 @@ public class RetryTests
     [Fact]
     public void ExecuteScalar_ThrowsAfterMaxRetries()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 2, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 2, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(5);
         Assert.Throws<TransientTestException>(() => client.Run(connection));
         Assert.Equal(2, connection.Attempts);
@@ -236,7 +236,7 @@ public class RetryTests
     [Fact]
     public async Task ExecuteScalarAsync_RetriesTransientErrors()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(1);
         var result = await client.RunAsync(connection);
         Assert.Equal(1, result);

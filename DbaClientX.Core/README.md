@@ -112,7 +112,23 @@ await sqlite.WritePlannerStatisticsAsync("test.db", new[] { new SqlitePlannerSta
 
 ## Retry behavior
 
-Provider clients and streaming-reader startup use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt, `RetryDelay` is the exponential-backoff base, and non-query retries remain disabled by default to avoid replaying a write that may already have succeeded.
+Provider clients use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt and `RetryDelay` is the exponential-backoff base. Connection establishment is retried separately from command execution.
+
+Commands execute once by default (`CommandRetryMode.Never`), including queries, scalars, mapped results, reader startup and prepared statements. Returning rows does not make a command read-only: a batch, stored procedure or `INSERT ... RETURNING` can commit a write before a later statement fails. This replaces the automatic retries previously applied to result-returning commands.
+
+Opt in on a dedicated client only when all its SQL and mapping callbacks are safe to repeat after partial success:
+
+```csharp
+using var reads = new DBAClientX.SQLite
+{
+    CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe,
+    MaxRetryAttempts = 3,
+    RetryDelay = TimeSpan.FromMilliseconds(100)
+};
+var total = await reads.ExecuteScalarAsync("app.db", "SELECT COUNT(*) FROM Users");
+```
+
+`RetryNonQueryOperations` remains available as a nonquery-only opt-in. Neither opt-in replays an individual command inside an explicit or library-owned transaction. Roll back the failed transaction and decide whether the entire unit of work can be repeated. Streaming never replays rows after enumeration starts.
 
 ## Notes
 - Ship a per-provider package alongside Core for ADO.NET specifics (see provider READMEs).
