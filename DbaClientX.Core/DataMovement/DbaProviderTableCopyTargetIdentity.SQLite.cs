@@ -149,35 +149,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
 
     private static string NormalizeSQLiteFilePath(string path)
     {
-        path = NormalizeSQLiteWindowsAlias(path);
-#if NET6_0_OR_GREATER
-        try
-        {
-            var normalized = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (File.Exists(normalized))
-            {
-                var target = File.ResolveLinkTarget(normalized, returnFinalTarget: true);
-                if (target != null)
-                {
-                    return NormalizePath(NormalizeSQLiteWindowsAlias(target.FullName), preserveCaseOnCaseSensitiveFileSystem: true);
-                }
-            }
-        }
-        catch (ArgumentException)
-        {
-        }
-        catch (IOException)
-        {
-        }
-        catch (NotSupportedException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-#endif
-
-        return NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: true);
+        return NormalizePath(SQLiteFilePath.ResolveAliases(path.Trim()), preserveCaseOnCaseSensitiveFileSystem: true);
     }
 
     private static string ResolveSQLiteFilePath(string path, bool fileUri)
@@ -195,15 +167,4 @@ internal static partial class DbaProviderTableCopyTargetIdentity
         return trimmed;
     }
 
-    /// <summary>Canonicalizes extended drive and UNC aliases for destructive-operation guards.</summary>
-    internal static string NormalizeSQLiteWindowsAlias(string path)
-    {
-        if (Path.DirectorySeparatorChar != '\\') return path;
-        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
-            return @"\\" + path.Substring(8);
-        if (path.StartsWith(@"\\?\", StringComparison.Ordinal) && path.Length >= 7 &&
-            char.IsLetter(path[4]) && path[5] == ':' && (path[6] == '\\' || path[6] == '/'))
-            return path.Substring(4);
-        return path;
-    }
 }

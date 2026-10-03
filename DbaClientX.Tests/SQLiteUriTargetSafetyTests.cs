@@ -54,18 +54,24 @@ public class SQLiteUriTargetSafetyTests
         Assert.Contains("also used as a source table", exception.Message);
     }
 
-    [Fact]
-    public async Task DecodedDiskFilenameStartingWithFileScheme_RejectsClearingItsSource()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DecodedDiskFilenameStartingWithFileScheme_RejectsClearingItsSource(bool directoryAlias)
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Colon filenames require a POSIX filesystem.");
         string root = Path.Combine(Path.GetTempPath(), "dbax-opaque-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        string directory = Path.Combine(root, "physical space ü");
+        Directory.CreateDirectory(directory);
+        string alias = Path.Combine(root, "alias");
+        if (directoryAlias) Directory.CreateSymbolicLink(alias, directory);
         string previous = Environment.CurrentDirectory;
         try
         {
-            Environment.CurrentDirectory = root;
+            Environment.CurrentDirectory = directoryAlias ? alias : directory;
             const string uri = "file:file%3Aitems.db";
-            string path = Path.Combine(root, "file:items.db");
+            string path = Path.Combine(directoryAlias ? alias : directory, "file:items.db");
             using var sqlite = new SQLite();
             sqlite.ExecuteNonQuery(uri, "CREATE TABLE items(id INTEGER); INSERT INTO items VALUES(1),(2),(3)");
             Assert.Equal(3L, sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM items"));
@@ -82,7 +88,12 @@ public class SQLiteUriTargetSafetyTests
             Assert.Contains("also used as a source table", exception.Message);
             Assert.Equal(3L, sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM items"));
         }
-        finally { Environment.CurrentDirectory = previous; Directory.Delete(root, true); }
+        finally
+        {
+            Environment.CurrentDirectory = previous;
+            if (directoryAlias) Directory.Delete(alias);
+            Directory.Delete(root, true);
+        }
     }
 
     [Theory]

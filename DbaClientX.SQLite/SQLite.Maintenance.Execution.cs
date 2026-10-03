@@ -362,8 +362,11 @@ public partial class SQLite
 
     internal static bool AreSameBackupPath(string sourcePath, string destinationPath)
     {
-        sourcePath = DataMovement.DbaProviderTableCopyTargetIdentity.NormalizeSQLiteWindowsAlias(sourcePath);
-        destinationPath = DataMovement.DbaProviderTableCopyTargetIdentity.NormalizeSQLiteWindowsAlias(destinationPath);
+        // Extended spellings of the same name can be rejected without touching a remote share.
+        if (string.Equals(SQLiteFilePath.NormalizeWindowsAlias(sourcePath),
+            SQLiteFilePath.NormalizeWindowsAlias(destinationPath), StringComparison.Ordinal)) return true;
+        sourcePath = SQLiteFilePath.ResolveAliases(sourcePath);
+        destinationPath = SQLiteFilePath.ResolveAliases(destinationPath);
         if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
         if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
 
