@@ -37,7 +37,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopyContentVal
         try
         {
             _readConnection = new NpgsqlConnection(ConnectionString);
-            await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(_readConnection, cancellationToken).ConfigureAwait(false);
             IsolationLevel isolation = ReadConsistency == DbaTableCopyReadConsistency.Snapshot
                 ? IsolationLevel.RepeatableRead
                 : IsolationLevel.Serializable;
@@ -211,7 +211,7 @@ FROM root";
     {
         using NpgsqlConnection? owned = _readConnection == null ? new NpgsqlConnection(ConnectionString) : null;
         NpgsqlConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         using NpgsqlCommand command = _readConnection == null
             ? new NpgsqlCommand(query, connection) { CommandTimeout = CommandTimeout }
             : CreateReadCommand(query);

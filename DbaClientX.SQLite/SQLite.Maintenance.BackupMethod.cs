@@ -45,8 +45,8 @@ public partial class SQLite
     {
         ValidateDatabasePath(sourceDatabase);
         ValidateDatabasePath(destinationDatabase);
-        string sourcePath = Path.GetFullPath(sourceDatabase);
-        string destinationPath = Path.GetFullPath(destinationDatabase);
+        string sourcePath = GetSQLiteFileSystemPath(sourceDatabase);
+        string destinationPath = GetSQLiteFileSystemPath(destinationDatabase);
         if (AreSameBackupPath(sourcePath, destinationPath))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));

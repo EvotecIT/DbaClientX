@@ -38,7 +38,10 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         "QueryStreamAsyncMapped",
         "QueryStreamWithConnectionStringAsyncMapped",
         "QueryReaderAsync",
-        "QueryReadOnlyStreamAsync"
+        "QueryReadOnlyStreamAsync",
+        "SessionScalarAsync",
+        "SessionMappedAsync",
+        "PreparedScalarAsync"
     };
 
     [Theory]
@@ -61,6 +64,100 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         await AssertCanceledWithinWatchdogAsync(() => sqlite.ExecuteNonQueryAsync(_database, insert, cancellationToken: cancellation.Token), cancellation.Token);
 
         Assert.Equal(0L, Convert.ToInt64(sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SessionWrite_WhenInterrupted_RollsBackStatementAndAllowsNextCommand(bool prepared)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery.Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal);
+        using var cancellation = new CancellationTokenSource(CancelAfter);
+        if (prepared)
+        {
+            using var command = session.Prepare(insert);
+            await AssertCanceledWithinWatchdogAsync(() => command.ExecuteNonQueryAsync(Array.Empty<object?>(), cancellation.Token), cancellation.Token);
+        }
+        else
+            await AssertCanceledWithinWatchdogAsync(() => session.ExecuteNonQueryAsync(insert, cancellationToken: cancellation.Token), cancellation.Token);
+
+        Assert.Equal(0L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers"));
+        Assert.Equal(1, await session.ExecuteNonQueryAsync("INSERT INTO Numbers (Value) VALUES (7)"));
+        Assert.Equal(7L, await session.ExecuteScalarAsync("SELECT Value FROM Numbers"));
+    }
+
+    [Theory]
+    [InlineData("BEGIN IMMEDIATE", false, false)]
+    [InlineData("BEGIN IMMEDIATE", true, false)]
+    [InlineData("SAVEPOINT unit", false, false)]
+    [InlineData("SAVEPOINT unit", true, false)]
+    [InlineData("/* leading comment */ BEGIN IMMEDIATE", false, true)]
+    [InlineData("SAVEPOINT unit", true, true)]
+    [InlineData("\uFEFFBEGIN IMMEDIATE", false, true)]
+    [InlineData("\uFEFF/* comment */ SAVEPOINT unit", true, true)]
+    public async Task SessionWrite_InSqlManagedTransaction_CancellationPreservesEarlierWrites(string begin, bool prepared, bool transactionStartsInBatch)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        if (!transactionStartsInBatch)
+        {
+            await session.ExecuteNonQueryAsync(begin);
+            await session.ExecuteNonQueryAsync("INSERT INTO Numbers (Value) VALUES (-1)");
+        }
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
+            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+        if (transactionStartsInBatch)
+            insert = begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
+        try
+        {
+            if (prepared)
+            {
+                using var command = session.Prepare(insert);
+                await command.ExecuteNonQueryAsync(Array.Empty<object?>(), cancellation.Token);
+            }
+            else
+                await session.ExecuteNonQueryAsync(insert, cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
+        await session.ExecuteNonQueryAsync("COMMIT");
+        Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
+    }
+
+    [Theory]
+    [InlineData("$item(O'Reilly)", "BEGIN IMMEDIATE", false)]
+    [InlineData("$scope::item(a;'/*--\"[)", "SAVEPOINT unit", true)]
+    [InlineData("@item(O'Reilly)", "BEGIN IMMEDIATE", true)]
+    [InlineData(":item(O'Reilly)", "SAVEPOINT unit", false)]
+    public async Task SessionBatch_WithSqliteParameterSuffix_CancellationPreservesTransaction(string parameter, string begin, bool prepared)
+    {
+        using var sqlite = new DBAClientX.SQLite();
+        await using var session = await sqlite.OpenSessionAsync(_database);
+        var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
+            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+        var batch = "SELECT " + parameter + "; " + begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+        try
+        {
+            if (prepared)
+            {
+                using var command = session.Prepare(batch, parameter);
+                await command.ExecuteNonQueryAsync(new object?[] { 0 }, cancellation.Token);
+            }
+            else
+                await session.ExecuteNonQueryAsync(batch, new Dictionary<string, object?> { [parameter] = 0 }, cancellationToken: cancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+
+        Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
+        await session.ExecuteNonQueryAsync("COMMIT");
+        Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
     }
 
     [Fact]
@@ -123,6 +220,28 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         using var cancellation = new CancellationTokenSource(CancelAfter);
 
         await AssertCanceledWithinWatchdogAsync(() => adapter.CountRowsAsync(definition, cancellation.Token), cancellation.Token);
+    }
+
+    [Theory]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Snapshot, false)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Snapshot, true)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Serializable, false)]
+    [InlineData(DBAClientX.DataMovement.DbaTableCopyReadConsistency.Serializable, true)]
+    public async Task TableCopyReadSession_WhenCanceled_InterruptsTheReadAndRemainsUsable(DBAClientX.DataMovement.DbaTableCopyReadConsistency consistency, bool readPage)
+    {
+        CreateSlowView();
+        var adapter = new DBAClientX.SQLiteTableCopyAdapter(_database) { ReadConsistency = consistency };
+        var definition = new DBAClientX.DataMovement.DbaTableCopyDefinition("SlowRows", "Target", new[] { "Id" });
+        using var readSession = await adapter.OpenReadSessionAsync();
+        using var cancellation = new CancellationTokenSource(CancelAfter);
+
+        await AssertCanceledWithinWatchdogAsync(
+            () => readPage
+                ? adapter.ReadPageAsync(new DBAClientX.DataMovement.DbaTableCopyPageRequest(definition, null, 100), cancellation.Token)
+                : (Task)adapter.CountRowsAsync(definition, cancellation.Token), cancellation.Token);
+
+        var ordinaryTable = new DBAClientX.DataMovement.DbaTableCopyDefinition("Numbers", "Target", new[] { "Value" });
+        Assert.Equal(0L, await adapter.CountRowsAsync(ordinaryTable));
     }
 
     private void CreateSlowView()
@@ -208,6 +327,19 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
                 break;
             case "QueryReaderAsync":
                 await using (var reader = await sqlite.QueryReaderAsync(_database, query, cancellationToken: token)) { }
+                break;
+            case "SessionScalarAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                    await session.ExecuteScalarAsync(query, cancellationToken: token);
+                break;
+            case "SessionMappedAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                    await session.QueryAsListAsync(query, row => row.GetInt64(0), cancellationToken: token);
+                break;
+            case "PreparedScalarAsync":
+                await using (var session = await sqlite.OpenSessionAsync(_database))
+                using (var command = session.Prepare(query))
+                    await command.ExecuteScalarAsync(Array.Empty<object?>(), token);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(operation), operation, null);

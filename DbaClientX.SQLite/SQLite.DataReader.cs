@@ -65,16 +65,19 @@ public partial class SQLite
             (connection, var transaction, dispose) = resolved;
             // The opening token stays attached to an owned connection until the reader closes: canceling it stops
             // the statement while it is opened and while its rows are read.
-            interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+            interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
             command = connection.CreateCommand();
             command.CommandText = query;
             command.Transaction = transaction;
             AddParameters(command, parameters, ConvertParameterTypes(parameterTypes), parameterDirections);
             ApplyCommandTimeout(command);
-            var reader = await ExecuteWithRetryAsync(
+            var reader = await ExecuteReaderWithDiagnosticsAsync(
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
+                connection,
+                transaction,
+                query,
                 cancellationToken).ConfigureAwait(false);
             var lease = interrupt;
             return new DbaDataReader(

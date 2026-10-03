@@ -151,7 +151,7 @@ WHERE TABLE_TYPE = 'BASE TABLE'
         var connection = new MySqlConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             string database = segments.Length == 2 ? segments[0] : connection.Database;
             if (string.IsNullOrWhiteSpace(database))
             {

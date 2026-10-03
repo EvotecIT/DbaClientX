@@ -206,7 +206,7 @@ public partial class SQLite
             var connection = CreateConfiguredConnection(connectionString);
             try
             {
-                connection.Open();
+                OpenConnectionWithDiagnostics(connection);
                 ApplyBusyTimeout(connection, ResolveConnectionBusyTimeout(connectionString, busyTimeoutMs));
                 ApplyConnectionConfiguration(connection, retainTimeoutUpdates: retainTimeoutUpdates);
                 return (connection, (SqliteTransaction?)null, true);

@@ -329,7 +329,7 @@ WHERE TABLE_OWNER = :owner
         var connection = new OracleConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             IReadOnlyList<string> rawSegments = DbaIdentifierPath.SplitSegments(
                 definition.DestinationName,
                 DbaTableCopyProvider.Oracle);

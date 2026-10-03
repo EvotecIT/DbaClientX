@@ -8,8 +8,60 @@ using DBAClientX.Diagnostics;
 
 namespace DbaClientX.Tests;
 
+[Collection("ExecutionDiagnostics")]
 public sealed class DbaClientXDiagnosticsTests
 {
+    [Theory]
+    [InlineData("Count", "source")]
+    [InlineData("Count", "destination")]
+    [InlineData("ReadPage", null)]
+    [InlineData("WritePage", null)]
+    [InlineData("Clear", null)]
+    [InlineData("Table", null)]
+    public async Task CopyAsync_ThrowingChildStopSubscriber_PreservesSuccessfulWritesAndParent(string operation, string? role)
+    {
+        using var parent = new Activity("copy-subscriber-parent").SetIdFormat(ActivityIdFormat.W3C).Start();
+        using var listener = ThrowOnCopyStop(operation, role);
+        var definition = new DbaTableCopyDefinition("SourceRows", "DestinationRows");
+        var destination = new MemoryDestination("unused");
+        var result = await new DbaTableCopyEngine().CopyAsync(new MemorySource("unused"), destination,
+            new[] { definition }, new DbaTableCopyOptions { ClearDestination = true });
+        Assert.True(result.Verified);
+        Assert.Equal(1L, await destination.CountRowsAsync(definition));
+        Assert.True(destination.Cleared);
+        Assert.Same(parent, Activity.Current);
+    }
+
+    [Fact]
+    public async Task CopyAsync_ThrowingWriteStopSubscriber_PreservesOriginalDestinationError()
+    {
+        using var parent = new Activity("copy-error-parent").SetIdFormat(ActivityIdFormat.W3C).Start();
+        using var listener = ThrowOnCopyStop("WritePage", null);
+        var failure = new InvalidOperationException("destination write failed");
+        var destination = new MemoryDestination("unused") { WriteFailure = failure };
+        var observed = await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(
+            new MemorySource("unused"), destination, new[] { new DbaTableCopyDefinition("SourceRows", "DestinationRows") }));
+        Assert.Same(failure, observed);
+        Assert.Same(parent, Activity.Current);
+    }
+
+    private static ActivityListener ThrowOnCopyStop(string operation, string? role)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == DbaClientXDiagnostics.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == "DbaClientX.TableCopy." + operation &&
+                    (role == null || Equals(activity.GetTagItem("dbaclientx.role"), role)))
+                    throw new InvalidOperationException("stop subscriber");
+            }
+        };
+        ActivitySource.AddActivityListener(listener);
+        return listener;
+    }
+
     [Fact]
     public async Task CopyAsync_ReturnsManifestWithStableOperationIdentity()
     {
@@ -243,12 +295,15 @@ public sealed class DbaClientXDiagnosticsTests
         public DbaTableCopyProvider Provider => DbaTableCopyProvider.SqlServer;
 
         public bool ReturnUnknownCount { get; init; }
+        public bool Cleared { get; private set; }
+        public Exception? WriteFailure { get; init; }
 
         public Task ClearAsync(
             DbaTableCopyDefinition definition,
             CancellationToken cancellationToken = default)
         {
             _rows = 0;
+            Cleared = true;
             return Task.CompletedTask;
         }
 
@@ -258,6 +313,7 @@ public sealed class DbaClientXDiagnosticsTests
             DbaTableCopyOptions options,
             CancellationToken cancellationToken = default)
         {
+            if (WriteFailure != null) return Task.FromException(WriteFailure);
             _rows += page.Rows.Count;
             return Task.CompletedTask;
         }

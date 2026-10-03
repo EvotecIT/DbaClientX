@@ -119,6 +119,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
             builder.Pooling = false;
         }
 
+        SQLite.NormalizeSQLiteFileTarget(builder);
         return builder.ConnectionString;
     }
 

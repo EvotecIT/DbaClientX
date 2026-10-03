@@ -82,8 +82,10 @@ Describe 'Invoke-DbaXSQLiteMaintenance -Action Backup' {
 
             $result.Completed | Should -BeTrue
             $result.BackupMethod.ToString() | Should -Be $Expected
-            $result.Destination | Should -Be ([IO.Path]::GetFullPath($destination))
+            [IO.Path]::IsPathRooted($result.Destination) | Should -BeTrue
+            [IO.Path]::GetFileName($result.Destination) | Should -Be ([IO.Path]::GetFileName($destination))
             $result.CopiedPages | Should -BeGreaterThan 0
+            Get-BackupTestRowCount -Path $result.Destination | Should -Be 64
             Get-BackupTestRowCount -Path $destination | Should -Be 64
         } finally {
             Remove-BackupTestDatabase -Path $source, $destination

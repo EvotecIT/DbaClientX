@@ -38,7 +38,7 @@ WHERE ROWNUM = 1";
     {
         using OracleConnection? owned = _readConnection == null ? new OracleConnection(ConnectionString) : null;
         OracleConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         string? currentOwner = null;
         foreach (DbaTableCopyDefinition definition in definitions)
         {

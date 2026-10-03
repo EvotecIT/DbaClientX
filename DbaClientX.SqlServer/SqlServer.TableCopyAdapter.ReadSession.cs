@@ -30,7 +30,7 @@ public sealed partial class SqlServerTableCopyAdapter
         try
         {
             _readConnection = CreateTableCopyConnection();
-            await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(_readConnection, cancellationToken).ConfigureAwait(false);
             if (ReadConsistency == DbaTableCopyReadConsistency.Snapshot)
             {
                 await ValidateSnapshotDatabasesAsync(_readConnection, definitions, cancellationToken).ConfigureAwait(false);

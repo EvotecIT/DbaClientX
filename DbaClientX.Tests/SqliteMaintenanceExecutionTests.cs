@@ -112,7 +112,6 @@ public sealed class SqliteMaintenanceExecutionTests
     [Fact]
     public async Task BackupDatabase_AllowsCaseDistinctPathsOnCaseSensitiveFileSystems()
     {
-        Assert.SkipWhen(Path.DirectorySeparatorChar == '\\', "Windows paths are case-insensitive.");
         string directory = Path.Combine(Path.GetTempPath(), $"dbaclientx-case-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string source = Path.Combine(directory, "app.db");
@@ -121,9 +120,10 @@ public sealed class SqliteMaintenanceExecutionTests
         {
             CreateDatabase(source, rowCount: 2);
             Assert.SkipWhen(File.Exists(destination), "The temporary filesystem is case-insensitive.");
+            CreateDatabase(destination, rowCount: 1);
             using var sqlite = new SQLite();
 
-            sqlite.BackupDatabase(source, destination);
+            sqlite.BackupDatabase(source, destination, overwriteDestination: true);
 
             Assert.Equal(2, await CountRowsAsync(destination));
         }

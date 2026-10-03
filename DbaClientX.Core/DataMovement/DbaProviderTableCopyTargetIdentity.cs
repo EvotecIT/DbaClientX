@@ -3,7 +3,7 @@ using System.IO;
 
 namespace DBAClientX.DataMovement;
 
-internal static class DbaProviderTableCopyTargetIdentity
+internal static partial class DbaProviderTableCopyTargetIdentity
 {
     internal static bool TryCreate(DbaProviderTableCopyAdapterOptions options, out string identity)
     {
@@ -465,137 +465,6 @@ internal static class DbaProviderTableCopyTargetIdentity
     private static bool IsOracleIdentifierPart(char value)
         => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or '_' or >= '0' and <= '9' or '$' or '#';
 
-    private static bool TryCreateSQLiteIdentity(string connectionString, out string identity)
-    {
-        identity = string.Empty;
-        string dataSource;
-        string? mode = null;
-        string? cache = null;
-        string? pooling = null;
-        if (IsSQLiteConnectionString(connectionString))
-        {
-            var builder = new DbConnectionStringBuilder
-            {
-                ConnectionString = connectionString.Trim()
-            };
-            TranslateSQLiteFullUriIdentityOptions(builder);
-            TranslateSQLiteDataSourceUriIdentityOptions(builder);
-            dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
-            mode = ReadConnectionStringValue(builder, "Mode");
-            cache = ReadConnectionStringValue(builder, "Cache");
-            pooling = ReadConnectionStringValue(builder, "Pooling");
-        }
-        else
-        {
-            dataSource = connectionString;
-        }
-
-        if (string.IsNullOrWhiteSpace(dataSource))
-        {
-            return false;
-        }
-
-        if (string.Equals(mode, "Memory", StringComparison.OrdinalIgnoreCase))
-        {
-            identity = "sqlite|mode=memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
-            return true;
-        }
-
-        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
-        {
-            if (IsSQLitePoolingEnabled(pooling))
-            {
-                identity = "sqlite|mode=pooled-memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
-                return true;
-            }
-
-            return false;
-        }
-
-        identity = "sqlite|path=" + NormalizeSQLiteFilePath(ResolveSQLiteFilePath(dataSource));
-        return true;
-    }
-
-    private static void TranslateSQLiteFullUriIdentityOptions(DbConnectionStringBuilder builder)
-    {
-        if (!builder.TryGetValue("FullUri", out var value) || value == null)
-        {
-            return;
-        }
-
-        builder.Remove("FullUri");
-        var uriText = value.ToString();
-        if (Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile)
-        {
-            builder["Data Source"] = uri.LocalPath;
-            ApplySQLiteFullUriIdentityQueryOptions(builder, uri);
-        }
-        else
-        {
-            builder["Data Source"] = uriText;
-        }
-    }
-
-    private static void TranslateSQLiteDataSourceUriIdentityOptions(DbConnectionStringBuilder builder)
-    {
-        var key = FindConnectionStringKey(builder, "Data Source", "DataSource", "Filename");
-        if (key == null || builder[key] == null)
-        {
-            return;
-        }
-
-        var uriText = builder[key]?.ToString();
-        if (!Uri.TryCreate(uriText, UriKind.Absolute, out var uri) || !uri.IsFile)
-        {
-            return;
-        }
-
-        builder[key] = uri.LocalPath;
-        ApplySQLiteFullUriIdentityQueryOptions(builder, uri);
-    }
-
-    private static void ApplySQLiteFullUriIdentityQueryOptions(DbConnectionStringBuilder builder, Uri uri)
-    {
-        if (string.IsNullOrEmpty(uri.Query) || uri.Query.Length <= 1)
-        {
-            return;
-        }
-
-        foreach (var part in uri.Query.Substring(1).Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var separator = part.IndexOf('=');
-            var key = Uri.UnescapeDataString(separator < 0 ? part : part.Substring(0, separator));
-            var value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
-            ApplySQLiteFullUriIdentityOption(builder, key, value);
-        }
-    }
-
-    private static void ApplySQLiteFullUriIdentityOption(DbConnectionStringBuilder builder, string key, string value)
-    {
-        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
-        {
-            if (builder.ContainsKey("Mode"))
-            {
-                return;
-            }
-
-            builder["Mode"] = value switch
-            {
-                _ when string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase) => "ReadOnly",
-                _ when string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase) => "ReadWrite",
-                _ when string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase) => "ReadWriteCreate",
-                _ when string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase) => "Memory",
-                _ => value
-            };
-            return;
-        }
-
-        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase) && !builder.ContainsKey("Cache"))
-        {
-            builder["Cache"] = value;
-        }
-    }
-
     private static bool TryCreateSqlServerIdentity(string connectionString, out string identity)
     {
         identity = string.Empty;
@@ -1007,49 +876,6 @@ internal static class DbaProviderTableCopyTargetIdentity
 
     private static string NormalizePath(string path)
         => NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: false);
-
-    private static string NormalizeSQLiteFilePath(string path)
-    {
-#if NET6_0_OR_GREATER
-        try
-        {
-            var normalized = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (File.Exists(normalized))
-            {
-                var target = File.ResolveLinkTarget(normalized, returnFinalTarget: true);
-                if (target != null)
-                {
-                    return NormalizePath(target.FullName, preserveCaseOnCaseSensitiveFileSystem: true);
-                }
-            }
-        }
-        catch (ArgumentException)
-        {
-        }
-        catch (IOException)
-        {
-        }
-        catch (NotSupportedException)
-        {
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-#endif
-
-        return NormalizePath(path, preserveCaseOnCaseSensitiveFileSystem: true);
-    }
-
-    private static string ResolveSQLiteFilePath(string path)
-    {
-        var trimmed = path.Trim();
-        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && uri.IsFile)
-        {
-            return uri.LocalPath;
-        }
-
-        return trimmed;
-    }
 
     private static string NormalizePath(string path, bool preserveCaseOnCaseSensitiveFileSystem)
     {

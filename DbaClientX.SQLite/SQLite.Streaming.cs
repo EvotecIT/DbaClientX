@@ -32,7 +32,7 @@ public partial class SQLite
         ValidateCommandText(query);
         var connectionString = BuildOperationalConnectionString(database);
         var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
         try
         {
             var dbTypes = ConvertParameterTypes(parameterTypes);
@@ -69,7 +69,7 @@ public partial class SQLite
         ValidateCommandText(query);
         var normalizedConnectionString = NormalizeConnectionString(connectionString);
         var (connection, transaction, dispose) = await ResolveConnectionAsync(normalizedConnectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
         try
         {
             var dbTypes = ConvertParameterTypes(parameterTypes);
@@ -187,7 +187,7 @@ public partial class SQLite
     {
         var dbTypes = ConvertParameterTypes(parameterTypes);
         var (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken, busyTimeoutMs).ConfigureAwait(false);
-        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken);
+        var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
         try
         {
             await foreach (var row in ExecuteMappedQueryStreamAsync(connection, transaction, query, map, initialize, parameters, cancellationToken, dbTypes, parameterDirections).ConfigureAwait(false))

@@ -62,7 +62,7 @@ public partial class SQLite
                     }
 
                     ApplyBatchValues(command, columns, table, offset, currentRows);
-                    ExecuteWithRetry(() => command.ExecuteNonQuery());
+                    ExecuteCommandWithRetry(() => command.ExecuteNonQuery(), command.Connection!, command.Transaction, returnsResults: false);
                 }
             }
             finally
@@ -345,12 +345,15 @@ public partial class SQLite
     /// <param name="command">Prepared command populated with batch values.</param>
     /// <param name="cancellationToken">Token used to cancel execution and retry delays.</param>
     protected virtual Task ExecuteBulkInsertCommandAsync(SqliteCommand command, CancellationToken cancellationToken)
-        => ExecuteWithRetryAsync(
+        => ExecuteCommandWithRetryAsync(
             async () => {
                 await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 return 0;
             },
-            cancellationToken);
+            command.Connection!,
+            command.Transaction,
+            cancellationToken,
+            returnsResults: false);
 
     /// <summary>
     /// Rolls back an owned bulk-insert transaction during asynchronous failure cleanup.
