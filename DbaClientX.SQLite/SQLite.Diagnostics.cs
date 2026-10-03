@@ -38,7 +38,7 @@ public partial class SQLite
                 return diagnostics;
             }
 
-            using var connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
+            using var connection = CreateConfiguredConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
             await AwaitWithCallerCancellationAsync(
                 () => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken),
                 cancellationToken).ConfigureAwait(false);

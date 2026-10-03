@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteTrigramSearchTests : IDisposable
 {
     // Hostile names: every SQLite quote character and the option-string quote.

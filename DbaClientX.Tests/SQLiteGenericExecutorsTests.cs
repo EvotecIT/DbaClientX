@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace DbaClientX.Tests;
 
 [CollectionDefinition(nameof(SQLiteGenericExecutorsCollection), DisableParallelization = true)]
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteGenericExecutorsCollection;
 
 [Collection(nameof(SQLiteGenericExecutorsCollection))]

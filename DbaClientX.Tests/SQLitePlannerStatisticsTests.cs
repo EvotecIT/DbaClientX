@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLitePlannerStatisticsTests : IDisposable
 {
     private readonly string _database = Path.Combine(Path.GetTempPath(), "dbx-stat-" + Guid.NewGuid().ToString("N") + ".db");

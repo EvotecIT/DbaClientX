@@ -4,6 +4,7 @@
 
 ### Behavior changes
 
+- **SQLite explicit command timeouts govern transaction startup.** An explicitly configured `CommandTimeout` now sets the connection default as well as individual commands, so provider-created BEGIN commands and ordinary table-copy writes honor it. `ResetCommandTimeout()` restores provider or connection-string defaults.
 - **Commands execute once by default.** Queries, scalars, mapped results, reader startup and SQLite prepared commands no longer replay arbitrary SQL after a transient error. A result-returning batch can already have committed a write. `CommandRetryMode.ReplaySafe` explicitly enables retries on a client whose SQL and callbacks are all safe to repeat; `RetryNonQueryOperations` retains its nonquery-only opt-in. Neither retries individual commands inside transactions. Connection establishment retains its separate retry policy.
 - **SQLite session and prepared cancellation interrupts statements outside transactions.** Canceled statements stop without waiting for completion, canceled writes roll back their statement, and the connection can run the next command. Explicit transactions retain cooperative cancellation to protect earlier writes. Sessions and their commands must be used sequentially.
 - **Resource-pair cleanup attempts both disposals.** A failing transaction or reader disposer no longer prevents its connection or command from being disposed. When both disposers fail, the first exception is preserved.
@@ -27,6 +28,7 @@
 
 ### New features
 
+- **SQLite connection profiles span the operational APIs.** `SQLite.ConnectionOptions` and `SQLiteTableCopyAdapter.ConnectionOptions` apply a copied profile for pooling, read-only mode and pragmas across commands, sessions, transactions, bulk paths, diagnostics and copy checkpoints. The adapter's `ConfigureConnection` callback registers connection-local functions and collations on every read/write/preflight/checkpoint connection. Explicit method options override the profile; native backups retain their dedicated policy.
 - **SQL Server workload evidence.** `GetQueryStoreStateAsync` reads actual/desired capture state, storage and read-only reasons; `GetIndexUsageAsync` reads bounded rowstore table-index counters, constraint roles, statistics and restart context. `SqlServerMonitoringScope.Workload` collects both through the existing monitoring snapshot with explicit truncation and optional-section failures. The PowerShell command forwards `MaximumIndexUsageRows`. Nullable counters and server-local timestamps retain their meaning; collection does not change Query Store or recommend removing indexes.
 
 - **Result-bound typed mapping.** `DbaRecordMapper.Bind<T>(schema)` resolves property ordinals once per result, retaining the conversions, null behavior and struct support of `For<T>()`. Bind again after changing column layouts. Neither mapper retains a reader or connection; property conversion types are cached during mapper creation.

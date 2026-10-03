@@ -10,6 +10,7 @@ namespace DbaClientX.Tests;
 /// <summary>
 /// Covers R-27: <c>Invoke-DbaXSQLite -ReadOnly</c> opens the database with <c>Mode=ReadOnly</c>.
 /// </summary>
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteReadOnlyCmdletTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), "dbaclientx-readonly-" + Guid.NewGuid().ToString("N") + ".db");

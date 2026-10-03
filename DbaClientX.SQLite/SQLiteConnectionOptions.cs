@@ -3,6 +3,9 @@ namespace DBAClientX;
 /// <summary>Configures provider-managed SQLite connections opened for domain storage workflows.</summary>
 public sealed class SQLiteConnectionOptions
 {
+    /// <summary>Gets or sets an optional pooling override. Null preserves the connection string's pooling choice.</summary>
+    public bool? Pooling { get; set; }
+
     /// <summary>Gets or sets whether the connection is opened read-only.</summary>
     public bool ReadOnly { get; set; }
 
@@ -26,4 +29,11 @@ public sealed class SQLiteConnectionOptions
 
     /// <summary>Gets or sets whether foreign-key enforcement is enabled.</summary>
     public bool EnableForeignKeys { get; set; } = true;
+
+    internal SQLiteConnectionOptions Snapshot()
+    {
+        if (BusyTimeoutMs < 0) throw new System.ArgumentOutOfRangeException(nameof(BusyTimeoutMs), "Busy timeout cannot be negative.");
+        if (WalAutoCheckpointPages < 0) throw new System.ArgumentOutOfRangeException(nameof(WalAutoCheckpointPages), "WAL auto-checkpoint pages cannot be negative.");
+        return (SQLiteConnectionOptions)MemberwiseClone();
+    }
 }

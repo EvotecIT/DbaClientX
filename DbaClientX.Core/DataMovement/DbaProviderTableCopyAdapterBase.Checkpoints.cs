@@ -38,6 +38,11 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     protected virtual DbConnection CreateCheckpointConnection()
         => throw new NotSupportedException("Atomic table-copy checkpoints are not implemented by this provider.");
 
+    /// <summary>Opens and initializes a checkpoint connection before commands or transactions use it.</summary>
+    /// <remarks>Providers can apply connection-local policy, functions or collations here.</remarks>
+    protected virtual Task OpenCheckpointConnectionAsync(DbConnection connection, CancellationToken cancellationToken)
+        => connection.OpenAsync(cancellationToken);
+
     /// <summary>Writes a page using the supplied transaction without committing or disposing its connection.</summary>
     protected virtual Task WriteTransactionalPageAsync(DbConnection connection, DbTransaction transaction, DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
         => throw new NotSupportedException("Atomic table-copy checkpoints are not implemented by this provider.");
@@ -46,7 +51,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     public async Task<DbaTableCopyCheckpoint?> ReadCheckpointAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
     {
         using DbConnection connection = CreateCheckpointConnection();
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await OpenCheckpointConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         return await ReadCheckpointCoreAsync(connection, null, definition, cancellationToken).ConfigureAwait(false);
     }
@@ -58,7 +63,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         if (checkpoint.CopiedRows != 0 || checkpoint.ContinuationToken != null || checkpoint.Completed)
             throw new ArgumentException("An initial checkpoint must not contain committed rows.", nameof(checkpoint));
         using DbConnection connection = CreateCheckpointConnection();
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await OpenCheckpointConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await EnsureCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         using DbTransaction transaction = connection.BeginTransaction(IsolationLevel.Serializable);
         DbaTableCopyCheckpoint? previous = await ReadCheckpointCoreAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false);
@@ -94,7 +99,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
             next.CopiedRows != checked(expected.CopiedRows + page.Rows.Count) || expected.Completed)
             throw new ArgumentException("Checkpoint progress does not match the page and existing copy contract.", nameof(next));
         using DbConnection connection = CreateCheckpointConnection();
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await OpenCheckpointConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await ValidateCheckpointSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
         using DbTransaction transaction = connection.BeginTransaction(IsolationLevel.Serializable);
         DbaTableCopyCheckpoint? stored = await ReadCheckpointCoreAsync(connection, transaction, definition, cancellationToken).ConfigureAwait(false);
@@ -217,7 +222,7 @@ public abstract partial class DbaProviderTableCopyAdapterBase
     internal async Task<string> ResolveDestinationTableIdentityAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
     {
         using DbConnection connection = CreateCheckpointConnection();
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await OpenCheckpointConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         return await ResolveCheckpointTableIdentityAsync(connection, null, definition, cancellationToken).ConfigureAwait(false);
     }
 

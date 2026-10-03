@@ -43,7 +43,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
-        using var sqlite = new SQLite();
+        using var sqlite = CreateClient();
         await sqlite.BulkInsertWithConnectionStringAsync(
                 ResolveSQLiteConnectionString(),
                 page,
@@ -57,12 +57,12 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     protected override async Task<object?> ExecuteScalarCoreAsync(string query, CancellationToken cancellationToken)
     {
         using SqliteConnection? owned = _readConnection == null
-            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            ? CreateConnection()
             : null;
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using var command = connection.CreateCommand();
         command.Transaction = _readTransaction;
@@ -75,12 +75,12 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
     {
         using SqliteConnection? owned = _readConnection == null
-            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            ? CreateConnection()
             : null;
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using var command = connection.CreateCommand();
         command.Transaction = _readTransaction;
@@ -97,8 +97,8 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
-        using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+        using var connection = CreateConnection();
+        await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;

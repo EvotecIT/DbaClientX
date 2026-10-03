@@ -9,6 +9,7 @@ using DBAClientX.PowerShell;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public class SQLiteTargetSecurityTests
 {
     private const string Secret = "example-target-secret";

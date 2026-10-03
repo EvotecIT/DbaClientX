@@ -11,7 +11,11 @@ public sealed partial class SQLiteTableCopyAdapter
     public override bool SupportsAtomicCheckpoints => true;
 
     /// <inheritdoc />
-    protected override DbConnection CreateCheckpointConnection() => new SqliteConnection(ResolveSQLiteConnectionString());
+    protected override DbConnection CreateCheckpointConnection() => CreateConnection();
+
+    /// <inheritdoc />
+    protected override Task OpenCheckpointConnectionAsync(DbConnection connection, CancellationToken cancellationToken)
+        => OpenConnectionAsync((SqliteConnection)connection, cancellationToken);
 
     /// <inheritdoc />
     protected override async Task<string> ResolveCheckpointTableIdentityAsync(DbConnection connection, DbTransaction? transaction, DbaTableCopyDefinition definition, CancellationToken cancellationToken)
@@ -33,12 +37,12 @@ public sealed partial class SQLiteTableCopyAdapter
     protected override async Task<DataTable> ExecuteBoundedPageCoreAsync(string query, IReadOnlyDictionary<string, object?> parameters, long? maxBytes, CancellationToken cancellationToken)
     {
         using SqliteConnection? owned = _readConnection == null
-            ? new SqliteConnection(ResolveSQLiteConnectionString())
+            ? CreateConnection()
             : null;
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using SqliteCommand command = connection.CreateCommand();
         command.Transaction = _readTransaction;
@@ -57,7 +61,7 @@ public sealed partial class SQLiteTableCopyAdapter
     /// <inheritdoc />
     protected override async Task WriteTransactionalPageAsync(DbConnection connection, DbTransaction transaction, DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
-        using var sqlite = new SQLite { CommandTimeout = CommandTimeout };
+        using var sqlite = CreateClient();
         await sqlite.WriteBulkRowsAsync((SqliteConnection)connection, (SqliteTransaction)transaction, page,
             NormalizeSQLiteBulkDestinationTableName(definition.DestinationName), options.BatchSize, cancellationToken).ConfigureAwait(false);
     }
