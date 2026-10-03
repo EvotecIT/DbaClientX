@@ -12,6 +12,8 @@ public class SQLiteUriSemanticsTests
     [InlineData("mode=MEMORY", true)]
     [InlineData("cache=SHARED", true)]
     [InlineData("VFS=unregistered-dbax-vfs", false)]
+    [InlineData("vfs=%20", true)]
+    [InlineData("vfs=%09", true)]
     public void UriOptions_RetainNativeCaseSensitivity(string query, bool invalid)
     {
         string root = CreateRoot();
@@ -90,18 +92,33 @@ public class SQLiteUriSemanticsTests
     }
 
     [Theory]
-    [InlineData("FILE:items.db")]
-    [InlineData("File:items.db")]
-    [InlineData(":MEMORY:")]
-    public async Task UppercaseNativeFilename_RemainsAnOrdinaryFilenameAndCopyTarget(string filename)
+    [InlineData("FILE:items.db", false)]
+    [InlineData("File:items.db", false)]
+    [InlineData(":MEMORY:", false)]
+    [InlineData("FILE:items.db", true)]
+    [InlineData("File:items.db", true)]
+    [InlineData(":MEMORY:", true)]
+    [InlineData(" leading.db", false)]
+    [InlineData(" leading.db", true)]
+    [InlineData("trailing.db ", false)]
+    [InlineData("trailing.db ", true)]
+    public async Task NativeFilename_RetainsItsCharactersAndCopyTarget(string filename, bool dataDirectory)
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Colon filenames require POSIX.");
         string root = CreateRoot();
         string previous = Environment.CurrentDirectory;
+        object? previousDataDirectory = AppDomain.CurrentDomain.GetData("DataDirectory");
         try
         {
             Environment.CurrentDirectory = root;
-            using (var native = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = filename, Pooling = false }.ToString()))
+            if (dataDirectory)
+            {
+                string dataRoot = Path.Combine(root, "data");
+                Directory.CreateDirectory(dataRoot);
+                AppDomain.CurrentDomain.SetData("DataDirectory", dataRoot);
+            }
+            string source = filename.Contains(' ') ? "file:" + Uri.EscapeDataString(filename) : filename;
+            using (var native = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = source, Pooling = false }.ToString()))
             {
                 native.Open();
                 using var command = native.CreateCommand();
@@ -109,22 +126,22 @@ public class SQLiteUriSemanticsTests
                 command.ExecuteNonQuery();
             }
             using var sqlite = new SQLite();
-            Assert.Equal(3L, sqlite.ExecuteScalar(filename, "SELECT COUNT(*) FROM items"));
+            Assert.Equal(3L, sqlite.ExecuteScalar(source, "SELECT COUNT(*) FROM items"));
             Assert.False(File.Exists("items.db"));
             var runner = new DbaProviderTableCopyRunner(_ => throw new Exception("Must reject before connecting"),
                 _ => throw new Exception("Must reject before connecting"));
             var request = new DbaProviderTableCopyRequest
             {
-                Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = filename },
+                Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = source },
                 Destination = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = Path.Combine(root, filename) },
                 Definitions = new[] { new DbaTableCopyDefinition("items", "items", new[] { "id" }) },
                 Options = new DbaTableCopyOptions { ClearDestination = true }, AllowSameProviderTableCopy = true
             };
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
             Assert.Contains("also used as a source table", error.Message);
-            Assert.Equal(3L, sqlite.ExecuteScalar(filename, "SELECT COUNT(*) FROM items"));
+            Assert.Equal(3L, sqlite.ExecuteScalar(source, "SELECT COUNT(*) FROM items"));
         }
-        finally { Environment.CurrentDirectory = previous; Directory.Delete(root, true); }
+        finally { Environment.CurrentDirectory = previous; AppDomain.CurrentDomain.SetData("DataDirectory", previousDataDirectory); Directory.Delete(root, true); }
     }
 
     [Theory]

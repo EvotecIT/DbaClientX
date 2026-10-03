@@ -107,22 +107,27 @@ internal static partial class DbaProviderTableCopyTargetIdentity
 
     private static string NormalizeSQLiteFilePath(string path)
     {
-        return NormalizePath(SQLiteFilePath.ResolveAliases(path.Trim()), preserveCaseOnCaseSensitiveFileSystem: true);
+        string normalized = SQLiteFilePath.ResolveAliases(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // URI-decoded spaces are filename characters, including at either end.
+        return UsesCaseInsensitivePaths(normalized) ? normalized.ToLowerInvariant() : normalized;
     }
 
     private static string ResolveSQLiteFilePath(string path, bool fileUri)
     {
-        var trimmed = path.Trim();
-        if (fileUri) return trimmed;
-        if (SQLiteFileUri.TryParse(trimmed, out var uriPath, out _)) return uriPath;
+        if (fileUri) return path;
+        if (SQLiteFileUri.TryParse(path, out var uriPath, out _)) return uriPath;
+        // Microsoft.Data.Sqlite skips DataDirectory expansion for these spellings even
+        // when native SQLite regards their case variants as ordinary filenames.
+        if (path.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, ":memory:", StringComparison.OrdinalIgnoreCase)) return path;
         if (AppDomain.CurrentDomain.GetData("DataDirectory") is string dataDirectory && !string.IsNullOrEmpty(dataDirectory))
         {
             const string macro = "|DataDirectory|";
-            if (trimmed.StartsWith(macro, StringComparison.InvariantCultureIgnoreCase))
-                return Path.Combine(dataDirectory, trimmed.Substring(macro.Length));
-            if (!Path.IsPathRooted(trimmed)) return Path.Combine(dataDirectory, trimmed);
+            if (path.StartsWith(macro, StringComparison.InvariantCultureIgnoreCase))
+                return Path.Combine(dataDirectory, path.Substring(macro.Length));
+            if (!Path.IsPathRooted(path)) return Path.Combine(dataDirectory, path);
         }
-        return trimmed;
+        return path;
     }
 
 }

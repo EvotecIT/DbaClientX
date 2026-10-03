@@ -57,9 +57,9 @@ internal static class SQLiteUriOptions
         }
         if (!explicitVfs && lastVfs != null)
         {
-            // An empty final vfs is invalid to SQLite, but an empty builder value selects
-            // its default. Keep the native option so SQLite rejects it instead.
-            if (lastVfs.Length == 0) native.Add(lastVfsPart!);
+            // Empty/whitespace final vfs names must remain native options. The managed
+            // provider treats whitespace builder values as its default VFS instead.
+            if (string.IsNullOrWhiteSpace(lastVfs)) native.Add(lastVfsPart!);
             else builder["Vfs"] = lastVfs;
         }
         return string.Join("&", native);
