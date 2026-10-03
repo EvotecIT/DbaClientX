@@ -38,6 +38,12 @@ public sealed class SqlServerMonitoringSnapshot
     /// <summary>Availability Group health rows.</summary>
     public List<SqlServerAvailabilityGroupHealth> AvailabilityGroups { get; set; } = new();
 
+    /// <summary>Query Store configuration for the target database; null when not requested or unavailable (see <see cref="Errors"/>).</summary>
+    public SqlServerQueryStoreState? QueryStore { get; set; }
+
+    /// <summary>Bounded index usage and statistics for the target database; null when not requested or unavailable.</summary>
+    public SqlServerIndexUsageSnapshot? IndexUsage { get; set; }
+
     /// <summary>Collector errors for optional sections that could not be read.</summary>
     public List<string> Errors { get; set; } = new();
 }
