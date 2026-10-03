@@ -594,6 +594,8 @@ var mysql = DBAClientX.MySql.BuildConnectionString("localhost", "app", "user", "
 var sqlite = DBAClientX.SQLite.BuildConnectionString("app.db");
 ```
 
+SQLite accepts ordinary filenames and `file:` URIs. Long Windows filenames use extended paths and the locking-capable `win32-longpath` VFS unless the caller selects a VFS. File URI authorities must be empty or exactly `localhost`; pass Windows network shares as ordinary UNC filenames. Explicit connection options take precedence over URI hints, and native options such as `immutable=1` are retained. Shared-memory URI targets stay in memory, and table-copy guards recognize their aliases before clearing destination rows.
+
 ### Query Builder
 
 ```csharp

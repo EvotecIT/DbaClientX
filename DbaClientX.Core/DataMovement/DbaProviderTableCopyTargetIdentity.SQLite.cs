@@ -20,8 +20,10 @@ internal static partial class DbaProviderTableCopyTargetIdentity
                 ConnectionString = connectionString.Trim()
             };
             fileUri = SQLiteFileUri.TryParse(ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty, out _, out _);
-            TranslateSQLiteFullUriIdentityOptions(builder);
-            TranslateSQLiteDataSourceUriIdentityOptions(builder);
+            // Translate the selected source once. A decoded filename can itself begin with
+            // "file:" and must not become a second URI with a different database identity.
+            if (builder.ContainsKey("FullUri")) TranslateSQLiteFullUriIdentityOptions(builder);
+            else TranslateSQLiteDataSourceUriIdentityOptions(builder);
             dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
             mode = ReadConnectionStringValue(builder, "Mode");
             cache = ReadConnectionStringValue(builder, "Cache");
@@ -181,8 +183,8 @@ internal static partial class DbaProviderTableCopyTargetIdentity
     private static string ResolveSQLiteFilePath(string path, bool fileUri)
     {
         var trimmed = path.Trim();
-        if (SQLiteFileUri.TryParse(trimmed, out var uriPath, out _)) return uriPath;
         if (fileUri) return trimmed;
+        if (SQLiteFileUri.TryParse(trimmed, out var uriPath, out _)) return uriPath;
         if (AppDomain.CurrentDomain.GetData("DataDirectory") is string dataDirectory && !string.IsNullOrEmpty(dataDirectory))
         {
             const string macro = "|DataDirectory|";

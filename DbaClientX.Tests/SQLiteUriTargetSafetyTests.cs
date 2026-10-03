@@ -35,21 +35,54 @@ public class SQLiteUriTargetSafetyTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task SharedMemoryUri_RejectsClearingItsSourceBeforeConnecting(bool normalizedTarget)
+    [InlineData("file::memory:?cache=shared", false)]
+    [InlineData("file::memory:?cache=shared", true)]
+    [InlineData("file:file%3Aguard?mode=memory&cache=shared", false)]
+    [InlineData("file:file%3Aguard?mode=memory&cache=shared", true)]
+    public async Task SharedMemoryUri_RejectsClearingItsSourceBeforeConnecting(string uri, bool normalizedTarget)
     {
         var runner = new DbaProviderTableCopyRunner(_ => throw new Exception("Must reject before connecting"), _ => throw new Exception("Must reject before connecting"));
         var request = new DbaProviderTableCopyRequest
         {
-            Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = "file::memory:?cache=shared" },
-            Destination = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = normalizedTarget ? SQLite.BuildConnectionString("file::memory:?cache=shared") : "FullUri=file::memory:?cache=shared;Pooling=False" },
+            Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = uri },
+            Destination = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = normalizedTarget ? SQLite.BuildConnectionString(uri) : "FullUri=" + uri + ";Pooling=False" },
             Definitions = new[] { new DbaTableCopyDefinition("items", "items", new[] { "id" }) },
             Options = new DbaTableCopyOptions { ClearDestination = true },
             AllowSameProviderTableCopy = true
         };
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
         Assert.Contains("also used as a source table", exception.Message);
+    }
+
+    [Fact]
+    public async Task DecodedDiskFilenameStartingWithFileScheme_RejectsClearingItsSource()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Colon filenames require a POSIX filesystem.");
+        string root = Path.Combine(Path.GetTempPath(), "dbax-opaque-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string previous = Environment.CurrentDirectory;
+        try
+        {
+            Environment.CurrentDirectory = root;
+            const string uri = "file:file%3Aitems.db";
+            string path = Path.Combine(root, "file:items.db");
+            using var sqlite = new SQLite();
+            sqlite.ExecuteNonQuery(uri, "CREATE TABLE items(id INTEGER); INSERT INTO items VALUES(1),(2),(3)");
+            Assert.Equal(3L, sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM items"));
+            var runner = new DbaProviderTableCopyRunner(_ => throw new Exception("Must reject before connecting"), _ => throw new Exception("Must reject before connecting"));
+            var request = new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = uri },
+                Destination = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = path },
+                Definitions = new[] { new DbaTableCopyDefinition("items", "items", new[] { "id" }) },
+                Options = new DbaTableCopyOptions { ClearDestination = true, PageSize = 1 },
+                AllowSameProviderTableCopy = true
+            };
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
+            Assert.Contains("also used as a source table", exception.Message);
+            Assert.Equal(3L, sqlite.ExecuteScalar(path, "SELECT COUNT(*) FROM items"));
+        }
+        finally { Environment.CurrentDirectory = previous; Directory.Delete(root, true); }
     }
 
     [Theory]
