@@ -5,10 +5,10 @@ namespace DBAClientX;
 /// </summary>
 public sealed class SqliteBackupResult
 {
-    /// <summary>Gets the normalized source database path.</summary>
+    /// <summary>Gets the normalized source database path, with POSIX filesystem aliases resolved.</summary>
     public string SourceDatabase { get; set; } = string.Empty;
 
-    /// <summary>Gets the normalized destination database path.</summary>
+    /// <summary>Gets the normalized destination database path, with POSIX filesystem aliases resolved.</summary>
     public string DestinationDatabase { get; set; } = string.Empty;
 
     /// <summary>Gets the final number of pages copied.</summary>

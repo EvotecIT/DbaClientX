@@ -234,18 +234,15 @@ public partial class SQLite
 
     private static void EnsureMaintenanceDatabaseExists(string database)
     {
-        if (string.Equals(database, ":memory:", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(database, ":memory:", StringComparison.Ordinal))
         {
             return;
         }
 
         var path = database;
-        if (Uri.TryCreate(database, UriKind.Absolute, out var uri) && uri.IsFile)
-        {
-            path = uri.LocalPath;
-        }
+        if (SQLiteFileUri.TryParse(database, out var uriPath, out _)) path = uriPath;
 
-        if (!File.Exists(path))
+        if (!File.Exists(GetSQLiteFileSystemPath(path)))
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {path}", path);
         }

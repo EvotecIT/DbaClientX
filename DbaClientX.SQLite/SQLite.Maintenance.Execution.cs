@@ -132,7 +132,7 @@ public partial class SQLite
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(database))
+        if (!File.Exists(GetSQLiteFileSystemPath(database)))
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {database}", database);
         }
@@ -196,8 +196,8 @@ public partial class SQLite
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        string sourcePath = Path.GetFullPath(sourceDatabase);
-        string destinationPath = Path.GetFullPath(destinationDatabase);
+        string sourcePath = GetSQLiteFileSystemPath(sourceDatabase);
+        string destinationPath = GetSQLiteFileSystemPath(destinationDatabase);
         if (AreSameBackupPath(sourcePath, destinationPath))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
@@ -362,13 +362,22 @@ public partial class SQLite
 
     internal static bool AreSameBackupPath(string sourcePath, string destinationPath)
     {
+        // Extended spellings of the same name can be rejected without touching a remote share.
+        if (string.Equals(SQLiteFilePath.NormalizeWindowsAlias(sourcePath),
+            SQLiteFilePath.NormalizeWindowsAlias(destinationPath), StringComparison.Ordinal)) return true;
+        sourcePath = SQLiteFilePath.ResolveAliases(sourcePath);
+        destinationPath = SQLiteFilePath.ResolveAliases(destinationPath);
         if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
         if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
 
         // Case-only names can be separate files on a case-sensitive filesystem. If the destination
         // does not resolve, it is safe to create it. If it resolves, inspect the directory entries:
         // a case-insensitive filesystem exposes only one exact spelling for both aliases.
-        if (!File.Exists(sourcePath) || !File.Exists(destinationPath)) return false;
+        // Canonical aliases are for identity comparison. Managed filesystem operations still
+        // need extended filenames in Framework hosts when the ordinary spelling is long.
+        string sourceFilePath = GetSQLiteFileSystemPath(sourcePath);
+        string destinationFilePath = GetSQLiteFileSystemPath(destinationPath);
+        if (!File.Exists(sourceFilePath) || !File.Exists(destinationFilePath)) return false;
         string? sourceDirectory = Path.GetDirectoryName(sourcePath);
         string? destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (sourceDirectory == null || destinationDirectory == null ||
@@ -383,7 +392,7 @@ public partial class SQLite
         string destinationName = Path.GetFileName(destinationPath);
         bool exactSource = false;
         bool exactDestination = false;
-        foreach (string entry in Directory.EnumerateFiles(sourceDirectory))
+        foreach (string entry in Directory.EnumerateFiles(GetSQLiteFileSystemPath(sourceDirectory)))
         {
             string name = Path.GetFileName(entry);
             exactSource |= string.Equals(name, sourceName, StringComparison.Ordinal);
