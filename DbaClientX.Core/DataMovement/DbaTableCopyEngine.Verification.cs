@@ -47,10 +47,10 @@ public sealed partial class DbaTableCopyEngine
                 using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
                 if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
                 {
+                    using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                     ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
                     if (!deferSchemaPreflight && options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
                     {
-                        using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                         if (schemaSession == null)
                         {
                             schemaSession = await sessionDestination
@@ -64,7 +64,6 @@ public sealed partial class DbaTableCopyEngine
                     }
                     else if (!deferSchemaPreflight && pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
                     {
-                        using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                         await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
                     }
                 }

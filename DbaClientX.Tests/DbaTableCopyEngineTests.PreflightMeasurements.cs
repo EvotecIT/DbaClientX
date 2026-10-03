@@ -35,18 +35,30 @@ public partial class DbaTableCopyEngineTests
         // The measured boundary includes provider waits in opening, validating, and rolling back.
         // Compare observed waits, without an upper bound that depends on scheduler load.
         double preflightSeconds = preflight.Sum(phase => phase.Duration.TotalSeconds);
-        Assert.True(preflightSeconds >= destination.WaitDuration.TotalSeconds * 0.99);
+        Assert.True(preflightSeconds >= destination.WaitDuration.TotalSeconds - TimeSpan.FromTicks(10).TotalSeconds);
         Assert.True(performance.Phases.Sum(phase => phase.Duration.TotalSeconds) <= result.Duration.TotalSeconds);
     }
 
-    private abstract class PreflightMeasurementDestination : IDbaTableCopyDestination, IDbaTableCopySource
+    private abstract class PreflightMeasurementDestination : IDbaTableCopyDestination, IDbaTableCopySource, IDbaTableCopyPagePreflightDestination
     {
         private readonly MemoryTableCopyDestination _destination = new();
         private long _waitTicks;
+        private bool _sourceProofComplete;
         internal TimeSpan WaitDuration => TimeSpan.FromSeconds((double)_waitTicks / Stopwatch.Frequency);
 
         public Task<long?> CountRowsAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken = default)
-            => _destination.CountRowsAsync(definition, cancellationToken);
+        {
+            _sourceProofComplete = true;
+            return _destination.CountRowsAsync(definition, cancellationToken);
+        }
+
+        public void ValidatePage(DbaTableCopyDefinition definition, DataTable page)
+        {
+            if (_sourceProofComplete) return;
+            long started = Stopwatch.GetTimestamp();
+            Thread.Sleep(10);
+            _waitTicks += Stopwatch.GetTimestamp() - started;
+        }
 
         public Task<DbaTableCopyPage> ReadPageAsync(DbaTableCopyPageRequest request, CancellationToken cancellationToken = default)
             => new MemoryTableCopySource(_destination.Rows).ReadPageAsync(request, cancellationToken);

@@ -86,9 +86,8 @@ public sealed partial class DbaTableCopyReliabilityTests
         Assert.True(result.Verified);
         Assert.Equal(24, result.Performance!.RowsWritten);
         Assert.Equal(72, result.Performance.SourceRowsRead);
-        var preflight = Assert.Single(result.Performance.Phases, phase => phase.Phase == DbaTableCopyPhase.PreflightSource);
-        Assert.Equal(24, preflight.SourceRowsRead);
-        Assert.Null(preflight.TableName);
+        var preflight = result.Performance.Phases.Where(phase => phase.Phase == DbaTableCopyPhase.PreflightSource);
+        Assert.Equal(24, preflight.Sum(phase => phase.SourceRowsRead));
         Assert.Equal(12, fixture.DestinationCount());
         Assert.Equal(12L, Convert.ToInt64(sqlite.ExecuteScalar(fixture.DestinationPath, "SELECT COUNT(*) FROM OtherRows")));
     }
