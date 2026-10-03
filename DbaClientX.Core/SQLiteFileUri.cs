@@ -10,6 +10,20 @@ internal static class SQLiteFileUri
         if (!value.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
             return false;
 
+        // SQLite's native URI contract permits only an empty authority or exactly "localhost".
+        // System.Uri lowercases hosts and maps localhost to UNC on Windows, so validate the
+        // original spelling before allowing it to influence a filesystem or database target.
+        string filename = value.Substring(5);
+        if (filename.StartsWith("//", StringComparison.Ordinal))
+        {
+            int end = filename.IndexOfAny(new[] { '/', '?', '#' }, 2);
+            if (end < 0) end = filename.Length;
+            string authority = filename.Substring(2, end - 2);
+            if (authority.Length != 0 && !string.Equals(authority, "localhost", StringComparison.Ordinal))
+                throw new ArgumentException("SQLite file URIs require an empty authority or localhost.", nameof(value));
+            if (authority.Length != 0) value = "file://" + filename.Substring(end);
+        }
+
         if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile)
         {
             path = uri.LocalPath;
@@ -19,7 +33,7 @@ internal static class SQLiteFileUri
 
         // SQLite accepts file:relative.db and percent-escaped absolute filenames. An authority
         // must still be parsed by System.Uri; do not reinterpret a malformed host as a filename.
-        string filename = value.Substring(5);
+        filename = value.Substring(5);
         if (filename.StartsWith("/", StringComparison.Ordinal))
             return false;
         int fragment = filename.IndexOf('#');

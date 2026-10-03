@@ -366,12 +366,15 @@ public partial class SQLite
         destinationPath = DataMovement.DbaProviderTableCopyTargetIdentity.NormalizeSQLiteWindowsAlias(destinationPath);
         if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
         if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
-        if (Path.DirectorySeparatorChar == '\\') return true;
 
         // Case-only names can be separate files on a case-sensitive filesystem. If the destination
         // does not resolve, it is safe to create it. If it resolves, inspect the directory entries:
         // a case-insensitive filesystem exposes only one exact spelling for both aliases.
-        if (!File.Exists(sourcePath) || !File.Exists(destinationPath)) return false;
+        // Canonical aliases are for identity comparison. Managed filesystem operations still
+        // need extended filenames in Framework hosts when the ordinary spelling is long.
+        string sourceFilePath = GetSQLiteFileSystemPath(sourcePath);
+        string destinationFilePath = GetSQLiteFileSystemPath(destinationPath);
+        if (!File.Exists(sourceFilePath) || !File.Exists(destinationFilePath)) return false;
         string? sourceDirectory = Path.GetDirectoryName(sourcePath);
         string? destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (sourceDirectory == null || destinationDirectory == null ||
@@ -386,7 +389,7 @@ public partial class SQLite
         string destinationName = Path.GetFileName(destinationPath);
         bool exactSource = false;
         bool exactDestination = false;
-        foreach (string entry in Directory.EnumerateFiles(sourceDirectory))
+        foreach (string entry in Directory.EnumerateFiles(GetSQLiteFileSystemPath(sourceDirectory)))
         {
             string name = Path.GetFileName(entry);
             exactSource |= string.Equals(name, sourceName, StringComparison.Ordinal);

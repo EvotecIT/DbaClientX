@@ -23,6 +23,7 @@ public partial class SQLite
         }
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
             builder.Mode == SqliteOpenMode.Memory ||
+            (fileUri && string.Equals(uriPath, ":memory:", StringComparison.Ordinal)) ||
             string.IsNullOrEmpty(builder.DataSource) ||
             string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
         {

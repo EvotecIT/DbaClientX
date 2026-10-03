@@ -42,7 +42,9 @@ internal static partial class DbaProviderTableCopyTargetIdentity
             return false;
         }
 
-        if (string.Equals(mode, "Memory", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, "Memory", StringComparison.OrdinalIgnoreCase) ||
+            (fileUri && string.Equals(dataSource, ":memory:", StringComparison.Ordinal) &&
+             string.Equals(cache, "Shared", StringComparison.OrdinalIgnoreCase)))
         {
             identity = "sqlite|mode=memory;cache=" + NormalizePart(cache) + ";name=" + NormalizePart(dataSource);
             return true;
