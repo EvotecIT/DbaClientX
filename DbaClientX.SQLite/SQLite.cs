@@ -194,15 +194,10 @@ public partial class SQLite : DatabaseClientBase
         }
 
         var uriText = value.ToString();
-        if (Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile)
+        if (uriText != null && SQLiteFileUri.TryParse(uriText, out var path, out var query))
         {
-            if (removeSourceKey)
-            {
-                builder.Remove(sourceKey);
-            }
-
-            builder["Data Source"] = uri.LocalPath;
-            ApplySQLiteFullUriQueryOptions(builder, uri);
+            builder.Remove(sourceKey);
+            ApplySQLiteUri(builder, path, query);
             return true;
         }
 
@@ -216,77 +211,54 @@ public partial class SQLite : DatabaseClientBase
         return false;
     }
 
-    private static void ApplySQLiteFullUriQueryOptions(DbConnectionStringBuilder builder, Uri uri)
+    private static void ApplySQLiteUri(DbConnectionStringBuilder builder, string path, string query)
     {
-        if (string.IsNullOrEmpty(uri.Query) || uri.Query.Length <= 1)
+        var nativeOptions = new List<string>();
+        foreach (var part in query.Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            return;
+            int separator = part.IndexOf('=');
+            string key = Uri.UnescapeDataString(separator < 0 ? part : part.Substring(0, separator));
+            string value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
+            if (!ApplySQLiteUriOption(builder, key, value)) nativeOptions.Add(part);
         }
-
-        var query = uri.Query.Substring(1).Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in query)
-        {
-            var separator = part.IndexOf('=');
-            var key = separator < 0 ? part : part.Substring(0, separator);
-            var value = separator < 0 ? string.Empty : part.Substring(separator + 1);
-            ApplySQLiteFullUriOption(
-                builder,
-                Uri.UnescapeDataString(key),
-                Uri.UnescapeDataString(value));
-        }
+        builder["Data Source"] = nativeOptions.Count == 0 && Path.IsPathRooted(path)
+            ? path : SQLiteFileUri.Encode(path, string.Join("&", nativeOptions));
     }
 
-    private static void ApplySQLiteFullUriOption(DbConnectionStringBuilder builder, string key, string value)
+    private static bool ApplySQLiteUriOption(DbConnectionStringBuilder builder, string key, string value)
     {
         if (string.Equals(key, "vfs", StringComparison.OrdinalIgnoreCase))
         {
-            if (!builder.ContainsKey("Vfs"))
-            {
-                builder["Vfs"] = value;
-            }
-            return;
+            if (!builder.ShouldSerialize("Vfs")) builder["Vfs"] = value;
+            return true;
         }
-
         if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
         {
-            if (builder.ContainsKey("Mode"))
+            SqliteOpenMode? mode = value.ToLowerInvariant() switch
             {
-                return;
-            }
-
-            if (string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadOnly;
-            }
-            else if (string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadWrite;
-            }
-            else if (string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadWriteCreate;
-            }
-            else if (string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.Memory;
-            }
-
-            return;
+                "ro" => SqliteOpenMode.ReadOnly,
+                "rw" => SqliteOpenMode.ReadWrite,
+                "rwc" => SqliteOpenMode.ReadWriteCreate,
+                "memory" => SqliteOpenMode.Memory,
+                _ => null
+            };
+            if (!mode.HasValue) return false; // Let SQLite validate unsupported native options.
+            if (!builder.ShouldSerialize("Mode")) builder["Mode"] = mode.Value;
+            return true;
         }
-
-        if (!string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase) || builder.ContainsKey("Cache"))
+        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            SqliteCacheMode? cache = value.ToLowerInvariant() switch
+            {
+                "shared" => SqliteCacheMode.Shared,
+                "private" => SqliteCacheMode.Private,
+                _ => null
+            };
+            if (!cache.HasValue) return false;
+            if (!builder.ShouldSerialize("Cache")) builder["Cache"] = cache.Value;
+            return true;
         }
-
-        if (string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase))
-        {
-            builder["Cache"] = SqliteCacheMode.Shared;
-        }
-        else if (string.Equals(value, "private", StringComparison.OrdinalIgnoreCase))
-        {
-            builder["Cache"] = SqliteCacheMode.Private;
-        }
+        return false;
     }
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)

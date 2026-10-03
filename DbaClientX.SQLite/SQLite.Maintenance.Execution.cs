@@ -132,7 +132,7 @@ public partial class SQLite
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(database))
+        if (!File.Exists(GetSQLiteFileSystemPath(database)))
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {database}", database);
         }
@@ -196,8 +196,8 @@ public partial class SQLite
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        string sourcePath = Path.GetFullPath(sourceDatabase);
-        string destinationPath = Path.GetFullPath(destinationDatabase);
+        string sourcePath = GetSQLiteFileSystemPath(sourceDatabase);
+        string destinationPath = GetSQLiteFileSystemPath(destinationDatabase);
         if (AreSameBackupPath(sourcePath, destinationPath))
         {
             throw new ArgumentException("Source and destination database paths must be different.", nameof(destinationDatabase));
@@ -362,8 +362,11 @@ public partial class SQLite
 
     internal static bool AreSameBackupPath(string sourcePath, string destinationPath)
     {
+        sourcePath = DataMovement.DbaProviderTableCopyTargetIdentity.NormalizeSQLiteWindowsAlias(sourcePath);
+        destinationPath = DataMovement.DbaProviderTableCopyTargetIdentity.NormalizeSQLiteWindowsAlias(destinationPath);
         if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) return true;
         if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) return false;
+        if (Path.DirectorySeparatorChar == '\\') return true;
 
         // Case-only names can be separate files on a case-sensitive filesystem. If the destination
         // does not resolve, it is safe to create it. If it resolves, inspect the directory entries:

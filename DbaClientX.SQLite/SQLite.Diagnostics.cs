@@ -22,7 +22,7 @@ public partial class SQLite
         int? busyTimeoutMs = null)
     {
         ValidateDatabasePath(database);
-        string fullPath = Path.GetFullPath(database);
+        string fullPath = GetSQLiteFileSystemPath(database);
         var diagnostics = new SqliteDatabaseDiagnostics
         {
             Database = database,

@@ -245,7 +245,7 @@ public partial class SQLite
             path = uri.LocalPath;
         }
 
-        if (!File.Exists(path))
+        if (!File.Exists(GetSQLiteFileSystemPath(path)))
         {
             throw new FileNotFoundException($"SQLite database file does not exist: {path}", path);
         }
