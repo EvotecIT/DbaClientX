@@ -146,7 +146,7 @@ public partial class QueryCompiler
             var tokens = SqlTokenizer.Tokenize(expression.Text, out bool hasExecutableComments,
                 dollarQuotes: _dialect == SqlDialect.PostgreSql,
                 backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql,
-                bracketIdentifiers: _dialect != SqlDialect.PostgreSql);
+                bracketIdentifiers: _dialect != SqlDialect.PostgreSql, oracleAlternativeQuotes: _dialect == SqlDialect.Oracle);
             if (_dialect == SqlDialect.MySql && hasExecutableComments) return null;
             int first = 0, depth = 0;
             for (int index = 0; index <= tokens.Count; index++)

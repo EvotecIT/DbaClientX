@@ -28,7 +28,7 @@ public partial class QueryCompiler
             var tokens = SqlTokenizer.Tokenize(expression.Text, out _, backslashStrings: _dialect == SqlDialect.MySql,
                 dollarQuotes: _dialect == SqlDialect.PostgreSql,
                 nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql,
-                bracketIdentifiers: _dialect != SqlDialect.PostgreSql);
+                bracketIdentifiers: _dialect != SqlDialect.PostgreSql, oracleAlternativeQuotes: _dialect == SqlDialect.Oracle);
             int first = 0, depth = 0;
             for (int end = 0; end <= tokens.Count; end++)
             {

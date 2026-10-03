@@ -50,13 +50,14 @@ internal static class SqlTokenizer
     /// <param name="sqliteParameters">Whether named parameters use SQLite's identifier, namespace and parenthesized suffix syntax.</param>
     /// <param name="nestedBlockComments">Whether block comments can nest, as in SQL Server.</param>
     /// <param name="bracketIdentifiers">Whether square brackets quote identifiers; false for PostgreSQL array syntax.</param>
+    /// <param name="oracleAlternativeQuotes">Whether Oracle q/nq literals use paired or custom delimiters.</param>
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false,
-        bool sqliteParameters = false, bool nestedBlockComments = false, bool bracketIdentifiers = true)
-        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments, bracketIdentifiers);
+        bool sqliteParameters = false, bool nestedBlockComments = false, bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments, bracketIdentifiers, oracleAlternativeQuotes);
 
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
         bool dollarQuotes = false, bool backslashStrings = false, bool sqliteParameters = false, bool nestedBlockComments = false,
-        bool bracketIdentifiers = true)
+        bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false)
     {
         hasExecutableComments = false;
         var tokens = new List<SqlToken>();
@@ -82,6 +83,12 @@ internal static class SqlTokenizer
                 hasExecutableComments |= index + 2 < sql.Length && (sql[index + 2] == '!' ||
                     index + 3 < sql.Length && sql[index + 2] is 'M' or 'm' && sql[index + 3] == '!');
                 index = SkipBlockComment(sql, index, nestedBlockComments);
+            }
+            else if (oracleAlternativeQuotes && character is 'Q' or 'q' or 'N' or 'n' &&
+                     TryReadOracleString(sql, index, out int oracleEnd, out string body))
+            {
+                tokens.Add(new SqlToken(SqlTokenKind.String, sql.Substring(index, oracleEnd - index), body, index));
+                index = oracleEnd;
             }
             else if (character == '\'' || ((character is 'N' or 'n' or 'E' or 'e') && Next(sql, index) == '\''))
             {
@@ -191,6 +198,30 @@ internal static class SqlTokenizer
     }
 
     private static char Next(string sql, int index) => index + 1 < sql.Length ? sql[index + 1] : '\0';
+
+    // Oracle q'!body!' and nq'[body]' retain embedded apostrophes, commas and semicolons.
+    // A delimiter inside the body closes it only when immediately followed by an apostrophe.
+    private static bool TryReadOracleString(string sql, int start, out int end, out string body)
+    {
+        end = start;
+        body = string.Empty;
+        int prefix = sql[start] is 'N' or 'n' ? start + 1 : start;
+        if (prefix + 2 >= sql.Length || sql[prefix] is not ('Q' or 'q') || sql[prefix + 1] != '\'' ||
+            char.IsWhiteSpace(sql[prefix + 2])) return false;
+        int delimiterStart = prefix + 2;
+        int delimiterLength = char.IsHighSurrogate(sql[delimiterStart]) && delimiterStart + 1 < sql.Length &&
+            char.IsLowSurrogate(sql[delimiterStart + 1]) ? 2 : 1;
+        string delimiter = sql[delimiterStart] switch
+        {
+            '[' => "]", '{' => "}", '(' => ")", '<' => ">",
+            _ => sql.Substring(delimiterStart, delimiterLength)
+        };
+        int bodyStart = delimiterStart + delimiterLength;
+        int close = sql.IndexOf(delimiter + "'", bodyStart, System.StringComparison.Ordinal);
+        end = close < 0 ? sql.Length : close + delimiter.Length + 1;
+        body = sql.Substring(bodyStart, (close < 0 ? sql.Length : close) - bodyStart);
+        return true;
+    }
 
     // SQLite's Tcl-style named parameters may contain :: and a non-whitespace suffix in parentheses.
     // Quotes, comment markers and semicolons in that suffix belong to the parameter, not to SQL syntax.

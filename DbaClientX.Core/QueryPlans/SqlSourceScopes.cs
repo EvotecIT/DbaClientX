@@ -28,7 +28,7 @@ internal sealed partial class SqlSourceScopes
     private static readonly HashSet<string> PredicateWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "AND", "OR", "NOT", "ON", "USING", "WHEN", "THEN", "ELSE", "IS", "IN", "LIKE", "ILIKE",
-        "BETWEEN", "REGEXP", "RLIKE", "GLOB", "MATCH", "COLLATE"
+        "BETWEEN", "REGEXP", "RLIKE", "GLOB", "MATCH", "COLLATE", "BINARY", "XOR", "DIV", "MOD", "INTERVAL", "OF"
     };
 
     private readonly Stack<Scope> _scopes = new();
@@ -454,7 +454,14 @@ internal sealed partial class SqlSourceScopes
     // only when that word occurs; ordinary tokens add no scan or allocation.
     private static bool IsSourceClauseBefore(IReadOnlyList<SqlToken> tokens, int index)
     {
-        if (index > 0 && tokens[index - 1].Kind == SqlTokenKind.Word && PredicateWords.Contains(tokens[index - 1].Text)) return false;
+        if (index > 0)
+        {
+            var preceding = tokens[index - 1];
+            // Arithmetic/comparison symbols and predicate operators introduce an operand, not a joined source.
+            // The closing ODBC brace may finish a source, so it remains eligible for a following join.
+            if (preceding.Kind == SqlTokenKind.Symbol && preceding.Text != "}" ||
+                preceding.Kind == SqlTokenKind.Word && PredicateWords.Contains(preceding.Text)) return false;
+        }
         int depth = 0;
         for (int previous = index - 1; previous >= 0; previous--)
         {

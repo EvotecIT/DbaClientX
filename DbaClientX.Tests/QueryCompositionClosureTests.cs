@@ -59,6 +59,59 @@ public sealed class QueryCompositionClosureTests
         Assert.Equal("t", findings[1].Table);
     }
 
+    [Theory]
+    [InlineData("u.id + straight_join(t.Name)")]
+    [InlineData("straight_join(t.Name)")]
+    [InlineData("BINARY straight_join(t.Name)")]
+    [InlineData("u.id DIV straight_join(t.Name)")]
+    [InlineData("u.id XOR straight_join(t.Name)")]
+    public void StraightJoinFunction_InOnExpression_RetainsFollowingFindings(string expression)
+    {
+        var findings = SqlSargabilityAnalyzer.Analyze("SELECT * FROM t JOIN u ON t.id = " + expression + " AND LOWER(t.Other) = 'a'");
+        var finding = Assert.Single(findings);
+        Assert.Equal("Other", finding.Column);
+        Assert.Equal("t", finding.Table);
+    }
+
+    [Fact]
+    public void StraightJoinSource_AfterOnExpression_StillResolvesItsTable()
+    {
+        var findings = SqlSargabilityAnalyzer.Analyze("SELECT * FROM t JOIN u ON t.id = u.id STRAIGHT_JOIN v ON v.id = t.id AND LOWER(v.Name) = 'a'");
+        var finding = Assert.Single(findings);
+        Assert.Equal("Name", finding.Column);
+        Assert.Equal("v", finding.Table);
+    }
+
+    [Theory]
+    [InlineData("q'!a'b,c!'", false)]
+    [InlineData("q'!a'b,c!'", true)]
+    [InlineData("Q'[a'b,c]'", false)]
+    [InlineData("q'{a'b,c}'", false)]
+    [InlineData("q'(a'b,c)'", false)]
+    [InlineData("q'<a'b,c>'", false)]
+    [InlineData("nQ'\u00ef a'b,c \u00ef'", false)]
+    public void OracleAlternativeQuotedProjection_OrdersByTheActualOutputPosition(string literal, bool separateExpressions)
+    {
+        Query Operand()
+        {
+            var query = new Query();
+            if (separateExpressions) query.SelectRaw(literal + " AS label").SelectRaw("n.id");
+            else query.SelectRaw(literal + " AS label, n.id");
+            return query.FromRaw("(SELECT 1 AS id FROM dual) n");
+        }
+        Assert.EndsWith("ORDER BY 2", Operand().Union(Operand()).OrderBy("n.id").Compile(SqlDialect.Oracle));
+    }
+
+    [Theory]
+    [InlineData("q'!a'b; c,d!'")]
+    [InlineData("nQ'[a'b; c,d]'")]
+    [InlineData("q'\U0001F642a'b; c,d\U0001F642'")]
+    public void OracleAlternativeQuotedStatement_KeepsLiteralSemicolonsInsideTheStatement(string literal)
+    {
+        string statement = "SELECT " + literal + " AS label FROM dual";
+        Assert.Equal(new[] { statement, "SELECT 2 FROM dual" }, SqlStatementText.Split(statement + "; SELECT 2 FROM dual;", SqlDialect.Oracle));
+    }
+
     private static void Append(Query query, string operation, Query operand)
     {
         switch (operation)
