@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteQueryPlanTests : IDisposable
 {
     private readonly string _database = Path.Combine(Path.GetTempPath(), "dbx-plan-" + Guid.NewGuid().ToString("N") + ".db");

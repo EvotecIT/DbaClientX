@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteConnectionProfileTests : IDisposable
 {
     private readonly string _database = Path.Combine(Path.GetTempPath(), "dbx-profile-" + Guid.NewGuid().ToString("N") + ".db");

@@ -13,6 +13,7 @@ using Xunit;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public class SQLiteMixedTypeColumnTests
 {
     private const string CreateTableSql =

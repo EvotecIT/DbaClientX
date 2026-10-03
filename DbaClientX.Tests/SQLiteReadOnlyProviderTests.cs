@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteReadOnlyProviderTests : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), "dbaclientx-attach-" + Guid.NewGuid().ToString("N") + ".db");

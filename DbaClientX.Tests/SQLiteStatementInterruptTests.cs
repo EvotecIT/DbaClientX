@@ -7,6 +7,7 @@ namespace DbaClientX.Tests;
 /// <summary>
 /// A canceled token stops a SQLite statement that is running, instead of letting it run to completion.
 /// </summary>
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteStatementInterruptTests : IDisposable
 {
     // Counts to a billion: minutes of work, so only an interrupt ends it within the watchdog.

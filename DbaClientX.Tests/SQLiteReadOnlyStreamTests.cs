@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteReadOnlyStreamTests : IDisposable
 {
     private readonly string _database = Path.Combine(Path.GetTempPath(), "dbx-ro-stream-" + Guid.NewGuid().ToString("N") + ".db");
