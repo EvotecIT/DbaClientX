@@ -126,8 +126,8 @@ public partial class QueryCompiler
         return false;
     }
 
-    // Wildcards have an unknown width without database metadata. Retain them as SQL, where the provider
-    // validates names. Explicit projections can be named by ordinal, including raw lists of expressions.
+    // Wildcards and MySQL executable fragments have a server-dependent width or names. Retain them
+    // as SQL, where the provider validates names. Known explicit projections can be named by ordinal.
     private IReadOnlyList<string?>? GetProjectionNames(Query query)
     {
         if (query.SelectExpressions.Count == 0) return null;
@@ -143,7 +143,9 @@ public partial class QueryCompiler
                 continue;
             }
 
-            var tokens = SqlTokenizer.Tokenize(expression.Text, backslashStrings: _dialect == SqlDialect.MySql);
+            var tokens = SqlTokenizer.Tokenize(expression.Text, out bool hasExecutableComments,
+                backslashStrings: _dialect == SqlDialect.MySql);
+            if (_dialect == SqlDialect.MySql && hasExecutableComments) return null;
             int first = 0, depth = 0;
             for (int index = 0; index <= tokens.Count; index++)
             {
