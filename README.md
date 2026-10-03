@@ -638,6 +638,16 @@ var joined = new Query()
 
 Negative `Limit`, `Offset`, and `Top` values are rejected before compilation.
 
+Compound queries apply root ordering and paging to the combined result. Mixed `Union`/`UnionAll` chains stay flat,
+preserving outer-row references in correlated subqueries. Nested, locally paged and other mixed operands use derived
+tables to preserve their grouping. MySQL/MariaDB rejects correlations from these derived tables to an enclosing query;
+the compiler rejects explicit outer qualifiers in such operands with `NotSupportedException`. Move the correlation
+outside the grouped operand or keep a flat union chain. Qualify correlated columns explicitly: unqualified columns
+and omitted source databases require connection/schema metadata and remain subject to the server's name resolution.
+Raw sources retain their index hints, selected partitions, table groups and MariaDB `FOR SYSTEM_TIME` clauses;
+these modifiers do not become aliases. MySQL/MariaDB executable comments can change bindings depending on the
+server version, so fragments containing them defer correlation binding to the server. The original SQL is preserved.
+
 ### Paging
 
 `KeysetPagination` pages by key values (seek paging), so page 1,000 costs the same as page 1 when an index covers the keys. `OffsetPagination` supports jumping to any page but reads every earlier row. Both return a copy of the source query with dialect-correct `TOP`/`LIMIT`/`FETCH`, fetch one extra row to detect the next page, and hand back an opaque, URL-safe cursor. Compile page queries with `CompileWithParameters` so cursor values are sent as parameters.

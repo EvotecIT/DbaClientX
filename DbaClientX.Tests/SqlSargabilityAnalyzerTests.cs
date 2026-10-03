@@ -5,6 +5,20 @@ namespace DbaClientX.Tests;
 public sealed class SqlSargabilityAnalyzerTests
 {
     [Theory]
+    [InlineData("straight_join")]
+    [InlineData("join")]
+    [InlineData("from")]
+    [InlineData("apply")]
+    [InlineData("with")]
+    [InlineData("union")]
+    public void Analyze_QualifiedKeywordColumns_RetainConditionState(string column)
+    {
+        var findings = SqlSargabilityAnalyzer.Analyze($"SELECT * FROM numbers n WHERE n.{column} LIKE '%x' AND LOWER(n.Name)='x'");
+        Assert.Equal(new[] { column, "Name" }, findings.Select(f => f.Column));
+        Assert.All(findings, finding => Assert.Equal("numbers", finding.Table));
+    }
+
+    [Theory]
     [InlineData("SELECT * FROM ProbeResults WHERE LOWER(ProbeName) = LOWER(@p) AND LOWER(Agent) = LOWER(@a)", "LOWER(ProbeName)", "LOWER(Agent)")]
     [InlineData("SELECT * FROM t JOIN u ON UPPER(t.\"Code\") = u.Code", "UPPER(t.\"Code\")")]
     [InlineData("SELECT * FROM t WHERE CAST([Created] AS date) = @d", "CAST([Created] AS date)")]
@@ -109,6 +123,15 @@ public sealed class SqlSargabilityAnalyzerTests
     [InlineData("SELECT * FROM (SELECT Name FROM t) d WHERE LOWER(Name) = 'x'", "Name", null)]
     [InlineData("UPDATE ProbeResults AS r SET LatencyMs = 0 WHERE r.Agent::text = 'x'", "Agent", "ProbeResults")]
     [InlineData("SELECT * FROM a WHERE Name = 'x' UNION SELECT * FROM b WHERE b.Name NOT LIKE '%x'", "Name", "b")]
+    [InlineData("SELECT * FROM numbers USE INDEX FOR JOIN (ix) WHERE LOWER(Name) = @p", "Name", "numbers")]
+    [InlineData("SELECT * FROM numbers PARTITION (p0) AS n FORCE INDEX FOR GROUP BY (ix) WHERE LOWER(n.Name) = @p", "Name", "numbers")]
+    [InlineData("SELECT * FROM numbers AS n STRAIGHT_JOIN other AS j ON n.Id=j.Id WHERE LOWER(j.Name) = @p", "Name", "other")]
+    [InlineData("SELECT * FROM people force WHERE LOWER(force.Name)=@p", "Name", "people")]
+    [InlineData("SELECT * FROM force WHERE LOWER(force.Name)=@p", "Name", "force")]
+    [InlineData("SELECT * FROM people straight_join WHERE LOWER(straight_join.Name)=@p", "Name", "people")]
+    [InlineData("SELECT * FROM straight_join n WHERE LOWER(Name)=@p", "Name", "straight_join")]
+    [InlineData("SELECT * FROM people partition WHERE LOWER(partition.Name)=@p", "Name", "people")]
+    [InlineData("SELECT * FROM numbers FOR SYSTEM_TIME ALL AS n WHERE LOWER(n.Name)=@p", "Name", "numbers")]
     public void Analyze_NamesTheColumnAndItsTable(string sql, string column, string? table)
     {
         // The last finding; EXTRACT(YEAR FROM Seen) is one too, and its FROM must not count as a table.
