@@ -632,6 +632,9 @@ tables to preserve their grouping. MySQL/MariaDB rejects correlations from these
 the compiler rejects explicit outer qualifiers in such operands with `NotSupportedException`. Move the correlation
 outside the grouped operand or keep a flat union chain. Qualify correlated columns explicitly: unqualified columns
 and omitted source databases require connection/schema metadata and remain subject to the server's name resolution.
+Raw sources retain their index hints, selected partitions, table groups and MariaDB `FOR SYSTEM_TIME` clauses;
+these modifiers do not become aliases. MySQL/MariaDB executable comments can change bindings depending on the
+server version, so fragments containing them defer correlation binding to the server. The original SQL is preserved.
 
 ### Paging
 

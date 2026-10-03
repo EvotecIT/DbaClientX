@@ -10,7 +10,7 @@ namespace DBAClientX.QueryPlans;
 /// to the one table its own level reads. A heuristic over tokens: unknown when a level reads several sources, or when
 /// the source is a derived table, a table-valued function or a common table expression.
 /// </summary>
-internal sealed class SqlSourceScopes
+internal sealed partial class SqlSourceScopes
 {
     private static readonly HashSet<string> NotNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -37,16 +37,21 @@ internal sealed class SqlSourceScopes
     /// </summary>
     internal static string? FindExternalQualifier(string sql, bool backslashStrings = false)
     {
-        var tokens = SqlTokenizer.Tokenize(sql, backslashStrings: backslashStrings);
+        var tokens = SqlTokenizer.Tokenize(sql, out bool hasExecutableComments, backslashStrings: backslashStrings);
+        // These comments can add or remove bindings depending on the server/version. Preserve SQL and let it bind.
+        if (hasExecutableComments) return null;
         var scopes = new SqlSourceScopes();
         var queryLevels = new Stack<bool>();
         queryLevels.Push(true);
         var sourceNames = new HashSet<int>();
         var lateralSources = new HashSet<int>();
+        var sourceModifiers = new HashSet<int>();
         var references = new List<(Scope Scope, string[] Qualifier)>();
         for (int index = 0; index < tokens.Count; index++)
         {
             var token = tokens[index];
+            if (sourceModifiers.Contains(index)) continue;
+            bool clauseToken = index == 0 || tokens[index - 1].Text != ".";
             if (token.Kind == SqlTokenKind.OpenParenthesis)
             {
                 bool query = index + 1 < tokens.Count &&
@@ -60,12 +65,12 @@ internal sealed class SqlSourceScopes
                 scopes.Close();
                 if (queryLevels.Count > 1) queryLevels.Pop();
             }
-            else if (queryLevels.Peek() && (IsWord(token, "UNION") || IsWord(token, "INTERSECT") || IsWord(token, "EXCEPT")))
+            else if (clauseToken && queryLevels.Peek() && (IsWord(token, "UNION") || IsWord(token, "INTERSECT") || IsWord(token, "EXCEPT")))
                 scopes.Restart(statement: false);
-            else if (queryLevels.Peek() && IsWord(token, "WITH"))
+            else if (clauseToken && queryLevels.Peek() && IsWord(token, "WITH"))
                 scopes.ReadCommonTableExpressions(tokens, index, sourceNames);
-            else if (queryLevels.Peek() && (IsWord(token, "FROM") || IsWord(token, "JOIN") || IsWord(token, "APPLY")))
-                scopes.ReadSources(tokens, index, sourceNames, lateralSources);
+            else if (clauseToken && queryLevels.Peek() && (IsWord(token, "FROM") || IsJoinAt(tokens, index) || IsWord(token, "APPLY")))
+                scopes.ReadSources(tokens, index, sourceNames, lateralSources, sourceModifiers);
 
             // Keep the full relation qualifier so equally named tables in different schemas stay distinct.
             // Qualified functions and source names are not column references. Tokens exclude strings and comments.
@@ -188,15 +193,18 @@ internal sealed class SqlSourceScopes
     /// Records the sources named after the <c>FROM</c>, <c>JOIN</c>, <c>UPDATE</c> or <c>APPLY</c> at
     /// <paramref name="keyword"/> in the current level (a <c>FROM</c> list continues after commas).
     /// </summary>
-    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword, ISet<int>? sourceNames = null, ISet<int>? lateralSources = null)
+    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword, ISet<int>? sourceNames = null, ISet<int>? lateralSources = null,
+        ISet<int>? sourceModifiers = null)
     {
         var scope = _scopes.Peek();
         var isFrom = IsWord(tokens[keyword], "FROM") || tokens[keyword].Kind == SqlTokenKind.OpenParenthesis || tokens[keyword].Text == ",";
         if (sourceNames != null && IsWord(tokens[keyword], "FROM"))
-            ReadSourceListTail(tokens, keyword + 1, tokens.Count, sourceNames, lateralSources);
+            ReadSourceListTail(tokens, keyword + 1, tokens.Count, sourceNames, lateralSources, sourceModifiers);
         var position = keyword + 1;
         while (position < tokens.Count)
         {
+            // ODBC's { OJ ... } escape encloses ordinary table references.
+            if (position + 1 < tokens.Count && tokens[position].Text == "{" && IsWord(tokens[position + 1], "OJ")) position += 2;
             bool lateral = IsWord(tokens[position], "LATERAL");
             if (lateral) position++;
             if (position >= tokens.Count) return;
@@ -211,8 +219,9 @@ internal sealed class SqlSourceScopes
                     if (lateral) lateralSources?.Add(position);
                     else sourceNames?.Add(position);
                 }
-                else ReadGroupedSources(tokens, position, sourceNames, lateralSources);
+                else ReadGroupedSources(tokens, position, sourceNames, lateralSources, sourceModifiers);
                 position = SkipParentheses(tokens, position);
+                position = SkipTemporalPeriod(tokens, position, sourceModifiers);
                 var alias = AliasAt(tokens, ref position);
                 if (query || alias != null)
                 {
@@ -254,7 +263,16 @@ internal sealed class SqlSourceScopes
                     position = SkipParentheses(tokens, position);
                 }
 
+                if (position + 1 < tokens.Count && IsWord(tokens[position], "PARTITION") &&
+                    tokens[position + 1].Kind == SqlTokenKind.OpenParenthesis)
+                {
+                    int modifier = position;
+                    position = SkipParentheses(tokens, position + 1);
+                    MarkRange(sourceModifiers, modifier, position);
+                }
+                position = SkipTemporalPeriod(tokens, position, sourceModifiers);
                 var alias = AliasAt(tokens, ref position);
+                position = SkipIndexHints(tokens, position, sourceModifiers);
                 if (position + 1 < tokens.Count && IsWord(tokens[position], "WITH") && tokens[position + 1].Kind == SqlTokenKind.OpenParenthesis)
                 {
                     // A table hint: WITH (NOLOCK).
@@ -275,24 +293,59 @@ internal sealed class SqlSourceScopes
         }
     }
 
-    private void ReadGroupedSources(IReadOnlyList<SqlToken> tokens, int open, ISet<int>? sourceNames, ISet<int>? lateralSources)
+    private void ReadGroupedSources(IReadOnlyList<SqlToken> tokens, int open, ISet<int>? sourceNames, ISet<int>? lateralSources,
+        ISet<int>? sourceModifiers)
     {
         // Parenthesized table factors and joins share their enclosing SELECT's relation scope.
-        ReadSources(tokens, open, sourceNames, lateralSources);
+        ReadSources(tokens, open, sourceNames, lateralSources, sourceModifiers);
         int end = SkipParentheses(tokens, open) - 1;
-        ReadSourceListTail(tokens, open + 1, end, sourceNames, lateralSources);
+        ReadSourceListTail(tokens, open + 1, end, sourceNames, lateralSources, sourceModifiers);
     }
 
-    private void ReadSourceListTail(IReadOnlyList<SqlToken> tokens, int first, int end, ISet<int>? sourceNames, ISet<int>? lateralSources)
+    private void ReadSourceListTail(IReadOnlyList<SqlToken> tokens, int first, int end, ISet<int>? sourceNames, ISet<int>? lateralSources,
+        ISet<int>? sourceModifiers)
     {
         for (int index = first; index < end; index++)
         {
+            int afterHints = SkipIndexHints(tokens, index, sourceModifiers);
+            if (afterHints > index) { index = afterHints - 1; continue; }
+            int afterPeriod = SkipTemporalPeriod(tokens, index, sourceModifiers);
+            if (afterPeriod > index) { index = afterPeriod - 1; continue; }
             if (tokens[index].Kind == SqlTokenKind.OpenParenthesis) index = SkipParentheses(tokens, index) - 1;
             else if (tokens[index].Kind == SqlTokenKind.CloseParenthesis || tokens[index].Kind == SqlTokenKind.Semicolon ||
                 tokens[index].Kind == SqlTokenKind.Word && SourceTerminators.Contains(tokens[index].Text)) return;
-            else if (IsWord(tokens[index], "JOIN") || tokens[index].Text == ",")
-                ReadSources(tokens, index, sourceNames, lateralSources);
+            else if (IsJoinAt(tokens, index) || tokens[index].Text == ",")
+                ReadSources(tokens, index, sourceNames, lateralSources, sourceModifiers);
         }
+    }
+
+    private static int SkipIndexHints(IReadOnlyList<SqlToken> tokens, int position, ISet<int>? sourceModifiers)
+    {
+        while (position + 1 < tokens.Count &&
+            (IsWord(tokens[position], "USE") || IsWord(tokens[position], "FORCE") || IsWord(tokens[position], "IGNORE")) &&
+            (IsWord(tokens[position + 1], "INDEX") || IsWord(tokens[position + 1], "KEY")))
+        {
+            int start = position;
+            int next = position + 2;
+            if (next + 1 < tokens.Count && IsWord(tokens[next], "FOR"))
+            {
+                next++;
+                if (IsWord(tokens[next], "JOIN")) next++;
+                else if (next + 1 < tokens.Count && (IsWord(tokens[next], "ORDER") || IsWord(tokens[next], "GROUP")) &&
+                    IsWord(tokens[next + 1], "BY")) next += 2;
+                else return position;
+            }
+            if (next >= tokens.Count || tokens[next].Kind != SqlTokenKind.OpenParenthesis) return position;
+            position = SkipParentheses(tokens, next);
+            MarkRange(sourceModifiers, start, position);
+        }
+        return position;
+    }
+
+    private static void MarkRange(ISet<int>? positions, int first, int end)
+    {
+        if (positions == null) return;
+        for (int position = first; position < end; position++) positions.Add(position);
     }
 
     /// <summary>
@@ -338,7 +391,7 @@ internal sealed class SqlSourceScopes
             position++;
         }
 
-        if (position < tokens.Count && IsName(tokens[position]) &&
+        if (position < tokens.Count && IsName(tokens[position]) && !IsIndexHintAt(tokens, position) && !IsJoinAt(tokens, position) &&
             (tokens[position].Kind != SqlTokenKind.Word || !NotNames.Contains(tokens[position].Value)))
         {
             return tokens[position++].Value;
@@ -370,6 +423,16 @@ internal sealed class SqlSourceScopes
 
     private static bool IsWord(SqlToken token, string word)
         => token.Kind == SqlTokenKind.Word && string.Equals(token.Text, word, StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsJoinAt(IReadOnlyList<SqlToken> tokens, int index)
+        => (index == 0 || tokens[index - 1].Text is not ("." or "," or "(") &&
+            !IsWord(tokens[index - 1], "FROM") && !IsWord(tokens[index - 1], "AS") &&
+            !IsWord(tokens[index - 1], "SELECT") && !IsWord(tokens[index - 1], "JOIN") &&
+            !IsWord(tokens[index - 1], "STRAIGHT_JOIN") && !IsWord(tokens[index - 1], "APPLY") &&
+            !IsWord(tokens[index - 1], "LATERAL") && !IsWord(tokens[index - 1], "OJ")) &&
+            (IsWord(tokens[index], "JOIN") || IsWord(tokens[index], "STRAIGHT_JOIN") && index + 1 < tokens.Count &&
+            (tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis || tokens[index + 1].Text == "{" ||
+                IsName(tokens[index + 1]) && !NotNames.Contains(tokens[index + 1].Value)));
 
     private sealed class Scope
     {

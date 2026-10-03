@@ -77,9 +77,12 @@ public static partial class SqlSargabilityAnalyzer
         var queryLevel = new Stack<bool>();
         queryLevel.Push(true);
         var scopes = new SqlSourceScopes();
+        var sourceModifiers = new HashSet<int>();
         for (var index = 0; index < tokens.Count; index++)
         {
             var token = tokens[index];
+            if (sourceModifiers.Contains(index)) continue;
+            bool clauseToken = index == 0 || tokens[index - 1].Text != ".";
             switch (token.Kind)
             {
                 case SqlTokenKind.OpenParenthesis:
@@ -113,32 +116,32 @@ public static partial class SqlSargabilityAnalyzer
                     queryLevel.Push(true);
                     scopes.Restart(statement: true);
                     continue;
-                case SqlTokenKind.Word when IsWord(token, "WHERE") || (IsWord(token, "ON") && joinPending.Peek()):
+                case SqlTokenKind.Word when clauseToken && (IsWord(token, "WHERE") || (IsWord(token, "ON") && joinPending.Peek())):
                     SetTop(joinPending, false);
                     SetCondition(inCondition, true);
                     continue;
-                case SqlTokenKind.Word when IsWord(token, "ON"):
+                case SqlTokenKind.Word when clauseToken && IsWord(token, "ON"):
                     continue;
-                case SqlTokenKind.Word when IsWord(token, "WITH") && queryLevel.Peek():
+                case SqlTokenKind.Word when clauseToken && IsWord(token, "WITH") && queryLevel.Peek():
                     scopes.ReadCommonTableExpressions(tokens, index);
                     continue;
-                case SqlTokenKind.Word when IsWord(token, "APPLY"):
+                case SqlTokenKind.Word when clauseToken && IsWord(token, "APPLY"):
                     // CROSS/OUTER APPLY adds the columns of a derived source.
-                    scopes.ReadSources(tokens, index);
+                    scopes.ReadSources(tokens, index, sourceModifiers: sourceModifiers);
                     continue;
-                case SqlTokenKind.Word when IsWord(token, "FROM") && index > 0 && IsWord(tokens[index - 1], "DISTINCT"):
+                case SqlTokenKind.Word when clauseToken && IsWord(token, "FROM") && index > 0 && IsWord(tokens[index - 1], "DISTINCT"):
                     // IS [NOT] DISTINCT FROM compares; it starts no clause.
                     break;
-                case SqlTokenKind.Word when ClauseKeywords.Contains(token.Text) || IsWord(token, "UPDATE"):
-                    SetTop(joinPending, IsWord(token, "JOIN"));
+                case SqlTokenKind.Word when clauseToken && (ClauseKeywords.Contains(token.Text) || SqlSourceScopes.IsJoinAt(tokens, index) || IsWord(token, "UPDATE")):
+                    SetTop(joinPending, SqlSourceScopes.IsJoinAt(tokens, index));
                     SetCondition(inCondition, false);
                     if (!queryLevel.Peek())
                     {
                         // FROM inside EXTRACT(YEAR FROM x), SUBSTRING or TRIM names no table.
                     }
-                    else if (IsWord(token, "FROM") || IsWord(token, "JOIN") || IsWord(token, "UPDATE"))
+                    else if (IsWord(token, "FROM") || SqlSourceScopes.IsJoinAt(tokens, index) || IsWord(token, "UPDATE"))
                     {
-                        scopes.ReadSources(tokens, index);
+                        scopes.ReadSources(tokens, index, sourceModifiers: sourceModifiers);
                     }
                     else if (IsWord(token, "UNION") || IsWord(token, "INTERSECT") || IsWord(token, "EXCEPT"))
                     {

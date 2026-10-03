@@ -33,6 +33,7 @@ public sealed class QueryCompoundCorrelationTests
     [InlineData("nested")]
     [InlineData("paged")]
     [InlineData("join")]
+    [InlineData("hint")]
     public void MySqlGroupedCorrelation_HasAnActionableCompilationError(string shape)
     {
         Query Correlated() => new Query().SelectRaw("o.Id");
@@ -43,12 +44,91 @@ public sealed class QueryCompoundCorrelationTests
             "paged" => new Query().Select("3").Union(Correlated().Limit(1)),
             "join" => new Query().Select("n.Id").From("numbers", "n").Join("other", "j", "j.Id", "=", "o.Id")
                 .Union(new Query().Select("3")).Intersect(new Query().Select("1")),
+            "hint" => new Query().Select("o.Id").FromRaw("numbers USE INDEX (ix)")
+                .Union(new Query().Select("3")).Intersect(new Query().Select("1")),
             _ => throw new ArgumentOutOfRangeException(nameof(shape))
         };
         var query = new Query().Select("o.Id").From("outer_numbers", "o").WhereIn("o.Id", child);
         var error = Assert.Throws<NotSupportedException>(() => query.CompileWithParameters(SqlDialect.MySql));
         Assert.Contains("outer qualifier 'o'", error.Message);
         Assert.Contains("move the correlation", error.Message);
+    }
+
+    [Theory]
+    [InlineData("straight_join")]
+    [InlineData("join")]
+    [InlineData("from")]
+    [InlineData("apply")]
+    [InlineData("with")]
+    [InlineData("union")]
+    public void MySqlQualifiedKeywordColumns_DoNotInventSources(string column)
+    {
+        var operand = new Query().SelectRaw($"n.{column} LIKE o.Name AS Matched").FromRaw("numbers AS n")
+            .Union(new Query().Select("1")).Intersect(new Query().Select("1"));
+        var outer = new Query().Select("o.Id").From("outer_numbers", "o").WhereIn("o.Id", operand);
+        var error = Assert.Throws<NotSupportedException>(() => outer.Compile(SqlDialect.MySql));
+        Assert.Contains("outer qualifier 'o'", error.Message);
+    }
+
+    [Theory]
+    [InlineData("numbers USE INDEX (ix)", "numbers")]
+    [InlineData("numbers FORCE KEY (ix)", "numbers")]
+    [InlineData("numbers IGNORE INDEX (ix)", "numbers")]
+    [InlineData("numbers USE INDEX ()", "numbers")]
+    [InlineData("numbers AS n USE INDEX FOR JOIN (ix)", "n")]
+    [InlineData("numbers AS n FORCE INDEX FOR ORDER BY (ix)", "n")]
+    [InlineData("numbers AS n IGNORE KEY FOR GROUP BY (ix)", "n")]
+    [InlineData("numbers USE INDEX (ix) IGNORE INDEX FOR ORDER BY (ix), other AS j", "j")]
+    [InlineData("numbers AS n USE INDEX FOR JOIN (ix) JOIN other AS j ON n.Id=j.Id", "j")]
+    [InlineData("numbers PARTITION (p0)", "numbers")]
+    [InlineData("numbers PARTITION (p0, p1) AS n USE INDEX FOR GROUP BY (ix)", "n")]
+    [InlineData("numbers AS n STRAIGHT_JOIN other AS j ON n.Id=j.Id", "j")]
+    [InlineData("numbers STRAIGHT_JOIN other AS j ON numbers.Id=j.Id", "j")]
+    [InlineData("{ OJ numbers AS n LEFT JOIN other AS j ON n.Id=j.Id }", "n")]
+    public void MySqlGroupedSourceModifiers_PreserveLocalBindings(string source, string qualifier)
+    {
+        var first = new Query().Select(qualifier + ".Id").FromRaw(source);
+        string sql = first.Union(new Query().Select("1")).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql);
+        Assert.Contains(source, sql);
+        Assert.Contains("dbx_left_", sql);
+    }
+
+    [Theory]
+    [InlineData("numbers FOR SYSTEM_TIME ALL AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME ALL n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME AS OF TIMESTAMP '2026-01-01' AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME AS OF NOW() AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME AS OF CURRENT_TIMESTAMP + INTERVAL 1 SECOND n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME BETWEEN TIMESTAMP '2020-01-01' AND NOW() AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME FROM '2020-01-01' TO NOW() AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME AS OF TRANSACTION 42 AS n", "n")]
+    [InlineData("numbers FOR SYSTEM_TIME ALL AS n, other AS j", "j")]
+    [InlineData("(numbers FOR SYSTEM_TIME ALL AS n JOIN other AS j ON n.Id=j.Id)", "j")]
+    [InlineData("(SELECT Id FROM numbers) FOR SYSTEM_TIME ALL AS n", "n")]
+    [InlineData("numbers AS n JOIN other FOR SYSTEM_TIME ALL AS j ON n.Id=j.Id", "j")]
+    public void MariaDbTemporalSourceModifiers_PreserveLocalBindings(string source, string qualifier)
+    {
+        var first = new Query().Select(qualifier + ".Id").FromRaw(source);
+        Assert.Contains(source, first.Union(new Query().Select("1")).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
+    }
+
+    [Theory]
+    [InlineData("/*! AS n */")]
+    [InlineData("/*!80000 AS n */")]
+    [InlineData("/*M! AS n */")]
+    [InlineData("/*M!100000 AS n */")]
+    public void MySqlExecutableSourceComments_DeferVersionDependentBinding(string modifier)
+    {
+        var first = new Query().Select("n.Id").FromRaw("numbers " + modifier);
+        Assert.Contains(modifier, first.Union(new Query().Select("1")).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
+    }
+
+    [Fact]
+    public void ExecutableCommentMarkersInsideStrings_DoNotDisableTheCorrelationGuard()
+    {
+        var first = new Query().Select("o.Id").From("numbers").WhereRaw("'/*! AS n */'", "<>", "");
+        Assert.Throws<NotSupportedException>(() => first.Union(new Query().Select("1"))
+            .Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
     }
 
     [Fact]
@@ -135,6 +215,58 @@ public sealed class QueryCompoundCorrelationTests
             finally
             {
                 await transaction.ExecuteNonQueryAsync(connection!, $"DROP TEMPORARY TABLE IF EXISTS `order`, `{peer}`;", useTransaction: true, cancellationToken: token);
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData("use")]
+    [InlineData("force")]
+    [InlineData("ignore")]
+    [InlineData("empty")]
+    [InlineData("join")]
+    [InlineData("order")]
+    [InlineData("group")]
+    [InlineData("multiple")]
+    [InlineData("straight")]
+    [InlineData("odbc")]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlGroupedIndexModifiers_ExecuteWithLocalBindings(string shape)
+    {
+        string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_MYSQL_TEST_CONNECTION to a MySQL test database.");
+        using var client = new MySql();
+        string table = "dbx_hint_" + Guid.NewGuid().ToString("N");
+        string peer = table + "_peer";
+        await client.RunInTransactionAsync(connection!, async (transaction, token) =>
+        {
+            try
+            {
+                await transaction.ExecuteNonQueryAsync(connection!, $"CREATE TEMPORARY TABLE `{table}` (Id INT, INDEX ix (Id)); CREATE TEMPORARY TABLE `{peer}` (Id INT); INSERT INTO `{table}` VALUES (1); INSERT INTO `{peer}` VALUES (1);", useTransaction: true, cancellationToken: token);
+                string source = shape switch
+                {
+                    "use" => $"`{table}` USE INDEX (ix)",
+                    "force" => $"`{table}` FORCE KEY (ix)",
+                    "ignore" => $"`{table}` IGNORE INDEX (ix)",
+                    "empty" => $"`{table}` USE INDEX ()",
+                    "join" => $"`{table}` AS n USE INDEX FOR JOIN (ix) JOIN `{peer}` AS j ON n.Id=j.Id",
+                    "order" => $"`{table}` AS n FORCE INDEX FOR ORDER BY (ix)",
+                    "group" => $"`{table}` AS n IGNORE KEY FOR GROUP BY (ix)",
+                    "multiple" => $"`{table}` USE INDEX (ix) IGNORE INDEX FOR ORDER BY (ix), `{peer}` AS j",
+                    "straight" => $"`{table}` STRAIGHT_JOIN `{peer}` AS j ON `{table}`.Id=j.Id",
+                    "odbc" => $"{{ OJ `{table}` AS n LEFT JOIN `{peer}` AS j ON n.Id=j.Id }}",
+                    _ => throw new ArgumentOutOfRangeException(nameof(shape))
+                };
+                string qualifier = shape is "join" or "multiple" or "straight" ? "j" : shape is "order" or "group" or "odbc" ? "n" : table;
+                var query = new Query().Select(qualifier + ".Id").FromRaw(source)
+                    .Union(new Query().Select("1")).Intersect(new Query().Select("1"));
+                var rows = await transaction.QueryAsListAsync(connection!, query.Compile(SqlDialect.MySql),
+                    row => Convert.ToInt64(row.GetValue(0)), useTransaction: true, cancellationToken: token);
+                Assert.Equal(1L, Assert.Single(rows));
+            }
+            finally
+            {
+                await transaction.ExecuteNonQueryAsync(connection!, $"DROP TEMPORARY TABLE IF EXISTS `{table}`, `{peer}`;", useTransaction: true, cancellationToken: token);
             }
         });
     }

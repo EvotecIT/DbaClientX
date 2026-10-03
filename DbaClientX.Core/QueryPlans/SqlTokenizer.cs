@@ -46,7 +46,12 @@ internal static class SqlTokenizer
     /// <param name="dollarQuotes">Whether <c>$$ … $$</c> and <c>$tag$ … $tag$</c> are strings, as in PostgreSQL; in SQLite they are parameter names.</param>
     /// <param name="backslashStrings">Whether ordinary strings use MySQL's default backslash escapes.</param>
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings);
+
+    internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
+        bool dollarQuotes = false, bool backslashStrings = false)
     {
+        hasExecutableComments = false;
         var tokens = new List<SqlToken>();
         var index = 0;
         while (index < sql.Length)
@@ -67,6 +72,8 @@ internal static class SqlTokenizer
             }
             else if (character == '/' && Next(sql, index) == '*')
             {
+                hasExecutableComments |= index + 2 < sql.Length && (sql[index + 2] == '!' ||
+                    index + 3 < sql.Length && sql[index + 2] is 'M' or 'm' && sql[index + 3] == '!');
                 var end = sql.IndexOf("*/", index + 2, System.StringComparison.Ordinal);
                 index = end < 0 ? sql.Length : end + 2;
             }
