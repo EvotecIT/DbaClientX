@@ -45,6 +45,13 @@ public partial class SqlServer
         bool isCopyOnly = reader.GetBoolean(reader.GetOrdinal("IsCopyOnly"));
         bool hasBackupChecksums = reader.GetBoolean(reader.GetOrdinal("HasBackupChecksums"));
         bool isDamaged = reader.GetBoolean(reader.GetOrdinal("IsDamaged"));
+        var chainMetadata = new SqlServerBackupChainMetadata(
+            ReadBackupLsn(reader, "FirstLSN"), ReadBackupLsn(reader, "LastLSN"),
+            ReadBackupLsn(reader, "CheckpointLSN"), ReadBackupLsn(reader, "DatabaseBackupLSN"),
+            ReadBackupLsn(reader, "DifferentialBaseLSN"), ReadBackupGuid(reader, "DifferentialBaseGUID"),
+            ReadBackupGuid(reader, "FirstRecoveryForkID"), ReadBackupGuid(reader, "RecoveryForkID"),
+            ReadBackupLsn(reader, "ForkPointLSN"), Convert.ToBoolean(reader["IsSnapshot"], CultureInfo.InvariantCulture),
+            Convert.ToBoolean(reader["HasIncompleteMetaData"], CultureInfo.InvariantCulture));
         if (await ReadRecoveryRowAsync(reader, command.CommandText, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidDataException("A dedicated disk backup must contain only one backup set.");
@@ -78,6 +85,12 @@ public partial class SqlServer
 
         return new SqlServerDiskBackupHeader(databaseName, backupSetGuid, familyGuid,
             mediaName, mediaSetId,
-            backupType, isCopyOnly, hasBackupChecksums, isDamaged);
+            backupType, isCopyOnly, hasBackupChecksums, isDamaged, chainMetadata);
     }
+
+    private static decimal? ReadBackupLsn(SqlDataReader reader, string name)
+        => reader[name] is DBNull ? null : Convert.ToDecimal(reader[name], CultureInfo.InvariantCulture);
+
+    private static Guid? ReadBackupGuid(SqlDataReader reader, string name)
+        => reader[name] is DBNull ? null : (Guid)reader[name];
 }

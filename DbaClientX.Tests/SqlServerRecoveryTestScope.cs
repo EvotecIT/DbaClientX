@@ -56,6 +56,14 @@ internal sealed class SqlServerRecoveryTestScope : IAsyncDisposable
         _restoreFiles = snapshot;
     }
 
+    public void RecordAdditionalSourceFile(string path)
+    {
+        Assert.True(_sourceAttempted);
+        Assert.False(File.Exists(path));
+        Assert.Equal(Path.GetFullPath(BackupDirectory), Path.GetDirectoryName(Path.GetFullPath(path)));
+        _sourceFiles = _sourceFiles.Append(path).ToArray();
+    }
+
     public async ValueTask DisposeAsync()
     {
         await RunCleanupAsync(new Func<Task>[]
@@ -89,6 +97,15 @@ internal sealed class SqlServerRecoveryTestScope : IAsyncDisposable
         var expected = new HashSet<string>(expectedFiles.Select(Path.GetFullPath), PathComparer);
         if (currentFiles.Length == 0 || currentFiles.Any(path => !expected.Contains(Path.GetFullPath(path))))
             throw new InvalidOperationException("The temporary database's files do not match the test-owned files; cleanup was refused.");
+        // SQL Server leaves files behind when a RESTORING database is dropped. Complete only this
+        // test-owned full restore first so native DROP removes service-owned files without ACL changes.
+        using var state = new SqlCommand("SELECT state_desc FROM sys.databases WHERE name = @name", connection);
+        state.Parameters.Add("@name", SqlDbType.NVarChar, 128).Value = name;
+        if (string.Equals(await state.ExecuteScalarAsync() as string, "RESTORING", StringComparison.Ordinal))
+        {
+            using var recover = new SqlCommand("RESTORE DATABASE [" + name + "] WITH RECOVERY", connection) { CommandTimeout = 30 };
+            await recover.ExecuteNonQueryAsync();
+        }
         using var drop = new SqlCommand("DROP DATABASE [" + name + "]", connection) { CommandTimeout = 30 };
         await drop.ExecuteNonQueryAsync();
     }

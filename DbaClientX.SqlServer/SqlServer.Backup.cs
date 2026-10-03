@@ -23,42 +23,14 @@ public partial class SqlServer
     /// the generated path, which an operator should remove only after confirming no recovery process needs it.
     /// Verification checks backup readability and checksums, but it is not a test restore or database integrity check.
     /// </remarks>
-    public virtual async Task<SqlServerDiskBackupResult> BackupDatabaseCopyOnlyToDiskAsync(
+    public virtual Task<SqlServerDiskBackupResult> BackupDatabaseCopyOnlyToDiskAsync(
         string connectionString,
         string databaseName,
         string serverBackupDirectory,
         int commandTimeoutSeconds = 3600,
         CancellationToken cancellationToken = default)
-    {
-        ValidateBackupArguments(connectionString, databaseName, serverBackupDirectory, commandTimeoutSeconds);
-        string separator = serverBackupDirectory.Contains('\\') ? "\\" : "/";
-        string backupPath = serverBackupDirectory.TrimEnd('\\', '/') + separator
-            + "DbaClientX-" + Guid.NewGuid().ToString("N") + ".bak";
-        string mediaName = "DbaClientX-" + Guid.NewGuid().ToString("N");
-
-        await ExecuteBackupCommandAsync(
-            connectionString,
-            "BACKUP DATABASE @databaseName TO DISK = @backupPath "
-                + "WITH COPY_ONLY, FORMAT, MEDIANAME = @mediaName, CHECKSUM, STOP_ON_ERROR",
-            databaseName,
-            backupPath,
-            mediaName,
-            commandTimeoutSeconds,
-            cancellationToken).ConfigureAwait(false);
-        await VerifyDiskBackupAsync(connectionString, backupPath, commandTimeoutSeconds, cancellationToken)
-            .ConfigureAwait(false);
-        SqlServerDiskBackupHeader header = await ReadDiskBackupHeaderAsync(connectionString,
-            backupPath, commandTimeoutSeconds, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(header.DatabaseName, databaseName, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(header.MediaName, mediaName, StringComparison.Ordinal) ||
-            header.BackupType != 1 || !header.IsCopyOnly || !header.HasBackupChecksums ||
-            header.IsDamaged)
-        {
-            throw new InvalidOperationException("The completed backup header does not match the requested copy-only database backup.");
-        }
-
-        return new SqlServerDiskBackupResult(backupPath, header);
-    }
+        => BackupToDedicatedDiskAsync(connectionString, databaseName, serverBackupDirectory,
+            SqlServerDiskBackupKind.Full, copyOnly: true, commandTimeoutSeconds, cancellationToken);
 
     /// <summary>
     /// Checks that the first backup set on a SQL Server-visible disk file is readable and its checksums are valid.

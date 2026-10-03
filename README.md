@@ -690,7 +690,7 @@ A key can sort under a collation or by an expression, in both the seek condition
 
 ### Qualify a SQL Server backup
 
-The SQL Server provider creates dedicated copy-only backups with checksums, preflights pinned restore plans, restores to new database names with explicit file relocation, and runs full or physical-only CHECKDB. See the [SQL Server recovery example](DbaClientX.SqlServer/README.md#backup-and-restore-qualification) for the separate verification, restore and integrity steps, required permissions and cleanup responsibilities.
+The SQL Server provider creates dedicated checksummed full, differential and log backups, preflights pinned single-backup or ordered chain plans, restores to new database names with explicit file relocation, and runs full or physical-only CHECKDB. See the [SQL Server recovery example](DbaClientX.SqlServer/README.md#backup-and-restore-qualification) for the separate verification, restore and integrity steps, required permissions and cleanup responsibilities.
 
 ## Supported .NET Versions
 

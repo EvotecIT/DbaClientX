@@ -37,7 +37,9 @@ public partial class SqlServer
                 reader.GetString(reader.GetOrdinal("LogicalName")),
                 reader.GetString(reader.GetOrdinal("PhysicalName")),
                 reader.GetString(reader.GetOrdinal("Type")),
-                Convert.ToInt64(reader["Size"])));
+                Convert.ToInt64(reader["Size"]),
+                reader["UniqueID"] is DBNull ? null : (Guid)reader["UniqueID"],
+                reader["FileId"] is DBNull ? null : Convert.ToInt64(reader["FileId"])));
         }
 
         if (files.Count == 0)

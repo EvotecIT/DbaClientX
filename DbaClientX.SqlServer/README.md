@@ -230,13 +230,43 @@ if (!integrity.Succeeded)
 
 Preparation reads the backup identity and file metadata, refuses an existing target or assigned paths, and runs `RESTORE VERIFYONLY` with the complete `MOVE` mapping and checksums. Its immutable result records the allocated file sizes; that sum excludes growth, CHECKDB and other temporary space. Preparation does not reserve names, files or free space. Execution revalidates the plan and coordinates library callers with a target application lock. It never uses `REPLACE`. Keep other restore tools away from the target and protect the backup media from modification; the pinned media identity is not an authenticity signature.
 
-Verification proves readability and checksums. A restore followed by full CHECKDB provides separate database integrity evidence. Application readiness still needs application checks. These APIs accept a dedicated, single-set, single-family full backup; they do not apply differential or log chains or cut over an application. No command is replayed, including when command retries are enabled.
+Verification proves readability and checksums. A restore followed by full CHECKDB provides separate database integrity evidence. Application readiness still needs application checks. `PrepareRestoreAsNewAsync` and `RestoreDatabaseAsNewAsync` accept one dedicated full backup. No recovery command is replayed, including when command retries are enabled.
 
 CHECKDB returns a typed result with a total issue count and at most `MaxIssues` retained records (default 1,000). Message text is excluded unless `IncludeDiagnosticMessages` is true. `PhysicalOnly = true` narrows the check and is recorded in the result; full checks are the default. CHECKDB can consume substantial CPU, I/O and temporary space. Execution failures throw the library's redacted query exception, and cancellation preserves the caller token.
 
 The restored database remains available for application checks. The caller owns its eventual deletion and the backup file's retention policy. A cancelled or failed restore may leave a database in `RESTORING` state; confirm the target name and relocated files belong to the attempted restore before deleting it. A failed backup can leave an incomplete file in the supplied directory. The library does not delete caller-named databases or server files automatically.
 
-To run the opt-in local recovery contract, set `DBACLIENTX_SQL_BACKUP_TEST_CONNECTION`, `DBACLIENTX_SQL_BACKUP_TEST_DIRECTORY`, and optionally `DBACLIENTX_SQL_BACKUP_TEST_RESTORE_DIRECTORY`, then select `Category=LiveSqlRecovery`. The test creates uniquely named databases and removes its own databases and files. Its process must be able to clean up the supplied backup directory, and the SQL Server service must be able to write both directories.
+### Full, differential and log chains
+
+`BackupToDedicatedDiskAsync` creates a dedicated full, differential or log backup. Its required `copyOnly` argument makes the source policy explicit: a conventional full establishes a differential base, and a conventional log backup can permit log truncation. Use `BackupDatabaseCopyOnlyToDiskAsync` for the existing copy-only full workflow. Every generated backup uses checksums and is verified before its identity is returned.
+
+Prepare an explicitly ordered chain from retained backup results. Each disk file must contain one backup set and one media family:
+
+```csharp
+// full, differential and log are previously verified SqlServerDiskBackupResult values.
+var sources = new[] {
+    new SqlServerRestoreChainSource(full.ServerBackupPath, full.Header.Identity),
+    new SqlServerRestoreChainSource(differential.ServerBackupPath, differential.Header.Identity),
+    new SqlServerRestoreChainSource(log.ServerBackupPath, log.Header.Identity)
+};
+// Supply one new service-visible relocation path per logical file, as in the example above.
+var chain = await sql.PrepareRestoreChainAsNewAsync(
+    connectionString, sources, targetName, destinations, cancellationToken: ct);
+Console.WriteLine($"Recorded file allocation: {chain.RequiredFileBytes} bytes");
+await sql.RestoreChainAsNewAsync(connectionString, chain, cancellationToken: ct);
+var checkedDatabase = await sql.CheckDatabaseIntegrityAsync(
+    connectionString, targetName, cancellationToken: ct);
+if (!checkedDatabase.Succeeded)
+    throw new InvalidOperationException("CHECKDB reported integrity issues.");
+```
+
+The full backup comes first, followed by at most one differential and then contiguous log backups. The differential must identify its conventional full base; a copy-only full cannot serve as that base. Native log ranges may overlap the previous ending LSN, but must cover and advance it. Sequence numbers retain SQL Server's full precision. Preparation rejects changed database families, recovery forks, snapshot backups, incomplete metadata and changed file identities, including a file recreated under the same logical name.
+
+The immutable plan pins every backup identity and relocation. Execution revalidates the chain, holds one target application lock on an owned non-pooled connection, applies each step with `NORECOVERY`, and issues a separate final `RECOVERY`. It refuses an existing target and never uses `REPLACE`. It does not discover or reorder backups, cross recovery forks, resume a partial restore, restore to a point in time, or cut over an application.
+
+`RequiredFiles` records each file's maximum allocation across the supplied headers; `RequiredFileBytes` sums those allocations. Native relocation and capacity preflight checks the full backup. Budget later growth, CHECKDB and temporary space separately; the plan reserves neither capacity nor files. Cancellation can retain a `RESTORING` database and server files for explicit inspection and cleanup.
+
+To run the opt-in local recovery contracts, set `DBACLIENTX_SQL_BACKUP_TEST_CONNECTION`, `DBACLIENTX_SQL_BACKUP_TEST_DIRECTORY`, and `DBACLIENTX_SQL_BACKUP_TEST_RESTORE_DIRECTORY`, then select `Category=LiveSqlRecovery`. Supply directories writable by both the test process and SQL Server service; default instance directories can have service-only permissions. Tests create uniquely named databases and remove their own databases and files.
 
 ## See also
 

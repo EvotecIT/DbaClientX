@@ -19,6 +19,14 @@ public sealed class SqlServerBackupFileInfo
         SizeBytes = sizeBytes;
     }
 
+    internal SqlServerBackupFileInfo(string logicalName, string originalPhysicalName, string fileType,
+        long sizeBytes, System.Guid? uniqueId, long? fileId)
+        : this(logicalName, originalPhysicalName, fileType, sizeBytes)
+    {
+        UniqueId = uniqueId;
+        FileId = fileId;
+    }
+
     /// <summary>Logical file name used by RESTORE MOVE.</summary>
     public string LogicalName { get; }
 
@@ -30,4 +38,10 @@ public sealed class SqlServerBackupFileInfo
 
     /// <summary>Allocated size from FILELISTONLY, or zero when not supplied to the constructor.</summary>
     public long SizeBytes { get; }
+
+    /// <summary>Native file identity from FILELISTONLY, when supplied by the metadata reader.</summary>
+    public System.Guid? UniqueId { get; }
+
+    /// <summary>Native file number, when supplied by the metadata reader.</summary>
+    public long? FileId { get; }
 }
