@@ -76,6 +76,11 @@ public sealed class CmdletGetDbaXSqlServerMonitoring : AsyncPSCmdlet
     [Parameter(Mandatory = false)]
     public decimal WaitStatisticThresholdPercent { get; set; } = 95m;
 
+    /// <summary>Maximum retained indexes when collecting index usage; additional visible indexes set IsTruncated.</summary>
+    [Parameter(Mandatory = false)]
+    [ValidateRange(1, 10000)]
+    public int MaximumIndexUsageRows { get; set; } = 500;
+
     /// <summary>Optional connection timeout in seconds.</summary>
     [Parameter(Mandatory = false)]
     public int? ConnectTimeoutSeconds { get; set; }
@@ -106,7 +111,8 @@ public sealed class CmdletGetDbaXSqlServerMonitoring : AsyncPSCmdlet
             Scope = Scope,
             IncludeSystemDatabases = IncludeSystemDatabases.IsPresent,
             IncludeDisabledAgentJobs = IncludeDisabledAgentJobs.IsPresent,
-            WaitStatisticThresholdPercent = WaitStatisticThresholdPercent
+            WaitStatisticThresholdPercent = WaitStatisticThresholdPercent,
+            MaximumIndexUsageRows = MaximumIndexUsageRows
         };
 
         if (MaxFullBackupAgeHours.HasValue)

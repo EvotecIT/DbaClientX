@@ -32,9 +32,18 @@ public enum SqlServerMonitoringScope
     /// <summary>Collect Availability Group replica and database synchronization health.</summary>
     AvailabilityGroups = 1 << 6,
 
+    /// <summary>Collect Query Store configuration for the target database.</summary>
+    QueryStore = 1 << 7,
+
+    /// <summary>Collect bounded index usage and index statistics for the target database.</summary>
+    IndexUsage = 1 << 8,
+
+    /// <summary>Collect database workload evidence without changing database configuration.</summary>
+    Workload = QueryStore | IndexUsage,
+
     /// <summary>Recommended baseline monitoring for continuous health checks.</summary>
     Baseline = Connectivity | DatabaseState | BackupFreshness | CheckDbFreshness | AgentJobs,
 
-    /// <summary>All monitoring areas currently implemented by this provider.</summary>
+    /// <summary>All original monitoring areas, retaining the published value. Combine with <see cref="Workload"/> to include workload evidence.</summary>
     All = Baseline | WaitStatistics | AvailabilityGroups
 }
