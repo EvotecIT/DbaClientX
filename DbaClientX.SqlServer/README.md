@@ -107,6 +107,54 @@ cli.RunInTransaction(
 );
 ```
 
+## Backup and restore qualification
+
+Backup paths and relocation paths are evaluated on the SQL Server host under its service account. Supply existing directories that the service can read and write. The SQL login needs backup permission on the source, permission to create the restored database, and permission to run CHECKDB. These operations use an owned connection to `master` outside ambient transactions.
+
+```csharp
+using var sql = new SqlServer();
+var backup = await sql.BackupDatabaseCopyOnlyToDiskAsync(
+    connectionString, "App", serverBackupDirectory, cancellationToken: ct);
+
+// Retain this identity with the recovery record, separately from the backup file.
+var identity = backup.Header.Identity;
+var files = await sql.ReadDiskBackupFileListAsync(
+    connectionString, backup.ServerBackupPath, cancellationToken: ct);
+string targetName = "App_Recovery_" + Guid.NewGuid().ToString("N");
+var destinations = new Dictionary<string, string>();
+for (int index = 0; index < files.Count; index++)
+{
+    var file = files[index];
+    string directory = file.FileType switch
+    {
+        "D" => serverDataDirectory,
+        "L" => serverLogDirectory,
+        _ => throw new NotSupportedException("Assign an explicit destination for this file type.")
+    };
+    destinations.Add(file.LogicalName, directory.TrimEnd('\\', '/') + "/"
+        + targetName + "_" + index + (file.FileType == "L" ? ".ldf" : ".mdf"));
+}
+
+var plan = await sql.PrepareRestoreAsNewAsync(connectionString,
+    backup.ServerBackupPath, targetName, identity, destinations, cancellationToken: ct);
+// Review plan.Header, plan.Files, plan.FileDestinations and plan.RequiredFileBytes.
+await sql.RestoreDatabaseAsNewAsync(connectionString, plan, cancellationToken: ct);
+var integrity = await sql.CheckDatabaseIntegrityAsync(
+    connectionString, targetName, cancellationToken: ct);
+if (!integrity.Succeeded)
+    throw new InvalidOperationException("CHECKDB reported integrity issues.");
+```
+
+Preparation reads the backup identity and file metadata, refuses an existing target or assigned paths, and runs `RESTORE VERIFYONLY` with the complete `MOVE` mapping and checksums. Its immutable result records the allocated file sizes; that sum excludes growth, CHECKDB and other temporary space. Preparation does not reserve names, files or free space. Execution revalidates the plan and coordinates library callers with a target application lock. It never uses `REPLACE`. Keep other restore tools away from the target and protect the backup media from modification; the pinned media identity is not an authenticity signature.
+
+Verification proves readability and checksums. A restore followed by full CHECKDB provides separate database integrity evidence. Application readiness still needs application checks. These APIs accept a dedicated, single-set, single-family full backup; they do not apply differential or log chains or cut over an application. No command is replayed, including when command retries are enabled.
+
+CHECKDB returns a typed result with a total issue count and at most `MaxIssues` retained records (default 1,000). Message text is excluded unless `IncludeDiagnosticMessages` is true. `PhysicalOnly = true` narrows the check and is recorded in the result; full checks are the default. CHECKDB can consume substantial CPU, I/O and temporary space. Execution failures throw the library's redacted query exception, and cancellation preserves the caller token.
+
+The restored database remains available for application checks. The caller owns its eventual deletion and the backup file's retention policy. A cancelled or failed restore may leave a database in `RESTORING` state; confirm the target name and relocated files belong to the attempted restore before deleting it. A failed backup can leave an incomplete file in the supplied directory. The library does not delete caller-named databases or server files automatically.
+
+To run the opt-in local recovery contract, set `DBACLIENTX_SQL_BACKUP_TEST_CONNECTION`, `DBACLIENTX_SQL_BACKUP_TEST_DIRECTORY`, and optionally `DBACLIENTX_SQL_BACKUP_TEST_RESTORE_DIRECTORY`, then select `Category=LiveSqlRecovery`. The test creates uniquely named databases and removes its own databases and files. Its process must be able to clean up the supplied backup directory, and the SQL Server service must be able to write both directories.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
