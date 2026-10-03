@@ -102,21 +102,31 @@ public partial class SQLite
     {
         using var interrupt = command.Transaction == null
             ? RegisterCommandInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
-        return await ExecuteCommandWithRetryAsync(
-            () => AwaitWithCallerCancellationAsync(
-                () => command.ExecuteNonQueryAsync(cancellationToken), cancellationToken),
-            command.Connection!,
-            command.Transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
+        return await ExecutePreparedCommandAsync(command,
+            static (statement, token) => statement.ExecuteNonQueryAsync(token),
+            cancellationToken, returnsResults: false).ConfigureAwait(false);
     }
 
     internal async Task<object?> ExecutePreparedScalarAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
         using var interrupt = command.Transaction == null
             ? RegisterCommandInterrupt(command.Connection!, cancellationToken, command.CommandText) : default;
-        return await ExecuteCommandWithRetryAsync(
-            () => AwaitWithCallerCancellationAsync(
-                () => command.ExecuteScalarAsync(cancellationToken), cancellationToken),
-            command.Connection!,
-            command.Transaction, cancellationToken).ConfigureAwait(false);
+        return await ExecutePreparedCommandAsync(command,
+            static (statement, token) => statement.ExecuteScalarAsync(token),
+            cancellationToken, returnsResults: true).ConfigureAwait(false);
     }
+
+    private Task<T> ExecutePreparedCommandAsync<T>(SqliteCommand command,
+        Func<SqliteCommand, CancellationToken, Task<T>> operation, CancellationToken cancellationToken, bool returnsResults)
+    {
+        if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<T>(cancellationToken);
+        return CanRetryCommand(command.Connection!, command.Transaction, returnsResults)
+            ? ExecutePreparedReplayableCommandAsync(command, operation, cancellationToken, returnsResults)
+            : AwaitWithCallerCancellationAsync(operation, command, cancellationToken);
+    }
+
+    private Task<T> ExecutePreparedReplayableCommandAsync<T>(SqliteCommand command,
+        Func<SqliteCommand, CancellationToken, Task<T>> operation, CancellationToken cancellationToken, bool returnsResults)
+        => ExecuteCommandWithRetryAsync(() => AwaitWithCallerCancellationAsync(operation, command, cancellationToken),
+            command.Connection!, command.Transaction, cancellationToken, returnsResults);
 }

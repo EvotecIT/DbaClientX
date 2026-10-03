@@ -40,10 +40,14 @@ public abstract partial class DatabaseClientBase
     /// <returns>The completed command result.</returns>
     protected T ExecuteCommandWithRetry<T>(Func<T> operation, DbConnection connection, DbTransaction? transaction, bool returnsResults = true)
         => CanRetryCommand(connection, transaction, returnsResults)
-            ? TransientRetry.Run(operation,
-                exception => CanRetryCommand(connection, transaction, returnsResults) && IsTransient(exception),
-                CreateTransientRetryOptions())
+            ? ExecuteReplayableCommand(operation, connection, transaction, returnsResults)
             : operation();
+
+    // Captured retry delegates are needed only for the explicit replay path, never for each ordinary command.
+    private T ExecuteReplayableCommand<T>(Func<T> operation, DbConnection connection, DbTransaction? transaction, bool returnsResults)
+        => TransientRetry.Run(operation,
+            exception => CanRetryCommand(connection, transaction, returnsResults) && IsTransient(exception),
+            CreateTransientRetryOptions());
 
     /// <summary>Asynchronously executes a command under its replay policy.</summary>
     /// <typeparam name="T">The command result type.</typeparam>
@@ -63,11 +67,15 @@ public abstract partial class DatabaseClientBase
         if (cancellationToken.IsCancellationRequested)
             return Task.FromCanceled<T>(cancellationToken);
         return CanRetryCommand(connection, transaction, returnsResults)
-            ? TransientRetry.RunAsync(_ => operation(),
-                exception => CanRetryCommand(connection, transaction, returnsResults) && IsTransient(exception),
-                CreateTransientRetryOptions(), cancellationToken: cancellationToken)
+            ? ExecuteReplayableCommandAsync(operation, connection, transaction, cancellationToken, returnsResults)
             : operation();
     }
+
+    private Task<T> ExecuteReplayableCommandAsync<T>(Func<Task<T>> operation, DbConnection connection,
+        DbTransaction? transaction, CancellationToken cancellationToken, bool returnsResults)
+        => TransientRetry.RunAsync(_ => operation(),
+            exception => CanRetryCommand(connection, transaction, returnsResults) && IsTransient(exception),
+            CreateTransientRetryOptions(), cancellationToken: cancellationToken);
 
     /// <summary>Determines whether a command is eligible for replay, including provider-native transaction state.</summary>
     /// <param name="connection">The open connection used by the command.</param>

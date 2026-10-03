@@ -108,13 +108,26 @@ public abstract partial class DatabaseClientBase
             cancellationToken);
 
     /// <summary>Awaits an ADO.NET operation and normalizes provider-specific cancellation failures.</summary>
-    protected async Task<T> AwaitWithCallerCancellationAsync<T>(
+    protected Task<T> AwaitWithCallerCancellationAsync<T>(
         Func<Task<T>> operation,
+        CancellationToken cancellationToken)
+        => AwaitWithCallerCancellationAsync(static (callback, _) => callback(), operation, cancellationToken);
+
+    /// <summary>Invokes and awaits a stateful provider operation without requiring a captured delegate.</summary>
+    /// <typeparam name="T">The operation result type.</typeparam>
+    /// <typeparam name="TState">The state supplied to the provider operation.</typeparam>
+    /// <param name="operation">The provider operation, including any synchronous failure before it returns a task.</param>
+    /// <param name="state">State passed to each operation invocation.</param>
+    /// <param name="cancellationToken">The caller token passed to the operation and used to normalize provider cancellation.</param>
+    /// <returns>The provider result, with caller cancellation reported using the caller's token.</returns>
+    protected async Task<T> AwaitWithCallerCancellationAsync<T, TState>(
+        Func<TState, CancellationToken, Task<T>> operation,
+        TState state,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await operation().ConfigureAwait(false);
+            return await operation(state, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException ex) when (
             !IsCallerCancellation(ex, cancellationToken) &&
