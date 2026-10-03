@@ -71,6 +71,22 @@ public static partial class DbaClientXDiagnostics
         catch (Exception) { Activity.Current = previousActivity; }
     }
 
+    /// <summary>Starts a library-owned child activity whose disposal cannot replace an operation result or error.</summary>
+    internal static ActivityScope StartActivityScope(string name)
+    {
+        var previousActivity = Activity.Current;
+        return new ActivityScope(StartObservedActivity(name, ActivityKind.Internal), previousActivity);
+    }
+
+    internal readonly struct ActivityScope : IDisposable
+    {
+        private readonly Activity? _previousActivity;
+        internal Activity? Activity { get; }
+        internal ActivityScope(Activity? activity, Activity? previousActivity)
+            => (Activity, _previousActivity) = (activity, previousActivity);
+        public void Dispose() => StopObservedActivity(Activity, _previousActivity);
+    }
+
     /// <summary>
     /// Starts a correlated operation and establishes its operation identifier for nested work.
     /// </summary>

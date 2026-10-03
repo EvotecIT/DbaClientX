@@ -12,7 +12,8 @@ public sealed partial class DbaTableCopyEngine
         string role,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Count");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.Count");
+        var activity = activityScope.Activity;
         SetOperationTags(activity, definition, role);
         try
         {
@@ -38,7 +39,8 @@ public sealed partial class DbaTableCopyEngine
         string role,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Count");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.Count");
+        var activity = activityScope.Activity;
         SetOperationTags(activity, definition, role);
         try
         {
@@ -64,7 +66,8 @@ public sealed partial class DbaTableCopyEngine
         int pageSequence,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.ReadPage");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.ReadPage");
+        var activity = activityScope.Activity;
         activity?.SetTag(
             "dbaclientx.table",
             DbaClientXDiagnostics.SanitizeLogicalName(request.Definition.DisplayName));
@@ -97,7 +100,8 @@ public sealed partial class DbaTableCopyEngine
         int pageSequence,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.WritePage");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.WritePage");
+        var activity = activityScope.Activity;
         activity?.SetTag(
             "dbaclientx.table",
             DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
@@ -125,7 +129,8 @@ public sealed partial class DbaTableCopyEngine
         DbaTableCopyDefinition definition,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Clear");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.Clear");
+        var activity = activityScope.Activity;
         SetOperationTags(activity, definition, "destination");
         try
         {

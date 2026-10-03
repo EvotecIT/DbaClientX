@@ -179,7 +179,8 @@ public sealed partial class DbaTableCopyEngine
         DbaTableCopyPreflight? preflight,
         CancellationToken cancellationToken)
     {
-        using var activity = DbaClientXDiagnostics.StartActivity("DbaClientX.TableCopy.Table");
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.Table");
+        var activity = activityScope.Activity;
         activity?.SetTag(
             "dbaclientx.table",
             DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
