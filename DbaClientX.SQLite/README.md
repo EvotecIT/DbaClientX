@@ -8,6 +8,10 @@ Also includes SQLite maintenance helpers for online database backup, WAL checkpo
 
 On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session, backup, diagnostics and table-copy entrypoints. An explicit connection-string or file-URI `vfs` choice takes precedence. File URIs retain mode, cache and native options such as `immutable=1`. Escaped URI names and ordinary named-memory targets keep distinct shared-memory databases isolated; extended and ordinary drive/UNC aliases share the same destructive-copy and backup guards.
 
+Use SQLite's case-sensitive URI spelling: lowercase `file:`, option names such as `mode`, `cache` and `vfs`, and values such as `memory` or `shared`. `FILE:items.db` is an ordinary filename on POSIX. Repeated options follow native order: `mode=memory&mode=rwc` selects a disk database, while `mode=ro&mode=rwc` is rejected. Explicit connection-string settings override URI options.
+
+Copy guards retain URI-decoded filename spaces and follow the provider's `DataDirectory` behavior. POSIX maintenance checks use the same native directory-link and `..` resolution as the database connection.
+
 ## Install
 
 ```bash
