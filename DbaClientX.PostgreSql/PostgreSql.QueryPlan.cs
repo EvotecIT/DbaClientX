@@ -106,6 +106,7 @@ public partial class PostgreSql
 
     private static void ValidateQueryPlanConnection(NpgsqlConnection connection)
     {
+        ValidateConnectionString(connection.ConnectionString);
         var effective = new NpgsqlConnectionStringBuilder(connection.ConnectionString);
         if (effective.Pooling || effective.Enlist || effective.Multiplexing
             || effective.CancellationTimeout != 2000 || connection.State != ConnectionState.Closed)

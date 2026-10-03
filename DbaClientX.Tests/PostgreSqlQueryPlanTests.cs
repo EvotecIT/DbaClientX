@@ -1,5 +1,4 @@
 using System.Data;
-using System.Text.Json;
 using DBAClientX;
 using DBAClientX.QueryBuilder;
 using DBAClientX.QueryPlans;
@@ -139,6 +138,40 @@ public sealed class PostgreSqlQueryPlanTests
         {
             FactoryCalls++;
             throw new InvalidOperationException("Must not connect");
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Capture_RejectsFactoriesThatRemoveTlsOrIsolationAndDisposesTheirConnection(bool removeTls)
+    {
+        using var provider = new InvalidFactoryProvider(removeTls);
+        await Assert.ThrowsAsync<DbaQueryExecutionException>(() => provider.ExplainQueryPlanAsync(OfflineConnection, "SELECT 1"));
+        Assert.False(provider.OpenAttempted);
+        Assert.True(provider.ConnectionDisposed);
+    }
+
+    private sealed class InvalidFactoryProvider(bool removeTls) : PostgreSql
+    {
+        internal bool OpenAttempted { get; private set; }
+        internal bool ConnectionDisposed { get; private set; }
+        protected override NpgsqlConnection CreateConnection(string connectionString)
+        {
+            var target = new NpgsqlConnectionStringBuilder(connectionString);
+            if (removeTls) target.SslMode = SslMode.Disable;
+            else target.Pooling = true;
+            return base.CreateConnection(target.ConnectionString);
+        }
+        protected override Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken token)
+        {
+            OpenAttempted = true;
+            throw new InvalidOperationException("Must not open an invalid factory connection");
+        }
+        protected override async ValueTask DisposeConnectionAsync(NpgsqlConnection connection)
+        {
+            await base.DisposeConnectionAsync(connection);
+            ConnectionDisposed = true;
         }
     }
 
