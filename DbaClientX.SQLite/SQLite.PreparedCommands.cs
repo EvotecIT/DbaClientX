@@ -26,10 +26,9 @@ public partial class SQLite
             throw new ArgumentNullException(nameof(parameterNames));
         }
 
-        var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = query;
-        ApplyCommandTimeout(command);
+        // The connection factory snapshots DefaultTimeout into the command. The native constructor
+        // leaves that override unset, so prepared statements follow retained timeout changes and resets.
+        var command = new SqliteCommand(query, connection, transaction);
         var parameters = new SqliteParameter[parameterNames.Count];
         for (var index = 0; index < parameterNames.Count; index++)
         {

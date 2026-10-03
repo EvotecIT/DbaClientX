@@ -6,6 +6,8 @@ namespace DBAClientX;
 
 public partial class SQLite
 {
+    // Keep notifications independent of the transaction lock, which can span native database waits.
+    // The base client releases its separate timeout-state lock before invoking the notification hook.
     private readonly object _connectionTimeoutSync = new();
     private readonly List<ConnectionTimeoutState> _connectionTimeouts = new();
     private int _timeoutRegistrations;
