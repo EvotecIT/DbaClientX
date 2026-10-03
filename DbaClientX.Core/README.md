@@ -214,6 +214,10 @@ are excluded from their parent's duration, so phase times do not double count ve
 Timings include adapter waits, transformation and caller progress callbacks. Opening the source
 snapshot and initial compatibility checks precede these measurements.
 
+For verified overwrites of multiple tables, providers with coordinated preflight validate pages
+while the engine computes source checksums. The validation transaction rolls back before
+checkpoint preparation or destination clearing.
+
 `SourceRowsRead` includes repeated materialization, and a reused preflight page is counted once.
 `SourcePageStreamCount` counts source requests starting without a continuation token; it is not
 a count of complete table scans. Compare rows read with the known source row count to assess
