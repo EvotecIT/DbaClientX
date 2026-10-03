@@ -27,6 +27,7 @@ public class SQLitePreparedCommandRetryTests
                 MaxRetryAttempts = 2,
                 RetryDelay = TimeSpan.Zero,
                 RetryNonQueryOperations = true,
+                CommandRetryMode = CommandRetryMode.ReplaySafe,
                 Unlock = locker.Rollback
             };
             using SQLiteSession session = sqlite.OpenSession(path);

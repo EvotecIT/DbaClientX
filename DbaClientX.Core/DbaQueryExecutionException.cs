@@ -135,7 +135,7 @@ public class DbaQueryExecutionException : DbaClientXException
         return fingerprint == null ? message : message + " Statement fingerprint: " + fingerprint + ".";
     }
 
-    private static string? CreateFingerprint(string? query)
+    internal static string? CreateFingerprint(string? query)
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
         using var sha = System.Security.Cryptography.SHA256.Create();

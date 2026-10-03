@@ -343,12 +343,12 @@ WHERE TABLE_TYPE = 'BASE TABLE'
     /// <summary>
     /// Opens a MySQL connection using synchronous APIs.
     /// </summary>
-    protected virtual void OpenConnection(MySqlConnection connection) => connection.Open();
+    protected virtual void OpenConnection(MySqlConnection connection) => OpenConnectionWithDiagnostics(connection);
 
     /// <summary>
     /// Opens a MySQL connection asynchronously.
     /// </summary>
-    protected virtual Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+    protected virtual Task OpenConnectionAsync(MySqlConnection connection, CancellationToken cancellationToken) => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken);
 
     /// <summary>
     /// Disposes a MySQL connection created for the current operation.

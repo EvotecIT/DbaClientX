@@ -241,4 +241,17 @@ public static class DbaTableCopyPageReader
         }
         return bytes;
     }
+
+    // Reuse the page-budget estimate without materializing ItemArray or serializing row values.
+    internal static long EstimatePayloadBytes(DataTable table)
+    {
+        long bytes = 0;
+        foreach (DataRow row in table.Rows)
+        {
+            bytes += 64L + table.Columns.Count * 32L;
+            for (int ordinal = 0; ordinal < table.Columns.Count; ordinal++)
+                bytes += EstimateValueBytes(row[ordinal]);
+        }
+        return bytes;
+    }
 }

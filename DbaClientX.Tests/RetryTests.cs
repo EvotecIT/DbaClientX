@@ -217,7 +217,7 @@ public class RetryTests
     [Fact]
     public void ExecuteScalar_RetriesTransientErrors()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(2);
         var result = client.Run(connection);
         Assert.Equal(1, result);
@@ -227,16 +227,31 @@ public class RetryTests
     [Fact]
     public void ExecuteScalar_ThrowsAfterMaxRetries()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 2, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 2, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(5);
         Assert.Throws<TransientTestException>(() => client.Run(connection));
         Assert.Equal(2, connection.Attempts);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteScalar_InsideAmbientTransaction_DoesNotReplay(bool asynchronous)
+    {
+        using var client = new RetryClient { CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe, MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        var connection = new TransientConnection(2);
+        using var scope = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+
+        if (asynchronous) await Assert.ThrowsAsync<TransientTestException>(() => client.RunAsync(connection));
+        else Assert.Throws<TransientTestException>(() => client.Run(connection));
+
+        Assert.Equal(1, connection.Attempts);
+    }
+
     [Fact]
     public async Task ExecuteScalarAsync_RetriesTransientErrors()
     {
-        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero };
+        using var client = new RetryClient { MaxRetryAttempts = 3, RetryDelay = TimeSpan.Zero, CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe };
         var connection = new TransientConnection(1);
         var result = await client.RunAsync(connection);
         Assert.Equal(1, result);

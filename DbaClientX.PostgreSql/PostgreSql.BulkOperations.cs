@@ -234,14 +234,14 @@ public partial class PostgreSql
     /// Opens the specified <paramref name="connection"/>.
     /// </summary>
     /// <param name="connection">The connection to open.</param>
-    protected virtual void OpenConnection(NpgsqlConnection connection) => connection.Open();
+    protected virtual void OpenConnection(NpgsqlConnection connection) => OpenConnectionWithDiagnostics(connection);
 
     /// <summary>
     /// Asynchronously opens the specified <paramref name="connection"/>.
     /// </summary>
     /// <param name="connection">The connection to open.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
-    protected virtual Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+    protected virtual Task OpenConnectionAsync(NpgsqlConnection connection, CancellationToken cancellationToken) => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken);
 
     /// <summary>
     /// Disposes a PostgreSQL connection created for the current operation.

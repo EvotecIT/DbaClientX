@@ -11,7 +11,7 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopySchemaPrefl
     public async Task ValidateSchemaAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
         using SqlConnection connection = CreateTableCopyConnection();
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await ValidateSchemaAsync(connection, definition, page, options, cancellationToken).ConfigureAwait(false);
     }
 

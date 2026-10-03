@@ -52,6 +52,13 @@ public sealed class DbaTableCopyOptions
     /// </summary>
     public string? OperationId { get; init; }
 
+    /// <summary>
+    /// Collects per-phase durations, page and row counts, and estimated managed page payloads.
+    /// Disabled by default to avoid walking page values for measurements. Results and manifests contain
+    /// the same redacted statistics. These estimates do not measure network traffic or native buffers.
+    /// </summary>
+    public bool CollectPerformanceStatistics { get; init; }
+
     /// <summary>Optional callback that receives copy progress snapshots.</summary>
     public Action<DbaTableCopyProgress>? Progress { get; init; }
 }

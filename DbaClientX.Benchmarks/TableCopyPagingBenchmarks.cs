@@ -71,12 +71,20 @@ public class TableCopyPagingBenchmarks
 
     [Benchmark]
     public async Task<long> CursorCopyEngine()
+        => await CopyWithMeasurementsAsync(false).ConfigureAwait(false);
+
+    /// <summary>Measures the optional per-phase payload accounting over the same pages.</summary>
+    [Benchmark]
+    public async Task<long> CursorCopyEngineWithMeasurements()
+        => await CopyWithMeasurementsAsync(true).ConfigureAwait(false);
+
+    private async Task<long> CopyWithMeasurementsAsync(bool measure)
     {
         var result = await new DbaTableCopyEngine().CopyAsync(
                 new CursorSource(_rows),
                 new CountingDestination(),
                 new[] { _definition },
-                new DbaTableCopyOptions { PageSize = PageSize })
+                new DbaTableCopyOptions { PageSize = PageSize, CollectPerformanceStatistics = measure })
             .ConfigureAwait(false);
         return result.CopiedRows;
     }

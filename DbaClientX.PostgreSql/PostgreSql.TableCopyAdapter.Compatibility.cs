@@ -36,7 +36,7 @@ ORDER BY attribute.attnum";
     {
         using NpgsqlConnection? owned = _readConnection == null ? new NpgsqlConnection(ConnectionString) : null;
         NpgsqlConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
 
         foreach (DbaTableCopyDefinition definition in definitions)
         {

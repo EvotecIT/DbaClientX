@@ -507,7 +507,7 @@ public partial class SQLite
             try
             {
                 connection = new SqliteConnection(connectionString);
-                connection.Open();
+                OpenConnectionWithDiagnostics(connection);
                 ApplyBusyTimeout(connection);
                 ApplyConnectionConfiguration(connection);
                 transaction = isolationLevel.HasValue
@@ -536,7 +536,7 @@ public partial class SQLite
             {
                 connection = new SqliteConnection(connectionString);
                 await AwaitWithCallerCancellationAsync(
-                    () => connection.OpenAsync(retryToken),
+                    () => OpenConnectionWithDiagnosticsAsync(connection, retryToken),
                     retryToken).ConfigureAwait(false);
                 await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, retryToken).ConfigureAwait(false);
                 ApplyConnectionConfiguration(connection);

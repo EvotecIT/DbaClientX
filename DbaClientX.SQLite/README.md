@@ -77,6 +77,10 @@ await sq.ExecuteNonQueryWithConnectionStringAsync(
 
 `SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings. File paths containing `=` remain valid paths.
 
+Sessions reuse one connection. A session and its prepared commands execute sequentially; do not run them concurrently or dispose the session during execution. Canceling an async session or prepared command interrupts its running statement outside an explicit transaction. The cancellation registration ends before the connection can be reused. Inside a transaction, SQLite interruption can roll back earlier writes, so cancellation is cooperative and may wait for the provider statement to finish. This includes transactions opened with SQL `BEGIN` or `SAVEPOINT`, and batches that start one.
+
+Commands, including result-returning batches and prepared scalars, execute once by default. Set `CommandRetryMode = CommandRetryMode.ReplaySafe` on a dedicated client only when every command and callback is safe to repeat after partial success. Individual commands inside transactions are never replayed. See [Core retry behavior](../DbaClientX.Core/README.md#retry-behavior).
+
 Writing many rows in one transaction with a prepared command (the statement is parsed once; each call rebinds values by position):
 
 ```csharp

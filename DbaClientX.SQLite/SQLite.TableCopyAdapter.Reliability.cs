@@ -38,7 +38,7 @@ public sealed partial class SQLiteTableCopyAdapter
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using SqliteCommand command = connection.CreateCommand();
         command.Transaction = _readTransaction;

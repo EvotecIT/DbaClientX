@@ -62,7 +62,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using var command = connection.CreateCommand();
         command.Transaction = _readTransaction;
@@ -80,7 +80,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
         SqliteConnection connection = _readConnection ?? owned!;
         if (owned != null)
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         }
         using var command = connection.CreateCommand();
         command.Transaction = _readTransaction;
@@ -98,7 +98,7 @@ public sealed partial class SQLiteTableCopyAdapter : DbaProviderTableCopyAdapter
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
     {
         using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         using var command = connection.CreateCommand();
         command.CommandText = query;
         command.CommandTimeout = CommandTimeout;
