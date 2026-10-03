@@ -32,7 +32,7 @@ public static class SqlStatementText
     /// A semicolon ends a statement unless it is inside a string, a quoted or bracketed identifier or a comment, and
     /// for <see cref="SqlDialect.SQLite"/> the <c>BEGIN … END</c> body of a <c>CREATE TRIGGER</c>, and for
     /// <see cref="SqlDialect.PostgreSql"/> a dollar-quoted body (<c>$$ … $$</c>, <c>$fn$ … $fn$</c>; in SQLite these are
-    /// parameter names). MySQL strings use its default backslash escaping; scripts using
+    /// parameter names, including namespace and parenthesized suffixes). MySQL strings use its default backslash escaping; scripts using
     /// <c>NO_BACKSLASH_ESCAPES</c> are not supported. Procedural bodies of other dialects (MySQL and T-SQL <c>BEGIN … END</c>), PostgreSQL
     /// <c>BEGIN ATOMIC</c> bodies and scripts that rely on line breaks or batch separators instead of semicolons
     /// (<c>GO</c>) are not kept whole.
@@ -46,7 +46,8 @@ public static class SqlStatementText
 
         var statements = new List<string>();
         var tokens = SqlTokenizer.Tokenize(sql, dollarQuotes: dialect == SqlDialect.PostgreSql,
-            backslashStrings: dialect == SqlDialect.MySql, nestedBlockComments: dialect == SqlDialect.SqlServer);
+            backslashStrings: dialect == SqlDialect.MySql, sqliteParameters: dialect == SqlDialect.SQLite,
+            nestedBlockComments: dialect == SqlDialect.SqlServer);
         var first = -1;
         var trigger = false;
         var inBody = false;

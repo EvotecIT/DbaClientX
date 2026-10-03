@@ -6,6 +6,12 @@ Also includes SQLite maintenance helpers for online database backup, WAL checkpo
 - Target Frameworks: `net472` (win-x64), `netstandard2.1`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
 
+On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session, backup, diagnostics and table-copy entrypoints. An explicit connection-string or file-URI `vfs` choice takes precedence. File URIs retain mode, cache and native options such as `immutable=1`. Escaped URI names and ordinary named-memory targets keep distinct shared-memory databases isolated; extended and ordinary drive/UNC aliases share the same destructive-copy and backup guards.
+
+Use SQLite's case-sensitive URI spelling: lowercase `file:`, option names such as `mode`, `cache` and `vfs`, and values such as `memory` or `shared`. `FILE:items.db` is an ordinary filename on POSIX. Repeated options follow native order: `mode=memory&mode=rwc` selects a disk database, while `mode=ro&mode=rwc` is rejected. Explicit connection-string settings override URI options.
+
+Copy guards retain URI-decoded filename spaces and follow the provider's `DataDirectory` behavior. POSIX maintenance checks use the same native directory-link and `..` resolution as the database connection. Diagnostics `FullPath` and backup result paths report the resolved POSIX filesystem target; aliases such as macOS `/var` may appear as `/private/var`. Diagnostics `Database` retains the caller's input.
+
 ## Install
 
 ```bash
@@ -70,6 +76,10 @@ await sq.ExecuteNonQueryWithConnectionStringAsync(
 ```
 
 `SQLiteGeneric.GenericExecutors.ExecuteSqlAsync` accepts either a path or a full connection string. Full connection strings preserve mode, cache, pooling, timeout, password, foreign-key, trigger, and VFS settings. File paths containing `=` remain valid paths.
+
+Sessions reuse one connection. A session and its prepared commands execute sequentially; do not run them concurrently or dispose the session during execution. Canceling an async session or prepared command interrupts its running statement outside an explicit transaction. The cancellation registration ends before the connection can be reused. Inside a transaction, SQLite interruption can roll back earlier writes, so cancellation is cooperative and may wait for the provider statement to finish. This includes transactions opened with SQL `BEGIN` or `SAVEPOINT`, and batches that start one.
+
+Commands, including result-returning batches and prepared scalars, execute once by default. Set `CommandRetryMode = CommandRetryMode.ReplaySafe` on a dedicated client only when every command and callback is safe to repeat after partial success. Individual commands inside transactions are never replayed. See [Core retry behavior](../DbaClientX.Core/README.md#retry-behavior).
 
 Writing many rows in one transaction with a prepared command (the statement is parsed once; each call rebinds values by position):
 

@@ -126,7 +126,124 @@ await sqlite.WritePlannerStatisticsAsync("test.db", new[] { new SqlitePlannerSta
 
 ## Retry behavior
 
-Provider clients and streaming-reader startup use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt, `RetryDelay` is the exponential-backoff base, and non-query retries remain disabled by default to avoid replaying a write that may already have succeeded.
+Provider clients use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt and `RetryDelay` is the exponential-backoff base. Connection establishment is retried separately from command execution.
+
+Commands execute once by default (`CommandRetryMode.Never`), including queries, scalars, mapped results, reader startup and prepared statements. Returning rows does not make a command read-only: a batch, stored procedure or `INSERT ... RETURNING` can commit a write before a later statement fails. This replaces the automatic retries previously applied to result-returning commands.
+
+Opt in on a dedicated client only when all its SQL and mapping callbacks are safe to repeat after partial success:
+
+```csharp
+using var reads = new DBAClientX.SQLite
+{
+    CommandRetryMode = DBAClientX.CommandRetryMode.ReplaySafe,
+    MaxRetryAttempts = 3,
+    RetryDelay = TimeSpan.FromMilliseconds(100)
+};
+var total = await reads.ExecuteScalarAsync("app.db", "SELECT COUNT(*) FROM Users");
+```
+
+`RetryNonQueryOperations` remains available as a nonquery-only opt-in. Neither opt-in replays an individual command inside an explicit, ambient or library-owned transaction. SQLite also checks native transaction state for SQL `BEGIN` and `SAVEPOINT`. Roll back the failed transaction and decide whether the entire unit of work can be repeated. Streaming never replays rows after enumeration starts.
+
+## Execution diagnostics
+
+`DBAClientX.Diagnostics.DbaClientXDiagnostics` exposes an `ActivitySource` and a `Meter`, both named `DbaClientX`.
+Subscribe through `ActivityListener`, `MeterListener`, or your telemetry collector. Ordinary queries, mapped results,
+nonquery/scalar commands, SQLite session/prepared executions and reader startup share this contract across providers.
+With no source or meter listener, execution scopes allocate no per-command state and do not hash statement text.
+
+Activities use `DbaClientX.Command` and `DbaClientX.Connection.Open`. They report the provider, operation, outcome,
+retry count, and known row count. Command fingerprints use the same SHA-256 of exact SQL text as
+`DbaQueryExecutionException.QueryFingerprint`; literals are not normalized. SQL text, parameter values, connection
+strings and exception messages are excluded. Fingerprints appear only in activities that request full data.
+
+| Instrument | Unit | Meaning |
+| --- | --- | --- |
+| `dbaclientx.command.duration` | seconds | Logical execution, eligible retry delays and library-owned result consumption |
+| `dbaclientx.command.count` | commands | One measurement per logical execution |
+| `dbaclientx.command.retries` | retries | Eligible retries within that execution |
+| `dbaclientx.command.rows` | rows | Materialized/mapped or emitted rows, or nonnegative provider-reported affected rows |
+| `dbaclientx.connection.open.duration` | seconds | One native connection-open attempt, including provider pool wait |
+
+Metric dimensions are limited to `db.system.name`, `dbaclientx.operation` and `dbaclientx.outcome`.
+Providers are `mssql`, `postgresql`, `mysql`, `oracle`, `sqlite` or `other`. Outcomes are `success`, `error`, `canceled`
+and `abandoned`. Scalars and unknown affected-row counts omit row measurements. Streaming counts delivered rows,
+including partial results on failure; early disposal reports `abandoned`. Its duration includes time between caller
+requests for rows. For `reader.open`, the command duration ends at reader handoff and excludes caller-owned consumption.
+Connection-open duration excludes pragmas, configuration callbacks, transaction startup and retry delays.
+Activity and meter subscriber failures do not replace database results or errors.
+If a subscriber prevents initial activity-source registration, activities stay disabled until the host
+removes the failing subscriber and accesses `DbaClientXDiagnostics.ActivitySource` to retry registration.
+Errors from that explicit registration call reach its caller; database commands and meter measurements keep working.
+
+```csharp
+using System.Diagnostics.Metrics;
+using DBAClientX.Diagnostics;
+
+using var listener = new MeterListener
+{
+    InstrumentPublished = (instrument, owner) =>
+    {
+        if (instrument.Meter.Name == DbaClientXDiagnostics.MeterName &&
+            instrument.Name == "dbaclientx.command.duration")
+            owner.EnableMeasurementEvents(instrument);
+    }
+};
+listener.SetMeasurementEventCallback<double>((instrument, seconds, tags, state) =>
+    Console.WriteLine($"Command duration: {seconds:F6}s"));
+listener.Start();
+```
+
+For a caller-owned native `DbConnection`, `DbaClientXDiagnostics.OpenConnection` and `OpenConnectionAsync` observe the
+provider open without taking ownership, retrying or applying configuration. Provider clients retain their existing
+virtual open hooks. Telemetry observes execution and does not change replay, cancellation or transaction policy.
+
+## Table-copy progress and measurements
+
+`DbaTableCopyOptions.Progress` reports elapsed time and average rows per second for the current
+table and phase. `EstimatedRemaining` estimates only that phase's remaining rows. Unknown row
+counts omit the estimate. On resume, `RowsCopied` includes verified committed rows while
+`RowsProcessedThisPass` and throughput count only rows processed by the current invocation.
+
+Enable `CollectPerformanceStatistics` when investigating migration cost:
+
+```csharp
+var result = await new DbaTableCopyEngine().CopyAsync(source, destination, definitions,
+    new DbaTableCopyOptions
+    {
+        VerifyContent = true,
+        CollectPerformanceStatistics = true,
+        Progress = progress => Console.WriteLine(
+            $"{progress.TableName}: {progress.Phase}, {progress.RowsPerSecond:F0} rows/s, " +
+            $"remaining {progress.EstimatedRemaining}")
+    }, cancellationToken);
+
+foreach (var phase in result.Performance!.Phases)
+    Console.WriteLine($"{phase.Phase}: {phase.Duration}, source rows read {phase.SourceRowsRead}");
+```
+
+Results and the redacted run manifest share the same measurements. Phase invocations remain
+separate: content validation, schema preflight before destructive changes, destination preparation,
+copying, and destination verification. Repeated verification reads remain visible. Nested phases
+are excluded from their parent's duration, so phase times do not double count verification.
+Timings include adapter waits, transformation and caller progress callbacks. Opening the source
+snapshot and initial compatibility checks precede these measurements.
+
+For verified overwrites of multiple tables, providers with coordinated preflight validate pages
+while the engine computes source checksums. The validation transaction rolls back before
+checkpoint preparation or destination clearing.
+
+`SourceRowsRead` includes repeated materialization, and a reused preflight page is counted once.
+`SourcePageStreamCount` counts source requests starting without a continuation token; it is not
+a count of complete table scans. Compare rows read with the known source row count to assess
+read amplification. Successful writes exclude rows committed by earlier runs and empty checkpoint
+completion markers.
+
+Payload counters use the page byte-budget estimator: row/field overhead, UTF-16 string storage,
+binary length and approximate scalar storage. They describe estimated managed payload processed,
+including repeated reads. They exclude native buffers, wire bytes, serialization and process memory.
+Statistics are disabled by default; enabling them walks materialized page values without serializing
+or hashing them again. The existing preflight, stable-source, checksum and atomic checkpoint
+requirements still apply.
 
 ## Notes
 - Ship a per-provider package alongside Core for ADO.NET specifics (see provider READMEs).

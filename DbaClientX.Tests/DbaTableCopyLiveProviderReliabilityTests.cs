@@ -60,11 +60,14 @@ public sealed class DbaTableCopyLiveProviderReliabilityTests
                 {
                     ClearDestination = true,
                     VerifyContent = verifyContent,
+                    CollectPerformanceStatistics = true,
                     PageSize = 1
                 });
 
             Assert.Equal(3, result.CopiedRows);
             Assert.True(result.Verified);
+            if (verifyContent)
+                Assert.Equal(6, result.Performance!.SourceRowsRead);
             Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT COUNT(*) FROM {Quote(destinationParent)}")));
             Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT MAX(id) FROM {Quote(destinationParent)}")));
             Assert.Equal(2L, Convert.ToInt64(await ExecuteScalarAsync(connection, $"SELECT parent_id FROM {Quote(destinationChild)}")));

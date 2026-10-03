@@ -558,6 +558,16 @@ await foreach (var chunk in sqlite.QueryStreamAsync("monitoring.db", "SELECT Id,
 
 `DbaRecordMapper.Values()` maps each row to an `object?[]`, with `DBNull` replaced by `null`, for columnar consumers. Mappers must copy what they need, because the record is reused for the next row. The typed streams are available on .NET Standard 2.1, .NET 8 and later for SQL Server, PostgreSQL, MySQL, Oracle and SQLite; SQLite also has `QueryReadOnlyStreamAsync<T>` for a read-only stream of a database file and `QueryStreamWithConnectionStringAsync<T>` for other connection options. Canceling a SQLite stream interrupts the statement that is running.
 
+`DbaRecordMapper.Bind<T>(schema)` resolves column ordinals once per result. It uses the same conversions and null handling as `For<T>()`, without checking every column name on every row. Bind before reading values, and bind again after `NextResult()` or any change to the column layout. The delegate retains column metadata and can be reused with independent readers that have that same layout. Use `For<T>()` when one delegate must automatically adapt to different layouts.
+
+```csharp
+Func<System.Data.IDataRecord, EventRow>? map = null;
+var events = await sqlite.QueryAsListAsync(
+    "monitoring.db", "SELECT Id, Zone, CreatedUtc FROM Events",
+    row => map!(row),
+    initialize: schema => map = DbaRecordMapper.Bind<EventRow>(schema));
+```
+
 ### Bulk Insert
 
 ```csharp
@@ -593,6 +603,8 @@ var postgres = DBAClientX.PostgreSql.BuildConnectionString("localhost", "app", "
 var mysql = DBAClientX.MySql.BuildConnectionString("localhost", "app", "user", "password", ssl: true);
 var sqlite = DBAClientX.SQLite.BuildConnectionString("app.db");
 ```
+
+SQLite accepts ordinary filenames and `file:` URIs. Long Windows filenames use extended paths and the locking-capable `win32-longpath` VFS unless the caller selects a VFS. File URI authorities must be empty or exactly `localhost`; pass Windows network shares as ordinary UNC filenames. Explicit connection options take precedence over URI hints, and native options such as `immutable=1` are retained. Shared-memory URI targets stay in memory. Table-copy and backup guards resolve file and directory links, including aliases in parent directories, before changing a destination.
 
 ### Query Builder
 
@@ -675,6 +687,10 @@ A key can sort under a collation or by an expression, in both the seek condition
 - Keyset page queries must be compiled with `CompileWithParameters`; `Compile()` throws, because literal SQL loses precision such as fractional seconds.
 - Cursors are unsigned by default, so treat them as untrusted input. Declare key types (`KeysetColumn.Asc<long>("Id")`, matching the CLR type the provider returns) to reject cursor values of another type, and set `SigningKey` (32 random bytes kept on the server and used only for paging) to reject any modified cursor. Signing proves the server issued a cursor; it does not authorize access, so keep applying the caller's filters. For offset paging, also cap the offset you accept.
 - SQL Server sends `DateTime` parameters as `datetime` (1/300 s precision). For `datetime2` keys, set `UseDateTime2ForDateTimeParameters = true` on the `SqlServer` client or pass an explicit `SqlDbType.DateTime2` parameter type, so page boundaries do not repeat or skip rows.
+
+### Qualify a SQL Server backup
+
+The SQL Server provider creates dedicated copy-only backups with checksums, preflights pinned restore plans, restores to new database names with explicit file relocation, and runs full or physical-only CHECKDB. See the [SQL Server recovery example](DbaClientX.SqlServer/README.md#backup-and-restore-qualification) for the separate verification, restore and integrity steps, required permissions and cleanup responsibilities.
 
 ## Supported .NET Versions
 

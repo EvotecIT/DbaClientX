@@ -11,7 +11,7 @@ public sealed partial class SQLiteTableCopyAdapter : IDbaTableCopySchemaPrefligh
     public async Task ValidateSchemaAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
         using var connection = new SqliteConnection(ResolveSQLiteConnectionString());
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await ValidateSchemaAsync(connection, definition, page, cancellationToken).ConfigureAwait(false);
     }
 

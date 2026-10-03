@@ -3,7 +3,7 @@ using DBAClientX.DataMovement;
 
 namespace DbaClientX.Tests;
 
-public class DbaTableCopyEngineTests
+public partial class DbaTableCopyEngineTests
 {
     [Fact]
     public async Task CopyAsync_CopiesPagedRowsClearsDestinationAndReportsProgress()

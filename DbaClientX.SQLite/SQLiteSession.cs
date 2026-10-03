@@ -11,6 +11,7 @@ namespace DBAClientX;
 /// <remarks>
 /// The session keeps provider-specific connection and transaction objects inside DBAClientX while
 /// allowing callers to run related commands against the same SQLite connection.
+/// A session and its prepared commands must not execute concurrently or be disposed during execution.
 /// </remarks>
 public sealed class SQLiteSession : IDisposable
 {

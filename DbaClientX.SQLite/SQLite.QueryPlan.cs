@@ -87,7 +87,7 @@ public partial class SQLite
         try
         {
             using var connection = new Microsoft.Data.Sqlite.SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
-            connection.Open();
+            OpenConnectionWithDiagnostics(connection);
             int resultCode = SQLitePCL.raw.sqlite3_table_column_metadata(
                 connection.Handle,
                 "main",

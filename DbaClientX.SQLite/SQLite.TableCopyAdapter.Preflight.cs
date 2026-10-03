@@ -18,7 +18,7 @@ public sealed partial class SQLiteTableCopyAdapter :
         var connection = new SqliteConnection(ResolveSQLiteConnectionString());
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             await ValidateSchemaAsync(connection, definition, firstPage, cancellationToken).ConfigureAwait(false);
             var session = new SQLiteSchemaPreflightSession(
                 this, connection, connection.BeginTransaction(), definition, options);
@@ -55,7 +55,7 @@ public sealed partial class SQLiteTableCopyAdapter :
         var connection = new SqliteConnection(ResolveSQLiteConnectionString());
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             for (var index = 0; index < definitions.Count; index++)
             {
                 if (firstPages[index] is DataTable page)

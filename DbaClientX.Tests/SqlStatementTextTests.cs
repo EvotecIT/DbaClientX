@@ -6,6 +6,21 @@ namespace DbaClientX.Tests;
 public sealed class SqlStatementTextTests
 {
     [Theory]
+    [InlineData("$item(O'Reilly)")]
+    [InlineData("@item(O'Reilly)")]
+    [InlineData(":item(O'Reilly)")]
+    [InlineData("$scope::item(a;'/*--\"[)")]
+    [InlineData("$項目(O'Reilly)")]
+    [InlineData("$::item(O'Reilly)")]
+    public void Split_SqliteParameterSuffixes_PreserveFollowingStatementBoundaries(string parameter)
+    {
+        var first = "SELECT " + parameter;
+        Assert.Equal(new[] { first, "BEGIN", "SAVEPOINT unit" },
+            SqlStatementText.Split(first + "; BEGIN; SAVEPOINT unit;"));
+        Assert.True(SqlStatementText.IsSingleStatement(first));
+    }
+
+    [Theory]
     [InlineData("SELECT 1--2; SELECT 3", "SELECT 1--2", "SELECT 3")]
     [InlineData("SELECT 1; -- comment; ignored\nSELECT 2", "SELECT 1", "SELECT 2")]
     [InlineData("SELECT 1; --\tcomment; ignored\nSELECT 2", "SELECT 1", "SELECT 2")]

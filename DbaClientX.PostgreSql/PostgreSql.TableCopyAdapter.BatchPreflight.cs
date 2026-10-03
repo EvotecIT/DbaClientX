@@ -17,7 +17,7 @@ public sealed partial class PostgreSqlTableCopyAdapter : IDbaTableCopySchemaPref
         var connection = new NpgsqlConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             using var postgreSql = new PostgreSql { CommandTimeout = CommandTimeout };
             for (var index = 0; index < definitions.Count; index++)
             {

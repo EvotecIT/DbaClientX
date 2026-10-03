@@ -45,13 +45,14 @@ internal static class SqlTokenizer
     /// <param name="sql">The SQL text.</param>
     /// <param name="dollarQuotes">Whether <c>$$ … $$</c> and <c>$tag$ … $tag$</c> are strings, as in PostgreSQL; in SQLite they are parameter names.</param>
     /// <param name="backslashStrings">Whether ordinary strings use MySQL's default backslash escapes.</param>
+    /// <param name="sqliteParameters">Whether named parameters use SQLite's identifier, namespace and parenthesized suffix syntax.</param>
     /// <param name="nestedBlockComments">Whether block comments can nest, as in SQL Server.</param>
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false,
-        bool nestedBlockComments = false)
-        => Tokenize(sql, out _, dollarQuotes, backslashStrings, nestedBlockComments);
+        bool sqliteParameters = false, bool nestedBlockComments = false)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments);
 
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
-        bool dollarQuotes = false, bool backslashStrings = false, bool nestedBlockComments = false)
+        bool dollarQuotes = false, bool backslashStrings = false, bool sqliteParameters = false, bool nestedBlockComments = false)
     {
         hasExecutableComments = false;
         var tokens = new List<SqlToken>();
@@ -59,7 +60,7 @@ internal static class SqlTokenizer
         while (index < sql.Length)
         {
             var character = sql[index];
-            if (char.IsWhiteSpace(character))
+            if (char.IsWhiteSpace(character) || character == '\uFEFF')
             {
                 index++;
             }
@@ -142,6 +143,13 @@ internal static class SqlTokenizer
                 var bodyEnd = close < 0 ? sql.Length : close;
                 tokens.Add(new SqlToken(SqlTokenKind.String, sql.Substring(start, index - start), sql.Substring(start + tag.Length, bodyEnd - start - tag.Length), start));
             }
+            else if (sqliteParameters && character is '@' or ':' or '$' or '#' or '?')
+            {
+                var start = index;
+                ReadSqliteParameter(sql, ref index);
+                var text = sql.Substring(start, index - start);
+                tokens.Add(new SqlToken(SqlTokenKind.Parameter, text, text, start));
+            }
             else if (character == ':' && Next(sql, index) == ':')
             {
                 // PostgreSQL cast operator.
@@ -178,6 +186,44 @@ internal static class SqlTokenizer
 
     private static char Next(string sql, int index) => index + 1 < sql.Length ? sql[index + 1] : '\0';
 
+    // SQLite's Tcl-style named parameters may contain :: and a non-whitespace suffix in parentheses.
+    // Quotes, comment markers and semicolons in that suffix belong to the parameter, not to SQL syntax.
+    private static void ReadSqliteParameter(string sql, ref int index)
+    {
+        if (sql[index++] == '?')
+        {
+            while (index < sql.Length && sql[index] is >= '0' and <= '9') index++;
+            return;
+        }
+
+        var hasName = false;
+        while (index < sql.Length)
+        {
+            var character = sql[index];
+            if (IsSqliteIdentifierCharacter(character))
+            {
+                hasName = true;
+                index++;
+            }
+            else if (character == ':' && Next(sql, index) == ':')
+                index += 2;
+            else if (character == '(' && hasName)
+            {
+                index++;
+                while (index < sql.Length && sql[index] != '\0' &&
+                       sql[index] != ')' && !IsSqliteSpace(sql[index])) index++;
+                if (index < sql.Length && sql[index] == ')') index++;
+                return;
+            }
+            else return;
+        }
+    }
+
+    private static bool IsSqliteIdentifierCharacter(char character)
+        => character >= '\u0080' || character is >= 'a' and <= 'z' or >= 'A' and <= 'Z'
+            or >= '0' and <= '9' or '_' or '$';
+
+    private static bool IsSqliteSpace(char character) => character is ' ' or '\t' or '\n' or '\f' or '\r';
     private static int SkipBlockComment(string sql, int start, bool nested)
     {
         int depth = 1;
