@@ -15,7 +15,7 @@ public partial class QueryCompiler
 
     private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS", "FOR"
+        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS", "FOR", "ESCAPE"
     };
 
     private static readonly HashSet<string> MySqlProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
@@ -194,9 +194,10 @@ public partial class QueryCompiler
         {
             var previous = tokens[end - 2];
             if (previous.Kind is SqlTokenKind.CloseParenthesis or SqlTokenKind.String or SqlTokenKind.Number or SqlTokenKind.QuotedIdentifier ||
-                previous.Kind == SqlTokenKind.Word && !ProjectionOperators.Contains(previous.Text)
-                && !(_dialect == SqlDialect.MySql && MySqlProjectionOperators.Contains(previous.Text))
-                && !(_dialect == SqlDialect.SqlServer && previous.Text.Equals("ZONE", StringComparison.OrdinalIgnoreCase))) return last.Value;
+                previous.Kind == SqlTokenKind.Word && (end - first >= 3 && tokens[end - 3].Text == "."
+                    || !ProjectionOperators.Contains(previous.Text)
+                    && !(_dialect == SqlDialect.MySql && MySqlProjectionOperators.Contains(previous.Text))
+                    && !(_dialect == SqlDialect.SqlServer && previous.Text.Equals("ZONE", StringComparison.OrdinalIgnoreCase)))) return last.Value;
         }
         return null;
     }

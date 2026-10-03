@@ -134,7 +134,9 @@ public partial class QueryCompiler
                     sb.Append(", ");
                 }
                 var expression = query.OrderByExpressions[index];
-                sb.Append(expression.IsRaw ? expression.Text : QuoteIdentifier(expression.Text));
+                sb.Append(expression.IsRaw ? expression.Text : compound
+                    ? CompileCompoundOrderColumn(query, expression.Text, expression.Collation)
+                    : QuoteIdentifier(expression.Text));
                 if (expression.Collation != null)
                 {
                     AppendCollation(sb, expression.Collation);
