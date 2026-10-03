@@ -59,4 +59,75 @@ public class SQLiteRetainedTimeoutTests
         }
         finally { File.Delete(path); }
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TimeoutUpdate_CompletesWhileAnotherConnectionBlocksTransactionStartup(bool reset)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "dbax-timeout-start-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            SqliteConnection? retainedConnection = null;
+            using var client = new DBAClientX.SQLite
+            {
+                CommandTimeout = 0,
+                ConfigureConnection = connection =>
+                {
+                    connection.DefaultTimeout = 2;
+                    retainedConnection = connection;
+                },
+                ConnectionOptions = new DBAClientX.SQLiteConnectionOptions
+                {
+                    Pooling = false, BusyTimeoutMs = 1,
+                    EnableWriteAheadLogging = false, UseNormalSynchronousMode = false
+                }
+            };
+            using var session = client.OpenSession(path);
+            session.ExecuteNonQuery("CREATE TABLE items(id INTEGER);");
+            Assert.Equal(0, retainedConnection!.DefaultTimeout);
+            using var locker = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = path, Pooling = false
+            }.ConnectionString);
+            locker.Open();
+            using var command = locker.CreateCommand();
+            command.CommandText = "BEGIN IMMEDIATE";
+            command.ExecuteNonQuery();
+            using var starting = new ManualResetEventSlim();
+            client.ConfigureConnection = connection =>
+            {
+                connection.DefaultTimeout = 2;
+                starting.Set();
+            };
+            Task transaction = Task.Factory.StartNew(() => client.BeginTransaction(path),
+                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            Task? update = null;
+            bool completedWhileBlocked = false;
+            int retainedTimeoutWhileBlocked = -1;
+            try
+            {
+                Assert.True(starting.Wait(TimeSpan.FromSeconds(5)));
+                Assert.NotSame(transaction, await Task.WhenAny(transaction, Task.Delay(TimeSpan.FromMilliseconds(100))));
+                update = Task.Factory.StartNew(() =>
+                {
+                    if (reset) client.ResetCommandTimeout();
+                    else client.CommandTimeout = 1;
+                }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+                completedWhileBlocked = await Task.WhenAny(update, Task.Delay(TimeSpan.FromSeconds(1))) == update;
+                retainedTimeoutWhileBlocked = retainedConnection.DefaultTimeout;
+            }
+            finally
+            {
+                command.CommandText = "ROLLBACK";
+                command.ExecuteNonQuery();
+                await transaction.WaitAsync(TimeSpan.FromSeconds(10));
+                if (update != null) await update.WaitAsync(TimeSpan.FromSeconds(10));
+                if (client.IsInTransaction) client.Rollback();
+            }
+            Assert.True(completedWhileBlocked, "Timeout notification waited behind a separate native transaction.");
+            Assert.Equal(reset ? 2 : 1, retainedTimeoutWhileBlocked);
+        }
+        finally { File.Delete(path); }
+    }
 }

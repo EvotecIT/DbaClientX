@@ -6,6 +6,9 @@ namespace DBAClientX;
 
 public partial class SQLite
 {
+    // Keep notifications independent of the transaction lock, which can span native database waits.
+    // The base client releases its separate timeout-state lock before invoking the notification hook.
+    private readonly object _connectionTimeoutSync = new();
     private readonly List<ConnectionTimeoutState> _connectionTimeouts = new();
     private int _timeoutRegistrations;
 
@@ -16,7 +19,7 @@ public partial class SQLite
 
     private void RetainConnectionTimeout(SqliteConnection connection)
     {
-        lock (_syncRoot)
+        lock (_connectionTimeoutSync)
         {
             // Track only retained connections, and periodically prune without scanning on every new connection.
             if (++_timeoutRegistrations == 32)
@@ -32,9 +35,7 @@ public partial class SQLite
     /// <inheritdoc />
     protected override void OnCommandTimeoutChanged()
     {
-        // Transaction startup already owns the client state lock. Use that same lock for
-        // registration and notifications so reading timeout state cannot reverse lock order.
-        lock (_syncRoot)
+        lock (_connectionTimeoutSync)
         {
             bool configured = TryGetCommandTimeout(out int timeout);
             for (int index = _connectionTimeouts.Count - 1; index >= 0; index--)
