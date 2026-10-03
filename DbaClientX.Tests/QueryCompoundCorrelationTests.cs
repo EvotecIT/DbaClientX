@@ -65,9 +65,12 @@ public sealed class QueryCompoundCorrelationTests
     [InlineData("grouped")]
     [InlineData("groupedJoin")]
     [InlineData("groupedComma")]
+    [InlineData("groupedJoinComma")]
+    [InlineData("joinComma")]
     [InlineData("quotedAlias")]
     [InlineData("quotedTable")]
     [InlineData("qualified")]
+    [InlineData("defaultDatabase")]
     public void MySqlGroupedSourceSyntax_PreservesLocalBindings(string shape)
     {
         Query Operand() => shape switch
@@ -75,9 +78,12 @@ public sealed class QueryCompoundCorrelationTests
             "grouped" => new Query().Select("n.Id").FromRaw("(numbers AS n)"),
             "groupedJoin" => new Query().Select("j.Id").FromRaw("(numbers AS n JOIN other AS j ON n.Id = j.Id)"),
             "groupedComma" => new Query().Select("j.Id").FromRaw("(numbers AS n, other AS j)"),
+            "groupedJoinComma" => new Query().Select("k.Id").FromRaw("(numbers AS n JOIN other AS j ON n.Id = j.Id, third AS k)"),
+            "joinComma" => new Query().Select("k.Id").FromRaw("numbers AS n JOIN other AS j ON n.Id = j.Id, third AS k"),
             "quotedAlias" => new Query().Select("order.Id").From("numbers", "order"),
             "quotedTable" => new Query().Select("order.Id").From("order"),
             "qualified" => new Query().Select("app.numbers.Id").From("app.numbers"),
+            "defaultDatabase" => new Query().Select("app.numbers.Id").From("numbers"),
             _ => throw new ArgumentOutOfRangeException(nameof(shape))
         };
         Assert.Contains("dbx_left_", Operand().Union(Operand()).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
@@ -89,6 +95,10 @@ public sealed class QueryCompoundCorrelationTests
     [InlineData("quotedAlias")]
     [InlineData("quotedTable")]
     [InlineData("qualified")]
+    [InlineData("groupedComma")]
+    [InlineData("groupedJoinComma")]
+    [InlineData("joinComma")]
+    [InlineData("defaultDatabase")]
     [Trait("Category", "LiveProvider")]
     public async Task MySqlGroupedSourceSyntax_ExecutesWithLocalBindings(string shape)
     {
@@ -106,13 +116,18 @@ public sealed class QueryCompoundCorrelationTests
                 {
                     "grouped" => new Query().Select("n.Id").FromRaw("(`order` AS n)"),
                     "groupedJoin" => new Query().Select("j.Id").FromRaw($"(`order` AS n JOIN `{peer}` AS j ON n.Id = j.Id)"),
+                    "groupedComma" => new Query().Select("j.Id").FromRaw($"(`order` AS n, `{peer}` AS j)"),
+                    "groupedJoinComma" => new Query().Select("k.Id").FromRaw($"(`order` AS n JOIN `{peer}` AS j ON n.Id = j.Id, (SELECT 1 AS Id) AS k)"),
+                    "joinComma" => new Query().Select("k.Id").FromRaw($"`order` AS n JOIN `{peer}` AS j ON n.Id = j.Id, (SELECT 1 AS Id) AS k"),
                     "quotedAlias" => new Query().Select("order.Id").From("order", "order"),
                     "quotedTable" => new Query().Select("order.Id").From("order"),
                     "qualified" => new Query().Select(database + ".order.Id").From(database + ".order"),
+                    "defaultDatabase" => new Query().Select(database + ".order.Id").From("order"),
                     _ => throw new ArgumentOutOfRangeException(nameof(shape))
                 };
                 // Each temporary table is read once, respecting MySQL's temporary-table reopening restriction.
-                var second = shape == "groupedJoin" ? new Query().Select("1") : new Query().Select("Id").From(peer);
+                bool usesPeer = shape is "groupedJoin" or "groupedComma" or "groupedJoinComma" or "joinComma";
+                var second = usesPeer ? new Query().Select("1") : new Query().Select("Id").From(peer);
                 var rows = await transaction.QueryAsListAsync(connection!, first.Union(second).Intersect(new Query().Select("1"))
                     .Compile(SqlDialect.MySql), row => Convert.ToInt64(row.GetValue(0)), useTransaction: true, cancellationToken: token);
                 Assert.Equal(1L, Assert.Single(rows));
@@ -122,6 +137,36 @@ public sealed class QueryCompoundCorrelationTests
                 await transaction.ExecuteNonQueryAsync(connection!, $"DROP TEMPORARY TABLE IF EXISTS `order`, `{peer}`;", useTransaction: true, cancellationToken: token);
             }
         });
+    }
+
+    [Theory]
+    [InlineData("cte")]
+    [InlineData("derived")]
+    [InlineData("lateral")]
+    [InlineData("jsonTable")]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySql8GroupedInternalDefinitions_PreserveEligibleBindings(string shape)
+    {
+        string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_MYSQL_TEST_CONNECTION to a MySQL test database.");
+        using var client = new MySql();
+        string version = Convert.ToString(await client.ExecuteScalarAsync(connection!, "SELECT VERSION();"))!;
+        Assert.SkipWhen(version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase),
+            "MariaDB does not share MySQL's ancestor-correlation and LATERAL contracts.");
+        var operand = shape switch
+        {
+            "cte" => new Query().SelectRaw("(WITH c AS (SELECT n.Id AS Id) SELECT c.Id FROM c) AS Id")
+                .FromRaw("(SELECT 1 AS Id) AS n"),
+            "derived" => new Query().SelectRaw("(SELECT q.Id FROM (SELECT n.Id AS Id) AS q) AS Id")
+                .FromRaw("(SELECT 1 AS Id) AS n"),
+            "lateral" => new Query().Select("l.Id").FromRaw("(SELECT 1 AS Id) AS n").JoinRaw("LATERAL (SELECT n.Id) AS l", "1 = 1"),
+            "jsonTable" => new Query().Select("o.Id").FromRaw("(SELECT '[{\"Id\":1}]' AS Json) AS n")
+                .JoinRaw("JSON_TABLE(n.Json, '$[*]' COLUMNS (Id INT PATH '$.Id')) AS o", "1 = 1"),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape))
+        };
+        var rows = await client.QueryAsListAsync(connection!, operand.Union(new Query().Select("1"))
+            .Intersect(new Query().Select("1")).Compile(SqlDialect.MySql), row => Convert.ToInt64(row.GetValue(0)));
+        Assert.Equal(1L, Assert.Single(rows));
     }
 
     [Fact]
@@ -149,6 +194,39 @@ public sealed class QueryCompoundCorrelationTests
             _ => throw new ArgumentOutOfRangeException(nameof(shape))
         };
         Assert.Throws<NotSupportedException>(() => operand.Union(new Query().Select("1")).Intersect(new Query().Select("1"))
+            .Compile(SqlDialect.MySql));
+    }
+
+    [Theory]
+    [InlineData("cte")]
+    [InlineData("derived")]
+    public void MySqlDefinitions_CanSeeEligibleAncestorRelations(string shape)
+    {
+        string expression = shape == "cte" ? "(WITH c AS (SELECT n.Id AS Id) SELECT c.Id FROM c) AS Id"
+            : "(SELECT q.Id FROM (SELECT n.Id AS Id) AS q) AS Id";
+        Assert.Contains("dbx_left_", new Query().SelectRaw(expression).From("numbers", "n")
+            .Union(new Query().Select("1")).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MySqlJsonTableArguments_CannotBindToTheirResultAliasOrLaterSources(bool forward)
+    {
+        string qualifier = forward ? "j" : "o";
+        var operand = new Query().Select("o.Id").From("numbers", "n")
+            .JoinRaw($"JSON_TABLE({qualifier}.Json, '$[*]' COLUMNS (Id INT PATH '$.Id')) AS o", "1 = 1");
+        if (forward) operand.Join("other", "j", "j.Id", "=", "n.Id");
+        Assert.Throws<NotSupportedException>(() => operand.Union(new Query().Select("1")).Intersect(new Query().Select("1"))
+            .Compile(SqlDialect.MySql));
+    }
+
+    [Fact]
+    public void MySqlJsonTableArguments_CanBindToEarlierSources()
+    {
+        var operand = new Query().Select("o.Id").From("numbers", "n")
+            .JoinRaw("JSON_TABLE(n.Json, '$[*]' COLUMNS (Id INT PATH '$.Id')) AS o", "1 = 1");
+        Assert.Contains("dbx_left_", operand.Union(new Query().Select("1")).Intersect(new Query().Select("1"))
             .Compile(SqlDialect.MySql));
     }
 

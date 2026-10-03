@@ -630,8 +630,8 @@ Compound queries apply root ordering and paging to the combined result. Mixed `U
 preserving outer-row references in correlated subqueries. Nested, locally paged and other mixed operands use derived
 tables to preserve their grouping. MySQL/MariaDB rejects correlations from these derived tables to an enclosing query;
 the compiler rejects explicit outer qualifiers in such operands with `NotSupportedException`. Move the correlation
-outside the grouped operand or keep a flat union chain. Qualify correlated columns explicitly: unqualified names
-require schema metadata and remain subject to the server's name resolution.
+outside the grouped operand or keep a flat union chain. Qualify correlated columns explicitly: unqualified columns
+and omitted source databases require connection/schema metadata and remain subject to the server's name resolution.
 
 ### Paging
 
