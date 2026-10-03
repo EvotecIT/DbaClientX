@@ -10,6 +10,36 @@ public class SQLiteUriTargetSafetyTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task SharedMemoryUri_AuthoritySpellingRetainsItsNamespaceAndClearGuard(bool localhost)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "dbax-authority-" + Guid.NewGuid().ToString("N") + ".db");
+        string rawUri = "file:" + Uri.EscapeDataString(path) + "?mode=memory&cache=shared";
+        string absoluteUri = new Uri(path).AbsoluteUri;
+        if (localhost) absoluteUri = absoluteUri.Replace("file:///", "file://localhost/");
+        using var sqlite = new SQLite();
+        using var held = sqlite.OpenSession(rawUri);
+        held.ExecuteNonQuery("CREATE TABLE protected_items(id INTEGER); INSERT INTO protected_items VALUES(1),(2),(3)");
+        foreach (string sourceKey in new[] { "FullUri", "Data Source" })
+        {
+            string target = sourceKey + "=" + absoluteUri + "?mode=memory&cache=shared;Pooling=False";
+            Assert.Equal(3L, sqlite.ExecuteScalarWithConnectionString(target, "SELECT COUNT(*) FROM protected_items"));
+            var runner = new DbaProviderTableCopyRunner(_ => throw new Exception("Must reject before connecting"), _ => throw new Exception("Must reject before connecting"));
+            var request = new DbaProviderTableCopyRequest
+            {
+                Source = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = rawUri },
+                Destination = new DbaProviderTableCopyAdapterOptions { Provider = DbaTableCopyProvider.SQLite, ConnectionString = target },
+                Definitions = new[] { new DbaTableCopyDefinition("protected_items", "protected_items", new[] { "id" }) },
+                Options = new DbaTableCopyOptions { ClearDestination = true }, AllowSameProviderTableCopy = true
+            };
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
+            Assert.Contains("also used as a source table", error.Message);
+            Assert.Equal(3L, held.ExecuteScalar("SELECT COUNT(*) FROM protected_items"));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void SharedMemoryUri_FromLongWorkingDirectory_RemainsInMemory(bool connectionInput)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Exercises the Windows journal path threshold.");

@@ -22,6 +22,7 @@ internal static class SQLiteFileUri
             if (authority.Length != 0 && !string.Equals(authority, "localhost", StringComparison.Ordinal))
                 throw new ArgumentException("SQLite file URIs require an empty authority or localhost.", nameof(value));
             if (authority.Length != 0) value = "file://" + filename.Substring(end);
+            if (Path.DirectorySeparatorChar != '\\') filename = filename.Substring(end);
         }
 
         // Windows URI filenames need drive/UNC conversion. POSIX filenames must retain
@@ -35,7 +36,7 @@ internal static class SQLiteFileUri
 
         // SQLite accepts file:relative.db and native POSIX absolute paths, including file:/.
         // Authorities have already been validated; decode the filename exactly once.
-        filename = value.Substring(5);
+        if (Path.DirectorySeparatorChar == '\\') filename = value.Substring(5);
         if (Path.DirectorySeparatorChar == '\\' && filename.StartsWith("/", StringComparison.Ordinal))
             return false;
         int fragment = filename.IndexOf('#');
