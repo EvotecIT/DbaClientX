@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using DBAClientX.QueryBuilder;
 
 namespace DBAClientX.QueryPlans;
 
@@ -16,11 +17,28 @@ public sealed class DbaQueryPlan
     /// and the alias in <see cref="DbaQueryPlanStep.Alias"/>, so rules can name tables.
     /// </remarks>
     public DbaQueryPlan(string sql, IReadOnlyList<DbaQueryPlanStep> steps)
+        : this(sql, steps, new DbaQueryPlanProvenance(SqlDialect.SQLite, "EXPLAIN QUERY PLAN"))
+    {
+    }
+
+    /// <summary>Creates a plan with explicit provider provenance.</summary>
+    /// <param name="sql">The statement that was explained.</param>
+    /// <param name="steps">The steps in provider order.</param>
+    /// <param name="provenance">The native source and parameter context. Only SQLite plan labels are resolved from SQL aliases.</param>
+    public DbaQueryPlan(string sql, IReadOnlyList<DbaQueryPlanStep> steps, DbaQueryPlanProvenance provenance)
     {
         Sql = sql ?? throw new ArgumentNullException(nameof(sql));
+        Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
         if (steps == null)
         {
             throw new ArgumentNullException(nameof(steps));
+        }
+
+        if (provenance.Dialect != SqlDialect.SQLite)
+        {
+            Steps = Array.AsReadOnly(steps.ToArray());
+            AmbiguousAliases = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            return;
         }
 
         var (aliases, _) = SqlTableAliases.Find(sql);
@@ -60,6 +78,7 @@ public sealed class DbaQueryPlan
         Sql = source.Sql;
         Steps = steps;
         AmbiguousAliases = source.AmbiguousAliases;
+        Provenance = source.Provenance;
     }
 
     /// <summary>Replaces enriched steps without interpreting their already resolved table names as raw plan labels.</summary>
@@ -68,11 +87,26 @@ public sealed class DbaQueryPlan
     /// <summary>Gets the statement that was explained.</summary>
     public string Sql { get; }
 
+    /// <summary>Gets the source of the plan and its parameter estimation context.</summary>
+    public DbaQueryPlanProvenance Provenance { get; }
+
     /// <summary>Gets the steps in the order the database reported them; <see cref="DbaQueryPlanStep.ParentId"/> links them into a tree.</summary>
     public IReadOnlyList<DbaQueryPlanStep> Steps { get; }
 
-    /// <summary>Gets the steps that read every row of a table (or every entry of one of its indexes).</summary>
-    public IEnumerable<DbaQueryPlanStep> FullScans => Steps.Where(step => step.Operation == DbaQueryPlanOperation.Scan && step.Table != null);
+    /// <summary>Gets SQLite full scans after SQLite-specific plan enrichment.</summary>
+    /// <exception cref="NotSupportedException">The plan is native to another provider; its scan access method does not establish full traversal.</exception>
+    public IEnumerable<DbaQueryPlanStep> FullScans
+    {
+        get
+        {
+            if (Provenance.Dialect != SqlDialect.SQLite)
+                throw new NotSupportedException("Full-scan assessment is SQLite-specific. Inspect ScanOperations and native Estimates for this provider.");
+            return ScanOperations;
+        }
+    }
+
+    /// <summary>Gets table/index scan access operators. A scan can stop early; inspect native estimates separately.</summary>
+    public IEnumerable<DbaQueryPlanStep> ScanOperations => Steps.Where(step => step.Operation == DbaQueryPlanOperation.Scan && step.Table != null);
 
     /// <summary>Returns the plan as indented text, one step per line, for messages and logs.</summary>
     /// <returns>The plan text.</returns>

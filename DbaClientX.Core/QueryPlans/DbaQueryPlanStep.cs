@@ -45,10 +45,38 @@ public sealed class DbaQueryPlanStep
         TableRows = tableRows;
     }
 
+    /// <summary>Creates a native provider step with precise estimates and separately identified schema/database.</summary>
+    /// <param name="id">The native operator identifier.</param>
+    /// <param name="parentId">The parent's identifier, or -1 for a native root.</param>
+    /// <param name="detail">The native operation text.</param>
+    /// <param name="operation">The access method; a scan does not imply full traversal.</param>
+    /// <param name="estimates">Native estimates; missing values remain unknown.</param>
+    /// <param name="table">The provider's table name, without SQL alias inference.</param>
+    /// <param name="index">The provider's index name.</param>
+    /// <param name="alias">The provider's alias.</param>
+    /// <param name="schema">The provider's schema name.</param>
+    /// <param name="database">The provider's database name.</param>
+    public DbaQueryPlanStep(int id, int parentId, string detail, DbaQueryPlanOperation operation,
+        DbaQueryPlanEstimates estimates, string? table, string? index, string? alias,
+        string? schema, string? database)
+        : this(id, parentId, detail, operation, table, index, alias: alias)
+    {
+        Estimates = estimates ?? throw new ArgumentNullException(nameof(estimates));
+        Schema = schema;
+        Database = database;
+    }
+
+    /// <summary>Gets native optimizer estimates, or null for legacy SQLite statistics.</summary>
+    public DbaQueryPlanEstimates? Estimates { get; private set; }
+    /// <summary>Gets the native schema name, separate from the table name.</summary>
+    public string? Schema { get; private set; }
+    /// <summary>Gets the native database name, separate from the table name.</summary>
+    public string? Database { get; private set; }
+
     /// <summary>Gets the step identifier the database reported.</summary>
     public int Id { get; }
 
-    /// <summary>Gets the identifier of the parent step, or 0 for a top-level step.</summary>
+    /// <summary>Gets the parent identifier; SQLite top-level steps use 0, and native roots use -1.</summary>
     public int ParentId { get; }
 
     /// <summary>Gets the database's own text for the step.</summary>
@@ -66,7 +94,7 @@ public sealed class DbaQueryPlanStep
     /// <summary>Gets the index the step uses, when it uses a named one (for SQLite also <c>INTEGER PRIMARY KEY</c>).</summary>
     public string? Index { get; }
 
-    /// <summary>Gets whether the index holds every column the step needs.</summary>
+    /// <summary>Gets SQLite's covering-index flag. Native provider readers do not infer coverage from access labels.</summary>
     public bool IsCoveringIndex { get; }
 
     /// <summary>Gets what a temporary B-tree is for (<c>ORDER BY</c>, <c>GROUP BY</c>, <c>DISTINCT</c>), or <see langword="null"/>.</summary>
@@ -115,7 +143,10 @@ public sealed class DbaQueryPlanStep
         => new(Id, ParentId, Detail, operation, table, Index, IsCoveringIndex, TempBTreePurpose, alias, isOpenEndedRange ?? IsOpenEndedRange, estimatedRows, tableRows)
         {
             IndexConstraintColumns = indexConstraintColumns ?? IndexConstraintColumns,
-            IndexRowsPerKey = indexRowsPerKey ?? IndexRowsPerKey
+            IndexRowsPerKey = indexRowsPerKey ?? IndexRowsPerKey,
+            Estimates = Estimates,
+            Schema = Schema,
+            Database = Database
         };
 
     /// <inheritdoc />

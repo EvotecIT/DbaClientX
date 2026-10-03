@@ -107,6 +107,48 @@ cli.RunInTransaction(
 );
 ```
 
+## Estimated query plans
+
+`ExplainQueryPlanAsync` captures SQL Server's estimated plan for one SELECT, INSERT, UPDATE, DELETE or MERGE
+statement without running that statement. It uses a separate non-pooled connection outside the client's active
+transaction and ambient enlistment. The login needs statement permissions and SHOWPLAN permission in each
+referenced database.
+
+```csharp
+using DBAClientX;
+using DBAClientX.QueryPlans;
+using System.Data;
+
+using var client = new SqlServer();
+var plan = await client.ExplainQueryPlanAsync(connectionString,
+    "SELECT Payload FROM dbo.Events WHERE Id = @id",
+    new Dictionary<string, SqlServerQueryPlanParameter> {
+        ["@id"] = new(SqlDbType.Int)
+    });
+
+foreach (var step in plan.Steps) {
+    Console.WriteLine($"{step.Detail}: {step.Schema}.{step.Table}, output={step.Estimates?.OutputRows}, read={step.Estimates?.RowsRead}");
+}
+```
+
+Parameter types create unassigned local variables. These are **generic estimates**, recorded as
+`plan.Provenance.ParameterMode == TypedVariables`; parameter values are never interpolated or bound. Names must
+match the SQL spelling exactly, with ASCII letters, digits and underscores. Character/binary declarations require
+an explicit size, such as `new(SqlDbType.NVarChar, size: 200)`; use `-1` for MAX. Decimal and temporal declarations
+accept precision/scale facets. Table-valued, UDT and legacy LOB declarations are unsupported.
+
+Native `Estimates` keep fractional output rows, estimated rows read and table cardinality separate. Missing
+estimates remain null. `ScanOperations` lists scan access methods: TOP/MAX can stop after one row, so the operation
+label alone does not establish a full traversal. `QueryPlanAssert`, `QueryPlanRules` and `FullScans` use SQLite
+semantics and reject native SQL Server plans. SQL Server's `SELECT WITHOUT QUERY` classification is retained with
+an empty operator list for constant-only statements.
+
+`SqlServerQueryPlanParser.Parse(sql, showPlanXml)` reads an existing estimated SHOWPLAN document with the same
+model. Capture and parsing accept at most 16,777,216 document characters and 4096 operators. Actual runtime plans,
+procedural batches and multiple statement plans are unsupported. Capture uses the client's `CommandTimeout`;
+cancellation still attempts SHOWPLAN cleanup with a separate five-second deadline. Custom connection factories
+must return a closed connection with pooling and enlistment disabled.
+
 ## Database workload diagnostics
 
 Read Query Store configuration and a bounded rowstore table-index observation for one database:
