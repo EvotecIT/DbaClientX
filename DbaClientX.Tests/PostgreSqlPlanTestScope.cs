@@ -56,9 +56,10 @@ internal sealed class PostgreSqlPlanTestScope : IAsyncDisposable
     internal async Task<string> CreateDeniedRoleAsync()
     {
         var role = "dbax_plan_role_" + Guid.NewGuid().ToString("N");
-        await ExecuteAsync($"CREATE ROLE \"{role}\" LOGIN");
+        var rolePassword = Guid.NewGuid().ToString("N");
+        await ExecuteAsync($"CREATE ROLE \"{role}\" LOGIN PASSWORD '{rolePassword}'");
         _roles.Add(role);
-        return new NpgsqlConnectionStringBuilder(Connection) { Username = role }.ConnectionString;
+        return new NpgsqlConnectionStringBuilder(Connection) { Username = role, Password = rolePassword }.ConnectionString;
     }
 
     internal async Task WaitForPlanLockAsync(int pid)

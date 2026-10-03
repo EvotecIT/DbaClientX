@@ -47,7 +47,14 @@ public partial class PostgreSql
             ValidateQueryPlanConnection(connection);
             await AwaitWithCallerCancellationAsync(() => OpenConnectionAsync(connection, cancellationToken),
                 cancellationToken).ConfigureAwait(false);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
             transaction = await BeginDbTransactionAsync(connection, IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
+#else
+            // The Framework asset has no async startup API. Native startup is deferred to the next command,
+            // so avoid the legacy hook's Task.Yield, which can block synchronous callers on their context.
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+#endif
             using (var readOnly = new NpgsqlCommand("SET TRANSACTION READ ONLY", connection, transaction))
             {
                 ApplyCommandTimeout(readOnly);
