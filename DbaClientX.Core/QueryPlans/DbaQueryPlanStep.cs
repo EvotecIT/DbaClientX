@@ -46,7 +46,7 @@ public sealed class DbaQueryPlanStep
     }
 
     /// <summary>Creates a native provider step with precise estimates and separately identified schema/database.</summary>
-    /// <param name="id">The native operator identifier.</param>
+    /// <param name="id">The operator identifier supplied by the database or assigned by its plan reader.</param>
     /// <param name="parentId">The parent's identifier, or -1 for a native root.</param>
     /// <param name="detail">The native operation text.</param>
     /// <param name="operation">The access method; a scan does not imply full traversal.</param>
@@ -73,7 +73,7 @@ public sealed class DbaQueryPlanStep
     /// <summary>Gets the native database name, separate from the table name.</summary>
     public string? Database { get; private set; }
 
-    /// <summary>Gets the step identifier the database reported.</summary>
+    /// <summary>Gets the operator identifier supplied by the database or assigned by its plan reader.</summary>
     public int Id { get; }
 
     /// <summary>Gets the parent identifier; SQLite top-level steps use 0, and native roots use -1.</summary>

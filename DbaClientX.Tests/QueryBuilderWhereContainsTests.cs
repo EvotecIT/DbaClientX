@@ -236,9 +236,13 @@ public sealed class QueryBuilderWhereContainsTests
                 {
                     var (text, parameters) = new Query().Select("Id").From(table).WhereContains("Name", needle, caseInsensitive).OrderBy("Id").CompileWithNamedParameters(SqlDialect.PostgreSql);
                     var actual = await postgres.QueryAsListAsync(connectionString!, text, record => record.GetInt32(0), parameters);
-                    var expected = Enumerable.Range(0, Values.Length)
-                        .Where(i => caseInsensitive ? Values[i].ToLowerInvariant().Contains(needle.ToLowerInvariant(), StringComparison.Ordinal) : Values[i].Contains(needle, StringComparison.Ordinal))
-                        .ToArray();
+                    // Native casing follows the database locale (C does not fold non-ASCII letters).
+                    // strpos is an independent literal-substring reference that also checks LIKE wildcard escaping.
+                    var expected = await postgres.QueryAsListAsync(connectionString!,
+                        $"SELECT \"Id\" FROM {table} WHERE " +
+                        (caseInsensitive ? "strpos(lower(\"Name\"), lower(@needle))" : "strpos(\"Name\", @needle)") +
+                        ">0 ORDER BY \"Id\"", record => record.GetInt32(0),
+                        new Dictionary<string, object?> { ["needle"] = needle });
                     Assert.True(expected.SequenceEqual(actual), $"Needle '{needle}' ({caseInsensitive}): expected [{string.Join(",", expected)}], got [{string.Join(",", actual)}].");
                 }
             }
