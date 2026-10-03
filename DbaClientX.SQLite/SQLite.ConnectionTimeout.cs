@@ -6,7 +6,6 @@ namespace DBAClientX;
 
 public partial class SQLite
 {
-    private readonly object _connectionTimeoutSync = new();
     private readonly List<ConnectionTimeoutState> _connectionTimeouts = new();
     private int _timeoutRegistrations;
 
@@ -17,7 +16,7 @@ public partial class SQLite
 
     private void RetainConnectionTimeout(SqliteConnection connection)
     {
-        lock (_connectionTimeoutSync)
+        lock (_syncRoot)
         {
             // Track only retained connections, and periodically prune without scanning on every new connection.
             if (++_timeoutRegistrations == 32)
@@ -33,7 +32,9 @@ public partial class SQLite
     /// <inheritdoc />
     protected override void OnCommandTimeoutChanged()
     {
-        lock (_connectionTimeoutSync)
+        // Transaction startup already owns the client state lock. Use that same lock for
+        // registration and notifications so reading timeout state cannot reverse lock order.
+        lock (_syncRoot)
         {
             bool configured = TryGetCommandTimeout(out int timeout);
             for (int index = _connectionTimeouts.Count - 1; index >= 0; index--)
