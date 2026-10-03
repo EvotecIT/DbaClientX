@@ -10,7 +10,7 @@ On Windows, long database paths use extended-length filenames and the locking-ca
 
 Use SQLite's case-sensitive URI spelling: lowercase `file:`, option names such as `mode`, `cache` and `vfs`, and values such as `memory` or `shared`. `FILE:items.db` is an ordinary filename on POSIX. Repeated options follow native order: `mode=memory&mode=rwc` selects a disk database, while `mode=ro&mode=rwc` is rejected. Explicit connection-string settings override URI options.
 
-Copy guards retain URI-decoded filename spaces and follow the provider's `DataDirectory` behavior. POSIX maintenance checks use the same native directory-link and `..` resolution as the database connection.
+Copy guards retain URI-decoded filename spaces and follow the provider's `DataDirectory` behavior. POSIX maintenance checks use the same native directory-link and `..` resolution as the database connection. Diagnostics `FullPath` and backup result paths report the resolved POSIX filesystem target; aliases such as macOS `/var` may appear as `/private/var`. Diagnostics `Database` retains the caller's input.
 
 ## Install
 

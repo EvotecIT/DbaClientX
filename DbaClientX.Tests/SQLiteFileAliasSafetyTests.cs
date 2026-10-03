@@ -79,12 +79,28 @@ public class SQLiteFileAliasSafetyTests
             var backupError = Assert.Throws<ArgumentException>(() => sqlite.BackupDatabase(database, aliasedDatabase, overwriteDestination: true));
             Assert.Equal("destinationDatabase", backupError.ParamName);
             Assert.Equal(3L, sqlite.ExecuteScalar(database, "SELECT COUNT(*) FROM items"));
+            if (!OperatingSystem.IsWindows())
+            {
+                var directDiagnostics = await sqlite.CollectDiagnosticsAsync(database);
+                var aliasDiagnostics = await sqlite.CollectDiagnosticsAsync(aliasedDatabase);
+                Assert.Equal(aliasedDatabase, aliasDiagnostics.Database);
+                Assert.Equal(directDiagnostics.FullPath, aliasDiagnostics.FullPath);
+                Assert.True(aliasDiagnostics.CanConnect);
+                Assert.Equal(3L, sqlite.ExecuteScalar(aliasDiagnostics.FullPath, "SELECT COUNT(*) FROM items"));
+            }
             // Missing destinations below an aliased directory are safe new files, not the source.
             if (!fileAlias)
             {
                 string backup = Path.Combine(alias, "backup.db");
-                sqlite.BackupDatabase(database, backup);
+                var result = await sqlite.BackupDatabaseAsync(database, backup);
                 Assert.Equal(3L, sqlite.ExecuteScalar(backup, "SELECT COUNT(*) FROM items"));
+                Assert.Equal(3L, sqlite.ExecuteScalar(result.DestinationDatabase, "SELECT COUNT(*) FROM items"));
+                if (!OperatingSystem.IsWindows())
+                {
+                    var sourceDiagnostics = await sqlite.CollectDiagnosticsAsync(database);
+                    Assert.Equal(sourceDiagnostics.FullPath, result.SourceDatabase);
+                    Assert.Equal(Path.Combine(Path.GetDirectoryName(sourceDiagnostics.FullPath)!, "backup.db"), result.DestinationDatabase);
+                }
             }
         }
         finally

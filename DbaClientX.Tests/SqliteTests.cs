@@ -637,7 +637,9 @@ public class SqliteTests
 
             var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
 
-            Assert.Equal(Path.GetFullPath(path), diagnostics.FullPath);
+            Assert.True(Path.IsPathRooted(diagnostics.FullPath));
+            Assert.Equal(Path.GetFileName(path), Path.GetFileName(diagnostics.FullPath));
+            Assert.Equal(1L, await sqlite.ExecuteScalarAsync(diagnostics.FullPath, "SELECT COUNT(*) FROM t;"));
             Assert.True(diagnostics.Exists);
             Assert.True(diagnostics.CanConnect);
             Assert.True(diagnostics.IsHealthy);
@@ -669,7 +671,10 @@ public class SqliteTests
 
         var diagnostics = await sqlite.CollectDiagnosticsAsync(path);
 
-        Assert.Equal(Path.GetFullPath(path), diagnostics.FullPath);
+        Assert.True(Path.IsPathRooted(diagnostics.FullPath));
+        Assert.Equal(Path.GetFileName(path), Path.GetFileName(diagnostics.FullPath));
+        Assert.True(Directory.Exists(Path.GetDirectoryName(diagnostics.FullPath)));
+        Assert.False(File.Exists(diagnostics.FullPath));
         Assert.False(diagnostics.Exists);
         Assert.False(diagnostics.CanConnect);
         Assert.Equal("SQLite database file does not exist.", diagnostics.ErrorMessage);
