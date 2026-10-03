@@ -61,6 +61,97 @@ public sealed class QueryCompoundCorrelationTests
         Assert.Contains("dbx_left_", query.CompileWithParameters(SqlDialect.MySql).Sql);
     }
 
+    [Theory]
+    [InlineData("grouped")]
+    [InlineData("groupedJoin")]
+    [InlineData("groupedComma")]
+    [InlineData("quotedAlias")]
+    [InlineData("quotedTable")]
+    [InlineData("qualified")]
+    public void MySqlGroupedSourceSyntax_PreservesLocalBindings(string shape)
+    {
+        Query Operand() => shape switch
+        {
+            "grouped" => new Query().Select("n.Id").FromRaw("(numbers AS n)"),
+            "groupedJoin" => new Query().Select("j.Id").FromRaw("(numbers AS n JOIN other AS j ON n.Id = j.Id)"),
+            "groupedComma" => new Query().Select("j.Id").FromRaw("(numbers AS n, other AS j)"),
+            "quotedAlias" => new Query().Select("order.Id").From("numbers", "order"),
+            "quotedTable" => new Query().Select("order.Id").From("order"),
+            "qualified" => new Query().Select("app.numbers.Id").From("app.numbers"),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape))
+        };
+        Assert.Contains("dbx_left_", Operand().Union(Operand()).Intersect(new Query().Select("1")).Compile(SqlDialect.MySql));
+    }
+
+    [Theory]
+    [InlineData("grouped")]
+    [InlineData("groupedJoin")]
+    [InlineData("quotedAlias")]
+    [InlineData("quotedTable")]
+    [InlineData("qualified")]
+    [Trait("Category", "LiveProvider")]
+    public async Task MySqlGroupedSourceSyntax_ExecutesWithLocalBindings(string shape)
+    {
+        string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_MYSQL_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_MYSQL_TEST_CONNECTION to a MySQL test database.");
+        using var client = new MySql();
+        string peer = "dbx_scope_" + Guid.NewGuid().ToString("N");
+        await client.RunInTransactionAsync(connection!, async (transaction, token) =>
+        {
+            try
+            {
+                await transaction.ExecuteNonQueryAsync(connection!, $"CREATE TEMPORARY TABLE `order` (Id INT); CREATE TEMPORARY TABLE `{peer}` (Id INT); INSERT INTO `order` VALUES (1); INSERT INTO `{peer}` VALUES (1);", useTransaction: true, cancellationToken: token);
+                string database = Convert.ToString(await transaction.ExecuteScalarAsync(connection!, "SELECT DATABASE();", useTransaction: true, cancellationToken: token))!;
+                Query first = shape switch
+                {
+                    "grouped" => new Query().Select("n.Id").FromRaw("(`order` AS n)"),
+                    "groupedJoin" => new Query().Select("j.Id").FromRaw($"(`order` AS n JOIN `{peer}` AS j ON n.Id = j.Id)"),
+                    "quotedAlias" => new Query().Select("order.Id").From("order", "order"),
+                    "quotedTable" => new Query().Select("order.Id").From("order"),
+                    "qualified" => new Query().Select(database + ".order.Id").From(database + ".order"),
+                    _ => throw new ArgumentOutOfRangeException(nameof(shape))
+                };
+                // Each temporary table is read once, respecting MySQL's temporary-table reopening restriction.
+                var second = shape == "groupedJoin" ? new Query().Select("1") : new Query().Select("Id").From(peer);
+                var rows = await transaction.QueryAsListAsync(connection!, first.Union(second).Intersect(new Query().Select("1"))
+                    .Compile(SqlDialect.MySql), row => Convert.ToInt64(row.GetValue(0)), useTransaction: true, cancellationToken: token);
+                Assert.Equal(1L, Assert.Single(rows));
+            }
+            finally
+            {
+                await transaction.ExecuteNonQueryAsync(connection!, $"DROP TEMPORARY TABLE IF EXISTS `order`, `{peer}`;", useTransaction: true, cancellationToken: token);
+            }
+        });
+    }
+
+    [Fact]
+    public void MySqlGroupedExternalQualifiedRelation_IsNotHiddenByALocalTableName()
+    {
+        var operand = new Query().Select("outer_db.numbers.Id").From("inner_db.numbers");
+        Assert.Throws<NotSupportedException>(() => operand.Union(new Query().Select("1")).Intersect(new Query().Select("1"))
+            .Compile(SqlDialect.MySql));
+    }
+
+    [Theory]
+    [InlineData("derived")]
+    [InlineData("cte")]
+    [InlineData("lateralSelf")]
+    [InlineData("lateralForward")]
+    public void MySqlDefinitions_DoNotSeeTheirResultAliasOrLaterSources(string shape)
+    {
+        var operand = shape switch
+        {
+            "derived" => new Query().Select("o.Id").From(new Query().Select("o.Id"), "o"),
+            "cte" => new Query().Select("q.Id").FromRaw("(WITH c AS (SELECT n.Id) SELECT 1 AS Id FROM numbers AS n) AS q"),
+            "lateralSelf" => new Query().Select("l.Id").From("numbers", "n").JoinRaw("LATERAL (SELECT l.Id) AS l", "1 = 1"),
+            "lateralForward" => new Query().Select("l.Id").From("numbers", "n")
+                .JoinRaw("LATERAL (SELECT j.Id) AS l", "1 = 1").Join("other", "j", "j.Id", "=", "n.Id"),
+            _ => throw new ArgumentOutOfRangeException(nameof(shape))
+        };
+        Assert.Throws<NotSupportedException>(() => operand.Union(new Query().Select("1")).Intersect(new Query().Select("1"))
+            .Compile(SqlDialect.MySql));
+    }
+
     [Fact]
     public void MySqlGroupedNestedCorrelation_ToAnInternalScope_RemainsValid()
     {

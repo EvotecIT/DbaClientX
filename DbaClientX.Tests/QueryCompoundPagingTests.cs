@@ -92,6 +92,17 @@ public sealed class QueryCompoundPagingTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MixedUnionChains_PreserveDuplicateSemantics(bool distinctLast)
+    {
+        var query = SelectNumbers().Where("Id", 1);
+        if (distinctLast) query.UnionAll(SelectNumbers().Where("Id", 1)).Union(SelectNumbers().Where("Id", 2));
+        else query.Union(SelectNumbers().Where("Id", 2)).UnionAll(SelectNumbers().Where("Id", 1));
+        Assert.Equal(distinctLast ? new long[] { 1, 2 } : new long[] { 1, 1, 2 }, Execute(query.OrderBy("Id")));
+    }
+
     [Fact]
     public void ParameterizedCompounds_KeepValueOrderAcrossCacheHits()
     {

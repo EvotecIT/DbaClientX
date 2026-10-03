@@ -36,7 +36,8 @@ internal sealed class SqlSourceScopes
         var queryLevels = new Stack<bool>();
         queryLevels.Push(true);
         var sourceNames = new HashSet<int>();
-        var references = new List<(Scope Scope, string Qualifier)>();
+        var lateralSources = new HashSet<int>();
+        var references = new List<(Scope Scope, string[] Qualifier)>();
         for (int index = 0; index < tokens.Count; index++)
         {
             var token = tokens[index];
@@ -44,7 +45,8 @@ internal sealed class SqlSourceScopes
             {
                 bool query = index + 1 < tokens.Count &&
                     (IsWord(tokens[index + 1], "SELECT") || IsWord(tokens[index + 1], "WITH") || IsWord(tokens[index + 1], "VALUES"));
-                scopes.Open(query);
+                scopes.Open(query, inheritParent: !sourceNames.Contains(index),
+                    parentSourceLimit: lateralSources.Contains(index) ? index : int.MaxValue);
                 queryLevels.Push(query);
             }
             else if (token.Kind == SqlTokenKind.CloseParenthesis)
@@ -55,32 +57,53 @@ internal sealed class SqlSourceScopes
             else if (queryLevels.Peek() && (IsWord(token, "UNION") || IsWord(token, "INTERSECT") || IsWord(token, "EXCEPT")))
                 scopes.Restart(statement: false);
             else if (queryLevels.Peek() && IsWord(token, "WITH"))
-                scopes.ReadCommonTableExpressions(tokens, index);
+                scopes.ReadCommonTableExpressions(tokens, index, sourceNames);
             else if (queryLevels.Peek() && (IsWord(token, "FROM") || IsWord(token, "JOIN") || IsWord(token, "APPLY")))
-                scopes.ReadSources(tokens, index, sourceNames);
+                scopes.ReadSources(tokens, index, sourceNames, lateralSources);
 
-            // In a schema-qualified column, the final two parts identify the relation and column. Qualified
-            // functions and source names are not column references. Tokenization excludes strings and comments.
+            // Keep the full relation qualifier so equally named tables in different schemas stay distinct.
+            // Qualified functions and source names are not column references. Tokens exclude strings and comments.
             if (!sourceNames.Contains(index) && IsName(token) && index + 2 < tokens.Count &&
                 tokens[index + 1].Text == "." && (IsName(tokens[index + 2]) || tokens[index + 2].Text == "*") &&
                 (index + 3 >= tokens.Count || tokens[index + 3].Text != "." && tokens[index + 3].Kind != SqlTokenKind.OpenParenthesis))
-                references.Add((scopes._scopes.Peek(), token.Value));
+            {
+                int first = index;
+                while (first >= 2 && tokens[first - 1].Text == "." && IsName(tokens[first - 2])) first -= 2;
+                var qualifier = new string[(index - first) / 2 + 1];
+                for (int part = 0; part < qualifier.Length; part++) qualifier[part] = tokens[first + part * 2].Value;
+                references.Add((scopes._scopes.Peek(), qualifier));
+            }
         }
         foreach (var (scope, qualifier) in references)
-            if (!HasQualifier(scope, qualifier)) return qualifier;
+            if (!HasQualifier(scope, qualifier)) return string.Join(".", qualifier);
         return null;
     }
 
-    private static bool HasQualifier(Scope? scope, string qualifier)
+    private static bool HasQualifier(Scope? scope, IReadOnlyList<string> qualifier)
     {
+        int sourceLimit = int.MaxValue;
         for (; scope != null; scope = scope.Parent)
-            foreach (var (table, alias) in scope.Sources)
-                if (string.Equals(alias ?? table, qualifier, StringComparison.OrdinalIgnoreCase)) return true;
+        {
+            if (scope.QualifiedSources != null)
+            foreach (var (table, alias, position) in scope.QualifiedSources)
+            {
+                if (position >= sourceLimit) continue;
+                if (qualifier.Count == 1 && string.Equals(alias ?? (table.Length > 0 ? table[table.Length - 1] : null),
+                    qualifier[0], StringComparison.OrdinalIgnoreCase)) return true;
+                if (alias != null || table.Length != qualifier.Count) continue;
+                bool equal = true;
+                for (int part = 0; part < table.Length; part++)
+                    equal &= string.Equals(table[part], qualifier[part], StringComparison.OrdinalIgnoreCase);
+                if (equal) return true;
+            }
+            sourceLimit = scope.ParentSourceLimit;
+        }
         return false;
     }
 
     /// <summary>Enters a parenthesis: a subquery starts a level of its own, other parentheses stay in the current one.</summary>
-    internal void Open(bool subquery) => _scopes.Push(subquery ? new Scope(_scopes.Peek()) : _scopes.Peek());
+    internal void Open(bool subquery, bool inheritParent = true, int parentSourceLimit = int.MaxValue)
+        => _scopes.Push(subquery ? new Scope(inheritParent ? _scopes.Peek() : null, parentSourceLimit) : _scopes.Peek());
 
     /// <summary>Leaves a parenthesis.</summary>
     internal void Close()
@@ -103,14 +126,14 @@ internal sealed class SqlSourceScopes
         }
 
         var current = _scopes.Pop();
-        _scopes.Push(new Scope(current.Parent));
+        _scopes.Push(new Scope(current.Parent, current.ParentSourceLimit));
     }
 
     /// <summary>
     /// Records the names a <c>WITH</c> at <paramref name="with"/> defines (<c>WITH [RECURSIVE] a [(cols)] AS (…), b AS (…)</c>),
     /// whose columns belong to no stored table. A <c>WITH (NOLOCK)</c> table hint defines none.
     /// </summary>
-    internal void ReadCommonTableExpressions(IReadOnlyList<SqlToken> tokens, int with)
+    internal void ReadCommonTableExpressions(IReadOnlyList<SqlToken> tokens, int with, ISet<int>? definitionOpens = null)
     {
         var position = with + 1;
         if (position < tokens.Count && IsWord(tokens[position], "RECURSIVE"))
@@ -139,6 +162,8 @@ internal sealed class SqlSourceScopes
                 position++;
             }
 
+            // A CTE definition cannot bind aliases declared by the SELECT that consumes it.
+            definitionOpens?.Add(position);
             position = SkipParentheses(tokens, position);
             if (position >= tokens.Count || tokens[position].Text != ",")
             {
@@ -153,23 +178,39 @@ internal sealed class SqlSourceScopes
     /// Records the sources named after the <c>FROM</c>, <c>JOIN</c>, <c>UPDATE</c> or <c>APPLY</c> at
     /// <paramref name="keyword"/> in the current level (a <c>FROM</c> list continues after commas).
     /// </summary>
-    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword, ISet<int>? sourceNames = null)
+    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword, ISet<int>? sourceNames = null, ISet<int>? lateralSources = null)
     {
         var scope = _scopes.Peek();
-        var isFrom = IsWord(tokens[keyword], "FROM");
+        var isFrom = IsWord(tokens[keyword], "FROM") || tokens[keyword].Kind == SqlTokenKind.OpenParenthesis;
         var position = keyword + 1;
         while (position < tokens.Count)
         {
-            if (IsWord(tokens[position], "LATERAL")) position++;
+            bool lateral = IsWord(tokens[position], "LATERAL");
+            if (lateral) position++;
             if (position >= tokens.Count) return;
             if (tokens[position].Kind == SqlTokenKind.OpenParenthesis)
             {
-                // A derived table: its alias names no stored table.
+                int definition = position;
+                bool query = position + 1 < tokens.Count && (IsWord(tokens[position + 1], "SELECT") ||
+                    IsWord(tokens[position + 1], "WITH") || IsWord(tokens[position + 1], "VALUES"));
+                if (query)
+                {
+                    if (lateral) lateralSources?.Add(position);
+                    else sourceNames?.Add(position);
+                }
+                else ReadGroupedSources(tokens, position, sourceNames, lateralSources);
                 position = SkipParentheses(tokens, position);
-                scope.Sources.Add((null, AliasAt(tokens, ref position)));
+                var alias = AliasAt(tokens, ref position);
+                if (query || alias != null)
+                {
+                    scope.Sources.Add((null, alias));
+                    if (sourceNames != null)
+                        (scope.QualifiedSources ??= new()).Add((Array.Empty<string>(), alias, definition));
+                }
             }
-            else if (IsName(tokens[position]) && !NotNames.Contains(tokens[position].Value))
+            else if (IsName(tokens[position]) && (tokens[position].Kind != SqlTokenKind.Word || !NotNames.Contains(tokens[position].Value)))
             {
+                int first = position;
                 var table = tokens[position].Value;
                 sourceNames?.Add(position);
                 while (position + 2 < tokens.Count && tokens[position + 1].Text == "." && IsName(tokens[position + 2]))
@@ -179,6 +220,12 @@ internal sealed class SqlSourceScopes
                     table = tokens[position].Value;
                 }
 
+                string[]? qualifiedTable = null;
+                if (sourceNames != null)
+                {
+                    qualifiedTable = new string[(position - first) / 2 + 1];
+                    for (int part = 0; part < qualifiedTable.Length; part++) qualifiedTable[part] = tokens[first + part * 2].Value;
+                }
                 position++;
                 var derived = _commonTableExpressions.Contains(table);
                 if (position < tokens.Count && tokens[position].Kind == SqlTokenKind.OpenParenthesis)
@@ -196,6 +243,8 @@ internal sealed class SqlSourceScopes
                 }
 
                 scope.Sources.Add((derived ? null : table, alias ?? (derived ? table : null)));
+                if (qualifiedTable != null)
+                    (scope.QualifiedSources ??= new()).Add((qualifiedTable, alias, first));
             }
 
             if (!isFrom || position >= tokens.Count || tokens[position].Text != ",")
@@ -204,6 +253,18 @@ internal sealed class SqlSourceScopes
             }
 
             position++;
+        }
+    }
+
+    private void ReadGroupedSources(IReadOnlyList<SqlToken> tokens, int open, ISet<int>? sourceNames, ISet<int>? lateralSources)
+    {
+        // Parenthesized table factors and joins share their enclosing SELECT's relation scope.
+        ReadSources(tokens, open, sourceNames, lateralSources);
+        int end = SkipParentheses(tokens, open) - 1;
+        for (int index = open + 1; index < end; index++)
+        {
+            if (tokens[index].Kind == SqlTokenKind.OpenParenthesis) index = SkipParentheses(tokens, index) - 1;
+            else if (IsWord(tokens[index], "JOIN")) ReadSources(tokens, index, sourceNames, lateralSources);
         }
     }
 
@@ -250,7 +311,8 @@ internal sealed class SqlSourceScopes
             position++;
         }
 
-        if (position < tokens.Count && IsName(tokens[position]) && !NotNames.Contains(tokens[position].Value))
+        if (position < tokens.Count && IsName(tokens[position]) &&
+            (tokens[position].Kind != SqlTokenKind.Word || !NotNames.Contains(tokens[position].Value)))
         {
             return tokens[position++].Value;
         }
@@ -284,11 +346,20 @@ internal sealed class SqlSourceScopes
 
     private sealed class Scope
     {
-        internal Scope(Scope? parent) => Parent = parent;
+        internal Scope(Scope? parent, int parentSourceLimit = int.MaxValue)
+        {
+            Parent = parent;
+            ParentSourceLimit = parentSourceLimit;
+        }
 
         internal Scope? Parent { get; }
 
+        internal int ParentSourceLimit { get; }
+
         /// <summary>The sources of the level: a stored table (or null for a derived one) and its alias.</summary>
         internal List<(string? Table, string? Alias)> Sources { get; } = new();
+
+        /// <summary>Full relation identities, allocated only for the explicit-qualifier validation scan.</summary>
+        internal List<(string[] Table, string? Alias, int Position)>? QualifiedSources { get; set; }
     }
 }
