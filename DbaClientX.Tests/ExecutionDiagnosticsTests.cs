@@ -2,6 +2,9 @@ using System.Collections.Concurrent;
 using System.Data;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Reflection;
+using System.Runtime.ExceptionServices;
+using System.Runtime.Loader;
 using DBAClientX;
 using DBAClientX.Diagnostics;
 using Microsoft.Data.Sqlite;
@@ -177,10 +180,13 @@ public sealed class ExecutionDiagnosticsTests
         Assert.Equal(1, Assert.Single(probe.Measurements, item => item.Name == "dbaclientx.command.retries").Value);
     }
 
-    [Fact]
-    public void ThrowingSubscribers_DoNotChangeSuccessOrFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ThrowingSubscribers_DoNotChangeSuccessOrFailure(bool failOnStart)
     {
         using var database = new Database();
+        using var parent = new Activity("subscriber-failure-parent").SetIdFormat(ActivityIdFormat.W3C).Start();
         using var listener = new MeterListener { InstrumentPublished = (instrument, owner) =>
         { if (instrument.Meter.Name == DbaClientXDiagnostics.MeterName) owner.EnableMeasurementEvents(instrument); } };
         listener.SetMeasurementEventCallback<double>((instrument, value, tags, state) => throw new InvalidOperationException("listener"));
@@ -190,13 +196,98 @@ public sealed class ExecutionDiagnosticsTests
         {
             ShouldListenTo = source => source.Name == DbaClientXDiagnostics.ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> options) => ActivitySamplingResult.AllData,
-            ActivityStopped = activity => throw new InvalidOperationException("listener")
+            ActivityStarted = activity => { if (failOnStart) throw new InvalidOperationException("listener"); },
+            ActivityStopped = activity => { if (!failOnStart) throw new InvalidOperationException("listener"); }
         };
         ActivitySource.AddActivityListener(activities);
         Assert.Equal(2L, database.Client.ExecuteScalar(database.Path, "SELECT count(*) FROM items;"));
+        Assert.Same(parent, Activity.Current);
         var failure = Assert.Throws<DbaQueryExecutionException>(() => database.Client.ExecuteScalar(database.Path, "SELECT missing_column FROM items;"));
         Assert.Equal(1, failure.ProviderErrorCode);
         Assert.DoesNotContain("listener", failure.Message, StringComparison.Ordinal);
+        Assert.Same(parent, Activity.Current);
+        var operation = DbaClientXDiagnostics.StartOperation("subscriber-operation", null);
+        DbaClientXDiagnostics.RecordRetry(1, TimeSpan.Zero, new InvalidOperationException());
+        operation.Dispose();
+        Assert.Same(parent, Activity.Current);
+        DbaClientXDiagnostics.RecordRetry(2, TimeSpan.Zero, new InvalidOperationException());
+        Assert.Equal(1, operation.Telemetry.RetryCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FirstUseSubscriberFailure_DoesNotPoisonNativeOpensAndAllowsObservationAfterRemoval(bool activityPublication)
+    {
+        // A fresh load context exercises the actual first-use initializer regardless of test ordering.
+        var context = new AssemblyLoadContext("diagnostics-first-use", isCollectible: true);
+        var assembly = context.LoadFromAssemblyPath(typeof(DbaClientXDiagnostics).Assembly.Location);
+        var diagnostics = assembly.GetType(typeof(DbaClientXDiagnostics).FullName!)!;
+        var open = diagnostics.GetMethod(nameof(DbaClientXDiagnostics.OpenConnection))!;
+        bool armed = false;
+        using var activities = new ActivityListener
+        {
+            ShouldListenTo = source =>
+            {
+                if (armed && activityPublication && source.Name == DbaClientXDiagnostics.ActivitySourceName)
+                    throw new InvalidOperationException("publication");
+                return false;
+            }
+        };
+        using var meter = new MeterListener { InstrumentPublished = (instrument, _) =>
+        {
+            if (armed && !activityPublication && instrument.Meter.Name == DbaClientXDiagnostics.MeterName)
+                throw new InvalidOperationException("publication");
+        } };
+        ActivitySource.AddActivityListener(activities);
+        meter.Start();
+        try
+        {
+            void Open(SqliteConnection connection)
+            {
+                try { open.Invoke(null, new object[] { connection }); }
+                catch (TargetInvocationException exception) when (exception.InnerException != null)
+                { ExceptionDispatchInfo.Capture(exception.InnerException).Throw(); }
+                Assert.Equal(ConnectionState.Open, connection.State);
+                using var command = connection.CreateCommand();
+                command.CommandText = "SELECT 42;";
+                Assert.Equal(42L, command.ExecuteScalar());
+            }
+            armed = true;
+            using (var connection = new SqliteConnection("Data Source=:memory:")) Open(connection);
+            armed = false;
+            activities.Dispose();
+            meter.Dispose();
+            var source = (ActivitySource)diagnostics.GetProperty(nameof(DbaClientXDiagnostics.ActivitySource))!.GetValue(null)!;
+            var instanceMeter = (Meter)diagnostics.GetProperty(nameof(DbaClientXDiagnostics.Meter))!.GetValue(null)!;
+            int observedOpens = 0;
+            using var healthy = new MeterListener { InstrumentPublished = (instrument, listener) =>
+            {
+                if (ReferenceEquals(instrument.Meter, instanceMeter)) listener.EnableMeasurementEvents(instrument);
+            } };
+            healthy.SetMeasurementEventCallback<double>((instrument, value, tags, state) =>
+            { if (instrument.Name == "dbaclientx.connection.open.duration") observedOpens++; });
+            healthy.Start();
+            int observedActivities = 0;
+            using var healthyActivities = new ActivityListener
+            {
+                ShouldListenTo = candidate => ReferenceEquals(candidate, source),
+                Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+                ActivityStopped = activity => observedActivities++
+            };
+            ActivitySource.AddActivityListener(healthyActivities);
+            using (var connection = new SqliteConnection("Data Source=:memory:")) Open(connection);
+            Assert.Equal(1, observedOpens);
+            Assert.Equal(1, observedActivities);
+            Assert.Equal(DbaClientXDiagnostics.ActivitySourceName, source.Name);
+            source.Dispose();
+            instanceMeter.Dispose();
+        }
+        finally
+        {
+            armed = false;
+            context.Unload();
+        }
     }
 
     [Fact]

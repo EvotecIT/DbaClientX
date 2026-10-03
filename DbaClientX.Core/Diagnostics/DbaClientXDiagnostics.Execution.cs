@@ -14,17 +14,42 @@ public static partial class DbaClientXDiagnostics
     public const string MeterName = "DbaClientX";
 
     private static readonly Meter MeterInstance = new(MeterName);
-    private static readonly Histogram<double> CommandDuration = MeterInstance.CreateHistogram<double>(
-        "dbaclientx.command.duration", "s", "Logical command duration, including eligible retries and result consumption.");
-    private static readonly Counter<long> CommandCount = MeterInstance.CreateCounter<long>("dbaclientx.command.count", "{command}");
-    private static readonly Counter<long> CommandRetries = MeterInstance.CreateCounter<long>("dbaclientx.command.retries", "{retry}");
-    private static readonly Histogram<long> CommandRows = MeterInstance.CreateHistogram<long>("dbaclientx.command.rows", "{row}");
-    private static readonly Histogram<double> ConnectionDuration = MeterInstance.CreateHistogram<double>(
-        "dbaclientx.connection.open.duration", "s", "One native provider open attempt, excluding configuration and retry delay.");
+    private static readonly Histogram<double>? CommandDuration = CreateInstrument("dbaclientx.command.duration", () =>
+        MeterInstance.CreateHistogram<double>("dbaclientx.command.duration", "s", "Logical command duration, including eligible retries and result consumption."));
+    private static readonly Counter<long>? CommandCount = CreateInstrument("dbaclientx.command.count", () =>
+        MeterInstance.CreateCounter<long>("dbaclientx.command.count", "{command}"));
+    private static readonly Counter<long>? CommandRetries = CreateInstrument("dbaclientx.command.retries", () =>
+        MeterInstance.CreateCounter<long>("dbaclientx.command.retries", "{retry}"));
+    private static readonly Histogram<long>? CommandRows = CreateInstrument("dbaclientx.command.rows", () =>
+        MeterInstance.CreateHistogram<long>("dbaclientx.command.rows", "{row}"));
+    private static readonly Histogram<double>? ConnectionDuration = CreateInstrument("dbaclientx.connection.open.duration", () =>
+        MeterInstance.CreateHistogram<double>("dbaclientx.connection.open.duration", "s", "One native provider open attempt, excluding configuration and retry delay."));
     private static readonly AsyncLocal<ExecutionState?> CurrentExecution = new();
 
     /// <summary>Gets the meter. Measurements are emitted only when an instrument is enabled by a listener.</summary>
     public static Meter Meter => MeterInstance;
+
+    private static TInstrument? CreateInstrument<TInstrument>(string name, Func<TInstrument> create) where TInstrument : Instrument
+    {
+        try { return create(); }
+        catch (Exception)
+        {
+            // Publication registers the instrument before notifying subscribers. Recover that same
+            // instance through the public listener API; do not create duplicate instruments or poison first use.
+            TInstrument? instrument = null;
+            try
+            {
+                using var recovery = new MeterListener { InstrumentPublished = (published, _) =>
+                {
+                    if (ReferenceEquals(published.Meter, MeterInstance) && published.Name == name)
+                        instrument = published as TInstrument;
+                } };
+                recovery.Start();
+            }
+            catch (Exception) { }
+            return instrument;
+        }
+    }
 
     /// <summary>Opens a caller-owned native connection and observes one provider-open attempt.</summary>
     /// <param name="connection">The connection to open. Ownership stays with the caller.</param>
@@ -55,9 +80,9 @@ public static partial class DbaClientXDiagnostics
         catch (Exception exception) { scope.Fail(exception, token); throw; }
     }
 
-    internal static bool IsCommandObserved => SourceInstance.HasListeners() || CommandDuration.Enabled ||
-        CommandCount.Enabled || CommandRetries.Enabled || CommandRows.Enabled;
-    internal static bool IsConnectionObserved => SourceInstance.HasListeners() || ConnectionDuration.Enabled;
+    internal static bool IsCommandObserved => SourceInstance?.HasListeners() == true || CommandDuration?.Enabled == true ||
+        CommandCount?.Enabled == true || CommandRetries?.Enabled == true || CommandRows?.Enabled == true;
+    internal static bool IsConnectionObserved => SourceInstance?.HasListeners() == true || ConnectionDuration?.Enabled == true;
 
     internal static ExecutionScope StartCommand(DbConnection connection, string query, string operation)
         => StartExecution(connection, query, operation, connectionOpen: false);
@@ -67,20 +92,11 @@ public static partial class DbaClientXDiagnostics
 
     private static ExecutionScope StartExecution(DbConnection connection, string? query, string operation, bool connectionOpen)
     {
-        bool metrics = connectionOpen ? ConnectionDuration.Enabled :
-            CommandDuration.Enabled || CommandCount.Enabled || CommandRetries.Enabled || CommandRows.Enabled;
-        if (!metrics && !SourceInstance.HasListeners()) return default;
-        Activity? activity = null;
+        bool metrics = connectionOpen ? ConnectionDuration?.Enabled == true :
+            CommandDuration?.Enabled == true || CommandCount?.Enabled == true || CommandRetries?.Enabled == true || CommandRows?.Enabled == true;
+        if (!metrics && SourceInstance?.HasListeners() != true) return default;
         var previousActivity = Activity.Current;
-        try
-        {
-            activity = SourceInstance.StartActivity(connectionOpen ? "DbaClientX.Connection.Open" : "DbaClientX.Command", ActivityKind.Client);
-        }
-        catch (Exception)
-        {
-            // Diagnostic subscribers must not change database execution or leave an ambient activity behind.
-            Activity.Current = previousActivity;
-        }
+        var activity = StartObservedActivity(connectionOpen ? "DbaClientX.Connection.Open" : "DbaClientX.Command", ActivityKind.Client);
         if (activity == null && !metrics) return default;
         string provider = ProviderName(connection);
         if (activity?.IsAllDataRequested == true)
@@ -89,7 +105,7 @@ public static partial class DbaClientXDiagnostics
             activity.SetTag("dbaclientx.operation", operation);
             if (query != null) activity.SetTag("dbaclientx.statement.fingerprint", DbaQueryExecutionException.CreateFingerprint(query));
         }
-        var state = new ExecutionState(activity, provider, operation, connectionOpen, CurrentExecution.Value);
+        var state = new ExecutionState(activity, previousActivity, provider, operation, connectionOpen, CurrentExecution.Value);
         CurrentExecution.Value = state;
         return new ExecutionScope(state);
     }
@@ -117,6 +133,7 @@ public static partial class DbaClientXDiagnostics
     internal sealed class ExecutionState : IDisposable
     {
         private readonly Activity? _activity;
+        private readonly Activity? _previousActivity;
         private readonly string _provider;
         private readonly string _operation;
         private readonly bool _connectionOpen;
@@ -127,9 +144,10 @@ public static partial class DbaClientXDiagnostics
         private int _retries;
         private bool _disposed;
 
-        internal ExecutionState(Activity? activity, string provider, string operation, bool connectionOpen, ExecutionState? previous)
+        internal ExecutionState(Activity? activity, Activity? previousActivity, string provider, string operation, bool connectionOpen, ExecutionState? previous)
         {
             (_activity, _provider, _operation, _connectionOpen, _previous) = (activity, provider, operation, connectionOpen, previous);
+            _previousActivity = previousActivity;
             if (operation == "stream") _rows = 0;
         }
 
@@ -155,21 +173,21 @@ public static partial class DbaClientXDiagnostics
             double seconds = (Stopwatch.GetTimestamp() - _started) / (double)Stopwatch.Frequency;
             if (_connectionOpen)
             {
-                try { ConnectionDuration.Record(seconds, tags); } catch (Exception) { }
+                try { ConnectionDuration?.Record(seconds, tags); } catch (Exception) { }
             }
             else
             {
-                try { CommandDuration.Record(seconds, tags); } catch (Exception) { }
-                try { CommandCount.Add(1, tags); } catch (Exception) { }
-                try { CommandRetries.Add(_retries, tags); } catch (Exception) { }
-                if (_rows.HasValue) { try { CommandRows.Record(_rows.Value, tags); } catch (Exception) { } }
+                try { CommandDuration?.Record(seconds, tags); } catch (Exception) { }
+                try { CommandCount?.Add(1, tags); } catch (Exception) { }
+                try { CommandRetries?.Add(_retries, tags); } catch (Exception) { }
+                if (_rows.HasValue) { try { CommandRows?.Record(_rows.Value, tags); } catch (Exception) { } }
             }
             if (_activity != null)
             {
                 _activity.SetTag("dbaclientx.outcome", _outcome);
                 _activity.SetTag("dbaclientx.retry.count", _retries);
                 if (_rows.HasValue) _activity.SetTag("dbaclientx.rows", _rows.Value);
-                try { _activity.Dispose(); } catch (Exception) { }
+                StopObservedActivity(_activity, _previousActivity);
             }
         }
     }

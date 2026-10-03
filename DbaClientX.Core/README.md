@@ -157,6 +157,9 @@ including partial results on failure; early disposal reports `abandoned`. Its du
 requests for rows. For `reader.open`, the command duration ends at reader handoff and excludes caller-owned consumption.
 Connection-open duration excludes pragmas, configuration callbacks, transaction startup and retry delays.
 Activity and meter subscriber failures do not replace database results or errors.
+If a subscriber prevents initial activity-source registration, activities stay disabled until the host
+removes the failing subscriber and accesses `DbaClientXDiagnostics.ActivitySource` to retry registration.
+Errors from that explicit registration call reach its caller; database commands and meter measurements keep working.
 
 ```csharp
 using System.Diagnostics.Metrics;

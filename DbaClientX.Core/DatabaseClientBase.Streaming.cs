@@ -38,8 +38,12 @@ public abstract partial class DatabaseClientBase
         IDictionary<string, ParameterDirection>? parameterDirections = null,
         IEnumerable<DbParameter>? dbParameters = null,
         CommandType commandType = CommandType.Text)
-        => DbaClientXDiagnostics.ObserveStream(ExecuteQueryStreamCoreAsync(connection, transaction, query, parameters,
-            cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType), connection, query, cancellationToken);
+    {
+        var source = ExecuteQueryStreamCoreAsync(connection, transaction, query, parameters,
+            cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType);
+        return DbaClientXDiagnostics.IsCommandObserved
+            ? DbaClientXDiagnostics.ObserveStream(source, connection, query, cancellationToken) : source;
+    }
 
     private async IAsyncEnumerable<DataRow> ExecuteQueryStreamCoreAsync(
         DbConnection connection,
@@ -137,8 +141,12 @@ public abstract partial class DatabaseClientBase
         IDictionary<string, ParameterDirection>? parameterDirections = null,
         IEnumerable<DbParameter>? dbParameters = null,
         CommandType commandType = CommandType.Text)
-        => DbaClientXDiagnostics.ObserveStream(ExecuteMappedQueryStreamCoreAsync(connection, transaction, query, map,
-            initialize, parameters, cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType), connection, query, cancellationToken);
+    {
+        var source = ExecuteMappedQueryStreamCoreAsync(connection, transaction, query, map,
+            initialize, parameters, cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType);
+        return DbaClientXDiagnostics.IsCommandObserved
+            ? DbaClientXDiagnostics.ObserveStream(source, connection, query, cancellationToken) : source;
+    }
 
     private async IAsyncEnumerable<T> ExecuteMappedQueryStreamCoreAsync<T>(
         DbConnection connection,

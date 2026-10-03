@@ -12,11 +12,64 @@ public static partial class DbaClientXDiagnostics
     /// <summary>Name used by the DbaClientX <see cref="ActivitySource"/>.</summary>
     public const string ActivitySourceName = "DbaClientX";
 
-    private static readonly ActivitySource SourceInstance = new(ActivitySourceName);
+    private static readonly object SourceRegistrationLock = new();
+    private static ActivitySource? _sourceInstance = CreateActivitySource();
+    private static ActivitySource? SourceInstance => Volatile.Read(ref _sourceInstance);
     private static readonly AsyncLocal<DbaOperationTelemetry?> CurrentTelemetry = new();
 
     /// <summary>Gets the activity source used by DbaClientX.</summary>
-    public static ActivitySource ActivitySource => SourceInstance;
+    /// <remarks>If a subscriber prevented initial registration, accessing this property retries registration.
+    /// Registration errors can reach this explicit diagnostics caller; database operations keep working without activities.</remarks>
+    public static ActivitySource ActivitySource
+    {
+        get
+        {
+            var source = SourceInstance;
+            if (source != null) return source;
+            lock (SourceRegistrationLock)
+            {
+                source = SourceInstance;
+                if (source == null)
+                {
+                    source = new ActivitySource(ActivitySourceName);
+                    Volatile.Write(ref _sourceInstance, source);
+                }
+                return source;
+            }
+        }
+    }
+
+    private static ActivitySource? CreateActivitySource()
+    {
+        try { return new ActivitySource(ActivitySourceName); }
+        catch (Exception) { return null; }
+    }
+
+    private static Activity? StartObservedActivity(string name, ActivityKind kind,
+        ActivityContext? parent = null, IEnumerable<KeyValuePair<string, object?>>? tags = null)
+    {
+        var source = SourceInstance;
+        if (source == null) return null;
+        var previousActivity = Activity.Current;
+        try
+        {
+            return source.StartActivity(name, kind, parent.GetValueOrDefault(), tags);
+        }
+        catch (Exception)
+        {
+            var failedActivity = Activity.Current;
+            if (!ReferenceEquals(failedActivity, previousActivity) && ReferenceEquals(failedActivity?.Source, source))
+                StopObservedActivity(failedActivity, previousActivity);
+            Activity.Current = previousActivity;
+            return null;
+        }
+    }
+
+    private static void StopObservedActivity(Activity? activity, Activity? previousActivity)
+    {
+        try { activity?.Dispose(); }
+        catch (Exception) { Activity.Current = previousActivity; }
+    }
 
     /// <summary>
     /// Starts a correlated operation and establishes its operation identifier for nested work.
@@ -45,7 +98,7 @@ public static partial class DbaClientXDiagnostics
         string operationId;
         if (currentActivity != null)
         {
-            activity = SourceInstance.StartActivity(activityName, ActivityKind.Internal, currentActivity.Context, tags);
+            activity = StartObservedActivity(activityName, ActivityKind.Internal, currentActivity.Context, tags);
             operationId = currentActivity.TraceId.ToString();
         }
         else if (normalizedRequestedId != null)
@@ -56,12 +109,12 @@ public static partial class DbaClientXDiagnostics
                 ActivityTraceFlags.None,
                 traceState: null,
                 isRemote: true);
-            activity = SourceInstance.StartActivity(activityName, ActivityKind.Internal, parent, tags);
+            activity = StartObservedActivity(activityName, ActivityKind.Internal, parent, tags);
             operationId = normalizedRequestedId;
         }
         else
         {
-            activity = SourceInstance.StartActivity(activityName, ActivityKind.Internal, default(ActivityContext), tags);
+            activity = StartObservedActivity(activityName, ActivityKind.Internal, default(ActivityContext), tags);
             operationId = activity?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
         }
 
@@ -69,7 +122,7 @@ public static partial class DbaClientXDiagnostics
         var telemetry = new DbaOperationTelemetry();
         CurrentTelemetry.Value = telemetry;
         activity?.SetTag("dbaclientx.operation.id", operationId);
-        return new DbaOperationScope(operationId, activity, telemetry, previousTelemetry);
+        return new DbaOperationScope(operationId, activity, currentActivity, telemetry, previousTelemetry);
     }
 
     /// <summary>Starts a child activity within the active operation.</summary>
@@ -77,7 +130,7 @@ public static partial class DbaClientXDiagnostics
         string activityName,
         IEnumerable<KeyValuePair<string, object?>>? tags = null)
     {
-        var activity = SourceInstance.StartActivity(activityName, ActivityKind.Internal);
+        var activity = StartObservedActivity(activityName, ActivityKind.Internal);
         if (activity != null && tags != null)
         {
             foreach (var tag in tags)
@@ -214,16 +267,19 @@ public static partial class DbaClientXDiagnostics
     public sealed class DbaOperationScope : IDisposable
     {
         private readonly DbaOperationTelemetry? _previousTelemetry;
+        private readonly Activity? _previousActivity;
         private bool _disposed;
 
         internal DbaOperationScope(
             string operationId,
             Activity? activity,
+            Activity? previousActivity,
             DbaOperationTelemetry telemetry,
             DbaOperationTelemetry? previousTelemetry)
         {
             OperationId = operationId;
             Activity = activity;
+            _previousActivity = previousActivity;
             Telemetry = telemetry;
             _previousTelemetry = previousTelemetry;
         }
@@ -246,8 +302,8 @@ public static partial class DbaClientXDiagnostics
             }
 
             _disposed = true;
-            Activity?.Dispose();
             CurrentTelemetry.Value = _previousTelemetry;
+            StopObservedActivity(Activity, _previousActivity);
         }
     }
 }
