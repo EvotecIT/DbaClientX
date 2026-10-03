@@ -349,7 +349,7 @@ public partial class SqlServer
     /// Opens the provided <see cref="SqlConnection"/>.
     /// </summary>
     /// <param name="connection">Connection to open.</param>
-    protected virtual void OpenConnection(SqlConnection connection) => connection.Open();
+    protected virtual void OpenConnection(SqlConnection connection) => OpenConnectionWithDiagnostics(connection);
 
     /// <summary>
     /// Asynchronously opens the provided <see cref="SqlConnection"/>.
@@ -357,7 +357,7 @@ public partial class SqlServer
     /// <param name="connection">Connection to open.</param>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A task that completes when the connection is open.</returns>
-    protected virtual Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+    protected virtual Task OpenConnectionAsync(SqlConnection connection, CancellationToken cancellationToken) => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken);
 
     /// <summary>
     /// Disposes a SQL Server connection created for the current operation.

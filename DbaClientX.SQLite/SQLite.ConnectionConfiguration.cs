@@ -75,7 +75,7 @@ public partial class SQLite
 
     internal async Task OpenConfiguredConnectionAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await AwaitWithCallerCancellationAsync(() => connection.OpenAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+        await AwaitWithCallerCancellationAsync(() => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken), cancellationToken).ConfigureAwait(false);
         await ApplyBusyTimeoutAsync(connection, ResolveConnectionBusyTimeout(connection.ConnectionString, null), cancellationToken).ConfigureAwait(false);
         ApplyConnectionConfiguration(connection);
     }

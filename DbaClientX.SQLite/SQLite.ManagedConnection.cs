@@ -21,7 +21,7 @@ public partial class SQLite
         var connection = CreateConfiguredConnection(connectionString, options);
         try
         {
-            connection.Open();
+            OpenConnectionWithDiagnostics(connection);
             ApplyManagedConnectionOptions(connection, options);
             ApplyConnectionConfiguration(connection, applyProfile: false, retainTimeoutUpdates: true);
             return connection;

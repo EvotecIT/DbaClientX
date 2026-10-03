@@ -112,6 +112,7 @@ public partial class SQLite : DatabaseClientBase
             builder.DefaultTimeout = Math.Max(1, (int)Math.Ceiling(busyTimeoutMs.Value / 1000d));
         }
 
+        NormalizeSQLiteFileTarget(builder);
         return builder.ConnectionString;
     }
 
@@ -132,12 +133,13 @@ public partial class SQLite : DatabaseClientBase
         var builder = new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString));
         if (readOnly &&
             builder.Mode != SqliteOpenMode.Memory &&
-            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.Ordinal))
         {
             builder.Mode = SqliteOpenMode.ReadOnly;
             builder.Pooling = false;
         }
 
+        NormalizeSQLiteFileTarget(builder);
         return builder.ToString();
     }
 
@@ -192,15 +194,10 @@ public partial class SQLite : DatabaseClientBase
         }
 
         var uriText = value.ToString();
-        if (Uri.TryCreate(uriText, UriKind.Absolute, out var uri) && uri.IsFile)
+        if (uriText != null && SQLiteFileUri.TryParse(uriText, out var path, out var query))
         {
-            if (removeSourceKey)
-            {
-                builder.Remove(sourceKey);
-            }
-
-            builder["Data Source"] = uri.LocalPath;
-            ApplySQLiteFullUriQueryOptions(builder, uri);
+            builder.Remove(sourceKey);
+            ApplySQLiteUri(builder, path, query);
             return true;
         }
 
@@ -214,68 +211,15 @@ public partial class SQLite : DatabaseClientBase
         return false;
     }
 
-    private static void ApplySQLiteFullUriQueryOptions(DbConnectionStringBuilder builder, Uri uri)
+    private static void ApplySQLiteUri(DbConnectionStringBuilder builder, string path, string query)
     {
-        if (string.IsNullOrEmpty(uri.Query) || uri.Query.Length <= 1)
-        {
-            return;
-        }
-
-        var query = uri.Query.Substring(1).Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in query)
-        {
-            var separator = part.IndexOf('=');
-            var key = separator < 0 ? part : part.Substring(0, separator);
-            var value = separator < 0 ? string.Empty : part.Substring(separator + 1);
-            ApplySQLiteFullUriOption(
-                builder,
-                Uri.UnescapeDataString(key),
-                Uri.UnescapeDataString(value));
-        }
-    }
-
-    private static void ApplySQLiteFullUriOption(DbConnectionStringBuilder builder, string key, string value)
-    {
-        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
-        {
-            if (builder.ContainsKey("Mode"))
-            {
-                return;
-            }
-
-            if (string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadOnly;
-            }
-            else if (string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadWrite;
-            }
-            else if (string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.ReadWriteCreate;
-            }
-            else if (string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase))
-            {
-                builder["Mode"] = SqliteOpenMode.Memory;
-            }
-
-            return;
-        }
-
-        if (!string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase) || builder.ContainsKey("Cache"))
-        {
-            return;
-        }
-
-        if (string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase))
-        {
-            builder["Cache"] = SqliteCacheMode.Shared;
-        }
-        else if (string.Equals(value, "private", StringComparison.OrdinalIgnoreCase))
-        {
-            builder["Cache"] = SqliteCacheMode.Private;
-        }
+        string nativeOptions = SQLiteUriOptions.Apply(builder, query);
+        bool memory = builder.TryGetValue("Mode", out var mode) &&
+            string.Equals(mode?.ToString(), nameof(SqliteOpenMode.Memory), StringComparison.OrdinalIgnoreCase);
+        // Microsoft.Data.Sqlite turns ordinary named-memory filenames back into URIs. Preserve
+        // escaping here so '#' and '%' cannot collapse distinct shared-memory namespaces.
+        builder["Data Source"] = nativeOptions.Length == 0 && Path.IsPathRooted(path) && !memory
+            ? path : SQLiteFileUri.Encode(path, nativeOptions);
     }
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)

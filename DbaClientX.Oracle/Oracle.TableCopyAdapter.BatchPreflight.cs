@@ -18,7 +18,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
         var connection = new OracleConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             string? currentOwner = null;
             using var oracle = new Oracle { CommandTimeout = CommandTimeout };
             var destinationColumns = new IReadOnlyList<DbaColumnInfo>?[definitions.Count];

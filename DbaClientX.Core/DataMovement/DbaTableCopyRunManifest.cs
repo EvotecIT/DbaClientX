@@ -21,6 +21,9 @@ public sealed record DbaTableCopyRunManifest
     /// <summary>Total elapsed time reported by the copy engine.</summary>
     public TimeSpan Duration { get; init; }
 
+    /// <summary>Optional redacted phase and page measurements for this completed run.</summary>
+    public DbaTableCopyPerformance? Performance { get; init; }
+
     /// <summary>Source provider name when the source exposes provider identity.</summary>
     public string? SourceProvider { get; init; }
 
@@ -61,7 +64,8 @@ public sealed record DbaTableCopyRunManifest
         DbaTableCopyOptions options,
         IReadOnlyList<DbaTableCopyTableResult> results,
         int retryCount,
-        IReadOnlyList<DbaClientXDiagnostics.DbaDiagnosticWarning> warnings)
+        IReadOnlyList<DbaClientXDiagnostics.DbaDiagnosticWarning> warnings,
+        DbaTableCopyPerformance? performance = null)
     {
         var tableManifests = new DbaTableCopyTableRunManifest[results.Count];
         for (var index = 0; index < results.Count; index++)
@@ -87,6 +91,7 @@ public sealed record DbaTableCopyRunManifest
             StartedUtc = startedUtc,
             CompletedUtc = completedUtc,
             Duration = duration,
+            Performance = performance,
             SourceProvider = GetProviderName(source),
             DestinationProvider = GetProviderName(destination),
             DefinitionFingerprint = ComputeDefinitionFingerprint(definitions, options),

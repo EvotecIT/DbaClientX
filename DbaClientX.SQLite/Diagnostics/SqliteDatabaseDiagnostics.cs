@@ -14,6 +14,7 @@ public sealed class SqliteDatabaseDiagnostics
 
     /// <summary>
     /// Gets the normalized database path when the database is file-backed.
+    /// On POSIX systems this resolves filesystem aliases to the physical target.
     /// </summary>
     public string FullPath { get; set; } = string.Empty;
 

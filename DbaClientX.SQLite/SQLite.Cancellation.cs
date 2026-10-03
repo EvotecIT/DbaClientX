@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using SQLitePCL;
 
@@ -33,8 +34,9 @@ public partial class SQLite
     /// <c>sqlite3_interrupt</c> is safe to call from another thread and stops the running statement with
     /// <c>SQLITE_INTERRUPT</c>, which the cancellation normalization reports as <see cref="OperationCanceledException"/>.
     /// An interrupt that arrives when no statement runs does not affect the next statement. Dispose the registration
-    /// before the connection is closed. Register only on connections the operation owns: an interrupted write inside
-    /// an explicit transaction rolls the whole transaction back.
+    /// before the connection is closed or reused. Register only while an operation exclusively uses a connection and
+    /// interruption is known to be safe. SELECT-only adapter read transactions may be interrupted; arbitrary write
+    /// commands must use the guarded command registration because an interrupted write rolls the whole transaction back.
     /// </remarks>
     /// <param name="connection">An open connection owned by the current operation.</param>
     /// <param name="cancellationToken">The caller's token.</param>
@@ -53,6 +55,14 @@ public partial class SQLite
             : default;
     }
 
+    /// <summary>Protects existing native transactions and transactions started by an arbitrary SQL batch.</summary>
+    private static CancellationTokenRegistration RegisterCommandInterrupt(
+        SqliteConnection connection,
+        CancellationToken cancellationToken,
+        string commandText)
+        => cancellationToken.CanBeCanceled && IsInAutoCommitMode(connection) && !StartsSqlTransaction(commandText)
+            ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+
     /// <summary>Registers <see cref="RegisterStatementInterrupt"/> only when the operation owns the connection.</summary>
     /// <remarks>
     /// A shared transaction connection is never interrupted: an interrupted write would roll back the caller's whole
@@ -61,15 +71,44 @@ public partial class SQLite
     private static CancellationTokenRegistration RegisterOwnedStatementInterrupt(
         SqliteConnection connection,
         bool ownsConnection,
-        CancellationToken cancellationToken)
-        => ownsConnection ? RegisterStatementInterrupt(connection, cancellationToken) : default;
+        CancellationToken cancellationToken,
+        string commandText)
+        => ownsConnection ? RegisterCommandInterrupt(connection, cancellationToken, commandText) : default;
 
     private static void InterruptStatement(SqliteConnection connection)
     {
         var handle = connection.Handle;
         if (handle != null)
         {
+            // Never query transaction state here: sqlite3_get_autocommit can wait for the running
+            // statement's mutex. Only sqlite3_interrupt is safe for cancellation from another thread.
             raw.sqlite3_interrupt(handle);
         }
     }
+
+    // SQL BEGIN and SAVEPOINT do not create a managed SqliteTransaction. Query native state so both
+    // cancellation and replay protect earlier writes regardless of how a transaction was started.
+    private static bool IsInAutoCommitMode(SqliteConnection connection)
+        => connection.Handle is { } handle && raw.sqlite3_get_autocommit(handle) != 0;
+
+    /// <inheritdoc />
+    protected override bool CanRetryCommand(DbConnection connection, DbTransaction? transaction, bool returnsResults)
+        => base.CanRetryCommand(connection, transaction, returnsResults)
+           && connection is SqliteConnection sqliteConnection && IsInAutoCommitMode(sqliteConnection);
+
+    private static bool StartsSqlTransaction(string? commandText)
+    {
+        if (commandText == null ||
+            (commandText.IndexOf("BEGIN", StringComparison.OrdinalIgnoreCase) < 0 &&
+             commandText.IndexOf("SAVEPOINT", StringComparison.OrdinalIgnoreCase) < 0)) return false;
+
+        foreach (string statement in QueryPlans.SqlStatementText.Split(commandText))
+            if (StartsWithKeyword(statement, "BEGIN") || StartsWithKeyword(statement, "SAVEPOINT")) return true;
+        return false;
+    }
+
+    private static bool StartsWithKeyword(string statement, string keyword)
+        => statement.StartsWith(keyword, StringComparison.OrdinalIgnoreCase) &&
+           (statement.Length == keyword.Length ||
+            !(char.IsLetterOrDigit(statement[keyword.Length]) || statement[keyword.Length] is '_' or '$'));
 }

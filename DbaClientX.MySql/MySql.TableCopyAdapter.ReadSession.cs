@@ -36,7 +36,7 @@ public sealed partial class MySqlTableCopyAdapter
         try
         {
             _readConnection = new MySqlConnection(ResolveMySqlRegularOperationConnectionString());
-            await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(_readConnection, cancellationToken).ConfigureAwait(false);
             IsolationLevel isolation = ReadConsistency == DbaTableCopyReadConsistency.Snapshot
                 ? IsolationLevel.RepeatableRead
                 : IsolationLevel.Serializable;
@@ -116,7 +116,7 @@ WHERE TABLE_TYPE = 'BASE TABLE'
     {
         await using MySqlConnection? owned = _readConnection == null ? new MySqlConnection(ResolveMySqlRegularOperationConnectionString()) : null;
         MySqlConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         await using MySqlCommand command = _readConnection == null
             ? new MySqlCommand(query, connection) { CommandTimeout = CommandTimeout }
             : CreateReadCommand(query);
