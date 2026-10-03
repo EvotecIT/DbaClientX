@@ -4,7 +4,7 @@ namespace DBAClientX.DataMovement;
 
 public sealed partial class DbaTableCopyEngine
 {
-    private static async Task<List<DbaTableCopyTableResult>> CopyVerifiedTablesAsync(IDbaTableCopySource source, IDbaTableCopyDestination destination, IReadOnlyList<DbaTableCopyDefinition> definitions, DbaTableCopyOptions options, CancellationToken cancellationToken)
+    private static async Task<List<DbaTableCopyTableResult>> CopyVerifiedTablesAsync(IDbaTableCopySource source, IDbaTableCopyDestination destination, IReadOnlyList<DbaTableCopyDefinition> definitions, DbaTableCopyOptions options, CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         if (destination is not IDbaTableCopySource destinationReader)
             throw new NotSupportedException("Content verification requires a destination that can read back copied rows.");
@@ -43,7 +43,8 @@ public sealed partial class DbaTableCopyEngine
                 DbaTableCopyPhase.ValidateSource,
                 cancellationToken,
                 destination,
-                deferSchemaPreflight: batchPreflightDestination != null).ConfigureAwait(false);
+                deferSchemaPreflight: batchPreflightDestination != null, measurements: measurements).ConfigureAwait(false);
+            using var prepare = measurements?.BeginPhase(DbaTableCopyPhase.PrepareDestination, definition.DisplayName);
             DbaTableCopyDefinition destinationDefinition = CreateDestinationReadDefinition(definition, proof);
             string fingerprint = DbaTableCopyRunManifest.ComputeDefinitionFingerprint(new[] { definition }, new DbaTableCopyOptions { KeepIdentity = options.KeepIdentity });
             var initial = new DbaTableCopyCheckpoint
@@ -68,7 +69,7 @@ public sealed partial class DbaTableCopyEngine
             var plan = new VerifiedTablePlan(definition, destinationDefinition, proof, initial, existing);
             if (existing != null)
             {
-                plan.CommittedDestinationProof = await VerifyCommittedDestinationAsync(destinationReader, plan, existing, options, cancellationToken).ConfigureAwait(false);
+                plan.CommittedDestinationProof = await VerifyCommittedDestinationAsync(destinationReader, plan, existing, options, cancellationToken, measurements: measurements).ConfigureAwait(false);
             }
             else
             {
@@ -78,7 +79,7 @@ public sealed partial class DbaTableCopyEngine
                 // Exercise the destination key even for an empty table, before any clearing or writes.
                 using DbaTableCopyPage probe = await ReadPageAsync(destinationReader,
                     new DbaTableCopyPageRequest(destinationDefinition, null, 1) { MaxBytes = options.MaxPageBytes },
-                    1, cancellationToken).ConfigureAwait(false);
+                    1, cancellationToken, measurements: measurements, destinationRead: true).ConfigureAwait(false);
             }
             plans.Add(plan);
         }
@@ -92,12 +93,13 @@ public sealed partial class DbaTableCopyEngine
                 definitions,
                 plans.Select(static plan => plan.Source.Rows).ToArray(),
                 options,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken, measurements: measurements).ConfigureAwait(false);
         }
         // A process can stop during preflight, before the first checkpoint is initialized.
         // Resume may initialize missing checkpoints only after proving those destinations empty above.
 
         // Finish all source and destination checks before clearing any table. Reverse order respects dependencies.
+        using (measurements?.BeginPhase(DbaTableCopyPhase.PrepareDestination))
         for (int index = plans.Count - 1; index >= 0; index--)
         {
             VerifiedTablePlan plan = plans[index];
@@ -111,14 +113,15 @@ public sealed partial class DbaTableCopyEngine
         var results = new List<DbaTableCopyTableResult>();
         foreach (VerifiedTablePlan plan in plans)
         {
-            results.Add(await CopyVerifiedTableAsync(source, destination, destinationReader, checkpoints, plan, options, cancellationToken).ConfigureAwait(false));
+            results.Add(await CopyVerifiedTableAsync(source, destination, destinationReader, checkpoints, plan, options, cancellationToken, measurements: measurements).ConfigureAwait(false));
         }
         return results;
     }
 
-    private static async Task<DbaTableCopyTableResult> CopyVerifiedTableAsync(IDbaTableCopySource source, IDbaTableCopyDestination destination, IDbaTableCopySource destinationReader, IDbaTableCopyCheckpointDestination? checkpoints, VerifiedTablePlan plan, DbaTableCopyOptions options, CancellationToken cancellationToken)
+    private static async Task<DbaTableCopyTableResult> CopyVerifiedTableAsync(IDbaTableCopySource source, IDbaTableCopyDestination destination, IDbaTableCopySource destinationReader, IDbaTableCopyCheckpointDestination? checkpoints, VerifiedTablePlan plan, DbaTableCopyOptions options, CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         DbaTableCopyCheckpoint current = plan.Existing ?? plan.Initial;
+        using var measure = measurements?.BeginPhase(DbaTableCopyPhase.Copy, plan.Definition.DisplayName);
         long resumedRows = current.CopiedRows;
         int pageCount = 0;
         using var hasher = new DbaTableCopyContentHasher(current.CopiedContentHash);
@@ -126,7 +129,7 @@ public sealed partial class DbaTableCopyEngine
         {
             using DbaTableCopyPage page = await ReadPageAsync(source,
                 new DbaTableCopyPageRequest(plan.Definition, current.ContinuationToken, options.PageSize) { MaxBytes = options.MaxPageBytes },
-                ++pageCount, cancellationToken).ConfigureAwait(false);
+                ++pageCount, cancellationToken, measurements: measurements).ConfigureAwait(false);
             if (page.Data.Rows.Count == 0 || page.ContinuationToken == current.ContinuationToken)
                 throw new InvalidOperationException($"Source ended or stopped advancing before all rows of '{plan.Definition.DisplayName}' were copied.");
             DataTable transformed = DbaTableCopyPageTransformer.Transform(page.Data, plan.Definition);
@@ -144,17 +147,21 @@ public sealed partial class DbaTableCopyEngine
             if (next.CopiedRows > plan.Source.Rows)
                 throw new InvalidOperationException($"Source gained rows while copying '{plan.Definition.DisplayName}'. Use a stable source snapshot.");
             if (checkpoints != null)
+            {
                 await checkpoints.CommitPageAsync(plan.Definition, transformed, options, current, next, cancellationToken).ConfigureAwait(false);
+                measurements?.WritePage(transformed);
+            }
             else
-                await WritePageAsync(destination, plan.Definition, transformed, options, pageCount, cancellationToken).ConfigureAwait(false);
+                await WritePageAsync(destination, plan.Definition, transformed, options, pageCount, cancellationToken, measurements: measurements).ConfigureAwait(false);
             current = next;
-            options.Progress?.Invoke(new DbaTableCopyProgress(plan.Definition.DisplayName, current.CopiedRows, plan.Source.Rows, transformed.Rows.Count));
+            measurements?.ReportProgress(plan.Definition.DisplayName, current.CopiedRows, plan.Source.Rows,
+                transformed.Rows.Count, current.CopiedRows - resumedRows);
         }
         if (current.CopiedRows != plan.Source.Rows || current.CopiedContentHash != plan.Source.Hash)
             throw new InvalidOperationException($"Source contents changed during the copy of '{plan.Definition.DisplayName}'. The migration is not verified.");
         ContentProof actual = current.CopiedRows == resumedRows && plan.CommittedDestinationProof != null
             ? plan.CommittedDestinationProof
-            : await ReadContentProofAsync(destinationReader, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
+            : await ReadContentProofAsync(destinationReader, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken, measurements: measurements).ConfigureAwait(false);
         bool verified = actual.Rows == plan.Source.Rows && actual.Hash == plan.Source.Hash;
         if (verified && checkpoints != null && !current.Completed)
         {

@@ -17,8 +17,9 @@ public sealed partial class DbaTableCopyEngine
         { UseKeysetPagination = true };
     }
 
-    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, bool deferSchemaPreflight = false)
+    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, bool deferSchemaPreflight = false, CopyMeasurements? measurements = null)
     {
+        using var measure = measurements?.BeginPhase(phase, definition.DisplayName);
         long? counted = await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
         if (!counted.HasValue) throw new InvalidOperationException($"Cannot verify '{definition.DisplayName}' without an exact row count.");
         using var hasher = new DbaTableCopyContentHasher();
@@ -34,7 +35,8 @@ public sealed partial class DbaTableCopyEngine
             {
                 using DbaTableCopyPage page = await ReadPageAsync(source,
                     new DbaTableCopyPageRequest(definition, token, options.PageSize) { MaxBytes = options.MaxPageBytes },
-                    ++pageNumber, cancellationToken).ConfigureAwait(false);
+                    ++pageNumber, cancellationToken, measurements: measurements,
+                    destinationRead: phase == DbaTableCopyPhase.VerifyDestination).ConfigureAwait(false);
                 string? previousToken = token;
                 token = page.ContinuationToken;
                 if (phase == DbaTableCopyPhase.ValidateSource && pageNumber == 1)
@@ -71,7 +73,7 @@ public sealed partial class DbaTableCopyEngine
                     cancellationToken,
                     source as IDbaTableCopyContentValueNormalizer);
                 rows = checked(rows + transformed.Rows.Count);
-                options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, rows, counted, transformed.Rows.Count) { Phase = phase });
+                measurements?.ReportProgress(definition.DisplayName, rows, counted, transformed.Rows.Count, rows);
                 if (transformed.Rows.Count == 0 || token == null) break;
                 if (token == previousToken || rows > counted.Value)
                     throw new InvalidOperationException($"Source contents or continuation changed while verifying '{definition.DisplayName}'. Use a stable source snapshot.");
@@ -96,9 +98,9 @@ public sealed partial class DbaTableCopyEngine
             throw new InvalidOperationException($"Checkpoint source or copy contract no longer matches '{table}'. No destination data was changed. Restore the original source snapshot or start a new copy.");
     }
 
-    private static async Task<ContentProof> VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken)
+    private static async Task<ContentProof> VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
-        ContentProof actual = await ReadContentProofAsync(destination, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
+        ContentProof actual = await ReadContentProofAsync(destination, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken, measurements: measurements).ConfigureAwait(false);
         if (actual.Rows != checkpoint.CopiedRows || actual.Hash != checkpoint.CopiedContentHash)
             throw new InvalidOperationException($"Destination contents no longer match the committed checkpoint for '{plan.Definition.DisplayName}'. No new rows were written.");
         return actual;

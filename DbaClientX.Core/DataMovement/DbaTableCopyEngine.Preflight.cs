@@ -11,9 +11,11 @@ public sealed partial class DbaTableCopyEngine
         IDbaTableCopyDestination destination,
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         var results = new DbaTableCopyPreflight?[definitions.Count];
+        using var measure = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource,
+            definitions.Count == 1 ? definitions[0].DisplayName : null);
         var batchDestination = options.ClearDestination && definitions.Count > 1
             ? destination as IDbaTableCopySchemaPreflightBatchSessionDestination
             : null;
@@ -39,7 +41,7 @@ public sealed partial class DbaTableCopyEngine
                             source,
                             new DbaTableCopyPageRequest(definition, continuationToken: null, pageSize: pageSize) { MaxBytes = options.MaxPageBytes },
                             pageSequence: 1,
-                            cancellationToken)
+                            cancellationToken, measurements: measurements)
                         .ConfigureAwait(false);
                     results[index] = new DbaTableCopyPreflight(sourceRows, firstPage, pageCount: 1);
                     if (firstPage.Data.Columns.Count > 0)
@@ -54,7 +56,7 @@ public sealed partial class DbaTableCopyEngine
                                 firstPage,
                                 sourceRows,
                                 options,
-                                cancellationToken).ConfigureAwait(false);
+                                cancellationToken, measurements: measurements).ConfigureAwait(false);
                         }
                         else if (batchDestination == null)
                         {
@@ -77,7 +79,7 @@ public sealed partial class DbaTableCopyEngine
                     definitions,
                     results,
                     options,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken, measurements: measurements).ConfigureAwait(false);
             }
 
             return results;
@@ -96,7 +98,7 @@ public sealed partial class DbaTableCopyEngine
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         IReadOnlyList<DbaTableCopyPreflight?> preflight,
         DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         var transformedFirstPages = new DataTable?[definitions.Count];
         try
@@ -137,7 +139,7 @@ public sealed partial class DbaTableCopyEngine
                                 requestedToken,
                                 GetReadPageSize(options.PageSize, item.SourceRows, rows)) { MaxBytes = options.MaxPageBytes },
                             pageSequence: 1,
-                            cancellationToken)
+                            cancellationToken, measurements: measurements)
                         .ConfigureAwait(false);
                     token = page.ContinuationToken;
                     ValidateContinuationProgress(requestedToken, token, observedTokens, definitions[index]);
@@ -175,9 +177,10 @@ public sealed partial class DbaTableCopyEngine
         IReadOnlyList<DbaTableCopyDefinition> definitions,
         IReadOnlyList<long> sourceRows,
         DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         var preflight = new DbaTableCopyPreflight?[definitions.Count];
+        using var measure = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource);
         try
         {
             for (var index = 0; index < definitions.Count; index++)
@@ -189,7 +192,7 @@ public sealed partial class DbaTableCopyEngine
                         source,
                         new DbaTableCopyPageRequest(definitions[index], continuationToken: null, pageSize) { MaxBytes = options.MaxPageBytes },
                         pageSequence: 1,
-                        cancellationToken)
+                        cancellationToken, measurements: measurements)
                     .ConfigureAwait(false);
                 preflight[index] = new DbaTableCopyPreflight(sourceRows[index], firstPage, pageCount: 1);
             }
@@ -201,7 +204,7 @@ public sealed partial class DbaTableCopyEngine
                 definitions,
                 preflight,
                 options,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken, measurements: measurements).ConfigureAwait(false);
         }
         finally
         {
@@ -217,7 +220,7 @@ public sealed partial class DbaTableCopyEngine
         DbaTableCopyPage firstPage,
         long? sourceRows,
         DbaTableCopyOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         DataTable transformed = DbaTableCopyPageTransformer.Transform(firstPage.Data, definition);
         using var transformedToDispose = ReferenceEquals(transformed, firstPage.Data) ? null : transformed;
@@ -240,7 +243,7 @@ public sealed partial class DbaTableCopyEngine
                         requestedToken,
                         GetReadPageSize(options.PageSize, sourceRows, rows)) { MaxBytes = options.MaxPageBytes },
                     pageSequence: 1,
-                    cancellationToken)
+                    cancellationToken, measurements: measurements)
                 .ConfigureAwait(false);
             token = page.ContinuationToken;
             ValidateContinuationProgress(requestedToken, token, observedTokens, definition);

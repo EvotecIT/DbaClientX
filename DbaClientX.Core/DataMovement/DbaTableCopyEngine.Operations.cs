@@ -64,7 +64,7 @@ public sealed partial class DbaTableCopyEngine
         IDbaTableCopySource source,
         DbaTableCopyPageRequest request,
         int pageSequence,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null, bool destinationRead = false)
     {
         using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.ReadPage");
         var activity = activityScope.Activity;
@@ -76,6 +76,7 @@ public sealed partial class DbaTableCopyEngine
         try
         {
             var page = await source.ReadPageAsync(request, cancellationToken).ConfigureAwait(false);
+            measurements?.ReadPage(request, page.Data, destinationRead);
             activity?.SetTag("dbaclientx.page.rows", page.Data.Rows.Count);
             activity?.SetTag("dbaclientx.page.has_continuation", page.ContinuationToken != null);
             activity?.SetStatus(ActivityStatusCode.Ok);
@@ -98,7 +99,7 @@ public sealed partial class DbaTableCopyEngine
         DataTable page,
         DbaTableCopyOptions options,
         int pageSequence,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
         using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.WritePage");
         var activity = activityScope.Activity;
@@ -111,6 +112,7 @@ public sealed partial class DbaTableCopyEngine
         try
         {
             await destination.WritePageAsync(definition, page, options, cancellationToken).ConfigureAwait(false);
+            measurements?.WritePage(page);
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (OperationCanceledException)

@@ -183,6 +183,50 @@ For a caller-owned native `DbConnection`, `DbaClientXDiagnostics.OpenConnection`
 provider open without taking ownership, retrying or applying configuration. Provider clients retain their existing
 virtual open hooks. Telemetry observes execution and does not change replay, cancellation or transaction policy.
 
+## Table-copy progress and measurements
+
+`DbaTableCopyOptions.Progress` reports elapsed time and average rows per second for the current
+table and phase. `EstimatedRemaining` estimates only that phase's remaining rows. Unknown row
+counts omit the estimate. On resume, `RowsCopied` includes verified committed rows while
+`RowsProcessedThisPass` and throughput count only rows processed by the current invocation.
+
+Enable `CollectPerformanceStatistics` when investigating migration cost:
+
+```csharp
+var result = await new DbaTableCopyEngine().CopyAsync(source, destination, definitions,
+    new DbaTableCopyOptions
+    {
+        VerifyContent = true,
+        CollectPerformanceStatistics = true,
+        Progress = progress => Console.WriteLine(
+            $"{progress.TableName}: {progress.Phase}, {progress.RowsPerSecond:F0} rows/s, " +
+            $"remaining {progress.EstimatedRemaining}")
+    }, cancellationToken);
+
+foreach (var phase in result.Performance!.Phases)
+    Console.WriteLine($"{phase.Phase}: {phase.Duration}, source rows read {phase.SourceRowsRead}");
+```
+
+Results and the redacted run manifest share the same measurements. Phase invocations remain
+separate: content validation, schema preflight before destructive changes, destination preparation,
+copying, and destination verification. Repeated verification reads remain visible. Nested phases
+are excluded from their parent's duration, so phase times do not double count verification.
+Timings include adapter waits, transformation and caller progress callbacks. Opening the source
+snapshot and initial compatibility checks precede these measurements.
+
+`SourceRowsRead` includes repeated materialization, and a reused preflight page is counted once.
+`SourcePageStreamCount` counts source requests starting without a continuation token; it is not
+a count of complete table scans. Compare rows read with the known source row count to assess
+read amplification. Successful writes exclude rows committed by earlier runs and empty checkpoint
+completion markers.
+
+Payload counters use the page byte-budget estimator: row/field overhead, UTF-16 string storage,
+binary length and approximate scalar storage. They describe estimated managed payload processed,
+including repeated reads. They exclude native buffers, wire bytes, serialization and process memory.
+Statistics are disabled by default; enabling them walks materialized page values without serializing
+or hashing them again. The existing preflight, stable-source, checksum and atomic checkpoint
+requirements still apply.
+
 ## Notes
 - Ship a per-provider package alongside Core for ADO.NET specifics (see provider READMEs).
 - `DbParameterMapper` supports dotted paths and ambient values.
