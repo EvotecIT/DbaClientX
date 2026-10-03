@@ -15,7 +15,7 @@ public partial class QueryCompiler
 
     private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS"
+        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS", "FOR"
     };
 
     private static readonly HashSet<string> MySqlProjectionOperators = new(StringComparer.OrdinalIgnoreCase)

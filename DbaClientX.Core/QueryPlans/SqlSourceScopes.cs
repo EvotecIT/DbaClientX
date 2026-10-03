@@ -80,6 +80,8 @@ internal sealed partial class SqlSourceScopes
             {
                 int first = index;
                 while (first >= 2 && tokens[first - 1].Text == "." && IsName(tokens[first - 2])) first -= 2;
+                // MariaDB sequence expressions name a database object, not a relation supplying a column.
+                if (IsSequenceObjectReference(tokens, first, index + 3)) continue;
                 var qualifier = new string[(index - first) / 2 + 1];
                 for (int part = 0; part < qualifier.Length; part++) qualifier[part] = tokens[first + part * 2].Value;
                 references.Add((scopes._scopes.Peek(), qualifier));
@@ -89,6 +91,13 @@ internal sealed partial class SqlSourceScopes
             if (!HasQualifier(scope, qualifier)) return string.Join(".", qualifier);
         return null;
     }
+
+    private static bool IsSequenceObjectReference(IReadOnlyList<SqlToken> tokens, int first, int end)
+        => first >= 3 && IsWord(tokens[first - 1], "FOR") && IsWord(tokens[first - 2], "VALUE") &&
+               (IsWord(tokens[first - 3], "NEXT") || IsWord(tokens[first - 3], "PREVIOUS")) ||
+           first >= 2 && tokens[first - 1].Kind == SqlTokenKind.OpenParenthesis &&
+               (IsWord(tokens[first - 2], "NEXTVAL") || IsWord(tokens[first - 2], "LASTVAL")) &&
+               end < tokens.Count && tokens[end].Kind == SqlTokenKind.CloseParenthesis;
 
     private static bool HasQualifier(Scope? scope, IReadOnlyList<string> qualifier)
     {
