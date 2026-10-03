@@ -30,6 +30,8 @@ public sealed class SqlServerQueryPlanNativeTests
         var literal = await provider.ExplainQueryPlanAsync(fixture.Connection,
             "SELECT '@unused' AS [SHOWPLAN_XML] FROM dbo.Events e WHERE e.Id=1 /* outer /* nested */ end */");
         Assert.Equal(DbaQueryPlanParameterMode.None, literal.Provenance.ParameterMode);
+        await Assert.ThrowsAsync<FormatException>(() => provider.ExplainQueryPlanAsync(fixture.Connection,
+            "SELECT 1 SELECT Payload FROM dbo.Events"));
         Assert.All(provider.Connections, connection => Assert.Equal(ConnectionState.Closed, connection.State));
     }
 

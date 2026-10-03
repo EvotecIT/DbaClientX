@@ -80,6 +80,25 @@ public sealed class SqlServerQueryPlanTests
         Assert.Throws<NotSupportedException>(() => QueryPlanAssert.Check(plan, new QueryPlanRules()));
     }
 
+    [Fact]
+    public void MixedConstantAndRelationalDocumentsCannotDropAStatement()
+    {
+        string document = Document("<RelOp NodeId=\"0\" PhysicalOp=\"Index Scan\"/>")
+            .Replace("<Statements>", "<Statements><StmtSimple StatementType=\"SELECT WITHOUT QUERY\"/>", StringComparison.Ordinal);
+        Assert.Throws<FormatException>(() => SqlServerQueryPlanParser.Parse("SELECT 1 SELECT Id FROM t", document));
+    }
+
+    [Fact]
+    public void RelationalTreeDoesNotHideAdditionalControlsOrProceduralWrappers()
+    {
+        string document = Document("<RelOp NodeId=\"0\" PhysicalOp=\"Index Scan\"/>");
+        Assert.Throws<FormatException>(() => SqlServerQueryPlanParser.Parse("SELECT Id FROM t",
+            document.Replace("<Statements>", "<Statements><StmtUseDb/>", StringComparison.Ordinal)));
+        Assert.Throws<FormatException>(() => SqlServerQueryPlanParser.Parse("SELECT Id FROM t",
+            document.Replace("<StmtSimple", "<StmtCond><StmtSimple", StringComparison.Ordinal)
+                .Replace("</StmtSimple>", "</StmtSimple></StmtCond>", StringComparison.Ordinal)));
+    }
+
     [Theory]
     [InlineData("SELECT 1; DELETE FROM t")]
     [InlineData("SET SHOWPLAN_XML OFF")]
@@ -123,6 +142,6 @@ public sealed class SqlServerQueryPlanTests
     }
 
     private static string Document(string operators) => "<ShowPlanXML xmlns=\"http://schemas.microsoft.com/sqlserver/2004/07/showplan\">"
-        + "<BatchSequence><Batch><Statements><StmtSimple><QueryPlan>" + operators
+        + "<BatchSequence><Batch><Statements><StmtSimple StatementType=\"SELECT\"><QueryPlan>" + operators
         + "</QueryPlan></StmtSimple></Statements></Batch></BatchSequence></ShowPlanXML>";
 }

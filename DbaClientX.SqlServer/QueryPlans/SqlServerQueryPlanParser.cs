@@ -35,15 +35,27 @@ public static class SqlServerQueryPlanParser
         if (document.Root?.Name != ShowPlan + "ShowPlanXML") throw new FormatException("Expected SQL Server SHOWPLAN XML.");
         if (document.Descendants(ShowPlan + "RunTimeCountersPerThread").Any())
             throw new FormatException("Runtime plan documents are not estimated plans.");
+        var statements = document.Descendants().Where(element => element.Name.Namespace == ShowPlan
+            && element.Name.LocalName.StartsWith("Stmt", StringComparison.Ordinal)).Take(2).ToArray();
+        if (statements.Length != 1 || statements[0].Name != ShowPlan + "StmtSimple"
+            || statements[0].Parent?.Name != ShowPlan + "Statements"
+            || statements[0].Parent?.Parent?.Name != ShowPlan + "Batch"
+            || statements[0].Parent?.Parent?.Parent?.Name != ShowPlan + "BatchSequence"
+            || statements[0].Parent?.Parent?.Parent?.Parent != document.Root)
+            throw new FormatException("Expected one simple statement; batches and procedural plans are unsupported.");
+        var statement = statements[0];
+        var statementType = (string?)statement.Attribute("StatementType");
+        if (statementType is not ("SELECT" or "SELECT INTO" or "INSERT" or "UPDATE" or "DELETE" or "MERGE" or "SELECT WITHOUT QUERY"))
+            throw new FormatException("The native statement type is unsupported.");
         var queryPlans = document.Descendants(ShowPlan + "QueryPlan").Take(2).ToArray();
         if (queryPlans.Length == 0)
         {
-            var statements = document.Descendants(ShowPlan + "StmtSimple").Take(2).ToArray();
-            if (statements.Length == 1 && (string?)statements[0].Attribute("StatementType") == "SELECT WITHOUT QUERY")
+            if (statementType == "SELECT WITHOUT QUERY")
                 return new DbaQueryPlan(sql, Array.Empty<DbaQueryPlanStep>(),
                     new DbaQueryPlanProvenance(SqlDialect.SqlServer, "SHOWPLAN XML", parameterMode, "SELECT WITHOUT QUERY"));
         }
-        if (queryPlans.Length != 1) throw new FormatException("Explain one statement query plan at a time.");
+        if (queryPlans.Length != 1 || queryPlans[0].Parent != statement || statementType == "SELECT WITHOUT QUERY")
+            throw new FormatException("Expected one relational statement plan.");
         var operators = queryPlans[0].Descendants(ShowPlan + "RelOp").Take(4097).ToArray();
         if (operators.Length == 0 || operators.Length > 4096) throw new FormatException("Expected between 1 and 4096 native operators.");
         var sources = new Dictionary<XElement, XElement>();
@@ -74,7 +86,7 @@ public static class SqlServerQueryPlanParser
                 ReadName(source, "Schema"), ReadName(source, "Database")));
         }
         return new DbaQueryPlan(sql, steps,
-            new DbaQueryPlanProvenance(SqlDialect.SqlServer, "SHOWPLAN XML", parameterMode, (string?)queryPlans[0].Parent?.Attribute("StatementType")));
+            new DbaQueryPlanProvenance(SqlDialect.SqlServer, "SHOWPLAN XML", parameterMode, statementType));
     }
 
     private static int ReadId(XElement node)
