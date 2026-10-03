@@ -85,26 +85,7 @@ public partial class SQLite
 
         try
         {
-            return ExecuteWithRetry(() =>
-            {
-                using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                command.CommandText = query;
-                AddParameters(command, parameters);
-                ApplyCommandTimeout(command);
-
-                using var reader = command.ExecuteReader(CommandBehavior.Default);
-                initialize?.Invoke(reader);
-
-                List<T> results = new();
-                while (reader.Read())
-                {
-                    results.Add(map(reader));
-                }
-
-                UpdateOutputParameters(command, parameters);
-                return (IReadOnlyList<T>)results;
-            });
+            return ExecuteMappedQuery(connection, transaction, query, map, initialize, parameters);
         }
         catch (SqliteException ex)
         {

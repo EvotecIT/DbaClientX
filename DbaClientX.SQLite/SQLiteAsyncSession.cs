@@ -11,6 +11,7 @@ namespace DBAClientX;
 /// Represents an asynchronous SQLite connection session owned and managed by <see cref="SQLite"/>.
 /// </summary>
 /// <remarks>
+/// A session and its prepared commands must not execute concurrently or be disposed during execution.
 /// Provider-specific connection and transaction objects remain internal to DBAClientX. Consumers
 /// provide domain SQL, parameter values, and provider-neutral <see cref="IDataRecord"/> projections.
 /// </remarks>

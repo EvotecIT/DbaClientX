@@ -4,6 +4,7 @@ The suite uses BenchmarkDotNet with `MemoryDiagnoser`. Every benchmark returns o
 
 - `QueryCompilerCacheBenchmarks` compares a fresh SQL shape with a cached shape while checking that each cache hit returns the current parameter values.
 - `TableCopyPagingBenchmarks` measures in-memory orchestration and allocation only. It does not represent network or database-provider throughput.
+- `RecordMappingBenchmarks` compares automatic, result-bound and hand-written typed mapping over 25,000 rows with 8 or 40 columns. Input creation, reader setup and schema binding occur outside timing; each iteration verifies the row count and a checksum covering mapped values. The workload includes numeric, enum, GUID, timestamp and nullable conversions. It measures mapping CPU/allocation, without database I/O.
 
 ```powershell
 dotnet run --project DbaClientX.Benchmarks -c Release -- --filter '*QueryCompilerCacheBenchmarks*' --job Short --noOverwrite

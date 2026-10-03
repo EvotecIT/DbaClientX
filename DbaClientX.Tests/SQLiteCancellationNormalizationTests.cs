@@ -5,6 +5,43 @@ namespace DbaClientX.Tests;
 
 public class SQLiteCancellationNormalizationTests
 {
+    private sealed class StatefulCancellationSQLite : DBAClientX.SQLite
+    {
+        public Task<int> RunAsync(CancellationTokenSource source, Exception failure, bool synchronous)
+            => AwaitWithCallerCancellationAsync(static (state, token) => {
+                if (token != state.Source.Token) throw new InvalidOperationException("Caller token was not supplied.");
+                state.Source.Cancel();
+                if (state.Synchronous) throw state.Failure;
+                return Task.FromException<int>(state.Failure);
+            }, (Source: source, Failure: failure, Synchronous: synchronous), source.Token);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StatefulProviderAwait_RecognizedInterrupt_NormalizesSynchronousAndTaskFailures(bool synchronous)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var sqlite = new StatefulCancellationSQLite();
+        var failure = new SqliteException("interrupted", 9);
+        var exception = await Assert.ThrowsAsync<OperationCanceledException>(() => sqlite.RunAsync(cancellation, failure, synchronous));
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.IsType<DBAClientX.DbaClientXException>(exception.InnerException);
+        Assert.NotSame(failure, exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StatefulProviderAwait_UnrelatedFailureAfterCancellation_PreservesFailure(bool synchronous)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var sqlite = new StatefulCancellationSQLite();
+        var failure = new InvalidOperationException("ordinary provider failure");
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => sqlite.RunAsync(cancellation, failure, synchronous));
+        Assert.Same(failure, exception);
+    }
+
     private sealed class ProviderFailureSQLite : DBAClientX.SQLite
     {
         public required CancellationTokenSource CancellationSource { get; init; }

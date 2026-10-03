@@ -21,7 +21,7 @@ public partial class SQLite
         var connection = new SqliteConnection(connectionString);
         try
         {
-            connection.Open();
+            OpenConnectionWithDiagnostics(connection);
             ApplyManagedConnectionOptions(connection, options);
             ApplyConnectionConfiguration(connection);
             return connection;

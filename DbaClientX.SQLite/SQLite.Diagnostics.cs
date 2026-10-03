@@ -22,7 +22,7 @@ public partial class SQLite
         int? busyTimeoutMs = null)
     {
         ValidateDatabasePath(database);
-        string fullPath = Path.GetFullPath(database);
+        string fullPath = GetSQLiteFileSystemPath(database);
         var diagnostics = new SqliteDatabaseDiagnostics
         {
             Database = database,
@@ -40,7 +40,7 @@ public partial class SQLite
 
             using var connection = new SqliteConnection(BuildConnectionString(fullPath, readOnly: true, busyTimeoutMs: busyTimeoutMs));
             await AwaitWithCallerCancellationAsync(
-                () => connection.OpenAsync(cancellationToken),
+                () => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken),
                 cancellationToken).ConfigureAwait(false);
             await ApplyBusyTimeoutAsync(connection, busyTimeoutMs, cancellationToken).ConfigureAwait(false);
             ApplyConnectionConfiguration(connection);

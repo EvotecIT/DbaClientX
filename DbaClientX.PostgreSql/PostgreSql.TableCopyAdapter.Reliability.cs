@@ -169,7 +169,7 @@ LIMIT 1";
         var connection = new NpgsqlConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             using var resolve = new NpgsqlCommand(PostgreSqlSchemaPreflightDestinationQuery, connection)
             {
                 CommandTimeout = CommandTimeout

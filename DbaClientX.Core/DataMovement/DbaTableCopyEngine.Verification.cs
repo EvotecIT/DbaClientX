@@ -17,9 +17,10 @@ public sealed partial class DbaTableCopyEngine
         { UseKeysetPagination = true };
     }
 
-    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, bool deferSchemaPreflight = false)
+    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, CopyMeasurements? measurements = null, VerifiedSourcePreflight? batchPreflight = null, int definitionIndex = 0)
     {
-        long? counted = await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
+        using var measure = measurements?.BeginPhase(phase, definition.DisplayName);
+        long? counted = batchPreflight?.SourceRows(definitionIndex) ?? await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
         if (!counted.HasValue) throw new InvalidOperationException($"Cannot verify '{definition.DisplayName}' without an exact row count.");
         using var hasher = new DbaTableCopyContentHasher();
         IReadOnlyList<string>? columns = expectedColumns;
@@ -32,21 +33,31 @@ public sealed partial class DbaTableCopyEngine
         {
             do
             {
-                using DbaTableCopyPage page = await ReadPageAsync(source,
+                bool prefetched = batchPreflight != null && pageNumber == 0;
+                pageNumber++;
+                DbaTableCopyPage page = prefetched ? batchPreflight!.FirstPage(definitionIndex) : await ReadPageAsync(source,
                     new DbaTableCopyPageRequest(definition, token, options.PageSize) { MaxBytes = options.MaxPageBytes },
-                    ++pageNumber, cancellationToken).ConfigureAwait(false);
+                    pageNumber, cancellationToken, measurements: measurements,
+                    destinationRead: phase == DbaTableCopyPhase.VerifyDestination).ConfigureAwait(false);
+                using var pageToDispose = prefetched ? null : page;
                 string? previousToken = token;
                 token = page.ContinuationToken;
                 if (phase == DbaTableCopyPhase.ValidateSource && pageNumber == 1)
                     destinationProjection = DbaTableCopyPageTransformer.ResolveDestinationReadProjection(page.Data, definition);
                 DataTable transformed = phase == DbaTableCopyPhase.VerifyDestination
                     ? DbaTableCopyPageTransformer.TransformReadback(page.Data, definition)
+                    : prefetched ? batchPreflight!.ProjectedFirstPage(definitionIndex)
                     : DbaTableCopyPageTransformer.Transform(page.Data, definition);
-                using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
+                using var owned = prefetched || ReferenceEquals(transformed, page.Data) ? null : transformed;
                 if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
                 {
+                    using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                     ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
-                    if (!deferSchemaPreflight && options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                    if (batchPreflight != null)
+                    {
+                        await batchPreflight.Session.ValidatePageAsync(definitionIndex, transformed, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
                     {
                         if (schemaSession == null)
                         {
@@ -59,7 +70,7 @@ public sealed partial class DbaTableCopyEngine
                             await schemaSession.ValidatePageAsync(transformed, cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    else if (!deferSchemaPreflight && pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+                    else if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
                     {
                         await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
                     }
@@ -71,7 +82,7 @@ public sealed partial class DbaTableCopyEngine
                     cancellationToken,
                     source as IDbaTableCopyContentValueNormalizer);
                 rows = checked(rows + transformed.Rows.Count);
-                options.Progress?.Invoke(new DbaTableCopyProgress(definition.DisplayName, rows, counted, transformed.Rows.Count) { Phase = phase });
+                measurements?.ReportProgress(definition.DisplayName, rows, counted, transformed.Rows.Count, rows);
                 if (transformed.Rows.Count == 0 || token == null) break;
                 if (token == previousToken || rows > counted.Value)
                     throw new InvalidOperationException($"Source contents or continuation changed while verifying '{definition.DisplayName}'. Use a stable source snapshot.");
@@ -79,7 +90,11 @@ public sealed partial class DbaTableCopyEngine
         }
         finally
         {
-            if (schemaSession != null) await schemaSession.DisposeAsync().ConfigureAwait(false);
+            if (schemaSession != null)
+            {
+                using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
+                await schemaSession.DisposeAsync().ConfigureAwait(false);
+            }
         }
         if (rows != counted.Value)
             throw new InvalidOperationException($"Source contents changed or the paging key is not unique for '{definition.DisplayName}'. Expected {counted.Value} rows but read {rows}.");
@@ -96,9 +111,9 @@ public sealed partial class DbaTableCopyEngine
             throw new InvalidOperationException($"Checkpoint source or copy contract no longer matches '{table}'. No destination data was changed. Restore the original source snapshot or start a new copy.");
     }
 
-    private static async Task<ContentProof> VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken)
+    private static async Task<ContentProof> VerifyCommittedDestinationAsync(IDbaTableCopySource destination, VerifiedTablePlan plan, DbaTableCopyCheckpoint checkpoint, DbaTableCopyOptions options, CancellationToken cancellationToken, CopyMeasurements? measurements = null)
     {
-        ContentProof actual = await ReadContentProofAsync(destination, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken).ConfigureAwait(false);
+        ContentProof actual = await ReadContentProofAsync(destination, plan.ReadDestination, options, plan.Source.Columns, DbaTableCopyPhase.VerifyDestination, cancellationToken, measurements: measurements).ConfigureAwait(false);
         if (actual.Rows != checkpoint.CopiedRows || actual.Hash != checkpoint.CopiedContentHash)
             throw new InvalidOperationException($"Destination contents no longer match the committed checkpoint for '{plan.Definition.DisplayName}'. No new rows were written.");
         return actual;

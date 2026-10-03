@@ -15,6 +15,9 @@ public sealed record DbaTableCopyResult(IReadOnlyList<DbaTableCopyTableResult> T
     /// <summary>Serializable, redacted diagnostic manifest for the completed copy.</summary>
     public DbaTableCopyRunManifest? Manifest { get; init; }
 
+    /// <summary>Optional phase and page measurements collected by <see cref="DbaTableCopyOptions.CollectPerformanceStatistics"/>.</summary>
+    public DbaTableCopyPerformance? Performance { get; init; }
+
     /// <summary>Whether this run requested row-count, content, or checkpoint verification.</summary>
     public bool VerificationRequested { get; init; }
 

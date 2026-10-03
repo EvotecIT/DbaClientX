@@ -40,21 +40,34 @@ public sealed partial class DbaTableCopyReliabilityTests
         Assert.Null(await fixture.Destination.ReadCheckpointAsync(fixture.Definition));
     }
 
-    [Fact]
-    public async Task CopyAsync_EmptyVerifiedProjection_PreservesDestination()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CopyAsync_EmptyVerifiedProjection_PreservesDestination(bool batch)
     {
         using var fixture = new Fixture();
         using var sqlite = new SQLite();
         sqlite.ExecuteNonQuery(fixture.DestinationPath, "INSERT INTO DestinationRows VALUES ('keep',1,'original')");
+        if (batch)
+            sqlite.ExecuteNonQuery(fixture.DestinationPath,
+                "CREATE TABLE OtherRows (GroupName TEXT NOT NULL, Number INTEGER NOT NULL, Payload TEXT NULL, PRIMARY KEY(GroupName,Number)); " +
+                "INSERT INTO OtherRows VALUES ('keep',1,'other-original')");
         DbaTableCopyDefinition definition = fixture.Definition with
         {
             ExcludedColumns = new[] { "GroupName", "Number", "Payload" },
             DestinationOrderByColumns = new[] { "GroupName", "Number" }
         };
+        var other = fixture.Definition with { DestinationName = "OtherRows" };
+        var definitions = batch ? new[] { definition, other } : new[] { definition };
         await Assert.ThrowsAsync<InvalidOperationException>(() => new DbaTableCopyEngine().CopyAsync(fixture.Source, fixture.Destination,
-            new[] { definition }, new() { ClearDestination = true, CheckpointId = "empty-projection" }));
+            definitions, new() { ClearDestination = true, CheckpointId = "empty-projection" }));
         Assert.Equal("original", sqlite.ExecuteScalar(fixture.DestinationPath, "SELECT Payload FROM DestinationRows"));
         Assert.Null(await fixture.Destination.ReadCheckpointAsync(definition));
+        if (batch)
+        {
+            Assert.Equal("other-original", sqlite.ExecuteScalar(fixture.DestinationPath, "SELECT Payload FROM OtherRows"));
+            Assert.Null(await fixture.Destination.ReadCheckpointAsync(other));
+        }
     }
 
     [Fact]

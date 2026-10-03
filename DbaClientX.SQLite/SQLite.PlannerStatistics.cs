@@ -132,7 +132,7 @@ public partial class SQLite
     /// </summary>
     private async Task ValidateKeyCountsAsync(string database, IReadOnlyList<SqlitePlannerStatistics> rows, CancellationToken cancellationToken)
     {
-        if (!File.Exists(database))
+        if (!File.Exists(GetSQLiteFileSystemPath(database)))
         {
             // The write creates the database: it has no indexes to check against yet.
             return;
