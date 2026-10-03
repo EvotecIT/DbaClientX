@@ -1,6 +1,9 @@
 using DBAClientX;
 using DBAClientX.SqlServerMonitoring;
 using Microsoft.Data.SqlClient;
+using System.Management.Automation;
+using System.Management.Automation.Runspaces;
+using DBAClientX.PowerShell;
 
 namespace DbaClientX.Tests;
 
@@ -42,6 +45,52 @@ SELECT Payload FROM dbo.Observed WITH (INDEX(PK_Observed), FORCESEEK) WHERE Id =
         Assert.True(limited.IsTruncated);
         Assert.Single(limited.Indexes);
         Assert.Equal(primary.IndexId, limited.Indexes[0].IndexId);
+
+        var state = InitialSessionState.CreateDefault();
+        state.Commands.Add(new SessionStateCmdletEntry("Get-DbaXSqlServerMonitoring", typeof(CmdletGetDbaXSqlServerMonitoring), null));
+        using var powerShell = PowerShell.Create(state);
+        powerShell.AddCommand("Get-DbaXSqlServerMonitoring")
+            .AddParameter("Server", fixture.Target.ServerOrInstance)
+            .AddParameter("Database", fixture.Database)
+            .AddParameter("Scope", SqlServerMonitoringScope.IndexUsage)
+            .AddParameter("MaximumIndexUsageRows", 1)
+            .AddParameter("TrustServerCertificate", fixture.Target.TrustServerCertificate);
+        if (!fixture.Target.IntegratedSecurity)
+            powerShell.AddParameter("Username", fixture.Target.Username).AddParameter("Password", fixture.Target.Password);
+        var result = Assert.Single(powerShell.Invoke());
+        Assert.False(powerShell.HadErrors, string.Join(Environment.NewLine, powerShell.Streams.Error));
+        var cmdletSnapshot = Assert.IsType<SqlServerMonitoringSnapshot>(result.BaseObject);
+        Assert.Empty(cmdletSnapshot.Errors);
+        Assert.True(cmdletSnapshot.IndexUsage!.IsTruncated);
+        Assert.Single(cmdletSnapshot.IndexUsage.Indexes);
+    }
+
+    [Fact]
+    public async Task QueryStore_DisabledDatabaseReportsOffWithoutChangingConfiguration()
+    {
+        await using var fixture = await Fixture.CreateAsync(enableQueryStore: false);
+        using var provider = new SqlServer();
+        var snapshot = await provider.GetMonitoringSnapshotAsync(fixture.Target,
+            new SqlServerMonitoringOptions { Scope = SqlServerMonitoringScope.Workload });
+        Assert.Empty(snapshot.Errors);
+        Assert.Equal("OFF", snapshot.QueryStore!.DesiredState);
+        Assert.Equal("OFF", snapshot.QueryStore.ActualState);
+        Assert.Empty(snapshot.IndexUsage!.Indexes);
+        Assert.Equal("OFF", (await provider.GetQueryStoreStateAsync(fixture.Target)).ActualState);
+    }
+
+    [Theory]
+    [InlineData("master")]
+    [InlineData("tempdb")]
+    public async Task QueryStore_IneligibleSystemDatabaseIsUnsupportedRatherThanOff(string database)
+    {
+        var target = Fixture.CreateTarget(new SqlConnectionStringBuilder(Fixture.ApprovedConnection()) { InitialCatalog = database });
+        using var provider = new SqlServer();
+        await Assert.ThrowsAsync<NotSupportedException>(() => provider.GetQueryStoreStateAsync(target));
+        var snapshot = await provider.GetMonitoringSnapshotAsync(target,
+            new SqlServerMonitoringOptions { Scope = SqlServerMonitoringScope.QueryStore });
+        Assert.Null(snapshot.QueryStore);
+        Assert.Contains("unsupported", Assert.Single(snapshot.Errors));
     }
 
     [Fact]
@@ -76,25 +125,32 @@ SELECT Payload FROM dbo.Observed WITH (INDEX(PK_Observed), FORCESEEK) WHERE Id =
         Assert.Contains("permission-denied", Assert.Single(snapshot.Errors));
     }
 
-    [Fact]
-    public async Task Workload_UnsupportedQueryStoreRetainsTheAvailableIndexObservation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Workload_UnavailableQueryStoreRetainsTheAvailableIndexObservation(bool missingMetadata)
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.ExecuteAsync("CREATE TABLE dbo.Visible(Id int PRIMARY KEY)");
-        using var provider = new QueryStoreUnavailableSqlServer();
+        using var provider = new QueryStoreUnavailableSqlServer(missingMetadata);
         var snapshot = await provider.GetMonitoringSnapshotAsync(fixture.Target,
             new SqlServerMonitoringOptions { Scope = SqlServerMonitoringScope.Workload });
         Assert.Null(snapshot.QueryStore);
-        Assert.Contains("unsupported", Assert.Single(snapshot.Errors));
+        Assert.Contains(missingMetadata ? "metadata-unavailable" : "unsupported", Assert.Single(snapshot.Errors));
         Assert.Single(snapshot.IndexUsage!.Indexes);
         Assert.False(snapshot.IndexUsage.IsTruncated);
     }
 
     private sealed class QueryStoreUnavailableSqlServer : SqlServer
     {
+        private readonly bool _missingMetadata;
+        internal QueryStoreUnavailableSqlServer(bool missingMetadata) => _missingMetadata = missingMetadata;
+
         public override Task<SqlServerQueryStoreState> GetQueryStoreStateAsync(
             SqlServerMonitoringTarget target, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Query Store is not available on this target.");
+            => _missingMetadata
+                ? throw new System.Data.DataException("Query Store metadata is unavailable on this target.")
+                : throw new NotSupportedException("Query Store is not available on this target.");
     }
 
     private sealed class RestrictedSqlServer : SqlServer
@@ -124,23 +180,33 @@ SELECT Payload FROM dbo.Observed WITH (INDEX(PK_Observed), FORCESEEK) WHERE Id =
             Master = builder.ConnectionString;
             builder.InitialCatalog = Database;
             Connection = builder.ConnectionString;
-            Target = new SqlServerMonitoringTarget
+            Target = CreateTarget(builder);
+        }
+
+        internal static SqlServerMonitoringTarget CreateTarget(SqlConnectionStringBuilder builder)
+            => new()
             {
-                ServerOrInstance = builder.DataSource, Database = Database, IntegratedSecurity = builder.IntegratedSecurity,
+                ServerOrInstance = builder.DataSource, Database = builder.InitialCatalog, IntegratedSecurity = builder.IntegratedSecurity,
                 Username = builder.UserID, Password = builder.Password, TrustServerCertificate = builder.TrustServerCertificate,
                 ConnectTimeoutSeconds = builder.ConnectTimeout, ApplicationName = "DbaClientX.WorkloadQualification"
             };
-        }
 
-        internal static async Task<Fixture> CreateAsync()
+        internal static string ApprovedConnection()
         {
             string? connection = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_WORKLOAD_CONNECTION");
             Assert.SkipWhen(string.IsNullOrWhiteSpace(connection), "Set DBACLIENTX_SQLSERVER_WORKLOAD_CONNECTION to an instance where unique temporary databases may be created.");
-            var fixture = new Fixture(connection!);
+            return connection!;
+        }
+
+        internal static async Task<Fixture> CreateAsync(bool enableQueryStore = true)
+        {
+            var fixture = new Fixture(ApprovedConnection());
             try
             {
                 await fixture.ExecuteAsync($"CREATE DATABASE [{fixture.Database}]", master: true);
-                await fixture.ExecuteAsync($"ALTER DATABASE [{fixture.Database}] SET QUERY_STORE = ON (OPERATION_MODE = READ_WRITE, QUERY_CAPTURE_MODE = ALL)", master: true);
+                await fixture.ExecuteAsync(enableQueryStore
+                    ? $"ALTER DATABASE [{fixture.Database}] SET QUERY_STORE = ON (OPERATION_MODE = READ_WRITE, QUERY_CAPTURE_MODE = ALL)"
+                    : $"ALTER DATABASE [{fixture.Database}] SET QUERY_STORE = OFF", master: true);
                 return fixture;
             }
             catch (Exception primary)

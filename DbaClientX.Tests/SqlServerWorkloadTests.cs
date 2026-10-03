@@ -51,7 +51,8 @@ public sealed class SqlServerWorkloadTests
             table.Columns.Add(name, typeof(string));
         foreach (string name in new[] { "CurrentStorageSizeMb", "MaximumStorageSizeMb", "ReadOnlyReason" })
             table.Columns.Add(name, typeof(long));
-        table.Rows.Add("App", "READ_WRITE", "READ_ONLY", "AUTO", 900L, 1000L, 65544L);
+        table.Columns.Add("DatabaseId", typeof(int));
+        table.Rows.Add("App", "READ_WRITE", "READ_ONLY", "AUTO", 900L, 1000L, 65544L, 5);
         using var reader = table.CreateDataReader();
         Assert.True(reader.Read());
         var state = SqlServerWorkloadMappers.MapQueryStoreState(reader);
@@ -60,6 +61,19 @@ public sealed class SqlServerWorkloadTests
         Assert.Equal(65544L, state.ReadOnlyReason);
         Assert.Equal(900L, state.CurrentStorageSizeMb);
         Assert.Equal(1000L, state.MaximumStorageSizeMb);
+    }
+
+    [Fact]
+    public void QueryStoreMapping_UnavailableMetadataDoesNotBecomeAnOffObservation()
+    {
+        using var table = new DataTable();
+        table.Columns.Add("DatabaseId", typeof(int));
+        table.Columns.Add("DesiredState", typeof(string));
+        table.Rows.Add(5, DBNull.Value);
+        using var reader = table.CreateDataReader();
+        Assert.True(reader.Read());
+        var exception = Assert.Throws<DataException>(() => SqlServerWorkloadMappers.MapQueryStoreState(reader));
+        Assert.Equal("metadata-unavailable", SqlServer.ClassifySqlMonitoringError(exception));
     }
 
     [Theory]

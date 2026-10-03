@@ -3,7 +3,7 @@ using System;
 namespace DBAClientX.SqlServerMonitoring;
 
 /// <summary>
-/// Catalog identity, nullable usage counters and statistics for one visible rowstore index.
+/// Catalog identity, nullable usage counters and statistics for one visible rowstore table index.
 /// Missing counters are unknown, not evidence that an index is unused. Usage can reset on restart,
 /// database detach, shutdown or index changes; SQL Server does not report a complete per-index observation window.
 /// </summary>

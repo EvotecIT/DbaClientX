@@ -5,16 +5,24 @@ namespace DBAClientX.SqlServerMonitoring;
 
 internal static class SqlServerWorkloadMappers
 {
-    internal static SqlServerQueryStoreState MapQueryStoreState(IDataRecord record) => new()
+    internal static SqlServerQueryStoreState MapQueryStoreState(IDataRecord record)
     {
-        DatabaseName = record.GetString(record.GetOrdinal("DatabaseName")),
-        DesiredState = record.GetString(record.GetOrdinal("DesiredState")),
-        ActualState = record.GetString(record.GetOrdinal("ActualState")),
-        CaptureMode = record.GetString(record.GetOrdinal("CaptureMode")),
-        CurrentStorageSizeMb = Convert.ToInt64(record["CurrentStorageSizeMb"]),
-        MaximumStorageSizeMb = Convert.ToInt64(record["MaximumStorageSizeMb"]),
-        ReadOnlyReason = Convert.ToInt64(record["ReadOnlyReason"])
-    };
+        int databaseId = Convert.ToInt32(record["DatabaseId"]);
+        if (databaseId is 1 or 2)
+            throw new NotSupportedException("Query Store is not supported in master or tempdb.");
+        if (record.IsDBNull(record.GetOrdinal("DesiredState")))
+            throw new DataException("Query Store configuration metadata is unavailable for this database or caller.");
+        return new()
+        {
+            DatabaseName = record.GetString(record.GetOrdinal("DatabaseName")),
+            DesiredState = record.GetString(record.GetOrdinal("DesiredState")),
+            ActualState = record.GetString(record.GetOrdinal("ActualState")),
+            CaptureMode = record.GetString(record.GetOrdinal("CaptureMode")),
+            CurrentStorageSizeMb = Convert.ToInt64(record["CurrentStorageSizeMb"]),
+            MaximumStorageSizeMb = Convert.ToInt64(record["MaximumStorageSizeMb"]),
+            ReadOnlyReason = Convert.ToInt64(record["ReadOnlyReason"])
+        };
+    }
 
     internal static (SqlServerIndexUsage Index, DateTime? ServerStartTime) MapIndexUsage(IDataRecord record) => (new()
     {

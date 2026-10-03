@@ -15,6 +15,8 @@ public partial class SqlServer
     /// <param name="cancellationToken">Cancels the database read.</param>
     /// <returns>Configured and actual state, storage and read-only reasons.</returns>
     /// <remarks>Requires SQL Server 2016 or later and the applicable database-state/performance-state permission.</remarks>
+    /// <exception cref="NotSupportedException">The server version or database does not support Query Store, including master and tempdb.</exception>
+    /// <exception cref="System.Data.DataException">Query Store configuration metadata is unavailable; this does not establish that it is OFF.</exception>
     public virtual async Task<SqlServerQueryStoreState> GetQueryStoreStateAsync(
         SqlServerMonitoringTarget target, CancellationToken cancellationToken = default)
     {
@@ -30,11 +32,11 @@ public partial class SqlServer
         }
 
         if (rows.Count != 1)
-            throw new InvalidOperationException("Query Store configuration metadata is unavailable for this database or caller.");
+            throw new System.Data.DataException("Query Store configuration metadata is unavailable for this database or caller.");
         return rows[0];
     }
 
-    /// <summary>Reads bounded rowstore index usage and statistics for the target database without scanning table contents.</summary>
+    /// <summary>Reads bounded rowstore table-index usage and statistics for the target database without scanning table contents.</summary>
     /// <param name="target">Database and authentication settings.</param>
     /// <param name="maximumRows">Maximum retained indexes, between 1 and 10,000; additional rows are reported by the truncation flag.</param>
     /// <param name="cancellationToken">Cancels the database read.</param>

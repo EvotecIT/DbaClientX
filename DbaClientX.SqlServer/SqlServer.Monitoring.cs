@@ -390,6 +390,10 @@ public partial class SqlServer
         {
             AddSectionError(errors, section, ex);
         }
+        catch (DataException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
     }
 
     private static void AddSectionError(List<string> errors, string section, Exception ex)
@@ -462,6 +466,7 @@ public partial class SqlServer
             OperationCanceledException => "cancelled",
             InvalidOperationException => "connection",
             NotSupportedException => "unsupported",
+            DataException => "metadata-unavailable",
             _ => "unknown"
         };
     }

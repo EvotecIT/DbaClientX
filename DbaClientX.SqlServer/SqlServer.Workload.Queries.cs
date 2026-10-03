@@ -3,11 +3,12 @@ namespace DBAClientX;
 public partial class SqlServer
 {
     private const string QueryStoreStateQuery = @"
-SELECT DB_NAME() AS DatabaseName, desired_state_desc AS DesiredState,
+SELECT DB_NAME() AS DatabaseName, DB_ID() AS DatabaseId, desired_state_desc AS DesiredState,
        actual_state_desc AS ActualState, query_capture_mode_desc AS CaptureMode,
        current_storage_size_mb AS CurrentStorageSizeMb, max_storage_size_mb AS MaximumStorageSizeMb,
        readonly_reason AS ReadOnlyReason
-FROM sys.database_query_store_options";
+FROM (VALUES (1)) AS context(id)
+LEFT JOIN sys.database_query_store_options ON 1 = 1";
 
     private const string IndexUsageQuery = @"
 SELECT TOP (@maximumRows) s.name AS SchemaName, t.name AS TableName, i.name AS IndexName,

@@ -109,7 +109,7 @@ cli.RunInTransaction(
 
 ## Database workload diagnostics
 
-Read Query Store configuration and a bounded rowstore-index observation for one database:
+Read Query Store configuration and a bounded rowstore table-index observation for one database:
 
 ```csharp
 var snapshot = await cli.GetMonitoringSnapshotAsync(
@@ -136,11 +136,17 @@ foreach (var error in snapshot.Errors)
     Console.WriteLine(error);
 ```
 
-`GetQueryStoreStateAsync` and `GetIndexUsageAsync` also collect these sections individually. Query Store reports actual/desired state, capture mode, storage and the complete read-only reason bitmask. Collection does not enable Query Store, alter capture policy, update statistics or return captured query text. Index usage retains primary-key/uniqueness roles, nullable read/write counters and index statistics properties. The default continuous-monitoring scope remains `Baseline`; `All` includes the workload sections.
+`GetQueryStoreStateAsync` and `GetIndexUsageAsync` also collect these sections individually. Query Store reports actual/desired state, capture mode, storage and the complete read-only reason bitmask. Collection does not enable Query Store, alter capture policy, update statistics or return captured query text. Index usage retains primary-key/uniqueness roles, nullable read/write counters and index statistics properties. The default continuous-monitoring scope remains `Baseline`. `All` retains its published value and original sections; use `All | Workload` to collect them together.
 
-The index limit is between 1 and 10,000. `IsTruncated` reports additional visible indexes; catalog permissions can hide objects even when it is false. This collector includes rowstore indexes and excludes heaps, columnstore, hypothetical and memory-optimized indexes. Missing usage rows or statistics properties remain null. A zero or absent counter does not prove that an index is unused. Counters can reset on instance restart, database detach/shutdown and index changes, so `ServerStartTime` gives restart context rather than a complete observation window. Server-reported timestamps retain their local clock values with an unspecified `DateTime.Kind`; `CollectedUtc` is the collector's UTC completion time.
+The index limit is between 1 and 10,000. `IsTruncated` reports additional visible indexes; catalog permissions can hide objects even when it is false. This collector includes rowstore table indexes and excludes indexed views, heaps, columnstore, hypothetical and memory-optimized indexes. Missing usage rows or statistics properties remain null. A zero or absent counter does not prove that an index is unused. Counters can reset on instance restart, database detach/shutdown and index changes, so `ServerStartTime` gives restart context rather than a complete observation window. Server-reported timestamps retain their local clock values with an unspecified `DateTime.Kind`; `CollectedUtc` is the collector's UTC completion time.
 
-Query Store needs SQL Server 2016 or later and the applicable database-state/performance-state permission. Index/statistics collection needs SQL Server 2014 or later and the applicable server-state/performance-state permission; statistics/catalog visibility also depends on the caller's grants. A failed optional section remains null and appears in `Errors`, including permission-denied and unsupported classifications. Cancellation propagates to the caller. Collection makes no automatic index-removal recommendation.
+Query Store needs SQL Server 2016 or later and the applicable database-state/performance-state permission. A disabled database reports `OFF`; `master` and `tempdb` report `unsupported`. Missing configuration metadata reports `metadata-unavailable` rather than being interpreted as `OFF`. Index/statistics collection needs SQL Server 2014 or later and the applicable server-state/performance-state permission; statistics/catalog visibility also depends on the caller's grants. A failed optional section remains null and appears in `Errors`, including permission-denied and unsupported classifications. Cancellation propagates to the caller. Collection makes no automatic index-removal recommendation.
+
+The PowerShell monitoring command forwards the same scope and row bound:
+
+```powershell
+Get-DbaXSqlServerMonitoring -Server sql01 -Database App -Scope Workload -MaximumIndexUsageRows 1000
+```
 
 ## See also
 

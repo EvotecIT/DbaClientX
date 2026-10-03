@@ -18,7 +18,7 @@ public sealed class SqlServerIndexUsageSnapshot
 
     /// <summary>Database queried, rather than all databases on the instance.</summary>
     public string DatabaseName { get; }
-    /// <summary>Visible rowstore indexes in deterministic schema/table/index order; excludes heaps, columnstore and memory-optimized indexes.</summary>
+    /// <summary>Visible rowstore table indexes in deterministic schema/table/index order; excludes indexed views, heaps, columnstore and memory-optimized indexes.</summary>
     public IReadOnlyList<SqlServerIndexUsage> Indexes { get; }
     /// <summary>
     /// Whether more visible indexes exist than the requested row limit. A false value does not establish

@@ -97,7 +97,7 @@ public class SqlServerMonitoringTests
     }
 
     [Fact]
-    public void MonitoringScope_All_IncludesAvailabilityGroups()
+    public void MonitoringScope_All_RetainsPublishedValueAndWorkloadIsOptIn()
     {
         var options = new SqlServerMonitoringOptions
         {
@@ -105,6 +105,12 @@ public class SqlServerMonitoringTests
         };
 
         Assert.True(options.Includes(SqlServerMonitoringScope.AvailabilityGroups));
+        Assert.Equal(127, (int)options.Scope);
+        Assert.False(options.Includes(SqlServerMonitoringScope.QueryStore));
+        Assert.False(options.Includes(SqlServerMonitoringScope.IndexUsage));
+        options.Scope |= SqlServerMonitoringScope.Workload;
+        Assert.True(options.Includes(SqlServerMonitoringScope.QueryStore));
+        Assert.True(options.Includes(SqlServerMonitoringScope.IndexUsage));
     }
 
     [Fact]

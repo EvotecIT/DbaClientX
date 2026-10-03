@@ -44,6 +44,6 @@ public enum SqlServerMonitoringScope
     /// <summary>Recommended baseline monitoring for continuous health checks.</summary>
     Baseline = Connectivity | DatabaseState | BackupFreshness | CheckDbFreshness | AgentJobs,
 
-    /// <summary>All monitoring areas currently implemented by this provider.</summary>
-    All = Baseline | WaitStatistics | AvailabilityGroups | Workload
+    /// <summary>All original monitoring areas, retaining the published value. Combine with <see cref="Workload"/> to include workload evidence.</summary>
+    All = Baseline | WaitStatistics | AvailabilityGroups
 }
