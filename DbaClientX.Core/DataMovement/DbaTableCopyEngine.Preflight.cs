@@ -170,48 +170,6 @@ public sealed partial class DbaTableCopyEngine
         }
     }
 
-    private static async Task PreflightVerifiedSourceTablesAsync(
-        IDbaTableCopySource source,
-        IDbaTableCopySchemaPreflightBatchSessionDestination destination,
-        IDbaTableCopyPagePreflightDestination? pagePreflight,
-        IReadOnlyList<DbaTableCopyDefinition> definitions,
-        IReadOnlyList<long> sourceRows,
-        DbaTableCopyOptions options,
-        CancellationToken cancellationToken, CopyMeasurements? measurements = null)
-    {
-        var preflight = new DbaTableCopyPreflight?[definitions.Count];
-        using var measure = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource);
-        try
-        {
-            for (var index = 0; index < definitions.Count; index++)
-            {
-                int pageSize = sourceRows[index] > 0
-                    ? GetReadPageSize(options.PageSize, sourceRows[index], copied: 0)
-                    : options.PageSize;
-                DbaTableCopyPage firstPage = await ReadPageAsync(
-                        source,
-                        new DbaTableCopyPageRequest(definitions[index], continuationToken: null, pageSize) { MaxBytes = options.MaxPageBytes },
-                        pageSequence: 1,
-                        cancellationToken, measurements: measurements)
-                    .ConfigureAwait(false);
-                preflight[index] = new DbaTableCopyPreflight(sourceRows[index], firstPage, pageCount: 1);
-            }
-
-            await PreflightAllSourceTablesAsync(
-                source,
-                destination,
-                pagePreflight,
-                definitions,
-                preflight,
-                options,
-                cancellationToken, measurements: measurements).ConfigureAwait(false);
-        }
-        finally
-        {
-            DisposePreflightPages(preflight);
-        }
-    }
-
     private static async Task PreflightAllSourcePagesAsync(
         IDbaTableCopySource source,
         IDbaTableCopySchemaPreflightSessionDestination destination,

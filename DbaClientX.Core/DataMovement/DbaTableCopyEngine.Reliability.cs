@@ -35,15 +35,13 @@ public sealed partial class DbaTableCopyEngine
                 if (!destinationIdentities.Add(identity))
                     throw new InvalidOperationException($"Multiple definitions target destination table '{definition.DestinationName}'. Each verified destination must be unique.");
             }
-            ContentProof proof = await ReadContentProofAsync(
-                source,
-                definition,
-                options,
-                null,
-                DbaTableCopyPhase.ValidateSource,
-                cancellationToken,
-                destination,
-                deferSchemaPreflight: batchPreflightDestination != null, measurements: measurements).ConfigureAwait(false);
+        }
+        ContentProof[] proofs = await ReadVerifiedSourceProofsAsync(source, destination,
+            batchPreflightDestination, definitions, options, cancellationToken, measurements).ConfigureAwait(false);
+        for (var index = 0; index < definitions.Count; index++)
+        {
+            DbaTableCopyDefinition definition = definitions[index];
+            ContentProof proof = proofs[index];
             using var prepare = measurements?.BeginPhase(DbaTableCopyPhase.PrepareDestination, definition.DisplayName);
             DbaTableCopyDefinition destinationDefinition = CreateDestinationReadDefinition(definition, proof);
             string fingerprint = DbaTableCopyRunManifest.ComputeDefinitionFingerprint(new[] { definition }, new DbaTableCopyOptions { KeepIdentity = options.KeepIdentity });
@@ -84,17 +82,6 @@ public sealed partial class DbaTableCopyEngine
             plans.Add(plan);
         }
 
-        if (batchPreflightDestination != null)
-        {
-            await PreflightVerifiedSourceTablesAsync(
-                source,
-                batchPreflightDestination,
-                destination as IDbaTableCopyPagePreflightDestination,
-                definitions,
-                plans.Select(static plan => plan.Source.Rows).ToArray(),
-                options,
-                cancellationToken, measurements: measurements).ConfigureAwait(false);
-        }
         // A process can stop during preflight, before the first checkpoint is initialized.
         // Resume may initialize missing checkpoints only after proving those destinations empty above.
 

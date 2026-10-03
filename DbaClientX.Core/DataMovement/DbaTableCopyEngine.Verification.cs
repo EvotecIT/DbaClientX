@@ -17,10 +17,10 @@ public sealed partial class DbaTableCopyEngine
         { UseKeysetPagination = true };
     }
 
-    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, bool deferSchemaPreflight = false, CopyMeasurements? measurements = null)
+    private static async Task<ContentProof> ReadContentProofAsync(IDbaTableCopySource source, DbaTableCopyDefinition definition, DbaTableCopyOptions options, IReadOnlyList<string>? expectedColumns, DbaTableCopyPhase phase, CancellationToken cancellationToken, IDbaTableCopyDestination? preflightDestination = null, CopyMeasurements? measurements = null, VerifiedSourcePreflight? batchPreflight = null, int definitionIndex = 0)
     {
         using var measure = measurements?.BeginPhase(phase, definition.DisplayName);
-        long? counted = await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
+        long? counted = batchPreflight?.SourceRows(definitionIndex) ?? await CountRowsAsync(source, definition, phase == DbaTableCopyPhase.ValidateSource ? "source" : "destination", cancellationToken).ConfigureAwait(false);
         if (!counted.HasValue) throw new InvalidOperationException($"Cannot verify '{definition.DisplayName}' without an exact row count.");
         using var hasher = new DbaTableCopyContentHasher();
         IReadOnlyList<string>? columns = expectedColumns;
@@ -33,22 +33,31 @@ public sealed partial class DbaTableCopyEngine
         {
             do
             {
-                using DbaTableCopyPage page = await ReadPageAsync(source,
+                bool prefetched = batchPreflight != null && pageNumber == 0;
+                pageNumber++;
+                DbaTableCopyPage page = prefetched ? batchPreflight!.FirstPage(definitionIndex) : await ReadPageAsync(source,
                     new DbaTableCopyPageRequest(definition, token, options.PageSize) { MaxBytes = options.MaxPageBytes },
-                    ++pageNumber, cancellationToken, measurements: measurements,
+                    pageNumber, cancellationToken, measurements: measurements,
                     destinationRead: phase == DbaTableCopyPhase.VerifyDestination).ConfigureAwait(false);
+                using var pageToDispose = prefetched ? null : page;
                 string? previousToken = token;
                 token = page.ContinuationToken;
                 if (phase == DbaTableCopyPhase.ValidateSource && pageNumber == 1)
                     destinationProjection = DbaTableCopyPageTransformer.ResolveDestinationReadProjection(page.Data, definition);
                 DataTable transformed = phase == DbaTableCopyPhase.VerifyDestination
                     ? DbaTableCopyPageTransformer.TransformReadback(page.Data, definition)
+                    : prefetched ? batchPreflight!.ProjectedFirstPage(definitionIndex)
                     : DbaTableCopyPageTransformer.Transform(page.Data, definition);
-                using var owned = ReferenceEquals(transformed, page.Data) ? null : transformed;
+                using var owned = prefetched || ReferenceEquals(transformed, page.Data) ? null : transformed;
                 if (phase == DbaTableCopyPhase.ValidateSource && page.Data.Columns.Count > 0)
                 {
+                    using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                     ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
-                    if (!deferSchemaPreflight && options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
+                    if (batchPreflight != null)
+                    {
+                        await batchPreflight.Session.ValidatePageAsync(definitionIndex, transformed, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
                     {
                         if (schemaSession == null)
                         {
@@ -61,7 +70,7 @@ public sealed partial class DbaTableCopyEngine
                             await schemaSession.ValidatePageAsync(transformed, cancellationToken).ConfigureAwait(false);
                         }
                     }
-                    else if (!deferSchemaPreflight && pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
+                    else if (pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
                     {
                         await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
                     }
@@ -81,7 +90,11 @@ public sealed partial class DbaTableCopyEngine
         }
         finally
         {
-            if (schemaSession != null) await schemaSession.DisposeAsync().ConfigureAwait(false);
+            if (schemaSession != null)
+            {
+                using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
+                await schemaSession.DisposeAsync().ConfigureAwait(false);
+            }
         }
         if (rows != counted.Value)
             throw new InvalidOperationException($"Source contents changed or the paging key is not unique for '{definition.DisplayName}'. Expected {counted.Value} rows but read {rows}.");
