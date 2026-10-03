@@ -31,6 +31,9 @@ public sealed class SqlServerMonitoringOptions
     /// <summary>Maximum cumulative wait percentage to include in wait-stat output.</summary>
     public decimal WaitStatisticThresholdPercent { get; set; } = 95m;
 
+    /// <summary>Maximum index rows retained when collecting <see cref="SqlServerMonitoringScope.IndexUsage"/>; between 1 and 10,000.</summary>
+    public int MaximumIndexUsageRows { get; set; } = 500;
+
     /// <summary>Returns true when the requested scope includes the supplied flag.</summary>
     /// <param name="scope">Scope flag to test.</param>
     /// <returns><see langword="true"/> when <see cref="Scope"/> contains <paramref name="scope"/>.</returns>

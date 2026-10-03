@@ -6,6 +6,7 @@ using DBAClientX;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public class SQLitePreparedCommandRetryTests
 {
     [Theory]

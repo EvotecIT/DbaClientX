@@ -506,10 +506,10 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
+                connection = CreateConfiguredConnection(connectionString);
                 OpenConnectionWithDiagnostics(connection);
                 ApplyBusyTimeout(connection);
-                ApplyConnectionConfiguration(connection);
+                ApplyConnectionConfiguration(connection, retainTimeoutUpdates: true);
                 transaction = isolationLevel.HasValue
                     ? connection.BeginTransaction(isolationLevel.Value)
                     : connection.BeginTransaction();
@@ -534,12 +534,12 @@ public partial class SQLite
             SqliteTransaction? transaction = null;
             try
             {
-                connection = new SqliteConnection(connectionString);
+                connection = CreateConfiguredConnection(connectionString);
                 await AwaitWithCallerCancellationAsync(
                     () => OpenConnectionWithDiagnosticsAsync(connection, retryToken),
                     retryToken).ConfigureAwait(false);
                 await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, retryToken).ConfigureAwait(false);
-                ApplyConnectionConfiguration(connection);
+                ApplyConnectionConfiguration(connection, retainTimeoutUpdates: true);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
                 transaction = isolationLevel.HasValue
                     ? (SqliteTransaction)await connection.BeginTransactionAsync(isolationLevel.Value, retryToken).ConfigureAwait(false)

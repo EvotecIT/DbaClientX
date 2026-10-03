@@ -5,6 +5,7 @@ using DBAClientX;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public class SQLitePreparedCommandTests
 {
     private enum Status

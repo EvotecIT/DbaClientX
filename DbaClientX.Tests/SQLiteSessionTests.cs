@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.IO;
-using System.Reflection;
 using System.Threading.Tasks;
 using DBAClientX;
 
@@ -146,18 +145,19 @@ public class SQLiteSessionTests
         }
     }
 
-    [Fact]
-    public void ResolveConnectionBusyTimeout_PreservesExplicitCommandTimeoutAlias()
+    [Theory]
+    [InlineData("Command Timeout")]
+    [InlineData("Default Timeout")]
+    public void ConnectionStringTimeout_PreservesProviderTimeoutInsteadOfInjectingClientBusyTimeout(string keyword)
     {
-        MethodInfo method = typeof(SQLite).GetMethod(
-            "ResolveConnectionBusyTimeout",
-            BindingFlags.NonPublic | BindingFlags.Static)!;
-
-        object? result = method.Invoke(
-            null,
-            new object?[] { "Data Source=app.db;Command Timeout=9", null });
-
-        Assert.Equal(0, Assert.IsType<int>(result));
+        string path = Path.Join(Path.GetTempPath(), Path.GetFileName($"{Guid.NewGuid():N}.db"));
+        try
+        {
+            using var sqlite = new SQLite { BusyTimeoutMs = 7500 };
+            Assert.Equal(0L, sqlite.ExecuteScalarWithConnectionString(
+                SQLite.BuildConnectionString(path) + ";" + keyword + "=9", "PRAGMA busy_timeout"));
+        }
+        finally { Cleanup(path); }
     }
 
     [Fact]

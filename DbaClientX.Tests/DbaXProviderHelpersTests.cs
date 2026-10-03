@@ -6,6 +6,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public class DbaXProviderHelpersTests
 {
     [Theory]

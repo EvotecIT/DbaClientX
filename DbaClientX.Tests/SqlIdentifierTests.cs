@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SqlIdentifierTests
 {
     /// <summary>Names that break naive quoting: every dialect's quote characters, statement separators and comments.</summary>

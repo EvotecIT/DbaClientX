@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SQLiteUnicodeTextTests : IDisposable
 {
     private static readonly string[] Names = { "zażółć", "ZAŻÓŁĆ", "Émile", "émile", "apple", "Äpfel", "ápple", "Ωmega", "ωmega", "İstanbul", "istanbul", "𐐀deseret", "𐐨deseret", "B", "a" };

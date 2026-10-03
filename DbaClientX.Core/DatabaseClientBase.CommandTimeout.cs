@@ -35,6 +35,7 @@ public abstract partial class DatabaseClientBase
                 _commandTimeout = value;
                 _commandTimeoutConfigured = true;
             }
+            OnCommandTimeoutChanged();
         }
     }
 
@@ -49,7 +50,14 @@ public abstract partial class DatabaseClientBase
             _commandTimeout = 0;
             _commandTimeoutConfigured = false;
         }
+        OnCommandTimeoutChanged();
     }
+
+    /// <summary>
+    /// Allows providers to synchronize defaults for retained connections after a timeout is set or reset.
+    /// </summary>
+    /// <remarks>Called outside the client state lock. Read the current value with <see cref="TryGetCommandTimeout"/>.</remarks>
+    protected virtual void OnCommandTimeoutChanged() { }
 
     /// <summary>
     /// Applies the explicitly configured timeout to a command. Commands are left
@@ -63,17 +71,23 @@ public abstract partial class DatabaseClientBase
             throw new ArgumentNullException(nameof(command));
         }
 
-        int commandTimeout;
-        bool commandTimeoutConfigured;
+        if (TryGetCommandTimeout(out int commandTimeout))
+        {
+            command.CommandTimeout = commandTimeout;
+        }
+    }
+
+    /// <summary>
+    /// Retrieves an explicit timeout for provider operations that create their own commands,
+    /// such as starting a transaction. Returns false when provider defaults remain in effect.
+    /// </summary>
+    /// <param name="commandTimeout">The configured timeout in seconds, or zero when not configured.</param>
+    protected bool TryGetCommandTimeout(out int commandTimeout)
+    {
         lock (_syncRoot)
         {
             commandTimeout = _commandTimeout;
-            commandTimeoutConfigured = _commandTimeoutConfigured;
-        }
-
-        if (commandTimeoutConfigured)
-        {
-            command.CommandTimeout = commandTimeout;
+            return _commandTimeoutConfigured;
         }
     }
 }

@@ -7,6 +7,7 @@ namespace DbaClientX.Tests;
 /// Covers how a backup chooses between holding a snapshot and copying step-wise, through the selectable
 /// <see cref="SQLite.BackupDatabaseAsync"/> and the synchronous <see cref="SQLite.BackupDatabase(string, string, int?)"/>.
 /// </summary>
+[Collection(SqlitePoolCleanupCollection.Name)]
 public sealed class SqliteBackupMethodTests
 {
     [Theory]
