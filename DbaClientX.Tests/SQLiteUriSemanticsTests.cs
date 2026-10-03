@@ -102,6 +102,12 @@ public class SQLiteUriSemanticsTests
     [InlineData(" leading.db", true)]
     [InlineData("trailing.db ", false)]
     [InlineData("trailing.db ", true)]
+    [InlineData(" :memory:", false)]
+    [InlineData(" :memory:", true)]
+    [InlineData(":memory: ", false)]
+    [InlineData(":memory: ", true)]
+    [InlineData(" ", false)]
+    [InlineData(" ", true)]
     public async Task NativeFilename_RetainsItsCharactersAndCopyTarget(string filename, bool dataDirectory)
     {
         Assert.SkipWhen(OperatingSystem.IsWindows(), "Colon filenames require POSIX.");
@@ -139,6 +145,13 @@ public class SQLiteUriSemanticsTests
             };
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
             Assert.Contains("also used as a source table", error.Message);
+            foreach (string key in new[] { "FullUri", "Data Source" })
+            {
+                request.Source.ConnectionString = key + "=" + source + ";Pooling=False";
+                Assert.Equal(3L, sqlite.ExecuteScalarWithConnectionString(request.Source.ConnectionString, "SELECT COUNT(*) FROM items"));
+                error = await Assert.ThrowsAsync<InvalidOperationException>(() => runner.CopyAsync(request));
+                Assert.Contains("also used as a source table", error.Message);
+            }
             Assert.Equal(3L, sqlite.ExecuteScalar(source, "SELECT COUNT(*) FROM items"));
         }
         finally { Environment.CurrentDirectory = previous; AppDomain.CurrentDomain.SetData("DataDirectory", previousDataDirectory); Directory.Delete(root, true); }

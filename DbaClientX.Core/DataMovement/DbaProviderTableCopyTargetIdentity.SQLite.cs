@@ -19,12 +19,12 @@ internal static partial class DbaProviderTableCopyTargetIdentity
             {
                 ConnectionString = connectionString.Trim()
             };
-            fileUri = SQLiteFileUri.TryParse(ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty, out _, out _);
+            fileUri = SQLiteFileUri.TryParse(ReadSQLiteDataSource(builder), out _, out _);
             // Translate the selected source once. A decoded filename can itself begin with
             // "file:" and must not become a second URI with a different database identity.
             if (builder.ContainsKey("FullUri")) TranslateSQLiteFullUriIdentityOptions(builder);
             else TranslateSQLiteDataSourceUriIdentityOptions(builder);
-            dataSource = ReadConnectionStringValue(builder, "Data Source", "DataSource", "Filename", "FullUri") ?? string.Empty;
+            dataSource = ReadSQLiteDataSource(builder);
             mode = ReadConnectionStringValue(builder, "Mode");
             cache = ReadConnectionStringValue(builder, "Cache");
             pooling = ReadConnectionStringValue(builder, "Pooling");
@@ -39,7 +39,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
             cache = ReadConnectionStringValue(builder, "Cache");
         }
 
-        if (string.IsNullOrWhiteSpace(dataSource))
+        if (string.IsNullOrEmpty(dataSource))
         {
             return false;
         }
@@ -52,7 +52,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
             return true;
         }
 
-        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.Ordinal))
+        if (string.Equals(dataSource, ":memory:", StringComparison.Ordinal))
         {
             if (IsSQLitePoolingEnabled(pooling))
             {
@@ -65,6 +65,14 @@ internal static partial class DbaProviderTableCopyTargetIdentity
 
         identity = "sqlite|path=" + NormalizeSQLiteFilePath(ResolveSQLiteFilePath(dataSource, fileUri));
         return true;
+    }
+
+    // Decoded URI filenames can consist of spaces. Generic connection-value helpers
+    // deliberately discard whitespace options and must not read native SQLite filenames.
+    private static string ReadSQLiteDataSource(DbConnectionStringBuilder builder)
+    {
+        string? key = FindConnectionStringKey(builder, "Data Source", "DataSource", "Filename", "FullUri");
+        return key == null ? string.Empty : builder[key]?.ToString() ?? string.Empty;
     }
 
     private static void TranslateSQLiteFullUriIdentityOptions(DbConnectionStringBuilder builder)
