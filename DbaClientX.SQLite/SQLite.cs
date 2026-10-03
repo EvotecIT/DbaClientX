@@ -133,7 +133,7 @@ public partial class SQLite : DatabaseClientBase
         var builder = new SqliteConnectionStringBuilder(TranslateSQLiteFullUri(connectionString));
         if (readOnly &&
             builder.Mode != SqliteOpenMode.Memory &&
-            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.Ordinal))
         {
             builder.Mode = SqliteOpenMode.ReadOnly;
             builder.Pooling = false;
@@ -213,56 +213,13 @@ public partial class SQLite : DatabaseClientBase
 
     private static void ApplySQLiteUri(DbConnectionStringBuilder builder, string path, string query)
     {
-        var nativeOptions = new List<string>();
-        foreach (var part in query.Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            int separator = part.IndexOf('=');
-            string key = Uri.UnescapeDataString(separator < 0 ? part : part.Substring(0, separator));
-            string value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
-            if (!ApplySQLiteUriOption(builder, key, value)) nativeOptions.Add(part);
-        }
+        string nativeOptions = SQLiteUriOptions.Apply(builder, query);
         bool memory = builder.TryGetValue("Mode", out var mode) &&
             string.Equals(mode?.ToString(), nameof(SqliteOpenMode.Memory), StringComparison.OrdinalIgnoreCase);
         // Microsoft.Data.Sqlite turns ordinary named-memory filenames back into URIs. Preserve
         // escaping here so '#' and '%' cannot collapse distinct shared-memory namespaces.
-        builder["Data Source"] = nativeOptions.Count == 0 && Path.IsPathRooted(path) && !memory
-            ? path : SQLiteFileUri.Encode(path, string.Join("&", nativeOptions));
-    }
-
-    private static bool ApplySQLiteUriOption(DbConnectionStringBuilder builder, string key, string value)
-    {
-        if (string.Equals(key, "vfs", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!builder.ShouldSerialize("Vfs")) builder["Vfs"] = value;
-            return true;
-        }
-        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
-        {
-            SqliteOpenMode? mode = value.ToLowerInvariant() switch
-            {
-                "ro" => SqliteOpenMode.ReadOnly,
-                "rw" => SqliteOpenMode.ReadWrite,
-                "rwc" => SqliteOpenMode.ReadWriteCreate,
-                "memory" => SqliteOpenMode.Memory,
-                _ => null
-            };
-            if (!mode.HasValue) return false; // Let SQLite validate unsupported native options.
-            if (!builder.ShouldSerialize("Mode")) builder["Mode"] = mode.Value;
-            return true;
-        }
-        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase))
-        {
-            SqliteCacheMode? cache = value.ToLowerInvariant() switch
-            {
-                "shared" => SqliteCacheMode.Shared,
-                "private" => SqliteCacheMode.Private,
-                _ => null
-            };
-            if (!cache.HasValue) return false;
-            if (!builder.ShouldSerialize("Cache")) builder["Cache"] = cache.Value;
-            return true;
-        }
-        return false;
+        builder["Data Source"] = nativeOptions.Length == 0 && Path.IsPathRooted(path) && !memory
+            ? path : SQLiteFileUri.Encode(path, nativeOptions);
     }
 
     private int ResolveBusyTimeoutMs(int? busyTimeoutMs)

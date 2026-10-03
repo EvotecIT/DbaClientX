@@ -7,7 +7,7 @@ internal static class SQLiteFileUri
     {
         path = string.Empty;
         query = string.Empty;
-        if (!value.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        if (!value.StartsWith("file:", StringComparison.Ordinal))
             return false;
 
         // SQLite's native URI contract permits only an empty authority or exactly "localhost".

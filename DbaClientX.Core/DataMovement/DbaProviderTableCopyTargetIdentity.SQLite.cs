@@ -52,7 +52,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
             return true;
         }
 
-        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(dataSource.Trim(), ":memory:", StringComparison.Ordinal))
         {
             if (IsSQLitePoolingEnabled(pooling))
             {
@@ -79,7 +79,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
         if (uriText != null && SQLiteFileUri.TryParse(uriText, out var path, out var query))
         {
             builder["Data Source"] = path;
-            ApplySQLiteFullUriIdentityQueryOptions(builder, query);
+            SQLiteUriOptions.Apply(builder, query);
         }
         else
         {
@@ -102,49 +102,7 @@ internal static partial class DbaProviderTableCopyTargetIdentity
         }
 
         builder[key] = path;
-        ApplySQLiteFullUriIdentityQueryOptions(builder, query);
-    }
-
-    private static void ApplySQLiteFullUriIdentityQueryOptions(DbConnectionStringBuilder builder, string query)
-    {
-        if (string.IsNullOrEmpty(query))
-        {
-            return;
-        }
-
-        foreach (var part in query.Split(new[] { '&' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var separator = part.IndexOf('=');
-            var key = Uri.UnescapeDataString(separator < 0 ? part : part.Substring(0, separator));
-            var value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
-            ApplySQLiteFullUriIdentityOption(builder, key, value);
-        }
-    }
-
-    private static void ApplySQLiteFullUriIdentityOption(DbConnectionStringBuilder builder, string key, string value)
-    {
-        if (string.Equals(key, "mode", StringComparison.OrdinalIgnoreCase))
-        {
-            if (builder.ContainsKey("Mode"))
-            {
-                return;
-            }
-
-            builder["Mode"] = value switch
-            {
-                _ when string.Equals(value, "ro", StringComparison.OrdinalIgnoreCase) => "ReadOnly",
-                _ when string.Equals(value, "rw", StringComparison.OrdinalIgnoreCase) => "ReadWrite",
-                _ when string.Equals(value, "rwc", StringComparison.OrdinalIgnoreCase) => "ReadWriteCreate",
-                _ when string.Equals(value, "memory", StringComparison.OrdinalIgnoreCase) => "Memory",
-                _ => value
-            };
-            return;
-        }
-
-        if (string.Equals(key, "cache", StringComparison.OrdinalIgnoreCase) && !builder.ContainsKey("Cache"))
-        {
-            builder["Cache"] = value;
-        }
+        SQLiteUriOptions.Apply(builder, query);
     }
 
     private static string NormalizeSQLiteFilePath(string path)

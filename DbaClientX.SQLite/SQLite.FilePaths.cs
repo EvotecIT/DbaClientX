@@ -15,8 +15,8 @@ public partial class SQLite
         if (fileUri) ApplySQLiteUri(builder, uriPath, uriQuery);
         if (!fileUri && builder.Mode == SqliteOpenMode.Memory &&
             !string.IsNullOrEmpty(builder.DataSource) &&
-            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase) &&
-            !builder.DataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.Ordinal) &&
+            !builder.DataSource.StartsWith("file:", StringComparison.Ordinal))
         {
             // Ordinary named-memory inputs are opaque filenames, not unescaped URI text.
             builder.DataSource = SQLiteFileUri.Encode(builder.DataSource, string.Empty);
@@ -25,13 +25,13 @@ public partial class SQLite
             builder.Mode == SqliteOpenMode.Memory ||
             (fileUri && string.Equals(uriPath, ":memory:", StringComparison.Ordinal)) ||
             string.IsNullOrEmpty(builder.DataSource) ||
-            string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase))
+            string.Equals(builder.DataSource, ":memory:", StringComparison.Ordinal))
         {
             return;
         }
 
         string database = fileUri ? uriPath : builder.DataSource;
-        if (!fileUri && database.StartsWith("file:", StringComparison.OrdinalIgnoreCase)) return;
+        if (!fileUri && database.StartsWith("file:", StringComparison.Ordinal)) return;
         if (!fileUri && AppDomain.CurrentDomain.GetData("DataDirectory") is string dataDirectory &&
                  !string.IsNullOrEmpty(dataDirectory))
         {
@@ -57,6 +57,8 @@ public partial class SQLite
     // Managed filesystem checks need the same extended filename as SQLite, especially in Framework hosts.
     private static string GetSQLiteFileSystemPath(string database)
     {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            return SQLiteFilePath.ResolveAliases(database);
         string fullPath = Path.GetFullPath(database);
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
             fullPath.Length < WindowsLegacyDatabasePathLimit || fullPath.StartsWith(@"\\?\", StringComparison.Ordinal))
