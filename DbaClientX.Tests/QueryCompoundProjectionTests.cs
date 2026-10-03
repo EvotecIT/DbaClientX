@@ -106,6 +106,14 @@ public sealed class QueryCompoundProjectionTests
     [InlineData("Name REGEXP _utf8mb4'x' OutputValue")]
     [InlineData("Created + INTERVAL 1 DAY OutputValue")]
     [InlineData("Created + INTERVAL 1 DAY DAY")]
+    [InlineData("CASE WHEN Created + INTERVAL 1 DAY > Created THEN 1 ELSE 0 END DAY")]
+    [InlineData("(Created + INTERVAL 1 DAY > Created) DAY")]
+    [InlineData("_value 'OutputId'")]
+    [InlineData("X 'OutputId'")]
+    [InlineData("B 'OutputId'")]
+    [InlineData("n.X 'OutputId'")]
+    [InlineData("n._value 'OutputId'")]
+    [InlineData("n.Created 'OutputId'")]
     public void MySqlExpressionTails_KeepRealImplicitAliases(string expression)
     {
         string sql = BuildExpressionTail(expression).Compile(SqlDialect.MySql);
@@ -171,7 +179,7 @@ public sealed class QueryCompoundProjectionTests
     private static Query BuildExpressionTail(string expression)
     {
         Query Operand() => new Query().SelectRaw(expression + ", divisor")
-            .FromRaw("(SELECT 2 AS divisor, 'x' AS Name, '2026-10-03' AS Created) AS n");
+            .FromRaw("(SELECT 2 AS divisor, 'x' AS Name, '2026-10-03' AS Created, 7 AS _value, 3 AS X, 4 AS B) AS n");
         return Operand().Union(Operand()).Intersect(Operand());
     }
 

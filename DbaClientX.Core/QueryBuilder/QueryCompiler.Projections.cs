@@ -30,6 +30,16 @@ public partial class QueryCompiler
         "HOUR_MINUTE", "DAY_MICROSECOND", "DAY_SECOND", "DAY_MINUTE", "DAY_HOUR", "YEAR_MONTH"
     };
 
+    // MySQL 8 / MariaDB built-in character sets. Unknown underscore words remain identifiers,
+    // as they do in the server lexer; table-qualified words are always identifiers here.
+    private static readonly HashSet<string> MySqlCharacterSetPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "_armscii8", "_ascii", "_big5", "_binary", "_cp1250", "_cp1251", "_cp1256", "_cp1257", "_cp850", "_cp852",
+        "_cp866", "_cp932", "_dec8", "_eucjpms", "_euckr", "_gb18030", "_gb2312", "_gbk", "_geostd8", "_greek",
+        "_hebrew", "_hp8", "_keybcs2", "_koi8r", "_koi8u", "_latin1", "_latin2", "_latin5", "_latin7", "_macce",
+        "_macroman", "_sjis", "_swe7", "_tis620", "_ucs2", "_ujis", "_utf16", "_utf16le", "_utf32", "_utf8", "_utf8mb3", "_utf8mb4"
+    };
+
     private void AppendDerivedSelect(StringBuilder sb, string sql, string alias, Query query, int? top = null)
     {
         // SQL Server requires named derived columns; it and MySQL require unique names. Naming
@@ -190,10 +200,14 @@ public partial class QueryCompiler
         var last = tokens[end - 1];
         if (end - first >= 2 && last.Kind == SqlTokenKind.String && tokens[end - 2].Kind == SqlTokenKind.Word)
         {
-            string prefix = tokens[end - 2].Text;
-            if (prefix.StartsWith("_", StringComparison.Ordinal) || prefix.Equals("X", StringComparison.OrdinalIgnoreCase)
-                || prefix.Equals("B", StringComparison.OrdinalIgnoreCase) || prefix.Equals("DATE", StringComparison.OrdinalIgnoreCase)
-                || prefix.Equals("TIME", StringComparison.OrdinalIgnoreCase) || prefix.Equals("TIMESTAMP", StringComparison.OrdinalIgnoreCase)) return true;
+            var previous = tokens[end - 2];
+            string prefix = previous.Text;
+            bool qualified = end - first >= 3 && tokens[end - 3].Text == ".";
+            bool adjacent = previous.Position + previous.Text.Length == last.Position;
+            if (!qualified && (MySqlCharacterSetPrefixes.Contains(prefix)
+                || adjacent && (prefix.Equals("X", StringComparison.OrdinalIgnoreCase) || prefix.Equals("B", StringComparison.OrdinalIgnoreCase))
+                || prefix.Equals("DATE", StringComparison.OrdinalIgnoreCase) || prefix.Equals("TIME", StringComparison.OrdinalIgnoreCase)
+                || prefix.Equals("TIMESTAMP", StringComparison.OrdinalIgnoreCase))) return true;
         }
         if (last.Kind != SqlTokenKind.Word || !IntervalUnits.Contains(last.Text)) return false;
         int depth = 0, interval = -1;
@@ -203,10 +217,17 @@ public partial class QueryCompiler
             else if (tokens[index].Kind == SqlTokenKind.CloseParenthesis) depth--;
             else if (depth == 0 && tokens[index].Kind == SqlTokenKind.Word
                      && tokens[index].Text.Equals("INTERVAL", StringComparison.OrdinalIgnoreCase)) interval = index;
+            else if (depth == 0 && interval >= 0 && index > interval + 1 && tokens[index].Kind == SqlTokenKind.Word
+                     && IntervalUnits.Contains(tokens[index].Text))
+            {
+                var previous = tokens[index - 1];
+                if (previous.Kind != SqlTokenKind.Symbol && !(previous.Kind == SqlTokenKind.Word
+                    && (ProjectionOperators.Contains(previous.Text) || MySqlProjectionOperators.Contains(previous.Text))))
+                    interval = -1;
+            }
         }
-        // A trailing unit belongs to INTERVAL's expression. An alias may itself be a unit word,
-        // but then the expression already ends with its own unit (INTERVAL 1 DAY DAY).
-        return interval >= 0 && !(end - 2 > interval + 1 && tokens[end - 2].Kind == SqlTokenKind.Word
-            && IntervalUnits.Contains(tokens[end - 2].Text));
+        // A consumed interval unit ends that expression. A later unit word can be a real alias,
+        // including after a surrounding CASE or comparison expression.
+        return interval >= 0;
     }
 }
