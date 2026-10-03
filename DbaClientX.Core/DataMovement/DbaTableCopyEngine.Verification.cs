@@ -50,6 +50,7 @@ public sealed partial class DbaTableCopyEngine
                     ValidateTransformedPage(transformed, definition, preflightDestination as IDbaTableCopyPagePreflightDestination);
                     if (!deferSchemaPreflight && options.ClearDestination && preflightDestination is IDbaTableCopySchemaPreflightSessionDestination sessionDestination)
                     {
+                        using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                         if (schemaSession == null)
                         {
                             schemaSession = await sessionDestination
@@ -63,6 +64,7 @@ public sealed partial class DbaTableCopyEngine
                     }
                     else if (!deferSchemaPreflight && pageNumber == 1 && preflightDestination is IDbaTableCopySchemaPreflightDestination schemaPreflight)
                     {
+                        using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
                         await schemaPreflight.ValidateSchemaAsync(definition, transformed, options, cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -81,7 +83,11 @@ public sealed partial class DbaTableCopyEngine
         }
         finally
         {
-            if (schemaSession != null) await schemaSession.DisposeAsync().ConfigureAwait(false);
+            if (schemaSession != null)
+            {
+                using var preflight = measurements?.BeginPhase(DbaTableCopyPhase.PreflightSource, definition.DisplayName);
+                await schemaSession.DisposeAsync().ConfigureAwait(false);
+            }
         }
         if (rows != counted.Value)
             throw new InvalidOperationException($"Source contents changed or the paging key is not unique for '{definition.DisplayName}'. Expected {counted.Value} rows but read {rows}.");
