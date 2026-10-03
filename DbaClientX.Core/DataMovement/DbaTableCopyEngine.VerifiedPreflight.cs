@@ -52,6 +52,8 @@ public sealed partial class DbaTableCopyEngine
                     new DbaTableCopyPageRequest(definition, null, pageSize) { MaxBytes = options.MaxPageBytes },
                     1, cancellationToken, measurements: measurements).ConfigureAwait(false);
                 firstPages[index] = new DbaTableCopyPreflight(rows, page, 1);
+                // Missing optional sources provide a schema-less empty page; omit their schema slot.
+                if (page.Data.Columns.Count == 0) continue;
                 projected[index] = DbaTableCopyPageTransformer.Transform(page.Data, definition);
                 ValidateTransformedPage(projected[index]!, definition, pagePreflight);
             }
@@ -97,7 +99,7 @@ public sealed partial class DbaTableCopyEngine
 
         internal long SourceRows(int index) => _firstPages[index]!.SourceRows!.Value;
         internal DbaTableCopyPage FirstPage(int index) => _firstPages[index]!.FirstPage!;
-        internal DataTable ProjectedFirstPage(int index) => _projected[index]!;
+        internal DataTable ProjectedFirstPage(int index) => _projected[index] ?? FirstPage(index).Data;
 
         public async ValueTask DisposeAsync()
         {
