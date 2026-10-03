@@ -141,7 +141,7 @@ public partial class SQLite
         try
         {
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database, readOnly: true));
-            connection.Open();
+            OpenConnectionWithDiagnostics(connection);
             ApplyBusyTimeout(connection, busyTimeoutMs);
             ApplyConnectionConfiguration(connection);
             using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
@@ -234,8 +234,8 @@ public partial class SQLite
             {
                 using var source = new SqliteConnection(BuildOperationalConnectionString(sourcePath, readOnly: true));
                 using var destination = new SqliteConnection(BuildOperationalConnectionString(workingPath));
-                source.Open();
-                destination.Open();
+                OpenConnectionWithDiagnostics(source);
+                OpenConnectionWithDiagnostics(destination);
                 using CancellationTokenRegistration sourceRegistration = RegisterStatementInterrupt(source, cancellationToken);
                 using CancellationTokenRegistration destinationRegistration = RegisterStatementInterrupt(destination, cancellationToken);
                 TimeSpan cumulativeBusyDuration = TimeSpan.Zero;

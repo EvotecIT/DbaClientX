@@ -33,7 +33,7 @@ public sealed partial class SQLiteTableCopyAdapter
         try
         {
             _readConnection = new SqliteConnection(ResolveSQLiteConnectionString());
-            await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(_readConnection, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             _readTransaction = _readConnection.BeginTransaction(
                 deferred: ReadConsistency == DbaTableCopyReadConsistency.Snapshot);

@@ -18,7 +18,7 @@ public sealed partial class MySqlTableCopyAdapter : IDbaTableCopySchemaPreflight
         var connection = new MySqlConnection(ConnectionString);
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             using var mySql = new MySql { CommandTimeout = CommandTimeout };
             bool noAutoValueOnZero = options.ClearDestination &&
                 await ResolveNoAutoValueOnZeroAsync(connection, cancellationToken).ConfigureAwait(false);

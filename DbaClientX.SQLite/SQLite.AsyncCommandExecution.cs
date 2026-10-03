@@ -211,7 +211,7 @@ public partial class SQLite
             using var interrupt = RegisterOwnedStatementInterrupt(connection, dispose, cancellationToken, query);
             var dbTypes = ConvertParameterTypes(parameterTypes);
 
-            var list = await ExecuteCommandWithRetryAsync(async () =>
+            var list = await ExecuteCommandWithDiagnosticsAsync(async () =>
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = query;
@@ -233,7 +233,7 @@ public partial class SQLite
 
                 UpdateOutputParameters(command, parameters);
                 return (IReadOnlyList<T>)results;
-            }, connection, transaction: null, cancellationToken).ConfigureAwait(false);
+            }, connection, transaction: null, query, "mapped", cancellationToken, static rows => rows.Count).ConfigureAwait(false);
 
             return list;
         }
@@ -390,7 +390,7 @@ public partial class SQLite
             try
             {
                 await AwaitWithCallerCancellationAsync(
-                    () => connection.OpenAsync(retryToken),
+                    () => OpenConnectionWithDiagnosticsAsync(connection, retryToken),
                     retryToken).ConfigureAwait(false);
                 await ApplyBusyTimeoutAsync(
                     connection,

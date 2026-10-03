@@ -192,7 +192,7 @@ public partial class SQLite
         try
         {
             using var connection = new SqliteConnection(BuildOperationalConnectionString(database));
-            connection.Open();
+            OpenConnectionWithDiagnostics(connection);
             ApplyBusyTimeout(connection, busyTimeoutMs);
             ApplyConnectionConfiguration(connection);
             using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);

@@ -130,6 +130,56 @@ var total = await reads.ExecuteScalarAsync("app.db", "SELECT COUNT(*) FROM Users
 
 `RetryNonQueryOperations` remains available as a nonquery-only opt-in. Neither opt-in replays an individual command inside an explicit, ambient or library-owned transaction. SQLite also checks native transaction state for SQL `BEGIN` and `SAVEPOINT`. Roll back the failed transaction and decide whether the entire unit of work can be repeated. Streaming never replays rows after enumeration starts.
 
+## Execution diagnostics
+
+`DBAClientX.Diagnostics.DbaClientXDiagnostics` exposes an `ActivitySource` and a `Meter`, both named `DbaClientX`.
+Subscribe through `ActivityListener`, `MeterListener`, or your telemetry collector. Ordinary queries, mapped results,
+nonquery/scalar commands, SQLite session/prepared executions and reader startup share this contract across providers.
+With no source or meter listener, execution scopes allocate no per-command state and do not hash statement text.
+
+Activities use `DbaClientX.Command` and `DbaClientX.Connection.Open`. They report the provider, operation, outcome,
+retry count, and known row count. Command fingerprints use the same SHA-256 of exact SQL text as
+`DbaQueryExecutionException.QueryFingerprint`; literals are not normalized. SQL text, parameter values, connection
+strings and exception messages are excluded. Fingerprints appear only in activities that request full data.
+
+| Instrument | Unit | Meaning |
+| --- | --- | --- |
+| `dbaclientx.command.duration` | seconds | Logical execution, eligible retry delays and library-owned result consumption |
+| `dbaclientx.command.count` | commands | One measurement per logical execution |
+| `dbaclientx.command.retries` | retries | Eligible retries within that execution |
+| `dbaclientx.command.rows` | rows | Materialized/mapped or emitted rows, or nonnegative provider-reported affected rows |
+| `dbaclientx.connection.open.duration` | seconds | One native connection-open attempt, including provider pool wait |
+
+Metric dimensions are limited to `db.system.name`, `dbaclientx.operation` and `dbaclientx.outcome`.
+Providers are `mssql`, `postgresql`, `mysql`, `oracle`, `sqlite` or `other`. Outcomes are `success`, `error`, `canceled`
+and `abandoned`. Scalars and unknown affected-row counts omit row measurements. Streaming counts delivered rows,
+including partial results on failure; early disposal reports `abandoned`. Its duration includes time between caller
+requests for rows. For `reader.open`, the command duration ends at reader handoff and excludes caller-owned consumption.
+Connection-open duration excludes pragmas, configuration callbacks, transaction startup and retry delays.
+Activity and meter subscriber failures do not replace database results or errors.
+
+```csharp
+using System.Diagnostics.Metrics;
+using DBAClientX.Diagnostics;
+
+using var listener = new MeterListener
+{
+    InstrumentPublished = (instrument, owner) =>
+    {
+        if (instrument.Meter.Name == DbaClientXDiagnostics.MeterName &&
+            instrument.Name == "dbaclientx.command.duration")
+            owner.EnableMeasurementEvents(instrument);
+    }
+};
+listener.SetMeasurementEventCallback<double>((instrument, seconds, tags, state) =>
+    Console.WriteLine($"Command duration: {seconds:F6}s"));
+listener.Start();
+```
+
+For a caller-owned native `DbConnection`, `DbaClientXDiagnostics.OpenConnection` and `OpenConnectionAsync` observe the
+provider open without taking ownership, retrying or applying configuration. Provider clients retain their existing
+virtual open hooks. Telemetry observes execution and does not change replay, cancellation or transaction policy.
+
 ## Notes
 - Ship a per-provider package alongside Core for ADO.NET specifics (see provider READMEs).
 - `DbParameterMapper` supports dotted paths and ambient values.

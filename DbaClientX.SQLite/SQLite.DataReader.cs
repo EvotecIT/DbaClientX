@@ -71,12 +71,13 @@ public partial class SQLite
             command.Transaction = transaction;
             AddParameters(command, parameters, ConvertParameterTypes(parameterTypes), parameterDirections);
             ApplyCommandTimeout(command);
-            var reader = await ExecuteCommandWithRetryAsync(
+            var reader = await ExecuteReaderWithDiagnosticsAsync(
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
                 connection,
                 transaction,
+                query,
                 cancellationToken).ConfigureAwait(false);
             var lease = interrupt;
             return new DbaDataReader(

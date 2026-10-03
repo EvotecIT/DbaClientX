@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Data.Sqlite;
+using DBAClientX.Diagnostics;
 
 namespace DBAClientX;
 
@@ -93,10 +94,12 @@ public partial class SQLite
 
     // Apply the same replay and cancellation policy as ordinary/session execution.
     internal int ExecutePreparedNonQuery(SqliteCommand command)
-        => ExecuteCommandWithRetry(command.ExecuteNonQuery, command.Connection!, command.Transaction, returnsResults: false);
+        => ExecuteCommandWithDiagnostics(command.ExecuteNonQuery, command.Connection!, command.Transaction,
+            command.CommandText, "prepared.nonquery", static rows => rows < 0 ? null : rows, returnsResults: false);
 
     internal object? ExecutePreparedScalar(SqliteCommand command)
-        => ExecuteCommandWithRetry(command.ExecuteScalar, command.Connection!, command.Transaction);
+        => ExecuteCommandWithDiagnostics(command.ExecuteScalar, command.Connection!, command.Transaction,
+            command.CommandText, "prepared.scalar");
 
     internal async Task<int> ExecutePreparedNonQueryAsync(SqliteCommand command, CancellationToken cancellationToken)
     {
@@ -117,6 +120,26 @@ public partial class SQLite
     }
 
     private Task<T> ExecutePreparedCommandAsync<T>(SqliteCommand command,
+        Func<SqliteCommand, CancellationToken, Task<T>> operation, CancellationToken cancellationToken, bool returnsResults)
+        => DbaClientXDiagnostics.IsCommandObserved
+            ? ExecuteObservedPreparedCommandAsync(command, operation, cancellationToken, returnsResults)
+            : ExecutePreparedCommandCoreAsync(command, operation, cancellationToken, returnsResults);
+
+    private async Task<T> ExecuteObservedPreparedCommandAsync<T>(SqliteCommand command,
+        Func<SqliteCommand, CancellationToken, Task<T>> operation, CancellationToken token, bool returnsResults)
+    {
+        using var scope = DbaClientXDiagnostics.StartCommand(command.Connection!, command.CommandText,
+            returnsResults ? "prepared.scalar" : "prepared.nonquery");
+        try
+        {
+            var result = await ExecutePreparedCommandCoreAsync(command, operation, token, returnsResults).ConfigureAwait(false);
+            scope.Complete(!returnsResults && result is int rows && rows >= 0 ? rows : null);
+            return result;
+        }
+        catch (Exception exception) { scope.Fail(exception, token); throw; }
+    }
+
+    private Task<T> ExecutePreparedCommandCoreAsync<T>(SqliteCommand command,
         Func<SqliteCommand, CancellationToken, Task<T>> operation, CancellationToken cancellationToken, bool returnsResults)
     {
         if (cancellationToken.IsCancellationRequested) return Task.FromCanceled<T>(cancellationToken);

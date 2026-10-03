@@ -188,15 +188,15 @@ public partial class SqlServer
     private DbDataReader ExecuteReader(DbCommand command, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return ExecuteCommandWithRetry(
-            () => command.ExecuteReader(CommandBehavior.SequentialAccess), command.Connection!, command.Transaction);
+        return ExecuteReaderWithDiagnostics(
+            () => command.ExecuteReader(CommandBehavior.SequentialAccess), command.Connection!, command.Transaction, command.CommandText);
     }
 
     private Task<DbDataReader> ExecuteReaderAsync(DbCommand command, CancellationToken cancellationToken)
-        => ExecuteCommandWithRetryAsync(
+        => ExecuteReaderWithDiagnosticsAsync(
                 () => AwaitWithCallerCancellationAsync(
                     () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                     cancellationToken),
                 command.Connection!,
-                command.Transaction, cancellationToken);
+                command.Transaction, command.CommandText, cancellationToken);
 }

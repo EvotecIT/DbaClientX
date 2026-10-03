@@ -7,7 +7,7 @@ namespace DBAClientX.Diagnostics;
 /// <summary>
 /// Defines the dependency-free diagnostics contract shared by DbaClientX operations.
 /// </summary>
-public static class DbaClientXDiagnostics
+public static partial class DbaClientXDiagnostics
 {
     /// <summary>Name used by the DbaClientX <see cref="ActivitySource"/>.</summary>
     public const string ActivitySourceName = "DbaClientX";
@@ -100,6 +100,7 @@ public static class DbaClientXDiagnostics
             throw new ArgumentNullException(nameof(exception));
         }
         CurrentTelemetry.Value?.RecordRetry();
+        CurrentExecution.Value?.RecordRetry();
         Activity.Current?.AddEvent(new ActivityEvent(
             "dbaclientx.retry",
             tags: new ActivityTagsCollection

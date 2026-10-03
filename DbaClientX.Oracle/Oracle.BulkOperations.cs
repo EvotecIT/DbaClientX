@@ -221,12 +221,12 @@ public partial class Oracle
     /// <summary>
     /// Opens the supplied <see cref="OracleConnection"/> synchronously.
     /// </summary>
-    protected virtual void OpenConnection(OracleConnection connection) => connection.Open();
+    protected virtual void OpenConnection(OracleConnection connection) => OpenConnectionWithDiagnostics(connection);
 
     /// <summary>
     /// Opens the supplied <see cref="OracleConnection"/> asynchronously.
     /// </summary>
-    protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => connection.OpenAsync(cancellationToken);
+    protected virtual Task OpenConnectionAsync(OracleConnection connection, CancellationToken cancellationToken) => OpenConnectionWithDiagnosticsAsync(connection, cancellationToken);
 
     /// <summary>
     /// Disposes an Oracle connection created for the current operation.

@@ -5,6 +5,7 @@ using System.Data.Common;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using DBAClientX.Diagnostics;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER
 using System.Runtime.CompilerServices;
 #endif
@@ -27,7 +28,20 @@ public abstract partial class DatabaseClientBase
     /// <param name="dbParameters">Provider-specific parameters to attach directly to the command.</param>
     /// <param name="commandType">Command type to use (Text or StoredProcedure).</param>
     /// <returns>An asynchronous stream of <see cref="DataRow"/> instances.</returns>
-    protected virtual async IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(
+    protected virtual IAsyncEnumerable<DataRow> ExecuteQueryStreamAsync(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        IEnumerable<DbParameter>? dbParameters = null,
+        CommandType commandType = CommandType.Text)
+        => DbaClientXDiagnostics.ObserveStream(ExecuteQueryStreamCoreAsync(connection, transaction, query, parameters,
+            cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType), connection, query, cancellationToken);
+
+    private async IAsyncEnumerable<DataRow> ExecuteQueryStreamCoreAsync(
         DbConnection connection,
         DbTransaction? transaction,
         string query,
@@ -111,7 +125,22 @@ public abstract partial class DatabaseClientBase
     /// <param name="dbParameters">Provider-specific parameters to attach directly to the command.</param>
     /// <param name="commandType">Command type to use (Text or StoredProcedure).</param>
     /// <returns>An asynchronous stream of mapped result rows.</returns>
-    protected virtual async IAsyncEnumerable<T> ExecuteMappedQueryStreamAsync<T>(
+    protected virtual IAsyncEnumerable<T> ExecuteMappedQueryStreamAsync<T>(
+        DbConnection connection,
+        DbTransaction? transaction,
+        string query,
+        Func<IDataRecord, T> map,
+        Action<IDataRecord>? initialize = null,
+        IDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default,
+        IDictionary<string, DbType>? parameterTypes = null,
+        IDictionary<string, ParameterDirection>? parameterDirections = null,
+        IEnumerable<DbParameter>? dbParameters = null,
+        CommandType commandType = CommandType.Text)
+        => DbaClientXDiagnostics.ObserveStream(ExecuteMappedQueryStreamCoreAsync(connection, transaction, query, map,
+            initialize, parameters, cancellationToken, parameterTypes, parameterDirections, dbParameters, commandType), connection, query, cancellationToken);
+
+    private async IAsyncEnumerable<T> ExecuteMappedQueryStreamCoreAsync<T>(
         DbConnection connection,
         DbTransaction? transaction,
         string query,

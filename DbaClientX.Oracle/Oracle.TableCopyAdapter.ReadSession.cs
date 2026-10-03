@@ -25,7 +25,7 @@ public sealed partial class OracleTableCopyAdapter
         try
         {
             _readConnection = new OracleConnection(ConnectionString);
-            await _readConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(_readConnection, cancellationToken).ConfigureAwait(false);
             _readTransaction = _readConnection.BeginTransaction(IsolationLevel.Serializable);
             return new ReadSessionLease(this);
         }
@@ -66,7 +66,7 @@ public sealed partial class OracleTableCopyAdapter
     {
         using OracleConnection? owned = _readConnection == null ? new OracleConnection(ConnectionString) : null;
         OracleConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         using OracleCommand command = _readConnection == null
             ? new OracleCommand(query, connection) { CommandTimeout = CommandTimeout, BindByName = true }
             : CreateReadCommand(query);

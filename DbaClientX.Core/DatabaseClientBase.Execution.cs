@@ -26,7 +26,7 @@ public abstract partial class DatabaseClientBase
     protected virtual object? ExecuteQuery(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         ValidateCommandText(query);
-        return ExecuteCommandWithRetry<object?>(() =>
+        return ExecuteCommandWithDiagnostics<object?>(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -81,7 +81,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return result;
-        }, connection, transaction);
+        }, connection, transaction, query, "query", MaterializedRowCount);
     }
 
     /// <summary>
@@ -113,7 +113,7 @@ public abstract partial class DatabaseClientBase
             throw new ArgumentNullException(nameof(map));
         }
 
-        return ExecuteCommandWithRetry<IReadOnlyList<T>>(() =>
+        return ExecuteCommandWithDiagnostics<IReadOnlyList<T>>(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -133,7 +133,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return rows;
-        }, connection, transaction);
+        }, connection, transaction, query, "mapped", static rows => rows.Count);
     }
 
     /// <summary>
@@ -162,7 +162,8 @@ public abstract partial class DatabaseClientBase
             return affected;
         }
 
-        return ExecuteCommandWithRetry(ExecuteOperation, connection, transaction, returnsResults: false);
+        return ExecuteCommandWithDiagnostics(ExecuteOperation, connection, transaction, query, "nonquery",
+            static rows => rows < 0 ? null : rows, returnsResults: false);
     }
 
     /// <summary>
@@ -178,7 +179,7 @@ public abstract partial class DatabaseClientBase
     protected virtual object? ExecuteScalar(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         ValidateCommandText(query);
-        return ExecuteCommandWithRetry<object?>(() =>
+        return ExecuteCommandWithDiagnostics<object?>(() =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -188,7 +189,7 @@ public abstract partial class DatabaseClientBase
             var result = command.ExecuteScalar();
             UpdateOutputParameters(command, parameters);
             return result;
-        }, connection, transaction);
+        }, connection, transaction, query, "scalar");
     }
 
     /// <summary>
@@ -205,7 +206,7 @@ public abstract partial class DatabaseClientBase
     protected virtual async Task<object?> ExecuteQueryAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         ValidateCommandText(query);
-        return await ExecuteCommandWithRetryAsync(async () =>
+        return await ExecuteCommandWithDiagnosticsAsync(async () =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -266,7 +267,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return result;
-        }, connection, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, query, "query", cancellationToken, MaterializedRowCount).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -300,7 +301,7 @@ public abstract partial class DatabaseClientBase
             throw new ArgumentNullException(nameof(map));
         }
 
-        return await ExecuteCommandWithRetryAsync(async () =>
+        return await ExecuteCommandWithDiagnosticsAsync(async () =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -324,7 +325,7 @@ public abstract partial class DatabaseClientBase
 
             UpdateOutputParameters(command, parameters);
             return (IReadOnlyList<T>)rows;
-        }, connection, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, query, "mapped", cancellationToken, static rows => rows.Count).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -363,8 +364,9 @@ public abstract partial class DatabaseClientBase
             return affected;
         }
 
-        return await ExecuteCommandWithRetryAsync(
-            ExecuteOperationAsync, connection, transaction, cancellationToken, returnsResults: false).ConfigureAwait(false);
+        return await ExecuteCommandWithDiagnosticsAsync(
+            ExecuteOperationAsync, connection, transaction, query, "nonquery", cancellationToken,
+            static rows => rows < 0 ? null : rows, returnsResults: false).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -381,7 +383,7 @@ public abstract partial class DatabaseClientBase
     protected virtual async Task<object?> ExecuteScalarAsync(DbConnection connection, DbTransaction? transaction, string query, IDictionary<string, object?>? parameters = null, CancellationToken cancellationToken = default, IDictionary<string, DbType>? parameterTypes = null, IDictionary<string, ParameterDirection>? parameterDirections = null)
     {
         ValidateCommandText(query);
-        return await ExecuteCommandWithRetryAsync(async () =>
+        return await ExecuteCommandWithDiagnosticsAsync(async () =>
         {
             using var command = connection.CreateCommand();
             command.CommandText = query;
@@ -394,6 +396,6 @@ public abstract partial class DatabaseClientBase
                 cancellationToken).ConfigureAwait(false);
             UpdateOutputParameters(command, parameters);
             return result;
-        }, connection, transaction, cancellationToken).ConfigureAwait(false);
+        }, connection, transaction, query, "scalar", cancellationToken).ConfigureAwait(false);
     }
 }

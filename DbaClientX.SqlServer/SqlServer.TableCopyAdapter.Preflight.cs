@@ -37,7 +37,7 @@ OPTION (MAXRECURSION 32767)";
         var connection = CreateTableCopyConnection();
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             IReadOnlyList<DbaColumnInfo> columns = await ValidateSchemaAsync(
                 connection, definition, firstPage, options, cancellationToken).ConfigureAwait(false);
             await ValidateRollbackSafetyAsync(connection, definition, firstPage, columns, options, cancellationToken).ConfigureAwait(false);
@@ -72,7 +72,7 @@ OPTION (MAXRECURSION 32767)";
         var connection = CreateTableCopyConnection();
         try
         {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
             SelectBatchPreflightDatabase(connection, definitions);
             for (var index = 0; index < definitions.Count; index++)
             {

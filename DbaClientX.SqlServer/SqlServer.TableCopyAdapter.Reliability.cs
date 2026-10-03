@@ -70,7 +70,7 @@ public sealed partial class SqlServerTableCopyAdapter
     {
         using SqlConnection? owned = _readConnection == null ? CreateTableCopyConnection() : null;
         SqlConnection connection = _readConnection ?? owned!;
-        if (owned != null) await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
         if (maxBytes.HasValue && definition != null)
             query = await PrepareBoundedProjectionAsync(connection, definition, query, cancellationToken).ConfigureAwait(false);
         using SqlCommand command = CreateSourceCommand(connection, query);
