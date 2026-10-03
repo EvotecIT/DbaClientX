@@ -126,6 +126,13 @@ await sqlite.WritePlannerStatisticsAsync("test.db", new[] { new SqlitePlannerSta
 
 `SqlStatementText.Split(script)` splits a script into statements to explain one at a time.
 
+Native provider plans use the same `DbaQueryPlan`/`DbaQueryPlanStep` model with explicit `Provenance`. Their native
+table/schema/database names are preserved, and `Estimates` separates fractional output rows from rows read and
+table cardinality. The existing constructors and integer SQLite statistics remain available. `ScanOperations`
+reports access methods across providers; native scans can stop early. `QueryPlanRules`, `QueryPlanAssert` and
+`FullScans` retain SQLite-specific semantics and reject other providers. See the SQL Server provider's
+[estimated plan API](../DbaClientX.SqlServer/README.md#estimated-query-plans) for live capture and offline XML parsing.
+
 ## Retry behavior
 
 Provider clients use the same `TransientRetry` engine. `MaxRetryAttempts` includes the first attempt and `RetryDelay` is the exponential-backoff base. Connection establishment is retried separately from command execution.

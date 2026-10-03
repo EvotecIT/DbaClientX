@@ -33,6 +33,9 @@ public static class QueryPlanAssert
             throw new ArgumentNullException(nameof(rules));
         }
 
+        if (plan.Provenance.Dialect != DBAClientX.QueryBuilder.SqlDialect.SQLite)
+            throw new NotSupportedException("QueryPlanRules use SQLite identifier, scan and statistics semantics. Native provider plans require provider-specific assessment.");
+
         var violations = new List<QueryPlanViolation>();
         if (rules.RequireLargeTablesInPlan)
         {

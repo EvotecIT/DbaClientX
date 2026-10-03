@@ -6,7 +6,7 @@ public enum DbaQueryPlanOperation
     /// <summary>A step the parser does not classify (subquery headers, compound queries, co-routines and similar).</summary>
     Other,
 
-    /// <summary>Reads every row of a table, or every entry of one of its indexes in order.</summary>
+    /// <summary>Uses a table or index scan access method. Native providers can stop early; this label alone does not establish full traversal.</summary>
     Scan,
 
     /// <summary>Reads only the rows an index or the primary key finds.</summary>
