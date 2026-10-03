@@ -135,4 +135,24 @@ public sealed class SqlServerQueryPlanNativeTests
             Opened.TrySetResult(connection.ServerProcessId);
         }
     }
+
+    [Fact]
+    public async Task Capture_CancellationDuringOwnedCleanupPreventsResultHandoff()
+    {
+        await using var fixture = await SqlServerPlanTestScope.CreateAsync();
+        using var cancellation = new CancellationTokenSource();
+        using var provider = new CleanupCancellationProvider(cancellation);
+        var failure = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.ExplainQueryPlanAsync(
+            fixture.Connection, "SELECT Id FROM dbo.Events WHERE Id=1", cancellationToken: cancellation.Token));
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+    }
+
+    private sealed class CleanupCancellationProvider(CancellationTokenSource cancellation) : SqlServer
+    {
+        protected override async ValueTask DisposeConnectionAsync(SqlConnection connection)
+        {
+            await base.DisposeConnectionAsync(connection);
+            cancellation.Cancel();
+        }
+    }
 }

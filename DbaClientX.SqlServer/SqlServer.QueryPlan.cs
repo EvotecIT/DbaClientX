@@ -42,6 +42,7 @@ public partial class SqlServer
             await SetQueryPlanModeAsync(connection, enabled: true, cancellationToken).ConfigureAwait(false);
             result = SqlServerQueryPlanParser.Parse(query,
                 await ReadQueryPlanDocumentAsync(connection, batch, cancellationToken).ConfigureAwait(false), mode);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         catch (Exception exception)
         {
@@ -67,6 +68,7 @@ public partial class SqlServer
             }
         }
         if (failure != null) ExceptionDispatchInfo.Capture(failure).Throw();
+        cancellationToken.ThrowIfCancellationRequested();
         return result!;
     }
 
