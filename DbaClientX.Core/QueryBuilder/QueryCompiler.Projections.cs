@@ -42,6 +42,9 @@ public partial class QueryCompiler
 
     private void AppendDerivedSelect(StringBuilder sb, string sql, string alias, Query query, int? top = null)
     {
+        if (_dialect == SqlDialect.MySql && SqlSourceScopes.FindExternalQualifier(sql, backslashStrings: true) is { } qualifier)
+            throw new NotSupportedException($"MySQL/MariaDB cannot group a correlated compound operand in a derived table (outer qualifier '{qualifier}'). Keep UNION/UNION ALL chains flat or move the correlation outside the grouped operand.");
+
         // SQL Server requires named derived columns; it and MySQL require unique names. Naming
         // columns by ordinal preserves positional set semantics without rewriting trusted expressions.
         var names = _dialect is SqlDialect.SqlServer or SqlDialect.MySql ? GetProjectionNames(query) : null;

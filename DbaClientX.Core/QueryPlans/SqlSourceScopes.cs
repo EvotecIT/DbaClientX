@@ -24,6 +24,61 @@ internal sealed class SqlSourceScopes
 
     internal SqlSourceScopes() => _scopes.Push(new Scope(null));
 
+    /// <summary>
+    /// Finds an explicitly qualified column whose relation is outside this SQL fragment. Resolve after reading all
+    /// sources because SELECT expressions precede FROM and JOIN. This is a lexical scope check, not schema binding:
+    /// unqualified columns require provider metadata and are left to the server.
+    /// </summary>
+    internal static string? FindExternalQualifier(string sql, bool backslashStrings = false)
+    {
+        var tokens = SqlTokenizer.Tokenize(sql, backslashStrings: backslashStrings);
+        var scopes = new SqlSourceScopes();
+        var queryLevels = new Stack<bool>();
+        queryLevels.Push(true);
+        var sourceNames = new HashSet<int>();
+        var references = new List<(Scope Scope, string Qualifier)>();
+        for (int index = 0; index < tokens.Count; index++)
+        {
+            var token = tokens[index];
+            if (token.Kind == SqlTokenKind.OpenParenthesis)
+            {
+                bool query = index + 1 < tokens.Count &&
+                    (IsWord(tokens[index + 1], "SELECT") || IsWord(tokens[index + 1], "WITH") || IsWord(tokens[index + 1], "VALUES"));
+                scopes.Open(query);
+                queryLevels.Push(query);
+            }
+            else if (token.Kind == SqlTokenKind.CloseParenthesis)
+            {
+                scopes.Close();
+                if (queryLevels.Count > 1) queryLevels.Pop();
+            }
+            else if (queryLevels.Peek() && (IsWord(token, "UNION") || IsWord(token, "INTERSECT") || IsWord(token, "EXCEPT")))
+                scopes.Restart(statement: false);
+            else if (queryLevels.Peek() && IsWord(token, "WITH"))
+                scopes.ReadCommonTableExpressions(tokens, index);
+            else if (queryLevels.Peek() && (IsWord(token, "FROM") || IsWord(token, "JOIN") || IsWord(token, "APPLY")))
+                scopes.ReadSources(tokens, index, sourceNames);
+
+            // In a schema-qualified column, the final two parts identify the relation and column. Qualified
+            // functions and source names are not column references. Tokenization excludes strings and comments.
+            if (!sourceNames.Contains(index) && IsName(token) && index + 2 < tokens.Count &&
+                tokens[index + 1].Text == "." && (IsName(tokens[index + 2]) || tokens[index + 2].Text == "*") &&
+                (index + 3 >= tokens.Count || tokens[index + 3].Text != "." && tokens[index + 3].Kind != SqlTokenKind.OpenParenthesis))
+                references.Add((scopes._scopes.Peek(), token.Value));
+        }
+        foreach (var (scope, qualifier) in references)
+            if (!HasQualifier(scope, qualifier)) return qualifier;
+        return null;
+    }
+
+    private static bool HasQualifier(Scope? scope, string qualifier)
+    {
+        for (; scope != null; scope = scope.Parent)
+            foreach (var (table, alias) in scope.Sources)
+                if (string.Equals(alias ?? table, qualifier, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     /// <summary>Enters a parenthesis: a subquery starts a level of its own, other parentheses stay in the current one.</summary>
     internal void Open(bool subquery) => _scopes.Push(subquery ? new Scope(_scopes.Peek()) : _scopes.Peek());
 
@@ -98,13 +153,15 @@ internal sealed class SqlSourceScopes
     /// Records the sources named after the <c>FROM</c>, <c>JOIN</c>, <c>UPDATE</c> or <c>APPLY</c> at
     /// <paramref name="keyword"/> in the current level (a <c>FROM</c> list continues after commas).
     /// </summary>
-    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword)
+    internal void ReadSources(IReadOnlyList<SqlToken> tokens, int keyword, ISet<int>? sourceNames = null)
     {
         var scope = _scopes.Peek();
         var isFrom = IsWord(tokens[keyword], "FROM");
         var position = keyword + 1;
         while (position < tokens.Count)
         {
+            if (IsWord(tokens[position], "LATERAL")) position++;
+            if (position >= tokens.Count) return;
             if (tokens[position].Kind == SqlTokenKind.OpenParenthesis)
             {
                 // A derived table: its alias names no stored table.
@@ -114,9 +171,11 @@ internal sealed class SqlSourceScopes
             else if (IsName(tokens[position]) && !NotNames.Contains(tokens[position].Value))
             {
                 var table = tokens[position].Value;
+                sourceNames?.Add(position);
                 while (position + 2 < tokens.Count && tokens[position + 1].Text == "." && IsName(tokens[position + 2]))
                 {
                     position += 2;
+                    sourceNames?.Add(position);
                     table = tokens[position].Value;
                 }
 

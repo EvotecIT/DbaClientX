@@ -213,7 +213,8 @@ public partial class QueryCompiler
                 throw new InvalidOperationException("Compound queries require SELECT operands.");
 
             // Preserve the builder's left-to-right composition across dialects with different set precedence.
-            if (previousOperator != null && type != previousOperator)
+            if (previousOperator != null && type != previousOperator &&
+                !(previousOperator.StartsWith("UNION", StringComparison.Ordinal) && type.StartsWith("UNION", StringComparison.Ordinal)))
             {
                 string left = sb.ToString();
                 sb.Clear();
