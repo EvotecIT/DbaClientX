@@ -76,6 +76,8 @@ For multipart table or schema names, `DbaIdentifierPath` provides the shared del
 
 Compound queries keep their scope: `OrderBy`, `Limit`, `Top` and `Offset` on the root query apply to the combined result, while clauses on a `Union`, `UnionAll` or `Intersect` operand stay inside that operand. Mixed operators compose from left to right, and nested operands preserve their grouping. Order the combined result by its output column names. SQL Server requires a local ordered operand to include a limit or offset.
 
+A structured qualified order such as `OrderBy("n.Id")` can also bind to that same directly projected source column. Known projections use its output position, preserving the sort column through generated wrappers, duplicate names and provider folding of raw aliases. For computed expressions, order by the output alias or use a trusted output ordinal with `OrderByRaw`.
+
 Generated subqueries assign unique internal names to explicit projections on SQL Server and MySQL, preserving duplicate result names by position. Unnamed expressions receive stable names such as `dbx_column_0` when naming is required; use `SelectRaw("COUNT(*) AS Total")` to choose a result name. Wildcards and MySQL/MariaDB executable projection comments have a server-dependent column count or names, so their resulting names must satisfy the provider's subquery rules. For joins that expose duplicate names through `*`, select the columns explicitly. Use unique aliases within executable fragments that appear in derived tables. MySQL wrappers that require renaming use scoped CTEs supported by MySQL 8 and MariaDB 10.2 or later.
 
 ```csharp

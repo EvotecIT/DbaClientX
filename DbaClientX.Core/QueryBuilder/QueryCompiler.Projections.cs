@@ -15,7 +15,7 @@ public partial class QueryCompiler
 
     private static readonly HashSet<string> ProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS", "FOR", "ESCAPE"
+        "AND", "OR", "NOT", "IS", "LIKE", "IN", "BETWEEN", "COLLATE", "WHEN", "THEN", "ELSE", "AS", "FOR"
     };
 
     private static readonly HashSet<string> MySqlProjectionOperators = new(StringComparer.OrdinalIgnoreCase)
@@ -144,7 +144,8 @@ public partial class QueryCompiler
             }
 
             var tokens = SqlTokenizer.Tokenize(expression.Text, out bool hasExecutableComments,
-                backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect == SqlDialect.SqlServer);
+                dollarQuotes: _dialect == SqlDialect.PostgreSql,
+                backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql);
             if (_dialect == SqlDialect.MySql && hasExecutableComments) return null;
             int first = 0, depth = 0;
             for (int index = 0; index <= tokens.Count; index++)
@@ -177,6 +178,9 @@ public partial class QueryCompiler
             return tokens[first].Value;
         if (end - first >= 3 && string.Equals(tokens[end - 2].Text, "AS", StringComparison.OrdinalIgnoreCase))
             return last.Value.Length > 0 ? last.Value : null;
+        if (end - first >= 3 && tokens[end - 2].Kind == SqlTokenKind.Word
+            && tokens[end - 2].Text.Equals("ESCAPE", StringComparison.OrdinalIgnoreCase)
+            && tokens[end - 3].Text != "." && IsValueBeforeEscape(tokens, first, end)) return null;
         if (_dialect == SqlDialect.MySql && IsMySqlExpressionTail(tokens, first, end)) return null;
         // Plain identifiers, including a table qualifier, carry the final identifier's name.
         bool identifier = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier &&
@@ -200,6 +204,18 @@ public partial class QueryCompiler
                     && !(_dialect == SqlDialect.SqlServer && previous.Text.Equals("ZONE", StringComparison.OrdinalIgnoreCase)))) return last.Value;
         }
         return null;
+    }
+
+    private bool IsValueBeforeEscape(IReadOnlyList<SqlToken> tokens, int first, int end)
+    {
+        // ESCAPE is also a legal column name. A clause follows a completed pattern value;
+        // a bare column or an operand after LIKE/arithmetic can still carry a real alias.
+        var value = tokens[end - 3];
+        return value.Kind is SqlTokenKind.CloseParenthesis or SqlTokenKind.String or SqlTokenKind.Number
+            or SqlTokenKind.QuotedIdentifier or SqlTokenKind.Parameter
+            || value.Kind == SqlTokenKind.Word && (end - first >= 4 && tokens[end - 4].Text == "."
+                || !ProjectionOperators.Contains(value.Text)
+                && !(_dialect == SqlDialect.MySql && MySqlProjectionOperators.Contains(value.Text)));
     }
 
     private static bool IsMySqlExpressionTail(IReadOnlyList<SqlToken> tokens, int first, int end)

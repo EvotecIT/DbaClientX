@@ -11,8 +11,8 @@ public partial class QueryCompiler
     {
         if (column.IndexOf('.') < 0) return QuoteIdentifier(column);
 
-        // Source qualifiers do not survive generated compound wrappers. Bind direct projected
-        // columns to their output names, including raw aliases containing dots.
+        // Source qualifiers do not survive generated compound wrappers. Known projection ordinals
+        // also avoid duplicate names and provider-specific folding of raw aliases.
         var names = GetProjectionNames(query);
         string[] parts = column.Split('.');
         int ordinal = 0;
@@ -20,13 +20,14 @@ public partial class QueryCompiler
         {
             if (!expression.IsRaw)
             {
-                if (string.Equals(expression.Text, column, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(expression.Text, column, StringComparison.Ordinal))
                     return CompileProjectedOrder(parts[parts.Length - 1], ordinal, names, collation);
                 ordinal++;
                 continue;
             }
             var tokens = SqlTokenizer.Tokenize(expression.Text, out _, backslashStrings: _dialect == SqlDialect.MySql,
-                nestedBlockComments: _dialect == SqlDialect.SqlServer);
+                dollarQuotes: _dialect == SqlDialect.PostgreSql,
+                nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql);
             int first = 0, depth = 0;
             for (int end = 0; end <= tokens.Count; end++)
             {
@@ -38,7 +39,11 @@ public partial class QueryCompiler
                 }
                 string? name = GetRawProjectionName(tokens, first, end);
                 if (name != null && IsDirectOrderedColumn(tokens, first, end, parts))
-                    return CompileProjectedOrder(name, ordinal, names, collation);
+                {
+                    var nameToken = _dialect == SqlDialect.SqlServer && first + 1 < end && tokens[first + 1].Text == "="
+                        ? tokens[first] : tokens[end - 1];
+                    return CompileProjectedOrder(name, ordinal, names, collation, nameToken.Kind == SqlTokenKind.Word);
+                }
                 ordinal++;
                 first = end + 1;
             }
@@ -48,8 +53,9 @@ public partial class QueryCompiler
         throw new InvalidOperationException($"Compound ordering column '{column}' is not directly projected. Order by its output alias or use an output ordinal with OrderByRaw.");
     }
 
-    private string CompileProjectedOrder(string name, int ordinal, IReadOnlyList<string?>? names, string? collation)
+    private string CompileProjectedOrder(string name, int ordinal, IReadOnlyList<string?>? names, string? collation, bool unquoted = false)
     {
+        if (names != null && collation == null) return (ordinal + 1).ToString(CultureInfo.InvariantCulture);
         if (names != null)
         {
             int matches = 0;
@@ -61,7 +67,9 @@ public partial class QueryCompiler
                 return (ordinal + 1).ToString(CultureInfo.InvariantCulture);
             }
         }
-        return SqlIdentifier.Quote(_dialect, name);
+        // With provider-owned wildcard width, retain the spelling/quoting of raw output names.
+        // Emitting a parsed word unquoted preserves PostgreSQL/Oracle alias folding.
+        return unquoted ? name : SqlIdentifier.Quote(_dialect, name);
     }
 
     private bool IsDirectOrderedColumn(IReadOnlyList<SqlToken> tokens, int first, int end, string[] parts)
@@ -71,7 +79,7 @@ public partial class QueryCompiler
         for (int part = 0; part < parts.Length; part++)
         {
             if (index >= end || tokens[index].Kind is not (SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier)
-                || !string.Equals(tokens[index++].Value, parts[part], StringComparison.OrdinalIgnoreCase)) return false;
+                || !string.Equals(tokens[index++].Value, parts[part], StringComparison.Ordinal)) return false;
             if (part + 1 < parts.Length && (index >= end || tokens[index++].Text != ".")) return false;
         }
         return index == end || index + 1 == end

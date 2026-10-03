@@ -14,7 +14,7 @@ public class QueryCompoundOrderingRegressionTests
         if (mixed) query.Intersect(Operand(aliased));
         query.OrderByDescending("n.Id").Limit(1);
         string sql = query.Compile(SqlDialect.SqlServer);
-        Assert.EndsWith(aliased ? "ORDER BY [Output.Id] DESC" : "ORDER BY [Id] DESC", sql);
+        Assert.EndsWith("ORDER BY 1 DESC", sql);
     }
 
     [Theory]
@@ -51,10 +51,13 @@ public class QueryCompoundOrderingRegressionTests
     [Theory]
     [InlineData("n.ESCAPE 'OutputId'")]
     [InlineData("n.ESCAPE AS OutputId")]
+    [InlineData("ESCAPE 'OutputId'")]
+    [InlineData("1 + ESCAPE 'OutputId'")]
+    [InlineData("Name LIKE ESCAPE 'OutputId'")]
     public void QualifiedOperatorName_RetainsItsRealAlias(string expression)
     {
         Query Operand() => new Query().SelectRaw(expression + ", 2 AS divisor")
-            .FromRaw("(SELECT 7 AS `ESCAPE`) AS n");
+            .FromRaw("(SELECT 7 AS `ESCAPE`, 'a_b' AS Name) AS n");
         string sql = Operand().Union(Operand()).Intersect(Operand()).Compile(SqlDialect.MySql);
         Assert.DoesNotContain("WITH ", sql);
     }
@@ -68,7 +71,7 @@ public class QueryCompoundOrderingRegressionTests
     public void CompoundQualifiedOrdering_UsesAnOutputColumnAcrossDialects(SqlDialect dialect)
     {
         var query = Operand(false).Union(Operand(false)).Intersect(Operand(false)).OrderBy("n.Id").Limit(1);
-        Assert.Contains("ORDER BY " + SqlIdentifier.Quote(dialect, "Id"), query.Compile(dialect));
+        Assert.Contains("ORDER BY 1", query.Compile(dialect));
     }
 
     [Fact]
@@ -89,4 +92,30 @@ public class QueryCompoundOrderingRegressionTests
     private static Query Operand(bool aliased)
         => (aliased ? new Query().SelectRaw("n.Id AS [Output.Id]") : new Query().Select("n.Id"))
             .FromRaw("(SELECT 1 AS Id UNION ALL SELECT 2 AS Id) AS n");
+
+    [Theory]
+    [InlineData(SqlDialect.PostgreSql)]
+    [InlineData(SqlDialect.Oracle)]
+    public void CaseDistinctQuotedColumns_BindToTheRequestedOrdinal(SqlDialect dialect)
+    {
+        Query Operand() => new Query().Select("n.Id", "n.ID").FromRaw("source n");
+        Assert.Contains("ORDER BY 2", Operand().Union(Operand()).OrderBy("n.ID").Limit(1).Compile(dialect));
+    }
+
+    [Theory]
+    [InlineData("n.id AS OutputId", "ORDER BY 1")]
+    [InlineData("$$a,b$$ AS label, n.id, m.id", "ORDER BY 2")]
+    [InlineData("$value$a,b$value$ AS label, n.id, m.id", "ORDER BY 2")]
+    public void PostgreSqlRawProjection_BindsWithoutFoldingAliasesOrSplittingDollarStrings(string projection, string expected)
+    {
+        Query Operand() => new Query().SelectRaw(projection).FromRaw("source n JOIN other m ON n.id=m.id");
+        Assert.Contains(expected, Operand().Union(Operand()).OrderBy("n.id").Limit(1).Compile(SqlDialect.PostgreSql));
+    }
+
+    [Fact]
+    public void PostgreSqlWildcardWidth_PreservesUnquotedOutputAliasFolding()
+    {
+        Query Operand() => new Query().SelectRaw("n.id AS OutputId, n.*").FromRaw("source n");
+        Assert.Contains("ORDER BY OutputId", Operand().Union(Operand()).OrderBy("n.id").Limit(1).Compile(SqlDialect.PostgreSql));
+    }
 }
