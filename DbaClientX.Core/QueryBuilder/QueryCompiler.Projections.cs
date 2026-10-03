@@ -144,7 +144,7 @@ public partial class QueryCompiler
             }
 
             var tokens = SqlTokenizer.Tokenize(expression.Text, out bool hasExecutableComments,
-                backslashStrings: _dialect == SqlDialect.MySql);
+                backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect == SqlDialect.SqlServer);
             if (_dialect == SqlDialect.MySql && hasExecutableComments) return null;
             int first = 0, depth = 0;
             for (int index = 0; index <= tokens.Count; index++)
@@ -179,7 +179,8 @@ public partial class QueryCompiler
             return last.Value.Length > 0 ? last.Value : null;
         if (_dialect == SqlDialect.MySql && IsMySqlExpressionTail(tokens, first, end)) return null;
         // Plain identifiers, including a table qualifier, carry the final identifier's name.
-        bool identifier = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier;
+        bool identifier = last.Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier &&
+            !(_dialect == SqlDialect.MySql && IsMySqlString(last));
         for (int index = first; index < end && identifier; index++)
             identifier = (index - first) % 2 == 0
                 ? tokens[index].Kind is SqlTokenKind.Word or SqlTokenKind.QuotedIdentifier
@@ -203,7 +204,9 @@ public partial class QueryCompiler
     private static bool IsMySqlExpressionTail(IReadOnlyList<SqlToken> tokens, int first, int end)
     {
         var last = tokens[end - 1];
-        if (end - first >= 2 && last.Kind == SqlTokenKind.String && tokens[end - 2].Kind == SqlTokenKind.Word)
+        // Adjacent MySQL string literals concatenate; the final literal is not an implicit alias.
+        if (end - first >= 2 && IsMySqlString(last) && IsMySqlString(tokens[end - 2])) return true;
+        if (end - first >= 2 && IsMySqlString(last) && tokens[end - 2].Kind == SqlTokenKind.Word)
         {
             var previous = tokens[end - 2];
             string prefix = previous.Text;
@@ -235,4 +238,7 @@ public partial class QueryCompiler
         // including after a surrounding CASE or comparison expression.
         return interval >= 0;
     }
+
+    private static bool IsMySqlString(SqlToken token)
+        => token.Kind == SqlTokenKind.String || token.Kind == SqlTokenKind.QuotedIdentifier && token.Text[0] == '"';
 }

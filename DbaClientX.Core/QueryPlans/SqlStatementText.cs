@@ -45,7 +45,8 @@ public static class SqlStatementText
         }
 
         var statements = new List<string>();
-        var tokens = SqlTokenizer.Tokenize(sql, dollarQuotes: dialect == SqlDialect.PostgreSql, backslashStrings: dialect == SqlDialect.MySql);
+        var tokens = SqlTokenizer.Tokenize(sql, dollarQuotes: dialect == SqlDialect.PostgreSql,
+            backslashStrings: dialect == SqlDialect.MySql, nestedBlockComments: dialect == SqlDialect.SqlServer);
         var first = -1;
         var trigger = false;
         var inBody = false;

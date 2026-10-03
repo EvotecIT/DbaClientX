@@ -45,11 +45,13 @@ internal static class SqlTokenizer
     /// <param name="sql">The SQL text.</param>
     /// <param name="dollarQuotes">Whether <c>$$ … $$</c> and <c>$tag$ … $tag$</c> are strings, as in PostgreSQL; in SQLite they are parameter names.</param>
     /// <param name="backslashStrings">Whether ordinary strings use MySQL's default backslash escapes.</param>
-    internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false)
-        => Tokenize(sql, out _, dollarQuotes, backslashStrings);
+    /// <param name="nestedBlockComments">Whether block comments can nest, as in SQL Server.</param>
+    internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false,
+        bool nestedBlockComments = false)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings, nestedBlockComments);
 
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
-        bool dollarQuotes = false, bool backslashStrings = false)
+        bool dollarQuotes = false, bool backslashStrings = false, bool nestedBlockComments = false)
     {
         hasExecutableComments = false;
         var tokens = new List<SqlToken>();
@@ -74,8 +76,7 @@ internal static class SqlTokenizer
             {
                 hasExecutableComments |= index + 2 < sql.Length && (sql[index + 2] == '!' ||
                     index + 3 < sql.Length && sql[index + 2] is 'M' or 'm' && sql[index + 3] == '!');
-                var end = sql.IndexOf("*/", index + 2, System.StringComparison.Ordinal);
-                index = end < 0 ? sql.Length : end + 2;
+                index = SkipBlockComment(sql, index, nestedBlockComments);
             }
             else if (character == '\'' || ((character is 'N' or 'n' or 'E' or 'e') && Next(sql, index) == '\''))
             {
@@ -86,13 +87,14 @@ internal static class SqlTokenizer
                     index++;
                 }
 
-                var value = ReadQuoted(sql, ref index, '\'', backslashEscapes: escapes);
+                var value = ReadQuoted(sql, ref index, '\'', backslashEscapes: escapes, mysqlEscapes: backslashStrings);
                 tokens.Add(new SqlToken(SqlTokenKind.String, sql.Substring(start, index - start), value, start));
             }
             else if (character is '"' or '`' or '[')
             {
                 var start = index;
-                var value = ReadQuoted(sql, ref index, character == '[' ? ']' : character, backslashEscapes: backslashStrings && character == '"');
+                var value = ReadQuoted(sql, ref index, character == '[' ? ']' : character,
+                    backslashEscapes: backslashStrings && character == '"', mysqlEscapes: backslashStrings);
                 tokens.Add(new SqlToken(SqlTokenKind.QuotedIdentifier, sql.Substring(start, index - start), value, start));
             }
             else if (char.IsLetter(character) || character == '_')
@@ -109,6 +111,20 @@ internal static class SqlTokenizer
             else if (char.IsDigit(character))
             {
                 var start = index;
+                if (backslashStrings)
+                {
+                    // MySQL identifiers can begin with a digit. Keep numeric literals (including exponent,
+                    // hex and bit forms) numeric, but consume an identifier and its qualifier separately.
+                    int end = index;
+                    while (end < sql.Length && (char.IsLetterOrDigit(sql[end]) || sql[end] is '_' or '$')) end++;
+                    if (!IsMySqlNumericWord(sql, start, end))
+                    {
+                        index = end;
+                        string identifier = sql.Substring(start, end - start);
+                        tokens.Add(new SqlToken(SqlTokenKind.Word, identifier, identifier, start));
+                        continue;
+                    }
+                }
                 while (index < sql.Length && (char.IsLetterOrDigit(sql[index]) || sql[index] == '.'))
                 {
                     index++;
@@ -162,6 +178,42 @@ internal static class SqlTokenizer
 
     private static char Next(string sql, int index) => index + 1 < sql.Length ? sql[index + 1] : '\0';
 
+    private static int SkipBlockComment(string sql, int start, bool nested)
+    {
+        int depth = 1;
+        for (int index = start + 2; index + 1 < sql.Length; index++)
+        {
+            if (nested && sql[index] == '/' && sql[index + 1] == '*') { depth++; index++; }
+            else if (sql[index] == '*' && sql[index + 1] == '/')
+            {
+                if (--depth == 0) return index + 2;
+                index++;
+            }
+        }
+        return sql.Length;
+    }
+
+    private static bool IsMySqlNumericWord(string sql, int start, int end)
+    {
+        int index = start;
+        while (index < end && char.IsDigit(sql[index])) index++;
+        if (index == end) return true;
+        if (end > start + 2 && sql[start] == '0' && sql[start + 1] is 'x' or 'X' or 'b' or 'B')
+        {
+            bool binary = sql[start + 1] is 'b' or 'B';
+            for (int digit = start + 2; digit < end; digit++)
+                if (binary ? sql[digit] is not ('0' or '1') :
+                    !(sql[digit] is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F')) return false;
+            return true;
+        }
+        if (sql[index] is not ('e' or 'E')) return false;
+        index++;
+        if (index == end)
+            return end + 1 < sql.Length && sql[end] is '+' or '-' && char.IsDigit(sql[end + 1]);
+        for (; index < end; index++) if (!char.IsDigit(sql[index])) return false;
+        return true;
+    }
+
     /// <summary>The opening tag of a dollar-quoted string at <paramref name="index"/> (<c>$$</c> or <c>$tag$</c>), or null for a <c>$1</c> or <c>$name</c> parameter.</summary>
     private static string? DollarQuoteTag(string sql, int index)
     {
@@ -180,7 +232,7 @@ internal static class SqlTokenizer
     }
 
     /// <summary>Reads a quoted run starting at the opening quote; a doubled closing quote stands for itself.</summary>
-    private static string ReadQuoted(string sql, ref int index, char close, bool backslashEscapes)
+    private static string ReadQuoted(string sql, ref int index, char close, bool backslashEscapes, bool mysqlEscapes = false)
     {
         var value = new StringBuilder();
         index++;
@@ -189,7 +241,13 @@ internal static class SqlTokenizer
             var character = sql[index];
             if (backslashEscapes && character == '\\' && index + 1 < sql.Length)
             {
-                value.Append(sql[index + 1]);
+                char escaped = sql[index + 1];
+                if (mysqlEscapes && escaped is '%' or '_') value.Append('\\');
+                value.Append(mysqlEscapes ? escaped switch
+                {
+                    '0' => '\0', 'b' => '\b', 'n' => '\n', 'r' => '\r', 't' => '\t', 'Z' => (char)26,
+                    _ => escaped
+                } : escaped);
                 index += 2;
                 continue;
             }
