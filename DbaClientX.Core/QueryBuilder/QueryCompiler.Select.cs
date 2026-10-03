@@ -214,9 +214,10 @@ public partial class QueryCompiler
             if (!IsSelectQuery(operand))
                 throw new InvalidOperationException("Compound queries require SELECT operands.");
 
-            // Preserve the builder's left-to-right composition across dialects with different set precedence.
-            if (previousOperator != null && type != previousOperator &&
-                !(previousOperator.StartsWith("UNION", StringComparison.Ordinal) && type.StartsWith("UNION", StringComparison.Ordinal)))
+            // Only an increase in precedence changes left-to-right composition. SQLite and Oracle
+            // already evaluate these operators left-to-right; descending transitions retain correlation.
+            if (previousOperator != null && previousOperator != "INTERSECT" && type == "INTERSECT" &&
+                _dialect is not (SqlDialect.SQLite or SqlDialect.Oracle))
             {
                 string left = sb.ToString();
                 sb.Clear();

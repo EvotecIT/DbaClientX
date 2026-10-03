@@ -27,15 +27,14 @@ public partial class QueryCompiler
             }
             var tokens = SqlTokenizer.Tokenize(expression.Text, out _, backslashStrings: _dialect == SqlDialect.MySql,
                 dollarQuotes: _dialect == SqlDialect.PostgreSql,
-                nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql);
+                nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql,
+                bracketIdentifiers: _dialect != SqlDialect.PostgreSql);
             int first = 0, depth = 0;
             for (int end = 0; end <= tokens.Count; end++)
             {
                 if (end < tokens.Count)
                 {
-                    if (tokens[end].Kind == SqlTokenKind.OpenParenthesis) depth++;
-                    else if (tokens[end].Kind == SqlTokenKind.CloseParenthesis) depth--;
-                    if (depth != 0 || tokens[end].Text != ",") continue;
+                    if (!IsProjectionSeparator(tokens[end], ref depth)) continue;
                 }
                 string? name = GetRawProjectionName(tokens, first, end);
                 if (name != null && IsDirectOrderedColumn(tokens, first, end, parts))

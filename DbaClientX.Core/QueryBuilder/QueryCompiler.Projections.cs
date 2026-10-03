@@ -145,16 +145,15 @@ public partial class QueryCompiler
 
             var tokens = SqlTokenizer.Tokenize(expression.Text, out bool hasExecutableComments,
                 dollarQuotes: _dialect == SqlDialect.PostgreSql,
-                backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql);
+                backslashStrings: _dialect == SqlDialect.MySql, nestedBlockComments: _dialect is SqlDialect.SqlServer or SqlDialect.PostgreSql,
+                bracketIdentifiers: _dialect != SqlDialect.PostgreSql);
             if (_dialect == SqlDialect.MySql && hasExecutableComments) return null;
             int first = 0, depth = 0;
             for (int index = 0; index <= tokens.Count; index++)
             {
                 if (index < tokens.Count)
                 {
-                    if (tokens[index].Kind == SqlTokenKind.OpenParenthesis) depth++;
-                    else if (tokens[index].Kind == SqlTokenKind.CloseParenthesis) depth--;
-                    if (depth != 0 || tokens[index].Text != ",") continue;
+                    if (!IsProjectionSeparator(tokens[index], ref depth)) continue;
                 }
                 if (IsWildcard(tokens, first, index)) return null;
                 names.Add(GetRawProjectionName(tokens, first, index));
@@ -162,6 +161,13 @@ public partial class QueryCompiler
             }
         }
         return names;
+    }
+
+    private static bool IsProjectionSeparator(SqlToken token, ref int depth)
+    {
+        if (token.Kind is SqlTokenKind.OpenParenthesis or SqlTokenKind.OpenBracket) depth++;
+        else if (token.Kind is SqlTokenKind.CloseParenthesis or SqlTokenKind.CloseBracket) depth--;
+        return depth == 0 && token.Text == ",";
     }
 
     private static bool IsWildcard(IReadOnlyList<SqlToken> tokens, int first, int end)

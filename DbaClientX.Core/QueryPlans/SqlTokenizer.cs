@@ -13,7 +13,9 @@ internal enum SqlTokenKind
     OpenParenthesis,
     CloseParenthesis,
     Semicolon,
-    Symbol
+    Symbol,
+    OpenBracket,
+    CloseBracket
 }
 
 /// <summary>A token of SQL text: its kind, its text as written, its value (unquoted strings) and its offset.</summary>
@@ -47,12 +49,14 @@ internal static class SqlTokenizer
     /// <param name="backslashStrings">Whether ordinary strings use MySQL's default backslash escapes.</param>
     /// <param name="sqliteParameters">Whether named parameters use SQLite's identifier, namespace and parenthesized suffix syntax.</param>
     /// <param name="nestedBlockComments">Whether block comments can nest, as in SQL Server.</param>
+    /// <param name="bracketIdentifiers">Whether square brackets quote identifiers; false for PostgreSQL array syntax.</param>
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false,
-        bool sqliteParameters = false, bool nestedBlockComments = false)
-        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments);
+        bool sqliteParameters = false, bool nestedBlockComments = false, bool bracketIdentifiers = true)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments, bracketIdentifiers);
 
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
-        bool dollarQuotes = false, bool backslashStrings = false, bool sqliteParameters = false, bool nestedBlockComments = false)
+        bool dollarQuotes = false, bool backslashStrings = false, bool sqliteParameters = false, bool nestedBlockComments = false,
+        bool bracketIdentifiers = true)
     {
         hasExecutableComments = false;
         var tokens = new List<SqlToken>();
@@ -91,7 +95,7 @@ internal static class SqlTokenizer
                 var value = ReadQuoted(sql, ref index, '\'', backslashEscapes: escapes, mysqlEscapes: backslashStrings);
                 tokens.Add(new SqlToken(SqlTokenKind.String, sql.Substring(start, index - start), value, start));
             }
-            else if (character is '"' or '`' or '[')
+            else if (character is '"' or '`' || character == '[' && bracketIdentifiers)
             {
                 var start = index;
                 var value = ReadQuoted(sql, ref index, character == '[' ? ']' : character,
@@ -173,6 +177,8 @@ internal static class SqlTokenizer
                 {
                     '(' => SqlTokenKind.OpenParenthesis,
                     ')' => SqlTokenKind.CloseParenthesis,
+                    '[' => SqlTokenKind.OpenBracket,
+                    ']' => SqlTokenKind.CloseBracket,
                     ';' => SqlTokenKind.Semicolon,
                     _ => SqlTokenKind.Symbol
                 };

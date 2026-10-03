@@ -83,6 +83,7 @@ public static partial class SqlSargabilityAnalyzer
             var token = tokens[index];
             if (sourceModifiers.Contains(index)) continue;
             bool clauseToken = index == 0 || tokens[index - 1].Text != ".";
+            bool joinToken = token.Kind == SqlTokenKind.Word && clauseToken && SqlSourceScopes.IsJoinAt(tokens, index);
             switch (token.Kind)
             {
                 case SqlTokenKind.OpenParenthesis:
@@ -132,14 +133,14 @@ public static partial class SqlSargabilityAnalyzer
                 case SqlTokenKind.Word when clauseToken && IsWord(token, "FROM") && index > 0 && IsWord(tokens[index - 1], "DISTINCT"):
                     // IS [NOT] DISTINCT FROM compares; it starts no clause.
                     break;
-                case SqlTokenKind.Word when clauseToken && (ClauseKeywords.Contains(token.Text) || SqlSourceScopes.IsJoinAt(tokens, index) || IsWord(token, "UPDATE")):
-                    SetTop(joinPending, SqlSourceScopes.IsJoinAt(tokens, index));
+                case SqlTokenKind.Word when clauseToken && (ClauseKeywords.Contains(token.Text) || joinToken || IsWord(token, "UPDATE")):
+                    SetTop(joinPending, joinToken);
                     SetCondition(inCondition, false);
                     if (!queryLevel.Peek())
                     {
                         // FROM inside EXTRACT(YEAR FROM x), SUBSTRING or TRIM names no table.
                     }
-                    else if (IsWord(token, "FROM") || SqlSourceScopes.IsJoinAt(tokens, index) || IsWord(token, "UPDATE"))
+                    else if (IsWord(token, "FROM") || joinToken || IsWord(token, "UPDATE"))
                     {
                         scopes.ReadSources(tokens, index, sourceModifiers: sourceModifiers);
                     }

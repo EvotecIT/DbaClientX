@@ -25,6 +25,12 @@ internal sealed partial class SqlSourceScopes
         "SET", "VALUES", "RETURNING", "FETCH", "FOR", "OPTION"
     };
 
+    private static readonly HashSet<string> PredicateWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AND", "OR", "NOT", "ON", "USING", "WHEN", "THEN", "ELSE", "IS", "IN", "LIKE", "ILIKE",
+        "BETWEEN", "REGEXP", "RLIKE", "GLOB", "MATCH", "COLLATE"
+    };
+
     private readonly Stack<Scope> _scopes = new();
     private readonly HashSet<string> _commonTableExpressions = new(StringComparer.OrdinalIgnoreCase);
 
@@ -441,7 +447,27 @@ internal sealed partial class SqlSourceScopes
             !IsWord(tokens[index - 1], "LATERAL") && !IsWord(tokens[index - 1], "OJ")) &&
             (IsWord(tokens[index], "JOIN") || IsWord(tokens[index], "STRAIGHT_JOIN") && index + 1 < tokens.Count &&
             (tokens[index + 1].Kind == SqlTokenKind.OpenParenthesis || tokens[index + 1].Text == "{" ||
-                IsName(tokens[index + 1]) && !NotNames.Contains(tokens[index + 1].Value)));
+                IsName(tokens[index + 1]) && !NotNames.Contains(tokens[index + 1].Value) &&
+                !PredicateWords.Contains(tokens[index + 1].Value)) && IsSourceClauseBefore(tokens, index));
+
+    // STRAIGHT_JOIN is also a portable column/function name. Look for its source-clause context
+    // only when that word occurs; ordinary tokens add no scan or allocation.
+    private static bool IsSourceClauseBefore(IReadOnlyList<SqlToken> tokens, int index)
+    {
+        if (index > 0 && tokens[index - 1].Kind == SqlTokenKind.Word && PredicateWords.Contains(tokens[index - 1].Text)) return false;
+        int depth = 0;
+        for (int previous = index - 1; previous >= 0; previous--)
+        {
+            var token = tokens[previous];
+            if (token.Kind == SqlTokenKind.CloseParenthesis) { depth++; continue; }
+            if (token.Kind == SqlTokenKind.OpenParenthesis) { if (depth > 0) depth--; continue; }
+            if (depth != 0 || token.Kind != SqlTokenKind.Word || previous > 0 && tokens[previous - 1].Text == "." ||
+                previous + 1 < tokens.Count && tokens[previous + 1].Text == ".") continue;
+            if (SourceTerminators.Contains(token.Text) || IsWord(token, "SELECT")) return false;
+            if (IsWord(token, "FROM") || IsWord(token, "UPDATE") || IsWord(token, "JOIN")) return true;
+        }
+        return false;
+    }
 
     private sealed class Scope
     {
