@@ -77,5 +77,7 @@ public class SQLiteWindowsLongPathTests
         var builder = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(SQLite.BuildConnectionString(path));
         Assert.Equal(@"\\?\UNC\" + path.Substring(2), builder.DataSource);
         Assert.Equal("win32-longpath", builder.Vfs);
+        Assert.True(SQLite.AreSameBackupPath(path, builder.DataSource));
+        Assert.False(SQLite.AreSameBackupPath(path, builder.DataSource + ".other"));
     }
 }

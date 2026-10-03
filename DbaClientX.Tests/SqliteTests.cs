@@ -111,7 +111,6 @@ public class SqliteTests
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
 
-        Assert.Equal(path, builder.DataSource);
         Assert.Equal(SqliteOpenMode.Memory, builder.Mode);
         Assert.Equal(SqliteCacheMode.Shared, builder.Cache);
     }

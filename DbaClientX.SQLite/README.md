@@ -6,7 +6,7 @@ Also includes SQLite maintenance helpers for online database backup, WAL checkpo
 - Target Frameworks: `net472` (win-x64), `netstandard2.1`, `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
 
-On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session, backup, diagnostics and table-copy entrypoints. An explicit connection-string or file-URI `vfs` choice takes precedence. File URIs retain mode, cache and native options such as `immutable=1`; extended and ordinary drive/UNC aliases share the same destructive-copy and backup guards.
+On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session, backup, diagnostics and table-copy entrypoints. An explicit connection-string or file-URI `vfs` choice takes precedence. File URIs retain mode, cache and native options such as `immutable=1`. Escaped URI names and ordinary named-memory targets keep distinct shared-memory databases isolated; extended and ordinary drive/UNC aliases share the same destructive-copy and backup guards.
 
 ## Install
 

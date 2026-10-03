@@ -112,7 +112,7 @@ public partial class SQLite : DatabaseClientBase
             builder.DefaultTimeout = Math.Max(1, (int)Math.Ceiling(busyTimeoutMs.Value / 1000d));
         }
 
-        ApplyWindowsFilePath(builder);
+        NormalizeSQLiteFileTarget(builder);
         return builder.ConnectionString;
     }
 
@@ -139,7 +139,7 @@ public partial class SQLite : DatabaseClientBase
             builder.Pooling = false;
         }
 
-        ApplyWindowsFilePath(builder);
+        NormalizeSQLiteFileTarget(builder);
         return builder.ToString();
     }
 
@@ -221,7 +221,11 @@ public partial class SQLite : DatabaseClientBase
             string value = Uri.UnescapeDataString(separator < 0 ? string.Empty : part.Substring(separator + 1));
             if (!ApplySQLiteUriOption(builder, key, value)) nativeOptions.Add(part);
         }
-        builder["Data Source"] = nativeOptions.Count == 0 && Path.IsPathRooted(path)
+        bool memory = builder.TryGetValue("Mode", out var mode) &&
+            string.Equals(mode?.ToString(), nameof(SqliteOpenMode.Memory), StringComparison.OrdinalIgnoreCase);
+        // Microsoft.Data.Sqlite turns ordinary named-memory filenames back into URIs. Preserve
+        // escaping here so '#' and '%' cannot collapse distinct shared-memory namespaces.
+        builder["Data Source"] = nativeOptions.Count == 0 && Path.IsPathRooted(path) && !memory
             ? path : SQLiteFileUri.Encode(path, string.Join("&", nativeOptions));
     }
 

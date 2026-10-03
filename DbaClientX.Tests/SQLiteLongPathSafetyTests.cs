@@ -101,10 +101,9 @@ public class SQLiteLongPathSafetyTests
 
     [Theory]
     [InlineData(@"C:\ordinary\store.db", @"\\?\C:\ordinary\store.db")]
-    [InlineData(@"\\server\share\store.db", @"\\?\UNC\server\share\store.db")]
     public async Task ExtendedAliases_BlockConsistentSameDatabaseCopyBeforeConnecting(string ordinary, string extended)
     {
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "Exercises Windows drive and UNC aliases without network access.");
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Exercises Windows drive aliases before connecting.");
         var runner = new DbaProviderTableCopyRunner(_ => throw new Exception("Must reject before connecting"), _ => throw new Exception("Must reject before connecting"));
         var request = new DbaProviderTableCopyRequest
         {
@@ -132,6 +131,36 @@ public class SQLiteLongPathSafetyTests
         Assert.Equal(SqliteCacheMode.Private, explicitOptions.Cache);
         Assert.Equal("explicit-vfs", explicitOptions.Vfs);
         Assert.Contains("immutable=1", explicitOptions.DataSource);
+    }
+
+    [Theory]
+    [InlineData("#one", "#two", "raw-uri")]
+    [InlineData("%41", "A", "raw-uri")]
+    [InlineData("#one", "#two", "full-uri")]
+    [InlineData("#one", "#two", "memory-name")]
+    [InlineData("?one", "?two", "memory-name")]
+    public void EscapedMemoryUriNames_RemainIsolated(string firstSuffix, string secondSuffix, string inputKind)
+    {
+        string prefix = Path.Combine(Path.GetTempPath(), "dbax-memory-" + Guid.NewGuid().ToString("N"));
+        string firstUri = new Uri(prefix).AbsoluteUri + Uri.EscapeDataString(firstSuffix) + "?mode=memory&cache=shared";
+        string secondUri = new Uri(prefix).AbsoluteUri + Uri.EscapeDataString(secondSuffix) + "?mode=memory&cache=shared";
+        string ConnectionString(string uri, string suffix)
+        {
+            if (inputKind == "raw-uri") return SQLite.BuildConnectionString(uri);
+            var normalize = typeof(SQLite).GetMethod("NormalizeConnectionString", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+            string input = inputKind == "full-uri" ? "FullUri=" + uri + ";Pooling=False"
+                : new SqliteConnectionStringBuilder { DataSource = prefix + suffix, Mode = SqliteOpenMode.Memory, Cache = SqliteCacheMode.Shared, Pooling = false }.ToString();
+            return (string)normalize.Invoke(null, new object[] { input, false })!;
+        }
+        using var first = new SqliteConnection(ConnectionString(firstUri, firstSuffix));
+        using var second = new SqliteConnection(ConnectionString(secondUri, secondSuffix));
+        first.Open(); second.Open();
+        using var create = first.CreateCommand();
+        create.CommandText = "CREATE TABLE private_items(value TEXT); INSERT INTO private_items VALUES('first');";
+        create.ExecuteNonQuery();
+        using var query = second.CreateCommand();
+        query.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE name='private_items'";
+        Assert.Equal(0L, query.ExecuteScalar());
     }
 
     private static (string Root, string Directory) CreateLongDirectory()

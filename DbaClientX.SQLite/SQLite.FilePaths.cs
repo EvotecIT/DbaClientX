@@ -8,11 +8,19 @@ public partial class SQLite
     // SQLite appends "-journal" when checking or creating a rollback journal.
     private const int WindowsLegacyDatabasePathLimit = 260 - 8;
 
-    /// <summary>Resolves long Windows file targets while retaining caller connection and VFS options.</summary>
-    internal static void ApplyWindowsFilePath(SqliteConnectionStringBuilder builder)
+    /// <summary>Preserves URI and named-memory targets and resolves long Windows filenames with caller options intact.</summary>
+    internal static void NormalizeSQLiteFileTarget(SqliteConnectionStringBuilder builder)
     {
         bool fileUri = SQLiteFileUri.TryParse(builder.DataSource, out var uriPath, out var uriQuery);
         if (fileUri) ApplySQLiteUri(builder, uriPath, uriQuery);
+        if (!fileUri && builder.Mode == SqliteOpenMode.Memory &&
+            !string.IsNullOrEmpty(builder.DataSource) &&
+            !string.Equals(builder.DataSource, ":memory:", StringComparison.OrdinalIgnoreCase) &&
+            !builder.DataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            // Ordinary named-memory inputs are opaque filenames, not unescaped URI text.
+            builder.DataSource = SQLiteFileUri.Encode(builder.DataSource, string.Empty);
+        }
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ||
             builder.Mode == SqliteOpenMode.Memory ||
             string.IsNullOrEmpty(builder.DataSource) ||
