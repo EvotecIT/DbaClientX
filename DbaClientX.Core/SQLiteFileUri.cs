@@ -24,17 +24,19 @@ internal static class SQLiteFileUri
             if (authority.Length != 0) value = "file://" + filename.Substring(end);
         }
 
-        if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile)
+        // Windows URI filenames need drive/UNC conversion. POSIX filenames must retain
+        // native component order: System.Uri can remove '..' before directory-link lookup.
+        if (Path.DirectorySeparatorChar == '\\' && Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.IsFile)
         {
             path = uri.LocalPath;
             query = uri.Query.Length == 0 ? string.Empty : uri.Query.Substring(1);
             return true;
         }
 
-        // SQLite accepts file:relative.db and percent-escaped absolute filenames. An authority
-        // must still be parsed by System.Uri; do not reinterpret a malformed host as a filename.
+        // SQLite accepts file:relative.db and native POSIX absolute paths, including file:/.
+        // Authorities have already been validated; decode the filename exactly once.
         filename = value.Substring(5);
-        if (filename.StartsWith("/", StringComparison.Ordinal))
+        if (Path.DirectorySeparatorChar == '\\' && filename.StartsWith("/", StringComparison.Ordinal))
             return false;
         int fragment = filename.IndexOf('#');
         if (fragment >= 0) filename = filename.Substring(0, fragment);

@@ -19,20 +19,37 @@ internal static class SQLiteFilePath
     /// <summary>Resolves existing files and ancestor directories, retaining a missing destination's suffix.</summary>
     internal static string ResolveAliases(string path)
     {
-        string fullPath = Path.GetFullPath(NormalizeWindowsAlias(path));
+        bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        // POSIX follows a link before processing a subsequent '..'. GetFullPath and
+        // managed existence checks collapse that component before native resolution.
+        string fullPath = windows ? Path.GetFullPath(NormalizeWindowsAlias(path))
+            : Path.IsPathRooted(path) ? path : Path.Combine(Directory.GetCurrentDirectory(), path);
         string existing = fullPath;
         var suffix = new Stack<string>();
-        bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        while (!File.Exists(windows ? ToExtendedPath(existing) : existing) &&
-               !Directory.Exists(windows ? ToExtendedPath(existing) : existing))
+        string resolved;
+        while (true)
         {
+            if (windows)
+            {
+                if (File.Exists(ToExtendedPath(existing)) || Directory.Exists(ToExtendedPath(existing)))
+                {
+                    resolved = ResolveWindows(existing);
+                    break;
+                }
+            }
+            else
+            {
+                string? unixPath = TryResolveUnix(existing, out int error);
+                if (unixPath != null) { resolved = unixPath; break; }
+                // Only absent components may be retained as a new destination's suffix.
+                if (error != 2 && error != 20) throw ResolutionFailure(error); // ENOENT / ENOTDIR
+            }
             string? parent = Path.GetDirectoryName(existing);
             if (string.IsNullOrEmpty(parent) || string.Equals(parent, existing, StringComparison.Ordinal)) return fullPath;
             suffix.Push(Path.GetFileName(existing));
             existing = parent!;
         }
 
-        string resolved = windows ? ResolveWindows(existing) : ResolveUnix(existing);
         while (suffix.Count != 0) resolved = Path.Combine(resolved, suffix.Pop());
         return NormalizeWindowsAlias(resolved);
     }
@@ -57,17 +74,21 @@ internal static class SQLiteFilePath
         return buffer.ToString();
     }
 
-    private static string ResolveUnix(string path)
+    private static string? TryResolveUnix(string path, out int error)
     {
         // POSIX realpath resolves every directory component, including macOS /var -> /private/var.
         IntPtr resolved = RealPath(path, IntPtr.Zero);
-        if (resolved == IntPtr.Zero) throw ResolutionFailure();
+        error = resolved == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
+        if (resolved == IntPtr.Zero) return null;
         try { return Marshal.PtrToStringAnsi(resolved) ?? throw new IOException("Could not resolve SQLite filesystem aliases."); }
         finally { Free(resolved); }
     }
 
     private static IOException ResolutionFailure()
-        => new IOException("Could not resolve SQLite filesystem aliases.", new Win32Exception(Marshal.GetLastWin32Error()));
+        => ResolutionFailure(Marshal.GetLastWin32Error());
+
+    private static IOException ResolutionFailure(int error)
+        => new IOException("Could not resolve SQLite filesystem aliases.", new Win32Exception(error));
 
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFile(string path, uint desiredAccess, uint shareMode,
