@@ -460,7 +460,8 @@ internal sealed partial class SqlSourceScopes
             // Arithmetic/comparison symbols and predicate operators introduce an operand, not a joined source.
             // The closing ODBC brace may finish a source, so it remains eligible for a following join.
             if (preceding.Kind == SqlTokenKind.Symbol && preceding.Text != "}" ||
-                preceding.Kind == SqlTokenKind.Word && PredicateWords.Contains(preceding.Text)) return false;
+                preceding.Kind == SqlTokenKind.Word && PredicateWords.Contains(preceding.Text) &&
+                (index < 2 || tokens[index - 2].Text != ".")) return false;
         }
         int depth = 0;
         for (int previous = index - 1; previous >= 0; previous--)

@@ -83,6 +83,19 @@ public sealed class QueryCompositionClosureTests
     }
 
     [Theory]
+    [InlineData("interval")]
+    [InlineData("binary")]
+    [InlineData("collate")]
+    public void StraightJoinSource_AfterQualifiedKeywordTable_RetainsItsAlias(string table)
+    {
+        var query = new Query().Select("j.Id").FromRaw("app." + table + " STRAIGHT_JOIN other AS j ON app." + table + ".Id=j.Id")
+            .Union(new Query().Select("1")).Intersect(new Query().Select("1"));
+        Assert.Contains("STRAIGHT_JOIN other AS j", query.Compile(SqlDialect.MySql));
+        var findings = SqlSargabilityAnalyzer.Analyze("SELECT * FROM app." + table + " STRAIGHT_JOIN other AS j ON LOWER(j.Name)='a'");
+        Assert.Equal("other", Assert.Single(findings).Table);
+    }
+
+    [Theory]
     [InlineData("q'!a'b,c!'", false)]
     [InlineData("q'!a'b,c!'", true)]
     [InlineData("Q'[a'b,c]'", false)]
