@@ -85,6 +85,31 @@ var result = await pg.ExecuteStoredProcedureAsync(
     cancellationToken: ct);
 ```
 
+## Estimated query plans
+
+`ExplainQueryPlan` and `ExplainQueryPlanAsync` capture one native PostgreSQL estimated plan. Named values are bound through Npgsql:
+
+```csharp
+var plan = await pg.ExplainQueryPlanAsync(
+    connectionString: "Host=localhost;Database=app;Username=user;Password=p@ss;SSL Mode=Require",
+    query: "SELECT id FROM public.users WHERE id=@id",
+    parameters: new Dictionary<string, object?> { ["id"] = 42 },
+    cancellationToken: ct);
+
+foreach (var step in plan.Steps)
+{
+    Console.WriteLine($"{step.Detail}: {step.Schema}.{step.Table}, output={step.Estimates?.OutputRows}");
+}
+```
+
+Use `parameterTypes` with existing `NpgsqlDbType` values when a null or array needs an explicit type. Bound values record the parameter context; they do not guarantee a particular server plan-cache policy. Positional `$1` parameters and scripts are unsupported.
+
+Capture uses `EXPLAIN (ANALYZE FALSE, VERBOSE TRUE, COSTS TRUE, FORMAT JSON)` on a separate connection and read-only transaction. It leaves active client and ambient transactions alone, ignores command replay settings, honors `CommandTimeout` and caller cancellation, and attempts rollback and disposal after failure. It requires `standard_conforming_strings=on` and TLS. Planning can still acquire locks and invoke planner-time functions; read-only protection prevents local database writes, without sandboxing external effects of custom functions.
+
+`PostgreSqlQueryPlanParser.Parse(sql, explainJson)` imports the same estimated JSON format. Native names retain their spelling and case. Operator IDs are assigned in preorder, with root parent `-1`. `Plan Rows` maps to output rows and `Total Cost` to subtree cost. Rows read, table cardinality and database identity remain unknown when the document does not supply them; parallel estimates are not multiplied. `ScanOperations` reports access methods. `FullScans` and `QueryPlanAssert` remain SQLite-specific and reject PostgreSQL plans.
+
+The reader rejects actual execution counters, duplicate properties and multiple statement plans. Limits are 16,777,216 JSON characters, 128 nesting levels and 4096 operators. Capture accepts one SELECT, WITH, INSERT, UPDATE, DELETE or MERGE statement of at most 1,048,576 characters.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`

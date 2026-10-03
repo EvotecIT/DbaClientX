@@ -6,6 +6,12 @@ namespace DbaClientX.Tests;
 public sealed class SqlStatementTextTests
 {
     [Theory]
+    [InlineData("SELECT (ARRAY[']'])[1]; DELETE FROM t", "SELECT (ARRAY[']'])[1]", "DELETE FROM t")]
+    [InlineData("SELECT 1 /* outer /* inner */ ; DELETE FROM t; */; SELECT 2", "SELECT 1", "SELECT 2")]
+    public void Split_PostgreSqlArraysAndNestedComments_PreserveStatementBoundaries(string sql, string first, string second)
+        => Assert.Equal(new[] { first, second }, SqlStatementText.Split(sql, SqlDialect.PostgreSql));
+
+    [Theory]
     [InlineData("$item(O'Reilly)")]
     [InlineData("@item(O'Reilly)")]
     [InlineData(":item(O'Reilly)")]

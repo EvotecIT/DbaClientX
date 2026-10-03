@@ -39,6 +39,7 @@
     <!-- The SQLite provider reads plan text with the query-plan tokenizer (SqlQueryLevels). -->
     <InternalsVisibleTo Include="DbaClientX.SQLite" />
     <InternalsVisibleTo Include="DbaClientX.SqlServer" />
+    <InternalsVisibleTo Include="DbaClientX.PostgreSql" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Diagnostics.DiagnosticSource" />
