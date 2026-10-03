@@ -25,6 +25,8 @@ public partial class SqlServer
     {
         ValidateMonitoringTarget(target);
         options ??= new SqlServerMonitoringOptions();
+        if (options.Includes(SqlServerMonitoringScope.IndexUsage))
+            ValidateIndexUsageLimit(options.MaximumIndexUsageRows);
 
         var snapshot = new SqlServerMonitoringSnapshot
         {
@@ -76,6 +78,18 @@ public partial class SqlServer
         {
             await AddSectionAsync(snapshot.Errors, "availability groups", async () =>
                 snapshot.AvailabilityGroups.AddRange(await GetAvailabilityGroupsAsync(target, cancellationToken).ConfigureAwait(false))).ConfigureAwait(false);
+        }
+
+        if (options.Includes(SqlServerMonitoringScope.QueryStore))
+        {
+            await AddSectionAsync(snapshot.Errors, "Query Store", async () =>
+                snapshot.QueryStore = await GetQueryStoreStateAsync(target, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
+        }
+
+        if (options.Includes(SqlServerMonitoringScope.IndexUsage))
+        {
+            await AddSectionAsync(snapshot.Errors, "index usage", async () =>
+                snapshot.IndexUsage = await GetIndexUsageAsync(target, options.MaximumIndexUsageRows, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         }
 
         snapshot.CompletedUtc = DateTimeOffset.UtcNow;
@@ -372,6 +386,10 @@ public partial class SqlServer
         {
             AddSectionError(errors, section, ex);
         }
+        catch (NotSupportedException ex)
+        {
+            AddSectionError(errors, section, ex);
+        }
     }
 
     private static void AddSectionError(List<string> errors, string section, Exception ex)
@@ -423,6 +441,7 @@ public partial class SqlServer
                 18456 => "authentication",
                 4060 => "database-unavailable",
                 -2 => "timeout",
+                229 or 297 or 300 or 15562 => "permission-denied",
                 _ when string.Equals(
                     queryException.ProviderExceptionType,
                     typeof(SqlException).FullName,
@@ -437,10 +456,12 @@ public partial class SqlServer
             SqlException sql when sql.Number == 18456 => "authentication",
             SqlException sql when sql.Number == 4060 => "database-unavailable",
             SqlException sql when sql.Number == -2 => "timeout",
+            SqlException sql when sql.Number is 229 or 297 or 300 or 15562 => "permission-denied",
             SqlException => "sql",
             TimeoutException => "timeout",
             OperationCanceledException => "cancelled",
             InvalidOperationException => "connection",
+            NotSupportedException => "unsupported",
             _ => "unknown"
         };
     }
