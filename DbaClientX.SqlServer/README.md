@@ -129,6 +129,30 @@ cli.RunInTransaction(
 );
 ```
 
+## Streaming table transfers
+
+`SqlServer.TransferTableAsync` appends a SQL Server table directly through an owned reader and native streaming bulk copy. It avoids materializing pages and returns the provider's row count and operation identifier:
+
+```csharp
+var result = await SqlServer.TransferTableAsync(new SqlServerTableTransferRequest
+{
+    SourceConnectionString = sourceConnectionString,
+    DestinationConnectionString = destinationConnectionString,
+    SourceTable = "dbo.Users",
+    DestinationTable = "staging.Users",
+    SourceColumns = new[] { "Name", "Email" },
+    BatchSize = 5000
+}, ct);
+```
+
+Tables must be local user tables. Names can be schema-qualified; an omitted schema means `dbo`. Select the database through its connection string. `SourceColumns` contains literal column names and can omit generated destination columns. `BulkOptions` supplies the existing name mappings, identity and progress controls, and explicit staging-table creation. Constraint checking is enabled when `BulkOptions` is omitted; an explicitly supplied options object controls its native flags.
+
+Default writes use one destination transaction, completed after the source reader and transaction. Existing rows remain. `CommitEachBatch = true` explicitly permits earlier native batches and created schema/table to remain after failure or cancellation. Both modes own non-pooled, non-enlisted connections and do not replay the transfer. An optional connection factory must return a closed connection using the supplied connection string. Fabric Warehouse is not supported by this native transaction workflow.
+
+The source defaults to `ReadCommitted`. `SourceIsolationLevel = IsolationLevel.Snapshot` requires snapshot isolation already enabled on the source database; `Serializable` uses native locks. The API does not change database settings. A source and destination that identify the same native table are rejected.
+
+This transfer has no checkpoint, transformation or content verification. Use `DbaProviderTableCopyRunner` for verified, resumable copies. Native copied-row counts do not establish checksum equality, and caller-requested triggers can change destination contents.
+
 ## Estimated query plans
 
 `ExplainQueryPlanAsync` captures SQL Server's estimated plan for one SELECT, INSERT, UPDATE, DELETE or MERGE

@@ -37,6 +37,7 @@
 
 ### New features
 
+- **SQL Server streaming table transfers.** `SqlServer.TransferTableAsync` owns a source reader and native bulk writer, appends without page materialization, and reports copied rows and operation identity. The default destination transaction spans the transfer; partial batch commits require explicit opt-in. Literal projections, existing bulk mappings and source isolation are supported without replay, automatic database settings, checkpoints or content-verification claims.
 - **SQL Server estimated query plans.** Capture and inspect SHOWPLAN XML through the shared structured plan model. Native identities and fractional output/read/cardinality estimates remain distinct from SQLite rules and statistics. Typed scalar parameter declarations produce explicitly generic estimates; capture isolates session state and preserves cancellation.
 - **PostgreSQL estimated query plans.** Capture and import native EXPLAIN JSON through the shared plan model, with bound named values and existing Npgsql types. Owned read-only capture preserves active transactions, cancellation and cleanup errors without command replay. Output and cost estimates retain their native meaning; rows read and table cardinality remain unknown. PostgreSQL array subscripts and nested comments now preserve statement boundaries in shared splitting.
 
