@@ -41,6 +41,7 @@
     <InternalsVisibleTo Include="DbaClientX.SqlServer" />
     <InternalsVisibleTo Include="DbaClientX.PostgreSql" />
     <InternalsVisibleTo Include="DbaClientX.MySql" />
+    <InternalsVisibleTo Include="DbaClientX.Oracle" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Diagnostics.DiagnosticSource" />

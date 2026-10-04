@@ -106,7 +106,8 @@ public sealed class DbaQueryPlan
     }
 
     /// <summary>Gets table/index scan access operators. A scan can stop early; inspect native estimates separately.</summary>
-    public IEnumerable<DbaQueryPlanStep> ScanOperations => Steps.Where(step => step.Operation == DbaQueryPlanOperation.Scan && step.Table != null);
+    public IEnumerable<DbaQueryPlanStep> ScanOperations => Steps.Where(step => step.Operation == DbaQueryPlanOperation.Scan
+        && (step.Table != null || Provenance.Dialect != SqlDialect.SQLite && step.Index != null));
 
     /// <summary>Returns the plan as indented text, one step per line, for messages and logs.</summary>
     /// <returns>The plan text.</returns>
