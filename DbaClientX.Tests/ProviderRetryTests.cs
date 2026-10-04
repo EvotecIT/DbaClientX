@@ -75,16 +75,19 @@ public class ProviderRetryTests
     }
 
     private static SqlException CreateSqlException(int number, byte errorClass = 0, byte state = 0, int errorCount = 1)
+        => CreateSqlException(Enumerable.Repeat((number, errorClass, state), errorCount).ToArray());
+
+    private static SqlException CreateSqlException(params (int Number, byte Class, byte State)[] errors)
     {
         var errorCtor = typeof(SqlError).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)
             .First(c => c.GetParameters().Length == 8);
         var collection = (SqlErrorCollection)typeof(SqlErrorCollection).GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance)[0]
             .Invoke(null);
-        for (var index = 0; index < errorCount; index++)
+        foreach (var descriptor in errors)
         {
             var error = errorCtor.Invoke(new object?[]
             {
-                number, state, errorClass, string.Empty, string.Empty, string.Empty, 1, null
+                descriptor.Number, descriptor.State, descriptor.Class, string.Empty, string.Empty, string.Empty, 1, null
             });
             typeof(SqlErrorCollection).GetMethod("Add", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .Invoke(collection, new[] { error });
@@ -221,6 +224,28 @@ public class ProviderRetryTests
         Assert.False(mySql.IsCancellation(CreateMySqlException(MySqlErrorCode.LockDeadlock)));
         Assert.False(oracle.IsCancellation(CreateOracleException(1013)));
         Assert.False(oracle.IsCancellation(CreateOracleException(12541)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SqlBackupRestoreCancellationAcceptsTerminationContextInEitherOrder(bool cancellationFirst)
+    {
+        using var sqlServer = new SqlServerRetryClient();
+        var errors = new (int Number, byte Class, byte State)[] { (3204, 16, 1), (3013, 16, 1), (0, 11, 0) };
+        if (cancellationFirst) Array.Reverse(errors);
+        Assert.True(sqlServer.IsCancellation(CreateSqlException(errors)));
+        Assert.False(sqlServer.IsCancellation(CreateSqlException((3204, 16, 1), (3013, 16, 1))));
+    }
+
+    [Theory]
+    [InlineData(3201, 16, 2)] // Cannot open the backup device.
+    [InlineData(229, 14, 5)] // Permission failure.
+    [InlineData(-2, 11, 0)] // Command timeout.
+    public void GenuineSqlErrorsAreNotHiddenByAnAccompanyingCancellation(int number, byte errorClass, byte state)
+    {
+        using var sqlServer = new SqlServerRetryClient();
+        Assert.False(sqlServer.IsCancellation(CreateSqlException((number, errorClass, state), (3204, 16, 1), (3013, 16, 1), (0, 11, 0))));
     }
 
     [Fact]

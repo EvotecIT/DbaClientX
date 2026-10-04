@@ -15,25 +15,30 @@ public partial class SqlServer
 
         return ExceptionChainContains<SqlException>(exception, static sqlException =>
         {
-            if (sqlException.Number != 0 ||
-                sqlException.Class != 11 ||
-                sqlException.State != 0 ||
-                sqlException.Errors.Count == 0)
+            if (sqlException.Errors.Count == 0)
             {
                 return false;
             }
 
-            var hasOnlyCancellationErrors = true;
+            bool hasCancellation = false;
             foreach (SqlError error in sqlException.Errors)
             {
-                if (error.Number != 0 || error.Class != 11 || error.State != 0)
+                if (error.Number == 0 && error.Class == 11 && error.State == 0)
                 {
-                    hasOnlyCancellationErrors = false;
-                    break;
+                    hasCancellation = true;
+                    continue;
                 }
+                // A native BACKUP/RESTORE attention can prepend "aborted" (3204) and
+                // "terminating abnormally" (3013). Neither establishes cancellation alone.
+                // Any other failure must remain an error even if the caller also cancelled.
+                if (error.Class == 16 && (error.Number == 3204 || error.Number == 3013))
+                {
+                    continue;
+                }
+                return false;
             }
 
-            return hasOnlyCancellationErrors;
+            return hasCancellation;
         });
     }
 }
