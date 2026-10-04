@@ -57,9 +57,10 @@ SELECT
     CASE WHEN identity_column = 'YES' THEN 'IDENTITY' ELSE NULL END AS identity_generation,
     NULL AS generated_expression,
     CASE WHEN virtual_column = 'YES' THEN 'VIRTUAL' ELSE NULL END AS generated_kind
-FROM all_tab_columns
+FROM all_tab_cols
 WHERE (:schemaNameExact IS NULL OR owner = :schemaNameExact OR owner = UPPER(:schemaNameNormalized))
   AND (:tableNameExact IS NULL OR table_name = :tableNameExact OR table_name = UPPER(:tableNameNormalized))
+  AND user_generated = 'YES'
   AND table_name NOT LIKE 'BIN$%'
 ORDER BY owner, table_name, column_id";
 

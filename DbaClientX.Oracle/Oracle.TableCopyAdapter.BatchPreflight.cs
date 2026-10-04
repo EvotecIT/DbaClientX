@@ -68,12 +68,16 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                 })
                 {
                     durableTable.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-                    durableTable.Parameters.Add("table", OracleDbType.Varchar2).Value = table;
-                    if (await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
+                    durableTable.Parameters.Add("table_name", OracleDbType.Varchar2).Value = table;
+                    object? segmentCreated = await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                    if (segmentCreated == null)
                     {
                         throw new InvalidOperationException(
                             $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for coordinated schema preflight.");
                     }
+                    if (options.CheckpointId != null)
+                        await ValidateCheckpointDestinationStorageAsync(connection, owner, table, definition.DestinationName,
+                            segmentCreated, cancellationToken).ConfigureAwait(false);
                 }
 
                 DataTable? firstPage = firstPages[index];
@@ -95,7 +99,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                         string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>
                             DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
                                 ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
-                                : column.ColumnName.ToUpperInvariant()).ToArray();
+                                : column.ColumnName).ToArray();
                         DbaTableCopySchemaValidator.Validate(
                             definition.DestinationName,
                             projectedColumns,

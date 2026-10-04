@@ -127,7 +127,15 @@ public abstract partial class DbaProviderTableCopyAdapterBase
         string sql = Provider switch
         {
             DbaTableCopyProvider.SqlServer => $"IF OBJECT_ID(N'dbo.DbaClientX_TableCopyCheckpoints', N'U') IS NULL {create}",
-            DbaTableCopyProvider.Oracle => $"BEGIN EXECUTE IMMEDIATE '{create.Replace("'", "''")}'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END;",
+            DbaTableCopyProvider.Oracle => $@"DECLARE deferred_count PLS_INTEGER;
+BEGIN
+    BEGIN EXECUTE IMMEDIATE '{create.Replace("'", "''")} SEGMENT CREATION IMMEDIATE';
+    EXCEPTION WHEN OTHERS THEN IF SQLCODE != -955 THEN RAISE; END IF; END;
+    SELECT COUNT(*) INTO deferred_count FROM ALL_TABLES
+    WHERE OWNER = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+      AND TABLE_NAME = 'DbaX_TableCopyCheckpoints' AND TEMPORARY = 'N' AND SEGMENT_CREATED = 'NO';
+    IF deferred_count > 0 THEN EXECUTE IMMEDIATE 'ALTER TABLE {CheckpointTable} ALLOCATE EXTENT'; END IF;
+END;",
             DbaTableCopyProvider.MySql => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields}) ENGINE=InnoDB",
             _ => $"CREATE TABLE IF NOT EXISTS {CheckpointTable} ({fields})"
         };

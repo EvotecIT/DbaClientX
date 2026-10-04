@@ -79,6 +79,14 @@ var result = await ora.ExecuteStoredProcedureAsync(
     cancellationToken: ct);
 ```
 
+## Verified table copies and checkpoints
+
+`OracleTableCopyAdapter` preserves the physical case and punctuation of source result columns. Use explicitly delimited key names, such as `new[] { "\"Id\"" }`, for mixed-case Oracle columns. Direct `BulkInsertAsync` accepts the same explicit double-quoted destination mappings; ordinary unquoted mappings retain Oracle's name folding.
+
+For checkpointed copies, create destination tables with `SEGMENT CREATION IMMEDIATE` or allocate their storage explicitly before copying. Oracle's serializable checkpoint writes require existing storage; preflight rejects deferred destinations before writing rows. Static partitioned tables require allocated storage for every leaf partition or subpartition. Interval and automatic list partitioning are unsupported for checkpoint destinations, including automatic subpartitions: native partition creation cannot be rolled back with a probe's rows. The adapter creates its own permanent `DbaX_TableCopyCheckpoints` table with immediate storage and materializes a pre-existing empty deferred checkpoint table. It does not allocate storage for user destination tables or retry failed pages. Transactional string writes retain `NCHAR` and `NVARCHAR2` national-character bindings.
+
+Checkpoint cancellation retains the caller token and committed pages. Set `Resume = true` with the same checkpoint identifier for an explicit resume; the engine verifies the committed prefix before continuing. `ReadConsistency = DbaTableCopyReadConsistency.Snapshot` holds an Oracle serializable source transaction for a consistent copy.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`

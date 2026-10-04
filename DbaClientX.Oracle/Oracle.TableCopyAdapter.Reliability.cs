@@ -9,15 +9,12 @@ namespace DBAClientX;
 
 public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
-    internal const string OracleDurableDestinationTableQuery =
-        "SELECT 1 FROM ALL_TABLES WHERE OWNER = :owner AND TABLE_NAME = :table AND TEMPORARY = 'N'";
-
     internal const string OracleCheckpointDestinationIdentityQuery = @"SELECT obj.OWNER || ':' || obj.OBJECT_ID
 FROM ALL_OBJECTS obj
 JOIN ALL_TABLES tab ON tab.OWNER = obj.OWNER AND tab.TABLE_NAME = obj.OBJECT_NAME
 WHERE obj.OBJECT_TYPE = 'TABLE'
   AND obj.OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'))
-  AND obj.OBJECT_NAME = :table
+  AND obj.OBJECT_NAME = :table_name
   AND tab.TEMPORARY = 'N'";
 
     internal const string OracleCheckpointStorageDurabilityQuery =
@@ -26,7 +23,7 @@ WHERE obj.OBJECT_TYPE = 'TABLE'
     internal const string OracleRollbackUnsafeTriggerQuery = @"SELECT 1
 FROM ALL_TRIGGERS
 WHERE TABLE_OWNER = :owner
-  AND TABLE_NAME = :table
+  AND TABLE_NAME = :table_name
   AND STATUS = 'ENABLED'
   AND (INSTR(UPPER(TRIGGERING_EVENT), 'INSERT') > 0 OR INSTR(UPPER(TRIGGERING_EVENT), 'DELETE') > 0)
   AND ROWNUM = 1";
@@ -154,6 +151,8 @@ WHERE TABLE_OWNER = :owner
             "BLOB" => OracleDbType.Blob,
             "CLOB" => OracleDbType.Clob,
             "NCLOB" => OracleDbType.NClob,
+            "NCHAR" => OracleDbType.NChar,
+            "NVARCHAR2" => OracleDbType.NVarchar2,
             "LONG" => OracleDbType.Long,
             "LONG RAW" => OracleDbType.LongRaw,
             _ => GetPageParameterType(dataType)
@@ -277,7 +276,7 @@ WHERE TABLE_OWNER = :owner
         var owner = rawSegments.Count == 2 ? Normalize(rawSegments[0]) : null;
         var table = Normalize(rawSegments[rawSegments.Count - 1]);
         using var metadata = new OracleCommand(
-            "SELECT COLUMN_NAME, DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')) AND TABLE_NAME = :table",
+            "SELECT COLUMN_NAME, DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = COALESCE(:owner, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')) AND TABLE_NAME = :table_name",
             connection)
         {
             Transaction = transaction,
@@ -285,7 +284,7 @@ WHERE TABLE_OWNER = :owner
             CommandTimeout = CommandTimeout
         };
         metadata.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, (object?)owner ?? DBNull.Value, ParameterDirection.Input));
-        metadata.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
+        metadata.Parameters.Add(new OracleParameter("table_name", OracleDbType.Varchar2, table, ParameterDirection.Input));
 
         var destinationTypes = new Dictionary<string, string>(StringComparer.Ordinal);
         using OracleDataReader reader = await metadata.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -370,12 +369,16 @@ WHERE TABLE_OWNER = :owner
             })
             {
                 durableTable.Parameters.Add(new OracleParameter("owner", OracleDbType.Varchar2, owner, ParameterDirection.Input));
-                durableTable.Parameters.Add(new OracleParameter("table", OracleDbType.Varchar2, table, ParameterDirection.Input));
-                if (await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null)
+                durableTable.Parameters.Add(new OracleParameter("table_name", OracleDbType.Varchar2, table, ParameterDirection.Input));
+                object? segmentCreated = await durableTable.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (segmentCreated == null)
                 {
                     throw new InvalidOperationException(
                         $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for schema preflight.");
                 }
+                if (options.CheckpointId != null)
+                    await ValidateCheckpointDestinationStorageAsync(connection, owner, table, definition.DestinationName,
+                        segmentCreated, cancellationToken).ConfigureAwait(false);
             }
 
             using var oracle = new Oracle { CommandTimeout = CommandTimeout };
@@ -387,7 +390,7 @@ WHERE TABLE_OWNER = :owner
             string[] projectedColumns = firstPage.Columns.Cast<DataColumn>().Select(column =>
                 DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
                     ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
-                    : column.ColumnName.ToUpperInvariant()).ToArray();
+                    : column.ColumnName).ToArray();
             DbaTableCopySchemaValidator.Validate(
                 definition.DestinationName,
                 projectedColumns,
@@ -467,7 +470,7 @@ WHERE TABLE_OWNER = :owner
         var projectedColumns = page.Columns.Cast<DataColumn>().ToDictionary(
             column => DbaIdentifierPath.IsDelimitedSegment(column.ColumnName)
                 ? DbaIdentifierPath.UnquoteSegment(column.ColumnName, DbaTableCopyProvider.Oracle)
-                : column.ColumnName.ToUpperInvariant(),
+                : column.ColumnName,
             StringComparer.Ordinal);
         foreach (DbaColumnInfo identity in destinationColumns.Where(column =>
                      column.IsIdentity == true &&
@@ -496,7 +499,7 @@ WHERE TABLE_OWNER = :owner
             CommandTimeout = CommandTimeout
         };
         command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-        command.Parameters.Add("table", OracleDbType.Varchar2).Value = table;
+        command.Parameters.Add("table_name", OracleDbType.Varchar2).Value = table;
         if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) == null) return;
 
         throw new InvalidOperationException(
@@ -653,7 +656,7 @@ WHERE TABLE_OWNER = :owner
             CommandTimeout = CommandTimeout
         };
         command.Parameters.Add(new OracleParameter("owner", (object?)owner ?? DBNull.Value));
-        command.Parameters.Add(new OracleParameter("table", table));
+        command.Parameters.Add(new OracleParameter("table_name", table));
         var identity = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return identity as string ?? throw new InvalidOperationException(
             $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to an Oracle table.");
@@ -682,7 +685,7 @@ WHERE TABLE_OWNER = :owner
             cancellationToken).ConfigureAwait(false);
         var parameterNames = columns.Select((_, index) => ":p" + index).ToArray();
         using var command = new OracleCommand(
-            $"INSERT INTO {QuotePath(definition.DestinationName)} ({string.Join(", ", columns.Select(column => QuotePath(column.ColumnName)))}) VALUES ({string.Join(", ", parameterNames)})",
+            $"INSERT INTO {QuotePath(definition.DestinationName)} ({string.Join(", ", columns.Select(column => QuotePageColumnName(column.ColumnName)))}) VALUES ({string.Join(", ", parameterNames)})",
             (OracleConnection)connection)
         {
             Transaction = (OracleTransaction)transaction,

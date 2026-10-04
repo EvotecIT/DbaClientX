@@ -8,7 +8,7 @@ public partial class Oracle
     internal const string OracleTableCopyIdentityColumnsQuery = @"
 SELECT column_name, generation_type
 FROM all_tab_identity_cols
-WHERE owner = :owner AND table_name = :table";
+WHERE owner = :owner AND table_name = :table_name";
 
     internal static void AddExactTableCopyMetadataParameters(
         OracleParameterCollection parameters,
@@ -63,7 +63,7 @@ WHERE owner = :owner AND table_name = :table";
             CommandTimeout = CommandTimeout
         };
         identityCommand.Parameters.Add(new OracleParameter("owner", owner));
-        identityCommand.Parameters.Add(new OracleParameter("table", table));
+        identityCommand.Parameters.Add(new OracleParameter("table_name", table));
         var identityGenerations = new Dictionary<string, string>(StringComparer.Ordinal);
         using (OracleDataReader reader = await identityCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {

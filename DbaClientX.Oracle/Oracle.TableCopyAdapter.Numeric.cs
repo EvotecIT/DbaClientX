@@ -9,7 +9,7 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopyDestinationCom
 SELECT COLUMN_NAME, DATA_TYPE, DATA_PRECISION, DATA_SCALE
 FROM ALL_TAB_COLUMNS
 WHERE OWNER = :owner
-  AND TABLE_NAME = :table
+  AND TABLE_NAME = :table_name
   AND (DATA_TYPE IN ('NUMBER', 'FLOAT', 'BFILE', 'DATE', 'BINARY_FLOAT', 'BINARY_DOUBLE') OR DATA_TYPE LIKE 'TIMESTAMP%' OR DATA_TYPE LIKE 'INTERVAL DAY%' OR DATA_TYPE LIKE 'INTERVAL YEAR%')";
 
     internal const string OracleCompatibilityObjectQuery = @"SELECT 1
@@ -95,7 +95,7 @@ WHERE ROWNUM = 1";
                 CommandTimeout = CommandTimeout
             };
             command.Parameters.Add("owner", OracleDbType.Varchar2).Value = owner;
-            command.Parameters.Add("table", OracleDbType.Varchar2).Value = table;
+            command.Parameters.Add("table_name", OracleDbType.Varchar2).Value = table;
             using (OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
