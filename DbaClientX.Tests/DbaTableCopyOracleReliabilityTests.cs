@@ -157,7 +157,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.False(OracleTableCopyAdapter.IsPortableNumericProjection(definition, "OTHER_NUMBER"));
         Assert.Contains("DATA_PRECISION", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
         Assert.Contains("OWNER = :owner", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
-        Assert.Contains("TABLE_NAME = :table", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
+        Assert.Contains("TABLE_NAME = :table_name", OracleTableCopyAdapter.OracleTableCopyNumericColumnsQuery, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -518,8 +518,8 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
 
-        Assert.Equal(typeof(OracleIntervalYM), normalized.Columns["Period"]!.DataType);
-        Assert.Equal(27L, Assert.IsType<OracleIntervalYM>(normalized.Rows[0]["Period"]).Value);
+        Assert.Equal(typeof(OracleIntervalYM), normalized.Columns["\"Period\""]!.DataType);
+        Assert.Equal(27L, Assert.IsType<OracleIntervalYM>(normalized.Rows[0]["\"Period\""]).Value);
         Assert.Equal(new DbaYearMonthInterval(27), page.Rows[0]["Period"]);
     }
 
@@ -533,11 +533,11 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
 
-        Assert.Equal(typeof(OracleDecimal), normalized.Columns["Amount"]!.DataType);
-        Assert.Equal("12.5", Assert.IsType<OracleDecimal>(normalized.Rows[0]["Amount"]).ToString());
+        Assert.Equal(typeof(OracleDecimal), normalized.Columns["\"Amount\""]!.DataType);
+        Assert.Equal("12.5", Assert.IsType<OracleDecimal>(normalized.Rows[0]["\"Amount\""]).ToString());
         Assert.Equal(
             "1000000000000000000000000000000",
-            Assert.IsType<OracleDecimal>(normalized.Rows[1]["Amount"]).ToString());
+            Assert.IsType<OracleDecimal>(normalized.Rows[1]["\"Amount\""]).ToString());
         Assert.IsType<DbaArbitraryDecimal>(page.Rows[1]["Amount"]);
     }
 
@@ -556,11 +556,11 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
 
-        Assert.Equal(typeof(byte[]), normalized.Columns["Identifier"]!.DataType);
-        Assert.Equal(identifier.ToByteArray(), Assert.IsType<byte[]>(normalized.Rows[0]["Identifier"]));
-        Assert.Equal(date.ToDateTime(TimeOnly.MinValue), Assert.IsType<DateTime>(normalized.Rows[0]["BusinessDate"]));
-        Assert.Equal(time.ToTimeSpan(), Assert.IsType<TimeSpan>(normalized.Rows[0]["BusinessTime"]));
-        Assert.Equal(Convert.ToDecimal(ulong.MaxValue), Assert.IsType<decimal>(normalized.Rows[0]["UnsignedValue"]));
+        Assert.Equal(typeof(byte[]), normalized.Columns["\"Identifier\""]!.DataType);
+        Assert.Equal(identifier.ToByteArray(), Assert.IsType<byte[]>(normalized.Rows[0]["\"Identifier\""]));
+        Assert.Equal(date.ToDateTime(TimeOnly.MinValue), Assert.IsType<DateTime>(normalized.Rows[0]["\"BusinessDate\""]));
+        Assert.Equal(time.ToTimeSpan(), Assert.IsType<TimeSpan>(normalized.Rows[0]["\"BusinessTime\""]));
+        Assert.Equal(Convert.ToDecimal(ulong.MaxValue), Assert.IsType<decimal>(normalized.Rows[0]["\"UnsignedValue\""]));
         Assert.Equal(identifier, page.Rows[0]["Identifier"]);
     }
 
@@ -576,9 +576,9 @@ public sealed class DbaTableCopyOracleReliabilityTests
 
         using DataTable normalized = Assert.IsType<DataTable>(OracleTableCopyAdapter.NormalizeBulkPage(page));
 
-        Assert.Equal(DataSetDateTime.Utc, normalized.Columns["OccurredAt"]!.DateTimeMode);
-        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(normalized.Rows[0]["OccurredAt"]).Kind);
-        Assert.Equal(instant, normalized.Rows[0]["OccurredAt"]);
+        Assert.Equal(DataSetDateTime.Utc, normalized.Columns["\"OccurredAt\""]!.DateTimeMode);
+        Assert.Equal(DateTimeKind.Utc, Assert.IsType<DateTime>(normalized.Rows[0]["\"OccurredAt\""]).Kind);
+        Assert.Equal(instant, normalized.Rows[0]["\"OccurredAt\""]);
     }
 
     [Fact]
@@ -733,7 +733,7 @@ public sealed class DbaTableCopyOracleReliabilityTests
         Assert.Contains("'INSERT'", query, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("'DELETE'", query, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("TABLE_OWNER = :owner", query, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("TABLE_NAME = :table", query, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TABLE_NAME = :table_name", query, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

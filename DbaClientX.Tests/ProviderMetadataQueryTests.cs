@@ -61,7 +61,7 @@ public class ProviderMetadataQueryTests
         Assert.DoesNotContain("data_default ELSE", oracleColumns, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("all_tab_identity_cols", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("owner = :owner", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("table_name = :table", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("table_name = :table_name", DBAClientX.Oracle.OracleTableCopyIdentityColumnsQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

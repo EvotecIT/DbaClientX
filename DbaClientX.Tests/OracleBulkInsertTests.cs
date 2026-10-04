@@ -156,7 +156,7 @@ public class OracleBulkInsertTests
     }
 
     [Fact]
-    public void BulkInsert_StripsPlannerQuotesFromDestinationMappings()
+    public void BulkInsert_PreservesExplicitDestinationColumnDelimiters()
     {
         using var oracle = new CaptureBulkCopyOracle();
         using var table = new DataTable();
@@ -166,8 +166,8 @@ public class OracleBulkInsertTests
 
         oracle.BulkInsert("h", "svc", "u", "p", table, "Dest");
 
-        Assert.Contains(oracle.Mappings, m => m.Source == "\"id\"" && m.Destination == "id");
-        Assert.Contains(oracle.Mappings, m => m.Source == "\"DisplayName\"" && m.Destination == "DisplayName");
+        Assert.Contains(oracle.Mappings, m => m.Source == "\"id\"" && m.Destination == "\"id\"");
+        Assert.Contains(oracle.Mappings, m => m.Source == "\"DisplayName\"" && m.Destination == "\"DisplayName\"");
     }
 
     [Fact]

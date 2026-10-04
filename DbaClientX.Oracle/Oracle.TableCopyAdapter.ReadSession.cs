@@ -64,6 +64,25 @@ public sealed partial class OracleTableCopyAdapter
         long? maxBytes,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            return await ExecuteOraclePageCoreAsync(definition, query, parameters, maxBytes, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (
+            cancellationToken.IsCancellationRequested && exception.CancellationToken != cancellationToken)
+        {
+            throw new OperationCanceledException("Oracle table-copy page read was canceled.", cancellationToken);
+        }
+    }
+
+    private async Task<DataTable> ExecuteOraclePageCoreAsync(
+        DbaTableCopyDefinition? definition,
+        string query,
+        IReadOnlyDictionary<string, object?> parameters,
+        long? maxBytes,
+        CancellationToken cancellationToken)
+    {
         using OracleConnection? owned = _readConnection == null ? new OracleConnection(ConnectionString) : null;
         OracleConnection connection = _readConnection ?? owned!;
         if (owned != null) await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);

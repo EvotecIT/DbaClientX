@@ -60,7 +60,8 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
         var normalizedColumnTypes = page.Columns.Cast<DataColumn>()
             .Select(static column => GetBulkNormalizedType(column.DataType))
             .ToArray();
-        bool requiresNormalization = normalizedColumnTypes.Any(static type => type != null);
+        bool requiresNormalization = normalizedColumnTypes.Any(static type => type != null) ||
+            page.Columns.Cast<DataColumn>().Any(column => !IsQuotedPageColumnName(column.ColumnName));
         foreach (DataRow row in page.Rows)
         {
             for (var index = 0; index < page.Columns.Count; index++)
@@ -111,6 +112,9 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
 #endif
             else
                 normalizedColumn = normalized.Columns.Add(column.ColumnName, column.DataType);
+            // Page columns are physical result names; bulk copy must not fold their case or parse punctuation.
+            if (!IsQuotedPageColumnName(normalizedColumn.ColumnName))
+                normalizedColumn.ColumnName = QuotePageColumnName(normalizedColumn.ColumnName);
 
             if (normalizedColumn.DataType == typeof(DateTime) && column.DataType == typeof(DateTime))
                 normalizedColumn.DateTimeMode = column.DateTimeMode;
@@ -143,6 +147,13 @@ public sealed partial class OracleTableCopyAdapter : DbaProviderTableCopyAdapter
         }
         return normalized;
     }
+
+    private static string QuotePageColumnName(string name)
+        => IsQuotedPageColumnName(name)
+            ? name : "\"" + name.Replace("\"", "\"\"") + "\"";
+
+    private static bool IsQuotedPageColumnName(string name)
+        => name.Length >= 2 && name[0] == '"' && name[name.Length - 1] == '"';
 
     private static Type? GetBulkNormalizedType(Type dataType)
     {
