@@ -11,7 +11,7 @@ Invokes a query against a SQLite database.
 ## SYNTAX
 ### Query (Default)
 ```powershell
-Invoke-DbaXSQLite -Database <string> -Query <string> [-QueryTimeout <int>] [-Stream] [-ReturnType <ReturnType>] [-Parameters <hashtable>] [-WhatIf] [-Confirm] [<CommonParameters>]
+Invoke-DbaXSQLite -Database <string> -Query <string> [-QueryTimeout <int>] [-Stream] [-ReadOnly] [-ReturnType <ReturnType>] [-Parameters <hashtable>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -34,6 +34,13 @@ PS> Invoke-DbaXSQLite -Database 'app.db' -Query 'SELECT * FROM Logs' -Stream -Re
 ```
 
 Streams each row as it is received, which is useful for large result sets.
+
+### EXAMPLE 3
+```powershell
+PS> Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'SELECT COUNT(*) AS Probes FROM ProbeResults' -ReadOnly
+```
+
+Opens the file with Mode=ReadOnly: statements that write fail and a missing file is never created. Use it to inspect a database that a service owns.
 
 ## PARAMETERS
 
@@ -90,6 +97,25 @@ Sets the command timeout in seconds. Specify 0 for no timeout.
 
 ```yaml
 Type: Int32
+Parameter Sets: Query
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ReadOnly
+Opens the database read-only (Mode=ReadOnly). Statements that modify it fail with a SQLite read-only error, and a
+missing database file is reported instead of being created. -Database must be a file path or a file-backed
+connection string. SQLite may still create -wal/-shm files next to a WAL database, and statements such
+as VACUUM INTO can write other files.
+
+```yaml
+Type: SwitchParameter
 Parameter Sets: Query
 Aliases: None
 Possible values:

@@ -114,6 +114,21 @@ public sealed class SqlServerExportPlanTests
         Assert.Contains(SqlServerExportPlan.Create(scripts, refs).Issues, issue => issue.Detail.Contains("[].[foo]"));
     }
 
+    [Theory]
+    [InlineData(1024)]
+    [InlineData(1025)]
+    [InlineData(8191)]
+    public void ExactUtf8HashMatchesAcrossBufferedAndStreamingDefinitions(int length)
+    {
+        var script = Script("A");
+        script.Script = new string('雪', length - 4) + "🙂\r\n";
+        var plan = SqlServerExportPlan.Create(new[] { script }, Array.Empty<SqlServerDependencyInfo>());
+        string expected = Convert.ToHexString(SHA256.HashData(new UTF8Encoding(false, true).GetBytes(script.Script))).ToLowerInvariant();
+        Assert.Equal(expected, plan.Scripts[0].ContentFingerprint);
+        script.Script = new string('x', length - 1) + "\ud800";
+        Assert.Throws<EncoderFallbackException>(() => SqlServerExportPlan.Create(new[] { script }, Array.Empty<SqlServerDependencyInfo>()));
+    }
+
     [Fact]
     public void RetainsCycleBlockedScriptsAndReportsUnavailableUnsupportedAndCallerDependentObjects()
     {

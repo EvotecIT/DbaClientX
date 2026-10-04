@@ -11,7 +11,7 @@ Copies table data from one DbaClientX provider connection to another using paged
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-VerifyContent] [-CheckpointId <string>] [-Resume] [-RequireEmptyDestination] [-MaxPageBytes <Int64>] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -127,6 +127,22 @@ SQL Server destination option to check destination constraints during each bulk 
 
 ```yaml
 Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -CheckpointId
+Identifier for durable destination checkpoints across interrupted runs.
+
+```yaml
+Type: String
 Parameter Sets: __AllParameterSets
 Aliases: None
 Possible values:
@@ -298,6 +314,22 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -DestinationOrderByColumns
+Destination key columns for verified readback when source keys are mapped or generated.
+
+```yaml
+Type: String[]
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -DestinationProvider
 Provider used to write destination rows.
 
@@ -426,6 +458,22 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -MaxPageBytes
+Estimated maximum in-memory payload for a keyset page.
+
+```yaml
+Type: Int64
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -NoVerify
 Skips source and destination row-count verification after the copy.
 
@@ -492,6 +540,38 @@ Accept wildcard characters: False
 
 ### -PassThru
 Writes a result object with copied table counts, verification state, and elapsed time.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -RequireEmptyDestination
+Require empty destination tables before writing.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Resume
+Resume a previously checkpointed copy after validating committed content.
 
 ```yaml
 Type: SwitchParameter
@@ -604,6 +684,38 @@ Accept wildcard characters: False
 
 ### -TreatMissingTablesAsEmpty
 Treats missing source or destination tables as empty during row counts and clear operations.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -UseKeysetPagination
+Use a unique, non-null ascending source key for bounded keyset pages.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -VerifyContent
+Verify copied column values as well as row counts.
 
 ```yaml
 Type: SwitchParameter

@@ -15,7 +15,7 @@ Get-DbaXSqlServerManagement [-Type] <DbaXSqlServerManagementType> [-ConnectionSt
 ```
 
 ## DESCRIPTION
-Returns SQL Server Agent, security, dependency, scripting, copy-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.
+Returns SQL Server Agent, security, dependency, scripting, copy-plan, export-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.
 
 ## EXAMPLES
 
@@ -32,6 +32,15 @@ PS> Get-DbaXSqlServerManagement -Type DatabasePrincipal -ConnectionString 'Serve
 ```
 
 Lists database principals in the current database.
+
+### EXAMPLE 3
+```powershell
+PS> $plan = Get-DbaXSqlServerManagement -Type ExportPlan -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'
+$plan.Issues
+$plan.OrderedScripts | Select-Object Id, ContentFingerprint
+```
+
+Captures immutable scripts and database permission metadata. Requires database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies; review issues and limitations before using scripts. Does not execute DDL or create a complete migration or security deployment.
 
 ## PARAMETERS
 
@@ -234,7 +243,7 @@ Selects the SQL Server management metadata type to return.
 Type: DbaXSqlServerManagementType
 Parameter Sets: __AllParameterSets
 Aliases: None
-Possible values: AgentJob, AgentJobStep, AgentSchedule, ServerPrincipal, DatabasePrincipal, RoleMembership, Permission, InstanceProperty, Configuration, Dependency, ModuleScript, TableScript, TableCopyPlan, Inventory
+Possible values: AgentJob, AgentJobStep, AgentSchedule, ServerPrincipal, DatabasePrincipal, RoleMembership, Permission, InstanceProperty, Configuration, Dependency, ModuleScript, TableScript, TableCopyPlan, Inventory, ExportPlan
 
 Required: True
 Position: 0

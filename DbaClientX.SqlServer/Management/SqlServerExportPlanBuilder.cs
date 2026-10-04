@@ -115,21 +115,30 @@ internal static class SqlServerExportPlanBuilder
     private static void AddEdge(Node node, Node required)
     { if (node.Required.Add(required.Id)) required.Dependents.Add(node.Id); }
 
-    internal static string Fingerprint(IEnumerable<string?> fields, bool frameFields = true)
+    internal static string Fingerprint(IEnumerable<string?> fields)
     {
         using var hash = SHA256.Create();
         using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);
         var encoding = new UTF8Encoding(false, true);
-        if (frameFields)
+        using var writer = new BinaryWriter(stream, encoding, leaveOpen: true);
+        foreach (string? field in fields) { writer.Write(field != null); if (field != null) writer.Write(field); }
+        writer.Flush();
+        stream.FlushFinalBlock();
+        return BitConverter.ToString(hash.Hash!).Replace("-", "").ToLowerInvariant();
+    }
+
+    internal static string FingerprintScript(string script)
+    {
+        using var hash = SHA256.Create();
+        var encoding = new UTF8Encoding(false, true);
+        // Most catalog definitions are small. Bound the temporary UTF-8 array to 3 KiB;
+        // retain streaming for large definitions instead of copying their entire encoded text.
+        if (script.Length <= 1024)
+            return BitConverter.ToString(hash.ComputeHash(encoding.GetBytes(script))).Replace("-", "").ToLowerInvariant();
+        using var stream = new CryptoStream(Stream.Null, hash, CryptoStreamMode.Write);
+        using (var writer = new StreamWriter(stream, encoding, 4096, leaveOpen: true))
         {
-            using var writer = new BinaryWriter(stream, encoding, leaveOpen: true);
-            foreach (string? field in fields) { writer.Write(field != null); if (field != null) writer.Write(field); }
-            writer.Flush();
-        }
-        else
-        {
-            using var writer = new StreamWriter(stream, encoding, 4096, leaveOpen: true);
-            foreach (string? field in fields) if (field != null) writer.Write(field);
+            writer.Write(script);
             writer.Flush();
         }
         stream.FlushFinalBlock();

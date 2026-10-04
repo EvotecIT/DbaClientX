@@ -11,7 +11,7 @@ Creates a DbaClientX table-copy definition.
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-New-DbaXTableCopyDefinition -SourceName <string> -DestinationName <string> [-LogicalName <string>] [-OrderByColumns <string[]>] [-ColumnMappings <hashtable>] [-ExcludedColumns <string[]>] [-ColumnTypeConversions <hashtable>] [-DeduplicateByColumns <string[]>] [-DeduplicateOrderByColumns <string[]>] [-DeduplicateCaseInsensitive] [<CommonParameters>]
+New-DbaXTableCopyDefinition -SourceName <string> -DestinationName <string> [-LogicalName <string>] [-OrderByColumns <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-ColumnMappings <hashtable>] [-ExcludedColumns <string[]>] [-ColumnTypeConversions <hashtable>] [-DeduplicateByColumns <string[]>] [-DeduplicateOrderByColumns <string[]>] [-DeduplicateCaseInsensitive] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -124,6 +124,22 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -DestinationOrderByColumns
+Destination key columns for verified readback when source keys are mapped or generated.
+
+```yaml
+Type: String[]
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -ExcludedColumns
 Optional columns to exclude from copy pages.
 
@@ -182,6 +198,22 @@ Aliases: None
 Possible values:
 
 Required: True
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -UseKeysetPagination
+Use a unique, non-null ascending source key instead of offset paging.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
 Position: named
 Default value: None
 Accept pipeline input: False

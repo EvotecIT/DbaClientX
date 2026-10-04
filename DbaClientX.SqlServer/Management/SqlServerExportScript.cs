@@ -8,7 +8,7 @@ public sealed class SqlServerExportScript
         Id = id; ScriptType = source.ScriptType; SchemaName = source.SchemaName;
         ObjectName = source.ObjectName; ObjectType = source.ObjectType; Script = source.Script;
         RequiredScriptIds = Array.AsReadOnly(prerequisites.OrderBy(value => value, StringComparer.Ordinal).ToArray());
-        ContentFingerprint = SqlServerExportPlanBuilder.Fingerprint(new[] { Script }, frameFields: false);
+        ContentFingerprint = SqlServerExportPlanBuilder.FingerprintScript(Script);
     }
     /// <summary>Stable script identifier; preserves identifier case and escaped names.</summary>
     public string Id { get; }
