@@ -6,6 +6,7 @@ using Microsoft.Data.SqlClient;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlServerRecoveryCapacityCollection.Name)]
 public sealed class SqlServerRecoveryWorkloadNativeTests
 {
     private const int PopulatedRows = 1_350_000;
@@ -79,6 +80,9 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
         await provider.BeginTransactionAsync(application);
         try
         {
+            Assert.True(provider.IsInTransaction);
+            Assert.Equal(1, await provider.ExecuteNonQueryAsync(application,
+                "UPDATE dbo.LimitedRows SET Payload=CONVERT(binary(8000),0x00) WHERE Id=0", useTransaction: true));
             var failure = await Assert.ThrowsAsync<DbaQueryExecutionException>(() => provider.ExecuteNonQueryAsync(application,
                 $"INSERT INTO dbo.LimitedRows WITH (TABLOCK) SELECT TOP(10000) ROW_NUMBER() OVER(ORDER BY (SELECT NULL)),CONVERT(binary(8000),0xFF) "
                 + "FROM sys.all_objects a CROSS JOIN sys.all_objects b", useTransaction: true));
@@ -86,12 +90,13 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
             Assert.Contains(failure.ProviderErrorCode, new int?[] { 1101, 1105 });
         }
         finally { await provider.RollbackAsync(); }
+        Assert.False(provider.IsInTransaction);
         Assert.Equal(0, telemetry.Telemetry.RetryCount);
         Assert.Equal(1L, await ScalarAsync<long>(connection, $"SELECT COUNT_BIG(*) FROM [{scope.SourceName}].dbo.LimitedRows"));
         Assert.Equal(1L, await ScalarAsync<long>(connection,
             $"SELECT COUNT_BIG(*) FROM [{scope.SourceName}].dbo.LimitedRows WHERE Id=0 AND Payload=CONVERT(binary(8000),0x2A)"));
-        Assert.InRange(await ScalarAsync<long>(connection,
-            $"SELECT CONVERT(bigint,size)*8192 FROM [{scope.SourceName}].sys.database_files WHERE name=N'Limited'"), 8L * 1024 * 1024, 16L * 1024 * 1024);
+        Assert.Equal(16L * 1024 * 1024, await ScalarAsync<long>(connection,
+            $"SELECT CONVERT(bigint,size)*8192 FROM [{scope.SourceName}].sys.database_files WHERE name=N'Limited'"));
         Assert.Equal(1, await provider.ExecuteNonQueryAsync(application, "INSERT INTO dbo.LimitedRows VALUES(1,CONVERT(binary(8000),0x01))"));
         Assert.Equal(2L, await ScalarAsync<long>(connection, $"SELECT COUNT_BIG(*) FROM [{scope.SourceName}].dbo.LimitedRows"));
         Assert.True((await provider.CheckDatabaseIntegrityAsync(connectionString, scope.SourceName)).Succeeded);

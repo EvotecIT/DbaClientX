@@ -4,6 +4,7 @@ using Microsoft.Data.SqlClient;
 
 namespace DbaClientX.Tests;
 
+[Collection(SqlServerRecoveryCapacityCollection.Name)]
 public sealed class SqlServerRecoveryCapacityNativeTests
 {
     private readonly ITestOutputHelper _output;
