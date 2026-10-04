@@ -296,6 +296,10 @@ Two Windows localhost probes require separate opt-in flags. `DBACLIENTX_SQL_CORR
 
 `DBACLIENTX_SQL_LARGE_RECOVERY_TEST=1` qualifies a 10 GiB allocated data file through backup, native relocation preflight, restore, full CHECKDB and independent application read/write. Its local volume must have at least 32 GiB free before the probe starts because source and restored files coexist. The mostly empty allocation proves file-capacity handling; it does not measure populated-data throughput, concurrent workloads or rejection of insufficient server space. Both probes remove their own databases and files.
 
+`DBACLIENTX_SQL_WORKLOAD_TEST=1` enables Windows localhost contracts for file growth after a full backup and transactional rollback when a dedicated data file reaches its configured `MAXSIZE`. The growth probe restores a pinned full/differential/log chain and verifies the final allocations and committed application value. The file-limit probe checks native page or object allocation failure, retention of an earlier commit, rollback, a subsequent write and full CHECKDB. A configured file limit does not simulate an exhausted server volume.
+
+Add `DBACLIENTX_SQL_POPULATED_RECOVERY_TEST=1` to qualify 1,350,000 rows with more than 10 GiB of stored payload through backup, restore, full payload comparison and CHECKDB. Separate provider instances then stream all keys, bulk insert 10,000 rows and commit 64 application updates. The probe validates row counts, key totals, every payload and source/target isolation. Its configured local directory must have at least 48 GiB free for the source, backup and restored files. These are correctness and workload qualification probes; elapsed times do not establish portable throughput or a performance ranking. They leave volume exhaustion, capacity reservation and CHECKDB temporary-space requirements as separate qualification work.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
