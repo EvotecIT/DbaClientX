@@ -51,13 +51,14 @@ internal static class SqlTokenizer
     /// <param name="nestedBlockComments">Whether block comments can nest, as in SQL Server.</param>
     /// <param name="bracketIdentifiers">Whether square brackets quote identifiers; false for PostgreSQL array syntax.</param>
     /// <param name="oracleAlternativeQuotes">Whether Oracle q/nq literals use paired or custom delimiters.</param>
+    /// <param name="oracleIdentifiers">Whether # is retained inside native Oracle identifiers.</param>
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, bool dollarQuotes = false, bool backslashStrings = false,
-        bool sqliteParameters = false, bool nestedBlockComments = false, bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false)
-        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments, bracketIdentifiers, oracleAlternativeQuotes);
+        bool sqliteParameters = false, bool nestedBlockComments = false, bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false, bool oracleIdentifiers = false)
+        => Tokenize(sql, out _, dollarQuotes, backslashStrings, sqliteParameters, nestedBlockComments, bracketIdentifiers, oracleAlternativeQuotes, oracleIdentifiers);
 
     internal static IReadOnlyList<SqlToken> Tokenize(string sql, out bool hasExecutableComments,
         bool dollarQuotes = false, bool backslashStrings = false, bool sqliteParameters = false, bool nestedBlockComments = false,
-        bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false)
+        bool bracketIdentifiers = true, bool oracleAlternativeQuotes = false, bool oracleIdentifiers = false)
     {
         hasExecutableComments = false;
         var tokens = new List<SqlToken>();
@@ -112,7 +113,7 @@ internal static class SqlTokenizer
             else if (char.IsLetter(character) || character == '_')
             {
                 var start = index;
-                while (index < sql.Length && (char.IsLetterOrDigit(sql[index]) || sql[index] is '_' or '$'))
+                while (index < sql.Length && (char.IsLetterOrDigit(sql[index]) || sql[index] is '_' or '$' || oracleIdentifiers && sql[index] == '#'))
                 {
                     index++;
                 }

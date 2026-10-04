@@ -118,6 +118,34 @@ public sealed class OracleQueryPlanNativeTests
         }
     }
 
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task Native_TypedBindConversionFailuresKeepSensitiveValuesOutOfPublicErrors()
+    {
+        await using var fixture = await Scope.CreateAsync();
+        using var provider = new TrackingProvider();
+        var error = await Assert.ThrowsAsync<DbaQueryExecutionException>(() => provider.ExplainQueryPlanAsync(fixture.Connection, "SELECT :id FROM dual",
+            new Dictionary<string, object?> { ["id"] = "private-sentinel-bind-value" }, new Dictionary<string, OracleDbType> { ["id"] = OracleDbType.Int32 }));
+        Assert.DoesNotContain("private-sentinel", error.ToString());
+        Assert.Equal(0, provider.RemainingRows); Assert.Equal(ConnectionState.Closed, provider.Connection!.State);
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task Native_PreservesHashIdentifiersDatabaseLinksAndIndexScanAssessment()
+    {
+        await using var fixture = await Scope.CreateAsync();
+        await fixture.CreateTableAsync();
+        await fixture.CreateDatabaseLinkAsync();
+        using var provider = new TrackingProvider();
+        Assert.NotEmpty((await provider.ExplainQueryPlanAsync(fixture.Connection, "SELECT 1 AS merge# FROM dual")).Steps);
+        var remote = await provider.ExplainQueryPlanAsync(fixture.Connection, "SELECT \"Id\" FROM \"Events.Case\"@DBAX_LOOP");
+        Assert.Contains(remote.Steps, step => step.Detail.EndsWith("REMOTE", StringComparison.Ordinal));
+        var plan = await provider.ExplainQueryPlanAsync(fixture.Connection, "SELECT /*+ INDEX_FFS(e \"Events.Key\") */ e.\"Id\" FROM \"Events.Case\" e");
+        Assert.Contains(plan.ScanOperations, step => step.Index == "Events.Key" && step.Table == null);
+        Assert.Equal(0, provider.RemainingRows);
+    }
+
     private class TrackingProvider : DBAClientX.Oracle
     {
         internal OracleConnection? Connection; internal int RemainingRows = -1; internal int Created; internal int TransientChecks;
@@ -185,6 +213,21 @@ public sealed class OracleQueryPlanNativeTests
             foreach (string sql in new[] { "CREATE TABLE \"Events.Case\" (\"Id\" NUMBER PRIMARY KEY USING INDEX (CREATE UNIQUE INDEX \"Events.Key\" ON \"Events.Case\"(\"Id\")), \"Payload\" NUMBER)",
                 "INSERT INTO \"Events.Case\" VALUES(1,7)", "COMMIT" })
             { command.CommandText = sql; await command.ExecuteNonQueryAsync(); }
+        }
+        internal async Task CreateDatabaseLinkAsync()
+        {
+            using var grant = _administrator.CreateCommand(); grant.CommandText = "GRANT CREATE DATABASE LINK TO " + User; await grant.ExecuteNonQueryAsync();
+            using var connection = new OracleConnection(Connection); await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            var builder = new OracleConnectionStringBuilder(Connection);
+            // The fixture must supply a descriptor reachable by the Oracle server, whose trust configuration is fixture-owned.
+            string? source = Environment.GetEnvironmentVariable("DBACLIENTX_ORACLE_PLAN_LOOPBACK_DATA_SOURCE");
+            Assert.SkipWhen(string.IsNullOrWhiteSpace(source), "Set DBACLIENTX_ORACLE_PLAN_LOOPBACK_DATA_SOURCE for native database-link qualification.");
+            command.CommandText = "CREATE DATABASE LINK DBAX_LOOP CONNECT TO " + User + " IDENTIFIED BY \"" + builder.Password
+                + "\" USING '" + source!.Replace("'", "''") + "'";
+            await command.ExecuteNonQueryAsync();
+            command.CommandText = "SELECT COUNT(*) FROM \"Events.Case\"@DBAX_LOOP";
+            Assert.Equal(1, Convert.ToInt32(await command.ExecuteScalarAsync()));
         }
         internal async Task<object?> ScalarAsync(string sql)
         {

@@ -70,6 +70,26 @@ public sealed class OracleQueryPlanTests
         }
     }
 
+    [Fact]
+    public void Import_ExposesNativeIndexScansWithoutGuessingTheirTable()
+    {
+        var rows = Rows();
+        rows.Rows.Add(1m, 0m, DBNull.Value, "INDEX", "FAST FULL SCAN", "Owner", "NativeIndex", "INDEX", DBNull.Value, 7m, 3m);
+        var plan = OracleQueryPlanParser.Parse("SELECT 1", rows);
+        var scan = Assert.Single(plan.ScanOperations);
+        Assert.Equal("NativeIndex", scan.Index); Assert.Null(scan.Table);
+    }
+
+    [Theory]
+    [InlineData("SELECT 1 AS merge# FROM dual")]
+    [InlineData("SELECT * FROM Events@reporting.domain")]
+    public async Task Capture_PreservesNativeIdentifierAndDatabaseLinkText(string sql)
+    {
+        using var client = new UnopenedClient();
+        await Assert.ThrowsAsync<DbaQueryExecutionException>(() => client.ExplainQueryPlanAsync(Offline, sql));
+        Assert.Equal(1, client.Opened);
+    }
+
     [Theory]
     [InlineData("DELETE FROM Events")]
     [InlineData("WITH x AS (SELECT 1 FROM dual) DELETE FROM Events")]

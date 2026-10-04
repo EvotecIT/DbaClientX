@@ -11,7 +11,7 @@ public partial class Oracle
     {
         if (string.IsNullOrWhiteSpace(query) || query.Length > 1024 * 1024)
             throw new ArgumentException("One SELECT/WITH statement of at most 1,048,576 characters is required.", nameof(query));
-        var tokens = SqlTokenizer.Tokenize(query, bracketIdentifiers: false, oracleAlternativeQuotes: true);
+        var tokens = SqlTokenizer.Tokenize(query, bracketIdentifiers: false, oracleAlternativeQuotes: true, oracleIdentifiers: true);
         int last = tokens.Count - 1;
         if (last >= 0 && tokens[last].Kind == SqlTokenKind.Semicolon) last--;
         if (last < 0 || tokens.Take(last + 1).Any(token => token.Kind == SqlTokenKind.Semicolon)
@@ -33,7 +33,8 @@ public partial class Oracle
                 if (word == "SELECT") select = true;
             }
             if (token.Kind is not (SqlTokenKind.Parameter or SqlTokenKind.Symbol)) continue;
-            if (token.Text[0] is '@' or '?') throw new ArgumentException("Use native named :parameters.", nameof(query));
+            if (token.Text[0] == '?') throw new ArgumentException("Use native named :parameters.", nameof(query));
+            // @ belongs to Oracle database links. It is never a bind marker in this provider; native SQL validates it.
             if (token.Text[0] != ':') continue;
             int end = token.Position + 1;
             while (end < query.Length && IsQueryPlanNameCharacter(query[end])) end++;

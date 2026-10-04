@@ -80,7 +80,6 @@ public partial class Oracle
         catch (Exception error)
         {
             failure = IsCallerCancellation(error, cancellationToken) ? CreateCallerCancellationException(error, cancellationToken)
-                : error is FormatException or NotSupportedException ? error
                 : CreateQueryExecutionOrCancellationException("Failed to obtain the estimated query plan.", query, error, cancellationToken);
         }
         finally
