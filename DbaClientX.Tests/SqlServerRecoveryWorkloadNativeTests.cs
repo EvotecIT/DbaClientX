@@ -21,6 +21,7 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
         await using var scope = new SqlServerRecoveryTestScope(connectionString, directory);
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
+        await DemandSourceVolumeHeadroomAsync(connection);
         await scope.CreateSourceAsync(connection);
         await AddDataFileAsync(connection, scope, "Growth", 16, 256);
         await ExecuteAsync(connection, $"ALTER DATABASE [{scope.SourceName}] SET RECOVERY FULL; "
@@ -69,6 +70,7 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
         await using var scope = new SqlServerRecoveryTestScope(connectionString, directory);
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
+        await DemandSourceVolumeHeadroomAsync(connection);
         await scope.CreateSourceAsync(connection);
         await AddDataFileAsync(connection, scope, "Limited", 8, 16);
         await ExecuteAsync(connection, $"ALTER DATABASE [{scope.SourceName}] SET RECOVERY SIMPLE; "
@@ -111,9 +113,12 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
         await using var scope = new SqlServerRecoveryTestScope(connectionString, directory);
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
+        await DemandSourceVolumeHeadroomAsync(connection);
         await scope.CreateSourceAsync(connection);
         await AddDataFileAsync(connection, scope, "Populated", 12288, 16384);
         await ExecuteAsync(connection, $"ALTER DATABASE [{scope.SourceName}] SET RECOVERY SIMPLE; "
+            + $"ALTER DATABASE [{scope.SourceName}] MODIFY FILE(NAME=N'{scope.SourceName}',MAXSIZE=128MB); "
+            + $"ALTER DATABASE [{scope.SourceName}] MODIFY FILE(NAME=N'{scope.SourceName}_log',SIZE=256MB,MAXSIZE=512MB,FILEGROWTH=64MB); "
             + $"CREATE TABLE [{scope.SourceName}].dbo.PayloadRows(Id int NOT NULL PRIMARY KEY NONCLUSTERED,Payload binary(8000) NOT NULL) ON [Populated]; "
             + $"CREATE TABLE [{scope.SourceName}].dbo.ApplicationProbe(Value int NOT NULL); INSERT INTO [{scope.SourceName}].dbo.ApplicationProbe VALUES(0); "
             + $"CREATE TABLE [{scope.SourceName}].dbo.QueueRows(Id int NOT NULL PRIMARY KEY,Value int NOT NULL)");
@@ -121,9 +126,9 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
         for (int start = 1; start <= PopulatedRows; start += 10000)
         {
             int count = Math.Min(10000, PopulatedRows - start + 1);
-            await ExecuteAsync(connection, $"INSERT INTO [{scope.SourceName}].dbo.PayloadRows WITH (TABLOCK) "
+            await ExecuteAsync(connection, $"USE [{scope.SourceName}]; INSERT INTO dbo.PayloadRows WITH (TABLOCK) "
                 + $"SELECT n,CONVERT(binary(8000),CONVERT(binary(4),n)) FROM (SELECT TOP({count}) "
-                + $"{start}-1+CONVERT(int,ROW_NUMBER() OVER(ORDER BY (SELECT NULL))) n FROM sys.all_objects a CROSS JOIN sys.all_objects b) numbers");
+                + $"{start}-1+CONVERT(int,ROW_NUMBER() OVER(ORDER BY (SELECT NULL))) n FROM sys.all_objects a CROSS JOIN sys.all_objects b) numbers; CHECKPOINT; USE master");
         }
         var expected = await FingerprintAsync(connection, scope.SourceName);
         Assert.Equal(PopulatedRows, expected.Rows);
@@ -257,6 +262,20 @@ public sealed class SqlServerRecoveryWorkloadNativeTests
     private static SqlServer RecoveryProvider() => new() { CommandRetryMode = CommandRetryMode.ReplaySafe, MaxRetryAttempts = 3 };
     private static string ApplicationConnection(string connectionString, string database)
         => new SqlConnectionStringBuilder(connectionString) { InitialCatalog = database }.ConnectionString;
+
+    private static async Task DemandSourceVolumeHeadroomAsync(SqlConnection connection)
+    {
+        using var command = new SqlCommand("SELECT CONVERT(nvarchar(4000),SERVERPROPERTY('InstanceDefaultDataPath')), "
+            + "CONVERT(nvarchar(4000),SERVERPROPERTY('InstanceDefaultLogPath'))", connection);
+        using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        for (int ordinal = 0; ordinal < 2; ordinal++)
+        {
+            var volume = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(reader.GetString(ordinal)))!);
+            Assert.True(volume.IsReady && volume.AvailableFreeSpace >= 2L * 1024 * 1024 * 1024,
+                "The local SQL Server's default source data/log volumes need2GiB free before creating a workload fixture.");
+        }
+    }
 
     private static async Task AddDataFileAsync(SqlConnection connection, SqlServerRecoveryTestScope scope, string logical, int initialMiB, int maximumMiB)
     {

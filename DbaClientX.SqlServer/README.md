@@ -300,7 +300,7 @@ Two Windows localhost probes require separate opt-in flags. `DBACLIENTX_SQL_CORR
 
 Add `DBACLIENTX_SQL_POPULATED_RECOVERY_TEST=1` to qualify 1,350,000 rows with more than 10 GiB of stored payload through backup, restore, full payload comparison and CHECKDB. Separate provider instances then stream all keys, bulk insert 10,000 rows and commit 64 application updates. The probe validates row counts, key totals, every payload and source/target isolation. Its configured local directory must have at least 48 GiB free for the source, backup and restored files. These are correctness and workload qualification probes; elapsed times do not establish portable throughput or a performance ranking. They leave volume exhaustion, capacity reservation and CHECKDB temporary-space requirements as separate qualification work.
 
-The allocated and populated capacity probes share a serial test collection. Their space guards run after that collection starts, so they do not compete with each other or other collections in the same test run. Run separate test processes against the same instance sequentially; the collection does not reserve space against other processes.
+The allocated and populated capacity probes share a serial test collection. Their space guards run after that collection starts, so they do not compete with each other or other collections in the same test run. The workload probes also require 2 GiB free on SQL Server's default source data/log volumes; the populated fixture bounds its source log at 512 MiB and checkpoints its loading batches. Run separate test processes against the same instance sequentially; the collection does not reserve space against other processes.
 
 ## See also
 
