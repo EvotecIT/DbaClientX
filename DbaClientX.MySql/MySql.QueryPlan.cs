@@ -43,7 +43,10 @@ public partial class MySql
         var nativeCaptureTimeout = checked((int)target.DefaultCommandTimeout);
         target.DefaultCommandTimeout = 5;
         MySqlConnection? connection = null;
-        MySqlTransaction? transaction = null;
+        var transactionAttempted = false;
+        var callerAbortRequested = 0;
+        CancellationTokenRegistration callerAbort = default;
+        MySqlCommand? cancellableCommand = null;
         DbaQueryPlan? result = null;
         Exception? failure = null;
         try
@@ -52,17 +55,35 @@ public partial class MySql
             ValidateQueryPlanConnection(connection);
             await AwaitWithCallerCancellationAsync(() => OpenConnectionAsync(connection, cancellationToken),
                 cancellationToken).ConfigureAwait(false);
-            // MySqlConnector exposes native async read-only startup on Framework and modern runtimes.
-            transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, isReadOnly: true,
-                cancellationToken).ConfigureAwait(false);
+            callerAbort = cancellationToken.Register(() =>
+            {
+                Interlocked.Exchange(ref callerAbortRequested, 1);
+                // Native KILL QUERY clears a healthy server's lock wait. CancellationTimeout bounds its separate
+                // connection; closing the owned connection also settles I/O when the server cannot answer.
+                var command = Volatile.Read(ref cancellableCommand);
+                if (command != null)
+                {
+                    try { command.Cancel(); }
+                    catch (MySqlException) { }
+                    catch (InvalidOperationException) { }
+                    catch (TimeoutException) { }
+                }
+                AbortQueryPlanConnection(connection);
+            });
+            // Native BeginTransactionAsync uses raw I/O without command timeouts. Use the cancellable command
+            // pipeline for this owned transaction, including partial startup and independent rollback.
+            transactionAttempted = true;
+            await ExecuteQueryPlanControlAsync(connection,
+                "SET TRANSACTION ISOLATION LEVEL READ COMMITTED; START TRANSACTION READ ONLY", cancellationToken).ConfigureAwait(false);
             MySqlQueryPlanFormat format;
-            using (var settings = new MySqlCommand("SELECT @@SESSION.sql_mode, VERSION()", connection, transaction))
+            using (var settings = new MySqlCommand("SELECT @@SESSION.sql_mode, VERSION()", connection))
             {
                 settings.CommandTimeout = nativeCaptureTimeout;
                 ApplyCommandTimeout(settings);
-                using var reader = await ExecuteNonReplayableCommandAsync(() => settings.ExecuteReaderAsync(cancellationToken),
+                Volatile.Write(ref cancellableCommand, settings);
+                using var reader = await ExecuteNonReplayableCommandAsync(() => settings.ExecuteReaderAsync(CancellationToken.None),
                     connection, settings.CommandText, cancellationToken, NonReplayableCommandKind.ReaderOpen).ConfigureAwait(false);
-                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (!await reader.ReadAsync(CancellationToken.None).ConfigureAwait(false))
                     throw new FormatException("The server did not report its native product and SQL mode.");
                 var modes = reader.GetString(0).Split(',');
                 if (modes.Any(mode => mode.Equals("NO_BACKSLASH_ESCAPES", StringComparison.OrdinalIgnoreCase)
@@ -71,32 +92,33 @@ public partial class MySql
                 format = reader.GetString(1).IndexOf("MariaDB", StringComparison.OrdinalIgnoreCase) >= 0
                     ? MySqlQueryPlanFormat.MariaDbJson : MySqlQueryPlanFormat.MySqlJsonV1;
             }
-            var document = await ReadQueryPlanDocumentAsync(connection, transaction, input.Statement, input.Values, input.Types,
-                nativeCaptureTimeout, cancellationToken).ConfigureAwait(false);
+            Volatile.Write(ref cancellableCommand, null);
+            var document = await ReadQueryPlanDocumentAsync(connection, input.Statement, input.Values, input.Types,
+                nativeCaptureTimeout, command => Volatile.Write(ref cancellableCommand, command), cancellationToken).ConfigureAwait(false);
             result = MySqlQueryPlanParser.Parse(query, document, format,
                 input.Values?.Count > 0 ? DbaQueryPlanParameterMode.BoundValues : DbaQueryPlanParameterMode.None);
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch (Exception exception)
         {
-            failure = exception is MySqlException { Number: 1792 }
+            failure = Volatile.Read(ref callerAbortRequested) != 0 && cancellationToken.IsCancellationRequested
+                ? CreateCallerCancellationException(exception, cancellationToken)
+                : exception is MySqlException { Number: 1792 }
                 ? new NotSupportedException("Native estimated capture supports only statements permitted in a read-only transaction.")
                 : IsCallerCancellation(exception, cancellationToken) || exception is FormatException or NotSupportedException ? exception
                 : CreateQueryExecutionOrCancellationException("Failed to obtain the estimated query plan.", query, exception, cancellationToken);
         }
         finally
         {
-            if (transaction != null)
+            // Stop caller aborts before independent cleanup. Late caller cancellation still blocks delivery below.
+            callerAbort.Dispose();
+            if (transactionAttempted && connection?.State == ConnectionState.Open)
             {
                 try
                 {
-                    using var cleanupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                    // Both approved MySqlConnector generations expose native async rollback, including the Framework asset.
-                    await transaction.RollbackAsync(cleanupDeadline.Token).ConfigureAwait(false);
+                    await ExecuteQueryPlanControlAsync(connection, "ROLLBACK", CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception exception) { failure = AddQueryPlanCleanupFailure(failure, exception, "ROLLBACK"); }
-                try { await DisposeDbTransactionAsync(transaction).ConfigureAwait(false); }
-                catch (Exception exception) { failure = AddQueryPlanCleanupFailure(failure, exception, "DISPOSE TRANSACTION"); }
             }
             if (connection != null)
             {
@@ -115,6 +137,44 @@ public partial class MySql
         return primary == null ? cleanup : new AggregateException(primary, cleanup);
     }
 
+    private async Task ExecuteQueryPlanControlAsync(MySqlConnection connection, string sql, CancellationToken callerToken)
+    {
+        using var deadline = new CancellationTokenSource();
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        var abortRequested = 0;
+        using var abort = deadline.Token.Register(() =>
+        {
+            Interlocked.Exchange(ref abortRequested, 1);
+            AbortQueryPlanConnection(connection);
+        });
+        // The owned watchdog supplies the deadline; native timeout/KILL recovery would require another live server connection.
+        using var startup = new MySqlCommand(sql, connection) { CommandTimeout = 0 };
+        try
+        {
+            await ExecuteNonReplayableCommandAsync(() => startup.ExecuteNonQueryAsync(CancellationToken.None), connection,
+                startup.CommandText, callerToken).ConfigureAwait(false);
+            callerToken.ThrowIfCancellationRequested();
+            if (deadline.IsCancellationRequested) throw new TimeoutException("Estimated-plan transaction control exceeded five seconds.");
+        }
+        catch (Exception exception) when (Volatile.Read(ref abortRequested) != 0)
+        {
+            if (callerToken.IsCancellationRequested) throw CreateCallerCancellationException(exception, callerToken);
+            throw new TimeoutException("Estimated-plan transaction control exceeded five seconds.");
+        }
+    }
+
+    private static void AbortQueryPlanConnection(MySqlConnection connection)
+    {
+        // Closing this non-pooled connection settles pending I/O; the command task is still awaited before returning.
+        try { connection.Close(); }
+        catch (MySqlException) { }
+        catch (InvalidOperationException) { }
+        catch (IOException) { }
+        catch (NotSupportedException) { } // TLS can reject the reader drain when another read is pending.
+        catch (System.Net.Sockets.SocketException) { }
+        catch (TimeoutException) { }
+    }
+
     private static void ValidateQueryPlanConnection(MySqlConnection connection)
     {
         ValidateConnectionString(connection.ConnectionString);
@@ -124,42 +184,40 @@ public partial class MySql
             throw new InvalidOperationException("The plan connection factory must preserve the closed, isolated connection and finite cancellation settings.");
     }
 
-    private async Task<string> ReadQueryPlanDocumentAsync(MySqlConnection connection, MySqlTransaction transaction,
-        string statement, IDictionary<string, object?>? values, IDictionary<string, MySqlDbType>? types, int nativeCaptureTimeout, CancellationToken token)
+    private async Task<string> ReadQueryPlanDocumentAsync(MySqlConnection connection,
+        string statement, IDictionary<string, object?>? values, IDictionary<string, MySqlDbType>? types, int nativeCaptureTimeout,
+        Action<MySqlCommand?> registerCommand, CancellationToken token)
     {
-        using var command = new MySqlCommand("EXPLAIN FORMAT=JSON " + statement, connection, transaction);
+        using var command = new MySqlCommand("EXPLAIN FORMAT=JSON " + statement, connection);
         command.CommandTimeout = nativeCaptureTimeout;
         ApplyCommandTimeout(command);
         AddParameters(command, values, ConvertParameterTypes(types));
-        using var cancellation = token.Register(() =>
+        registerCommand(command);
+        try
         {
-            try { command.Cancel(); }
-            catch (MySqlException) { }
-            catch (InvalidOperationException) { }
-            catch (TimeoutException) { }
-        });
-        using var reader = await ExecuteNonReplayableCommandAsync(() => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, token),
-            connection, statement, token, NonReplayableCommandKind.ReaderOpen).ConfigureAwait(false);
-        string? document = null;
-        do
-        {
-            while (await AwaitWithCallerCancellationAsync(() => reader.ReadAsync(token), token).ConfigureAwait(false))
+            using var reader = await ExecuteNonReplayableCommandAsync(() => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, CancellationToken.None),
+                connection, statement, token, NonReplayableCommandKind.ReaderOpen).ConfigureAwait(false);
+            string? document = null;
+            do
             {
-                if (reader.FieldCount != 1 || document != null) throw new FormatException("Expected exactly one native plan document.");
-                using var text = reader.GetTextReader(0);
-                var buffer = new char[4096];
-                var builder = new StringBuilder();
-                int count;
-                while ((count = await AwaitWithCallerCancellationAsync(() => text.ReadAsync(buffer, 0, buffer.Length), token).ConfigureAwait(false)) != 0)
+                while (await AwaitWithCallerCancellationAsync(() => reader.ReadAsync(CancellationToken.None), token).ConfigureAwait(false))
                 {
-                    if (builder.Length > MySqlQueryPlanParser.MaximumDocumentCharacters - count)
-                        throw new FormatException("The native plan document exceeds the supported size.");
-                    builder.Append(buffer, 0, count);
+                    if (reader.FieldCount != 1 || document != null) throw new FormatException("Expected exactly one native plan document.");
+                    using var text = reader.GetTextReader(0);
+                    var buffer = new char[4096];
+                    var builder = new StringBuilder();
+                    int count;
+                    while ((count = await AwaitWithCallerCancellationAsync(() => text.ReadAsync(buffer, 0, buffer.Length), token).ConfigureAwait(false)) != 0)
+                    {
+                        if (builder.Length > MySqlQueryPlanParser.MaximumDocumentCharacters - count)
+                            throw new FormatException("The native plan document exceeds the supported size.");
+                        builder.Append(buffer, 0, count);
+                    }
+                    document = builder.ToString();
                 }
-                document = builder.ToString();
-            }
-        } while (await AwaitWithCallerCancellationAsync(() => reader.NextResultAsync(token), token).ConfigureAwait(false));
-        return document ?? throw new FormatException("MySQL/MariaDB did not return an estimated statement plan.");
+            } while (await AwaitWithCallerCancellationAsync(() => reader.NextResultAsync(CancellationToken.None), token).ConfigureAwait(false));
+            return document ?? throw new FormatException("MySQL/MariaDB did not return an estimated statement plan.");
+        }
+        finally { registerCommand(null); }
     }
 }
-

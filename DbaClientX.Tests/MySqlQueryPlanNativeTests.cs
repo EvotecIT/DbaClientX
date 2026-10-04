@@ -25,6 +25,15 @@ public sealed class MySqlQueryPlanNativeTests
         var nullPlan = client.ExplainQueryPlan(fixture.ConnectionString, "SELECT * FROM Events WHERE id=@id",
             new Dictionary<string, object?> { ["id"] = null }, types);
         Assert.NotEmpty(nullPlan.Steps);
+        foreach (var binding in new[] { ("?tenant.id", "tenant.id"), ("@tenant$id", "tenant$id"), ("?😀", "😀"),
+            ("@`tenant;id`", "tenant;id"), ("@'tenant''id'", "tenant'id") })
+        {
+            var nativeName = await client.ExplainQueryPlanAsync(fixture.ConnectionString,
+                "SELECT id FROM Events WHERE id=" + binding.Item1,
+                new Dictionary<string, object?> { [binding.Item2] = 1 },
+                new Dictionary<string, MySqlDbType> { [binding.Item1] = MySqlDbType.Int32 });
+            Assert.Contains(nativeName.Steps, step => step.Table == "Events" && step.Operation == DbaQueryPlanOperation.Search);
+        }
         foreach (var sql in new[] { "UPDATE Events SET payload=99 WHERE id=@id", "DELETE FROM Events WHERE id=@id",
             "INSERT INTO Events(id,payload) VALUES(99,@id)", "REPLACE INTO Events(id,payload) VALUES(1,@id)" })
             await Assert.ThrowsAsync<ArgumentException>(() => client.ExplainQueryPlanAsync(fixture.ConnectionString, sql, values, types));

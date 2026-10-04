@@ -135,6 +135,20 @@ public sealed class MySqlQueryPlanTests
     }
 
     [Theory]
+    [InlineData("?tenant.id", "tenant.id")]
+    [InlineData("@tenant$id", "tenant$id")]
+    [InlineData("?😀", "😀")]
+    [InlineData("@`tenant;id`", "tenant;id")]
+    public async Task Capture_NativeParameterNamesReachExistingBinding(string placeholder, string name)
+    {
+        var client = new InspectingClient();
+        await Assert.ThrowsAsync<DbaQueryExecutionException>(() => client.ExplainQueryPlanAsync(OfflineConnection,
+            "SELECT " + placeholder, new Dictionary<string, object?> { [name] = 1 }));
+        Assert.Equal(1, client.Created);
+        Assert.Equal(1, client.Disposed);
+    }
+
+    [Theory]
     [InlineData("SSL Mode=None")]
     [InlineData("Pooling=true")]
     [InlineData("Auto Enlist=true")]

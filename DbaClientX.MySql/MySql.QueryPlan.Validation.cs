@@ -20,38 +20,70 @@ public partial class MySql
             throw new ArgumentException("Estimated capture requires one DML statement.", nameof(query));
         if (tokens[first].Kind != SqlTokenKind.Word || tokens[first].Text.ToUpperInvariant() is not ("SELECT" or "WITH"))
             throw new ArgumentException("Native read-only capture supports SELECT and WITH statements only.", nameof(query));
-        var required = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var placeholders = new List<string>();
+        var statementEnd = tokens[last].Position + tokens[last].Text.Length;
         for (int index = first; index <= last; index++)
         {
             var token = tokens[index];
-            if (token.Kind != SqlTokenKind.Parameter) continue;
+            if (token.Kind is not (SqlTokenKind.Parameter or SqlTokenKind.Symbol)) continue;
+            if (token.Text[0] == ':') throw new ArgumentException("Use native named @parameters or ?parameters.", nameof(query));
+            if (token.Text[0] is not ('@' or '?')) continue;
             // @@system variables are native SQL, not bound placeholders.
             if (token.Text[0] == '@' && index > first && tokens[index - 1].Text == "@"
                 && tokens[index - 1].Position + 1 == token.Position) continue;
-            if (token.Text[0] is not ('@' or '?') || token.Text.Length == 1)
-                throw new ArgumentException("Use named @parameters or ?parameters for bound estimated plans.", nameof(query));
-            required.Add(token.Text.Substring(1));
+            var end = token.Position + 1;
+            if (token.Text[0] == '@' && end < query.Length && query[end] == '@') continue;
+            if (token.Text[0] == '@' && index < last && tokens[index + 1].Position == end
+                && tokens[index + 1].Kind is SqlTokenKind.QuotedIdentifier or SqlTokenKind.String)
+            {
+                index++;
+                end = tokens[index].Position + tokens[index].Text.Length;
+            }
+            else
+            {
+                while (end < query.Length && IsNativePlanParameterCharacter(query[end])) end++;
+                if (end == token.Position + 1)
+                    throw new ArgumentException("Use named @parameters or ?parameters; positional placeholders are unsupported.", nameof(query));
+                while (index < last && tokens[index + 1].Position < end) index++;
+            }
+            placeholders.Add(query.Substring(token.Position, end - token.Position));
+            statementEnd = Math.Max(statementEnd, end);
         }
+        // Let the existing provider normalize quoted names, prefixes and case, rather than duplicating its binding rules.
+        using var binding = new MySqlCommand();
         var values = parameters == null ? null : new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         if (parameters != null)
             foreach (var pair in parameters)
             {
-                var name = pair.Key.TrimStart('@', '?');
-                if (!required.Contains(name) || values!.ContainsKey(name))
+                if (binding.Parameters.IndexOf(pair.Key) >= 0)
                     throw new ArgumentException("Every value must name one used, unambiguous parameter.", nameof(parameters));
-                values.Add(name, pair.Value);
+                binding.Parameters.Add(new MySqlParameter(pair.Key, pair.Value ?? DBNull.Value));
+                values!.Add(pair.Key, pair.Value);
             }
-        if (required.Any(name => values == null || !values.ContainsKey(name)))
-            throw new ArgumentException("Every named placeholder needs a bound value.", nameof(parameters));
+        var used = new HashSet<int>();
+        foreach (var placeholder in placeholders)
+        {
+            var index = binding.Parameters.IndexOf(placeholder);
+            if (index < 0) throw new ArgumentException("Every named placeholder needs a bound value.", nameof(parameters));
+            used.Add(index);
+        }
+        if (used.Count != binding.Parameters.Count)
+            throw new ArgumentException("Every value must name one used parameter.", nameof(parameters));
         var types = parameterTypes == null ? null : new Dictionary<string, MySqlDbType>(StringComparer.OrdinalIgnoreCase);
         if (parameterTypes != null)
             foreach (var pair in parameterTypes)
             {
-                var name = pair.Key.TrimStart('@', '?');
-                if (values == null || !values.ContainsKey(name) || types!.ContainsKey(name) || !Enum.IsDefined(typeof(MySqlDbType), pair.Value))
+                var index = binding.Parameters.IndexOf(pair.Key);
+                if (index < 0 || !Enum.IsDefined(typeof(MySqlDbType), pair.Value))
                     throw new ArgumentException("Every valid provider type must name one bound parameter.", nameof(parameterTypes));
+                var name = binding.Parameters[index].ParameterName;
+                if (types!.ContainsKey(name)) throw new ArgumentException("Every type must name one unambiguous bound parameter.", nameof(parameterTypes));
                 types.Add(name, pair.Value);
             }
-        return (query.Substring(tokens[first].Position, tokens[last].Position + tokens[last].Text.Length - tokens[first].Position), values, types);
+        return (query.Substring(tokens[first].Position, statementEnd - tokens[first].Position), values, types);
     }
+
+    // MySqlConnector's native unquoted variable grammar also permits dots, dollars and non-ASCII characters.
+    private static bool IsNativePlanParameterCharacter(char character)
+        => character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '.' or '$' or >= '\u0080';
 }
