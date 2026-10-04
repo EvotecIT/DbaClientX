@@ -246,7 +246,7 @@ public partial class SqlServer
             builder.Append("        ")
                 .Append(QuoteSqlServerIdentifier(column.DestinationName))
                 .Append(' ')
-                .Append(GetSqlServerColumnType(column.DataType, column.MaxLength))
+                .Append(GetSqlServerReaderColumnType(column))
                 .Append(column.AllowDBNull ? " NULL" : " NOT NULL");
 
             if (index + 1 < columns.Count)
@@ -265,8 +265,41 @@ public partial class SqlServer
     private static string GetSqlServerColumnType(DataColumn column)
     {
         var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType;
+        if (type == typeof(decimal)) return GetSqlServerDecimalColumnType(column);
         int? maxLength = column.MaxLength is > 0 ? column.MaxLength : null;
         return GetSqlServerColumnType(type, maxLength);
+    }
+
+    private static string GetSqlServerDecimalColumnType(DataColumn column)
+    {
+        int integerDigits = 0, scale = 0;
+        bool sampled = false;
+        foreach (DataRow row in column.Table!.Rows)
+        {
+            if (row.RowState == DataRowState.Deleted || row.IsNull(column)) continue;
+            var value = new System.Data.SqlTypes.SqlDecimal((decimal)row[column]);
+            integerDigits = Math.Max(integerDigits, value.Precision - value.Scale);
+            scale = Math.Max(scale, value.Scale);
+            sampled = true;
+        }
+        if (!sampled) return GetSqlServerDecimalColumnType();
+        int precision = Math.Max(1, integerDigits + scale);
+        if (precision > 38) throw new ArgumentException("Decimal values cannot fit one SQL Server decimal column without precision loss. Create an explicit destination schema.");
+        return $"decimal({precision},{scale})";
+    }
+
+    private static string GetSqlServerReaderColumnType(SqlServerBulkSourceColumn column)
+    {
+        if (column.DataType == typeof(decimal))
+        {
+            if (!column.NumericPrecision.HasValue || !column.NumericScale.HasValue)
+                throw new ArgumentException("Auto-created reader decimal columns require NumericPrecision and NumericScale. Create the destination explicitly, or use the DataTable overload.");
+            int precision = column.NumericPrecision.Value, scale = column.NumericScale.Value;
+            if (precision is < 1 or > 38 || scale < 0 || scale > precision)
+                throw new ArgumentException("Reader decimal precision/scale cannot be represented by SQL Server.");
+            return $"decimal({precision},{scale})";
+        }
+        return GetSqlServerColumnType(column.DataType, column.MaxLength);
     }
 
     private static string GetSqlServerColumnType(Type dataType, int? maxLength)
@@ -367,7 +400,7 @@ public partial class SqlServer
             throw new ArgumentException("SQL Server identifier cannot be null or whitespace.", nameof(identifier));
         }
 
-        return "[" + identifier.Trim().Replace("]", "]]") + "]";
+        return "[" + identifier.Replace("]", "]]") + "]";
     }
 
     private sealed class SqlServerDestinationTable
