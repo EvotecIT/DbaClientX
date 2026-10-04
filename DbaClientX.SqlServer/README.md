@@ -270,6 +270,10 @@ The immutable plan pins every backup identity and relocation. Execution revalida
 
 To run the opt-in local recovery contracts, set `DBACLIENTX_SQL_BACKUP_TEST_CONNECTION`, `DBACLIENTX_SQL_BACKUP_TEST_DIRECTORY`, and `DBACLIENTX_SQL_BACKUP_TEST_RESTORE_DIRECTORY`, then select `Category=LiveSqlRecovery`. Supply directories writable by both the test process and SQL Server service; default instance directories can have service-only permissions. Tests create uniquely named databases and remove their own databases and files.
 
+Two Windows localhost probes require separate opt-in flags. `DBACLIENTX_SQL_CORRUPTION_TEST=1` checks a healthy restored database, damages one of its own heap pages with the test-only native `DBCC WRITEPAGE` diagnostic command, and verifies bounded CHECKDB issues, message opt-in and physical-only results. This probe requires sysadmin permission and never accepts an existing database as its damage target.
+
+`DBACLIENTX_SQL_LARGE_RECOVERY_TEST=1` qualifies a 10 GiB allocated data file through backup, native relocation preflight, restore, full CHECKDB and independent application read/write. Its local volume must have at least 32 GiB free before the probe starts because source and restored files coexist. The mostly empty allocation proves file-capacity handling; it does not measure populated-data throughput, concurrent workloads or rejection of insufficient server space. Both probes remove their own databases and files.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
