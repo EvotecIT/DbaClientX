@@ -133,31 +133,74 @@ public class OracleNativeCopyTests
             $"INSERT INTO {fixture.Source} SELECT LEVEL FROM dual CONNECT BY LEVEL<=6");
         string storage = allocated ? "IMMEDIATE" : "DEFERRED";
         string subpartitions = composite ? " SUBPARTITION BY HASH (ID) SUBPARTITIONS 2" : "";
-        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
-            $"CREATE TABLE {fixture.Target} (ID NUMBER PRIMARY KEY) SEGMENT CREATION {storage} PARTITION BY RANGE (ID){subpartitions} (PARTITION p0 VALUES LESS THAN (MAXVALUE))");
+        string[] destinations = coordinated ? new[] { fixture.Target, fixture.SecondTarget } : new[] { fixture.Target };
+        foreach (string destination in destinations)
+            await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+                $"CREATE TABLE {destination} (ID NUMBER PRIMARY KEY) SEGMENT CREATION {storage} PARTITION BY RANGE (ID){subpartitions} (PARTITION p0 VALUES LESS THAN (MAXVALUE))");
         Assert.Equal("N/A", Convert.ToString(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
             "SELECT SEGMENT_CREATED FROM USER_TABLES WHERE TABLE_NAME=:name",
             new Dictionary<string, object?> { ["name"] = fixture.Target })));
         Task<DbaTableCopyResult> Copy() => new DbaTableCopyEngine().CopyAsync(
             new OracleTableCopyAdapter(fixture.Connection, new[] { "ID" }), new OracleTableCopyAdapter(fixture.Connection),
-            new[] { new DbaTableCopyDefinition(fixture.Source, fixture.Target, new[] { "ID" }) { UseKeysetPagination = true } },
+            destinations.Select(destination => new DbaTableCopyDefinition(fixture.Source, destination, new[] { "ID" }) { UseKeysetPagination = true }).ToArray(),
             new DbaTableCopyOptions { CheckpointId = fixture.CheckpointId, ClearDestination = coordinated, VerifyContent = true, PageSize = 2 });
         if (allocated)
         {
             var result = await Copy();
             Assert.True(result.Verified);
-            Assert.Equal(6, result.CopiedRows);
+            Assert.Equal(coordinated ? 12 : 6, result.CopiedRows);
         }
         else
         {
             await Assert.ThrowsAsync<NotSupportedException>(Copy);
-            Assert.Equal(0L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
-                $"SELECT COUNT(*) FROM {fixture.Target}")));
             string catalog = composite ? "USER_TAB_SUBPARTITIONS" : "USER_TAB_PARTITIONS";
-            Assert.Equal("NO", Convert.ToString(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
-                $"SELECT MIN(SEGMENT_CREATED) FROM {catalog} WHERE TABLE_NAME=:name",
-                new Dictionary<string, object?> { ["name"] = fixture.Target })));
+            foreach (string destination in destinations)
+            {
+                Assert.Equal(0L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+                    $"SELECT COUNT(*) FROM {destination}")));
+                Assert.Equal("NO", Convert.ToString(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+                    $"SELECT MIN(SEGMENT_CREATED) FROM {catalog} WHERE TABLE_NAME=:name",
+                    new Dictionary<string, object?> { ["name"] = destination })));
+            }
         }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CheckpointCopy_RejectsAutomaticPartitionsBeforeProbeOrClear(bool automaticList, bool coordinated)
+    {
+        using var fixture = Fixture.Create();
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+            $"CREATE TABLE {fixture.Source} (ID NUMBER PRIMARY KEY)");
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection, $"INSERT INTO {fixture.Source} VALUES(15)");
+        string layout = automaticList ? "LIST (ID) AUTOMATIC (PARTITION p0 VALUES(1))"
+            : "RANGE (ID) INTERVAL(10) (PARTITION p0 VALUES LESS THAN(10))";
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+            $"CREATE TABLE {fixture.Target} (ID NUMBER PRIMARY KEY) SEGMENT CREATION IMMEDIATE PARTITION BY {layout}");
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection, $"INSERT INTO {fixture.Target} VALUES(1)");
+        var definitions = new List<DbaTableCopyDefinition>
+        { new(fixture.Source, fixture.Target, new[] { "ID" }) { UseKeysetPagination = true } };
+        if (coordinated)
+        {
+            await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+                $"CREATE TABLE {fixture.SecondTarget} (ID NUMBER PRIMARY KEY) SEGMENT CREATION IMMEDIATE");
+            definitions.Add(new(fixture.Source, fixture.SecondTarget, new[] { "ID" }) { UseKeysetPagination = true });
+        }
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => new DbaTableCopyEngine().CopyAsync(
+            new OracleTableCopyAdapter(fixture.Connection, new[] { "ID" }), new OracleTableCopyAdapter(fixture.Connection), definitions,
+            new DbaTableCopyOptions { CheckpointId = fixture.CheckpointId, ClearDestination = true, PageSize = 2 }));
+        Assert.Contains("automatic partition creation", error.Message, StringComparison.Ordinal);
+        Assert.Equal(1L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT(*) FROM {fixture.Target} WHERE ID=1")));
+        Assert.Equal(1L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+            "SELECT COUNT(*) FROM USER_TAB_PARTITIONS WHERE TABLE_NAME=:name",
+            new Dictionary<string, object?> { ["name"] = fixture.Target })));
+        if (coordinated)
+            Assert.Equal(0L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+                $"SELECT COUNT(*) FROM {fixture.SecondTarget}")));
     }
 
     private sealed class Fixture : IDisposable
@@ -166,6 +209,7 @@ public class OracleNativeCopyTests
         internal string Connection { get; }
         internal string Source { get; }
         internal string Target { get; }
+        internal string SecondTarget { get; }
         internal string CheckpointId { get; } = "dbax-native-" + Guid.NewGuid().ToString("N");
         private Fixture(string connection)
         {
@@ -173,6 +217,7 @@ public class OracleNativeCopyTests
             string suffix = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
             Source = "DBAXSRC_" + suffix;
             Target = "DBAXDST_" + suffix;
+            SecondTarget = "DBAXDSB_" + suffix;
         }
         internal static Fixture Create()
         {
@@ -186,7 +231,7 @@ public class OracleNativeCopyTests
             {
                 Client.ExecuteNonQuery(Connection,
                     $"BEGIN EXECUTE IMMEDIATE 'DELETE FROM \"DbaX_TableCopyCheckpoints\" WHERE CopyId = ''{CheckpointId}'''; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
-                foreach (string table in new[] { Target, Source })
+                foreach (string table in new[] { SecondTarget, Target, Source })
                     Client.ExecuteNonQuery(Connection,
                         $"BEGIN EXECUTE IMMEDIATE 'DROP TABLE {table} PURGE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
             }
