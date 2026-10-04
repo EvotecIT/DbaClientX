@@ -119,6 +119,47 @@ public class OracleNativeCopyTests
         Assert.Equal("VIRTUAL", columns.Single(column => column.Name == "Calculated").GeneratedKind);
     }
 
+    [Theory]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    public async Task CheckpointCopy_ValidatesAllocatedLeafPartitions(bool composite, bool allocated, bool coordinated)
+    {
+        using var fixture = Fixture.Create();
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+            $"CREATE TABLE {fixture.Source} (ID NUMBER PRIMARY KEY)");
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+            $"INSERT INTO {fixture.Source} SELECT LEVEL FROM dual CONNECT BY LEVEL<=6");
+        string storage = allocated ? "IMMEDIATE" : "DEFERRED";
+        string subpartitions = composite ? " SUBPARTITION BY HASH (ID) SUBPARTITIONS 2" : "";
+        await fixture.Client.ExecuteNonQueryAsync(fixture.Connection,
+            $"CREATE TABLE {fixture.Target} (ID NUMBER PRIMARY KEY) SEGMENT CREATION {storage} PARTITION BY RANGE (ID){subpartitions} (PARTITION p0 VALUES LESS THAN (MAXVALUE))");
+        Assert.Equal("N/A", Convert.ToString(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+            "SELECT SEGMENT_CREATED FROM USER_TABLES WHERE TABLE_NAME=:name",
+            new Dictionary<string, object?> { ["name"] = fixture.Target })));
+        Task<DbaTableCopyResult> Copy() => new DbaTableCopyEngine().CopyAsync(
+            new OracleTableCopyAdapter(fixture.Connection, new[] { "ID" }), new OracleTableCopyAdapter(fixture.Connection),
+            new[] { new DbaTableCopyDefinition(fixture.Source, fixture.Target, new[] { "ID" }) { UseKeysetPagination = true } },
+            new DbaTableCopyOptions { CheckpointId = fixture.CheckpointId, ClearDestination = coordinated, VerifyContent = true, PageSize = 2 });
+        if (allocated)
+        {
+            var result = await Copy();
+            Assert.True(result.Verified);
+            Assert.Equal(6, result.CopiedRows);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<NotSupportedException>(Copy);
+            Assert.Equal(0L, Convert.ToInt64(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+                $"SELECT COUNT(*) FROM {fixture.Target}")));
+            string catalog = composite ? "USER_TAB_SUBPARTITIONS" : "USER_TAB_PARTITIONS";
+            Assert.Equal("NO", Convert.ToString(await fixture.Client.ExecuteScalarAsync(fixture.Connection,
+                $"SELECT MIN(SEGMENT_CREATED) FROM {catalog} WHERE TABLE_NAME=:name",
+                new Dictionary<string, object?> { ["name"] = fixture.Target })));
+        }
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal DBAClientX.Oracle Client { get; } = new() { CommandTimeout = 30 };

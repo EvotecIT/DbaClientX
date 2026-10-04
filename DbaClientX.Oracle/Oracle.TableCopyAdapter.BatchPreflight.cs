@@ -76,7 +76,8 @@ public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPrefligh
                             $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for coordinated schema preflight.");
                     }
                     if (options.CheckpointId != null)
-                        ValidateCheckpointDestinationSegment(definition.DestinationName, segmentCreated as string);
+                        await ValidateCheckpointDestinationStorageAsync(connection, owner, table, definition.DestinationName,
+                            segmentCreated, cancellationToken).ConfigureAwait(false);
                 }
 
                 DataTable? firstPage = firstPages[index];

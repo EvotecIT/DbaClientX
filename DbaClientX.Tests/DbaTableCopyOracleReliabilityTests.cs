@@ -290,6 +290,8 @@ public sealed class DbaTableCopyOracleReliabilityTests
     [Theory]
     [InlineData(typeof(string), "CLOB", OracleDbType.Clob)]
     [InlineData(typeof(string), "NCLOB", OracleDbType.NClob)]
+    [InlineData(typeof(string), "NCHAR", OracleDbType.NChar)]
+    [InlineData(typeof(string), "NVARCHAR2", OracleDbType.NVarchar2)]
     [InlineData(typeof(byte[]), "BLOB", OracleDbType.Blob)]
     [InlineData(typeof(byte[]), "RAW", OracleDbType.Raw)]
     [InlineData(typeof(DateOnly), "DATE", OracleDbType.Date)]

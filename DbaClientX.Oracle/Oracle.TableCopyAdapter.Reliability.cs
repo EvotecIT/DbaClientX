@@ -9,9 +9,6 @@ namespace DBAClientX;
 
 public sealed partial class OracleTableCopyAdapter : IDbaTableCopySchemaPreflightDestination, IDbaTableCopySchemaPreflightSessionDestination
 {
-    internal const string OracleDurableDestinationTableQuery =
-        "SELECT SEGMENT_CREATED FROM ALL_TABLES WHERE OWNER = :owner AND TABLE_NAME = :table_name AND TEMPORARY = 'N'";
-
     internal const string OracleCheckpointDestinationIdentityQuery = @"SELECT obj.OWNER || ':' || obj.OBJECT_ID
 FROM ALL_OBJECTS obj
 JOIN ALL_TABLES tab ON tab.OWNER = obj.OWNER AND tab.TABLE_NAME = obj.OBJECT_NAME
@@ -154,6 +151,8 @@ WHERE TABLE_OWNER = :owner
             "BLOB" => OracleDbType.Blob,
             "CLOB" => OracleDbType.Clob,
             "NCLOB" => OracleDbType.NClob,
+            "NCHAR" => OracleDbType.NChar,
+            "NVARCHAR2" => OracleDbType.NVarchar2,
             "LONG" => OracleDbType.Long,
             "LONG RAW" => OracleDbType.LongRaw,
             _ => GetPageParameterType(dataType)
@@ -378,7 +377,8 @@ WHERE TABLE_OWNER = :owner
                         $"Oracle destination '{definition.DestinationName}' is not a durable table and cannot be used for schema preflight.");
                 }
                 if (options.CheckpointId != null)
-                    ValidateCheckpointDestinationSegment(definition.DestinationName, segmentCreated as string);
+                    await ValidateCheckpointDestinationStorageAsync(connection, owner, table, definition.DestinationName,
+                        segmentCreated, cancellationToken).ConfigureAwait(false);
             }
 
             using var oracle = new Oracle { CommandTimeout = CommandTimeout };
@@ -660,14 +660,6 @@ WHERE TABLE_OWNER = :owner
         var identity = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return identity as string ?? throw new InvalidOperationException(
             $"Checkpoint destination '{definition.DestinationName}' cannot be resolved to an Oracle table.");
-    }
-
-    private static void ValidateCheckpointDestinationSegment(string tableName, string? segmentCreated)
-    {
-        if (!string.Equals(segmentCreated, "YES", StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException(
-                $"Oracle checkpoint destination '{tableName}' requires allocated storage before its serializable writes. " +
-                "Create the destination with SEGMENT CREATION IMMEDIATE or allocate its storage explicitly before copying.");
     }
 
     /// <inheritdoc />
