@@ -40,13 +40,16 @@ public partial class SqlServer
         {
             connection = await OpenQueryPlanConnectionAsync(target.ConnectionString, cancellationToken).ConfigureAwait(false);
             await SetQueryPlanModeAsync(connection, enabled: true, cancellationToken).ConfigureAwait(false);
-            result = SqlServerQueryPlanParser.Parse(query,
-                await ReadQueryPlanDocumentAsync(connection, batch, cancellationToken).ConfigureAwait(false), mode);
+            var document = await ReadQueryPlanDocumentAsync(connection, batch, cancellationToken).ConfigureAwait(false);
+            try { result = SqlServerQueryPlanParser.Parse(query, document, mode); }
+            catch (FormatException) { throw QueryPlanCaptureContractException.InvalidDocument("The native estimated plan document is invalid or unsupported."); }
+            catch (System.Xml.XmlException) { throw QueryPlanCaptureContractException.InvalidXmlDocument(); }
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch (Exception exception)
         {
-            failure = IsCallerCancellation(exception, cancellationToken) || exception is FormatException or System.Xml.XmlException ? exception
+            failure = IsCallerCancellation(exception, cancellationToken) ? CreateCallerCancellationException(exception, cancellationToken)
+                : exception is QueryPlanCaptureContractException contract ? contract.PublicFailure
                 : CreateQueryExecutionOrCancellationException("Failed to obtain the estimated query plan.", query, exception, cancellationToken);
         }
         finally
@@ -116,7 +119,7 @@ public partial class SqlServer
         {
             while (await AwaitWithCallerCancellationAsync(() => reader.ReadAsync(token), token).ConfigureAwait(false))
             {
-                if (reader.FieldCount != 1 || document != null) throw new FormatException("Expected exactly one native plan document.");
+                if (reader.FieldCount != 1 || document != null) throw QueryPlanCaptureContractException.InvalidDocument("Expected exactly one native plan document.");
                 using var text = reader.GetTextReader(0);
                 var buffer = new char[4096];
                 var builder = new System.Text.StringBuilder();
@@ -124,12 +127,12 @@ public partial class SqlServer
                 while ((count = await AwaitWithCallerCancellationAsync(() => text.ReadAsync(buffer, 0, buffer.Length), token).ConfigureAwait(false)) != 0)
                 {
                     if (builder.Length > SqlServerQueryPlanParser.MaximumDocumentCharacters - count)
-                        throw new FormatException("The native plan document exceeds the supported size.");
+                        throw QueryPlanCaptureContractException.InvalidDocument("The native plan document exceeds the supported size.");
                     builder.Append(buffer, 0, count);
                 }
                 document = builder.ToString();
             }
         } while (await AwaitWithCallerCancellationAsync(() => reader.NextResultAsync(token), token).ConfigureAwait(false));
-        return document ?? throw new FormatException("SQL Server did not return an estimated statement plan.");
+        return document ?? throw QueryPlanCaptureContractException.InvalidDocument("SQL Server did not return an estimated statement plan.");
     }
 }
