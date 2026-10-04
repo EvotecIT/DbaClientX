@@ -43,7 +43,8 @@ public partial class SqlServer
             if (columns.Length == 0) throw new ArgumentException("Source projection must contain at least one column.", nameof(request));
             query.SelectRaw(columns.Select(column => SqlIdentifier.Quote(SqlDialect.SqlServer, column)).ToArray());
         }
-        string select = new QueryCompiler(SqlDialect.SqlServer).Compile(query);
+        var compiler = new QueryCompiler(SqlDialect.SqlServer);
+        string schemaSelect = compiler.Compile(query.Limit(0));
         using var source = new SqlServer { CommandTimeout = commandTimeout, ConnectionOptions = TransferConnectionOptions(request.SourceConnectionOptions) };
         using var destination = new SqlServer { CommandTimeout = commandTimeout, ConnectionOptions = TransferConnectionOptions(request.DestinationConnectionOptions) };
         cancellationToken.ThrowIfCancellationRequested();
@@ -62,6 +63,8 @@ public partial class SqlServer
                 if (sourceIdentity.ObjectId == targetIdentity.ObjectId && sourceIdentity.DatabaseId == targetIdentity.DatabaseId &&
                     string.Equals(sourceIdentity.ServerName, targetIdentity.ServerName, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Refusing to stream a native table into itself.");
+                string select = await TransferProjectionAsync(readerClient, sourceConnection, sourceTable, schemaSelect,
+                    destination, destinationConnection, targetIdentity.ObjectId, destinationTransaction, bulkOptions, readToken).ConfigureAwait(false);
                 await using var reader = await readerClient.QueryReaderAsync(sourceConnection, select, useTransaction: true, cancellationToken: readToken).ConfigureAwait(false);
                 SqlServerBulkInsertResult result = await destination.BulkInsertWithResultAsync(destinationConnection, reader, destinationTable,
                     bulkOptions, useTransaction: destinationTransaction, batchSize: batchSize, bulkCopyTimeout: bulkTimeout, cancellationToken: readToken).ConfigureAwait(false);
@@ -130,6 +133,47 @@ public partial class SqlServer
         int database = reader.GetInt32(1);
         int? objectId = reader.IsDBNull(2) ? null : reader.GetInt32(2);
         return new TransferTableIdentity(server, database, objectId);
+    }
+
+    private static async Task<string> TransferProjectionAsync(SqlServer source, string sourceConnection, string sourceTable, string schemaSelect,
+        SqlServer destination, string destinationConnection, int? destinationObjectId, bool destinationTransaction, SqlServerBulkInsertOptions options, CancellationToken token)
+    {
+        IReadOnlyList<SqlServerBulkSourceColumn> columns;
+        await using (var schemaReader = await source.QueryReaderAsync(sourceConnection, schemaSelect, useTransaction: true, cancellationToken: token).ConfigureAwait(false))
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < schemaReader.FieldCount; index++)
+                if (!names.Add(schemaReader.GetName(index))) throw new ArgumentException("Source projection cannot repeat a column.");
+            columns = GetValidatedReaderColumns(schemaReader, options.ColumnMappings);
+        }
+        IEnumerable<SqlServerBulkSourceColumn> ordered = columns;
+        if (destinationObjectId.HasValue)
+        {
+            // SqlBulkCopy consumes source values in destination ordinal order. Ask the native catalog to match
+            // destination names under its collation, then order the SELECT rather than buffering/reinterpreting rows.
+            if (columns.Count > 2000) throw new NotSupportedException("Use an explicit projection of at most 2000 columns for native metadata matching.");
+            var parameters = new Dictionary<string, object?> { ["@objectId"] = destinationObjectId.Value };
+            var values = new List<string>(columns.Count);
+            for (int index = 0; index < columns.Count; index++)
+            {
+                string parameter = "@column" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                parameters[parameter] = columns[index].DestinationName;
+                values.Add("(" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "," + parameter + ")");
+            }
+            var ordinals = new List<int>(columns.Count);
+            await using (var destinationReader = await destination.QueryReaderAsync(destinationConnection,
+                "SELECT m.Ordinal FROM sys.columns c JOIN (VALUES " + string.Join(",", values) +
+                ") m(Ordinal,Name) ON c.name=m.Name COLLATE DATABASE_DEFAULT WHERE c.object_id=@objectId ORDER BY c.column_id",
+                parameters, useTransaction: destinationTransaction, cancellationToken: token).ConfigureAwait(false))
+            {
+                while (await destinationReader.ReadAsync(token).ConfigureAwait(false)) ordinals.Add(destinationReader.GetInt32(0));
+            }
+            if (ordinals.Count != columns.Count || ordinals.Distinct().Count() != columns.Count)
+                throw new ArgumentException("Every projected source column must map to one visible destination column.");
+            ordered = ordinals.Select(index => columns[index]);
+        }
+        return new QueryCompiler(SqlDialect.SqlServer).Compile(new Query().FromRaw(sourceTable)
+            .SelectRaw(ordered.Select(column => SqlIdentifier.Quote(SqlDialect.SqlServer, column.SourceName)).ToArray()));
     }
 
     private sealed record TransferTableIdentity(string ServerName, int DatabaseId, int? ObjectId);

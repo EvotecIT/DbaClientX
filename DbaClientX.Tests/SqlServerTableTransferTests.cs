@@ -189,6 +189,76 @@ public sealed class SqlServerTableTransferTests
         Assert.Equal(6L, await fixture.CountAsync());
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferTableAsync_ReorderedSourceOrDestination_PreservesExactValues(bool reverseDestination)
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.SetupAsync(reverseDestination
+            ? "Bytes varbinary(max) NOT NULL,Payload nvarchar(max) NOT NULL,Id bigint PRIMARY KEY"
+            : "Id bigint PRIMARY KEY,Payload nvarchar(max) NOT NULL,Bytes varbinary(max) NOT NULL");
+        var request = fixture.Request();
+        if (!reverseDestination) request.SourceColumns = new[] { "Bytes", "Payload", "Id" };
+        SqlServerBulkInsertResult result = await SqlServer.TransferTableAsync(request);
+        Assert.Equal(6, result.RowsCopied);
+        Assert.Equal(6L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT_BIG(*) FROM {fixture.Source} s JOIN {fixture.Target} t ON s.Id=t.Id WHERE s.Payload=t.Payload AND s.Bytes=t.Bytes")));
+    }
+
+    [Fact]
+    public async Task TransferTableAsync_NativeDecimal38_IsNotConvertedToClrDecimal()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Sql.ExecuteNonQueryAsync(fixture.Connection, $"CREATE TABLE {fixture.Source}(Value decimal(38,0) NOT NULL); CREATE TABLE {fixture.Target}(Value decimal(38,0) NOT NULL); INSERT INTO {fixture.Source} VALUES(123456789012345678901234567890)");
+        SqlServerBulkInsertResult result = await SqlServer.TransferTableAsync(fixture.Request());
+        Assert.Equal(1, result.RowsCopied);
+        Assert.Equal(1L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT_BIG(*) FROM {fixture.Source} s JOIN {fixture.Target} t ON s.Value=t.Value")));
+    }
+
+    [Fact]
+    public async Task TransferTableAsync_AutoCreate_PreservesNativeDecimalPrecisionAndScale()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.Sql.ExecuteNonQueryAsync(fixture.Connection, $"CREATE TABLE {fixture.Source}(Value decimal(28,20) NOT NULL); INSERT INTO {fixture.Source} VALUES(1.12345678901234567890)");
+        var request = fixture.Request();
+        request.BulkOptions = new() { AutoCreateTable = true };
+        SqlServerBulkInsertResult result = await SqlServer.TransferTableAsync(request);
+        Assert.Equal(1, result.RowsCopied);
+        Assert.Equal(1L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT_BIG(*) FROM {fixture.Source} s JOIN {fixture.Target} t ON s.Value=t.Value")));
+        Assert.Equal(1L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            "SELECT COUNT_BIG(*) FROM sys.columns WHERE object_id=OBJECT_ID(@table) AND precision=28 AND scale=20",
+            new Dictionary<string, object?> { ["@table"] = fixture.Target })));
+    }
+
+    [Fact]
+    public async Task TransferTableAsync_QuotedLeadingSpaces_DoNotRedirectToAnotherTable()
+    {
+        using Fixture fixture = await Fixture.CreateAsync(quotedNames: true);
+        await fixture.SetupAsync("Id bigint PRIMARY KEY, Payload nvarchar(max) NOT NULL, Bytes varbinary(max) NOT NULL");
+        string otherSource = fixture.Source.Replace("[ Dbax", "[Dbax"), otherTarget = fixture.Target.Replace("[ Dbax", "[Dbax");
+        await fixture.Sql.ExecuteNonQueryAsync(fixture.Connection, $"CREATE TABLE {otherSource}(Id bigint PRIMARY KEY,Payload nvarchar(max) NOT NULL,Bytes varbinary(max) NOT NULL); INSERT INTO {otherSource} VALUES(99,N'wrong table',0x01); CREATE TABLE {otherTarget}(Id bigint PRIMARY KEY,Payload nvarchar(max) NOT NULL,Bytes varbinary(max) NOT NULL)");
+        SqlServerBulkInsertResult result = await SqlServer.TransferTableAsync(fixture.Request());
+        Assert.Equal(6, result.RowsCopied);
+        Assert.Equal(6L, await fixture.CountAsync());
+        Assert.Equal(0L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection, $"SELECT COUNT_BIG(*) FROM {otherTarget}")));
+    }
+
+    [Fact]
+    public async Task BulkInsertAsync_AutoCreateDataTable_PreservesAllDecimalSampleValues()
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(decimal));
+        table.Rows.Add(decimal.Parse("1.12345678901234567890", System.Globalization.CultureInfo.InvariantCulture));
+        table.Rows.Add(decimal.Parse("12345678.12345678901234567890", System.Globalization.CultureInfo.InvariantCulture));
+        await fixture.Sql.BulkInsertAsync(fixture.Connection, table, fixture.Target, new SqlServerBulkInsertOptions { AutoCreateTable = true });
+        Assert.Equal(2L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT_BIG(*) FROM {fixture.Target} WHERE Amount IN (CONVERT(decimal(28,20),1.12345678901234567890),CONVERT(decimal(28,20),12345678.12345678901234567890))")));
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal SqlServer Sql { get; } = new() { CommandTimeout = 30 };
@@ -199,7 +269,7 @@ public sealed class SqlServerTableTransferTests
         {
             Connection = connection;
             string suffix = Guid.NewGuid().ToString("N");
-            string name = quotedNames ? "Dbax transfer . ] " : "DbaxTransfer";
+            string name = quotedNames ? " Dbax transfer . ] " : "DbaxTransfer";
             Source = "[dbo].[" + (name + "Source" + suffix).Replace("]", "]]") + "]";
             Target = "[dbo].[" + (name + "Target" + suffix).Replace("]", "]]") + "]";
         }
@@ -222,7 +292,7 @@ public sealed class SqlServerTableTransferTests
         internal async Task<long> CountAsync() => Convert.ToInt64(await Sql.ExecuteScalarAsync(Connection, $"SELECT COUNT_BIG(*) FROM {Target}"));
         public void Dispose()
         {
-            try { Sql.ExecuteNonQuery(Connection, $"DROP TABLE IF EXISTS {Target}; DROP TABLE IF EXISTS {Source}"); }
+            try { Sql.ExecuteNonQuery(Connection, $"DROP TABLE IF EXISTS {Target}; DROP TABLE IF EXISTS {Source}; DROP TABLE IF EXISTS {Target.Replace("[ Dbax", "[Dbax")}; DROP TABLE IF EXISTS {Source.Replace("[ Dbax", "[Dbax")}"); }
             finally { Sql.Dispose(); }
         }
     }

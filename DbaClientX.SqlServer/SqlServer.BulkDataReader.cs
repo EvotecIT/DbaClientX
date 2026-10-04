@@ -321,7 +321,10 @@ public partial class SqlServer
         }
 
         ValidateBulkInsertSettings(batchSize, bulkCopyTimeout, options);
-        return GetValidatedReaderColumns(reader, options?.ColumnMappings);
+        var columns = GetValidatedReaderColumns(reader, options?.ColumnMappings);
+        if (options?.AutoCreateTable == true)
+            foreach (var column in columns) _ = GetSqlServerReaderColumnType(column);
+        return columns;
     }
 
     private static IReadOnlyList<SqlServerBulkSourceColumn> GetValidatedReaderColumns(IDataReader reader, IDictionary<string, string>? columnMappings)
@@ -392,7 +395,9 @@ public partial class SqlServer
                 destinationName,
                 GetReaderColumnType(reader, ordinal, schemaRow),
                 GetReaderColumnAllowNull(schemaRow),
-                GetReaderColumnSize(schemaRow)));
+                GetReaderColumnSize(schemaRow),
+                GetReaderNumericFacet(schemaRow, "NumericPrecision"),
+                GetReaderNumericFacet(schemaRow, "NumericScale")));
         }
 
         return columns;
@@ -459,6 +464,10 @@ public partial class SqlServer
     private static int? GetReaderColumnSize(DataRow? schemaRow)
         => TryGetSchemaValue<int>(schemaRow, "ColumnSize", out var size) ? size : null;
 
+    private static int? GetReaderNumericFacet(DataRow? schemaRow, string name)
+        => schemaRow?.Table.Columns.Contains(name) == true && schemaRow[name] is byte or short or int
+            ? Convert.ToInt32(schemaRow[name], System.Globalization.CultureInfo.InvariantCulture) : null;
+
     private static bool TryGetSchemaValue<T>(DataRow? row, string columnName, out T value)
     {
         value = default!;
@@ -473,7 +482,7 @@ public partial class SqlServer
 
     private readonly struct SqlServerBulkSourceColumn
     {
-        internal SqlServerBulkSourceColumn(int ordinal, string sourceName, string destinationName, Type dataType, bool allowDBNull, int? maxLength)
+        internal SqlServerBulkSourceColumn(int ordinal, string sourceName, string destinationName, Type dataType, bool allowDBNull, int? maxLength, int? numericPrecision, int? numericScale)
         {
             Ordinal = ordinal;
             SourceName = sourceName;
@@ -481,6 +490,8 @@ public partial class SqlServer
             DataType = dataType;
             AllowDBNull = allowDBNull;
             MaxLength = maxLength;
+            NumericPrecision = numericPrecision;
+            NumericScale = numericScale;
         }
 
         internal int Ordinal { get; }
@@ -494,5 +505,9 @@ public partial class SqlServer
         internal bool AllowDBNull { get; }
 
         internal int? MaxLength { get; }
+
+        internal int? NumericPrecision { get; }
+
+        internal int? NumericScale { get; }
     }
 }

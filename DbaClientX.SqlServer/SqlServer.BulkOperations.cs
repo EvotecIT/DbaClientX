@@ -239,7 +239,7 @@ public partial class SqlServer
     /// </summary>
     /// <param name="bulkCopy">The configured bulk copy instance.</param>
     /// <param name="reader">Source data reader.</param>
-    protected virtual void WriteToServer(SqlBulkCopy bulkCopy, IDataReader reader) => bulkCopy.WriteToServer(reader);
+    protected virtual void WriteToServer(SqlBulkCopy bulkCopy, IDataReader reader) => bulkCopy.WriteToServer(GetNativeBulkReader(reader));
 
     /// <summary>
     /// Asynchronously writes the contents of <paramref name="table"/> to the server using the provided bulk copy instance.
@@ -257,7 +257,10 @@ public partial class SqlServer
     /// <param name="reader">Source data reader.</param>
     /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
     /// <returns>A task that completes when the transfer finishes.</returns>
-    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(reader, cancellationToken);
+    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(GetNativeBulkReader(reader), cancellationToken);
+
+    private static IDataReader GetNativeBulkReader(IDataReader reader)
+        => reader is DbaDataReader owned && owned.ProviderReader is SqlDataReader native ? native : reader;
 
     private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {
@@ -396,6 +399,8 @@ public partial class SqlServer
 
         ValidateBulkInsertSettings(batchSize, bulkCopyTimeout, options);
         ValidateColumnMappings(table, options?.ColumnMappings);
+        if (options?.AutoCreateTable == true)
+            foreach (DataColumn column in table.Columns) _ = GetSqlServerColumnType(column);
     }
 
     private static void ValidateColumnMappings(DataTable table, IDictionary<string, string>? columnMappings)
