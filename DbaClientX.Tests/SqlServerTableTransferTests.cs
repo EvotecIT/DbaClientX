@@ -217,6 +217,22 @@ public sealed class SqlServerTableTransferTests
             $"SELECT COUNT_BIG(*) FROM {fixture.Source} s JOIN {fixture.Target} t ON s.Value=t.Value")));
     }
 
+    [Theory]
+    [InlineData("Renamed")]
+    [InlineData("[Renamed]")]
+    public async Task TransferTableAsync_DestinationMapping_UsesNativeBulkColumnIdentity(string destinationName)
+    {
+        using Fixture fixture = await Fixture.CreateAsync();
+        await fixture.SetupAsync("Id bigint IDENTITY PRIMARY KEY,Renamed nvarchar(max) NOT NULL");
+        var request = fixture.Request();
+        request.SourceColumns = new[] { "Payload" };
+        request.BulkOptions = new() { ColumnMappings = new Dictionary<string, string> { ["Payload"] = destinationName } };
+        SqlServerBulkInsertResult result = await SqlServer.TransferTableAsync(request);
+        Assert.Equal(6, result.RowsCopied);
+        Assert.Equal(6L, Convert.ToInt64(await fixture.Sql.ExecuteScalarAsync(fixture.Connection,
+            $"SELECT COUNT_BIG(*) FROM {fixture.Target} WHERE Renamed=N'Zażółć 😀 日本語'")));
+    }
+
     [Fact]
     public async Task TransferTableAsync_AutoCreate_PreservesNativeDecimalPrecisionAndScale()
     {

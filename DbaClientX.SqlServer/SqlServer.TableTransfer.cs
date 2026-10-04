@@ -149,28 +149,29 @@ public partial class SqlServer
         IEnumerable<SqlServerBulkSourceColumn> ordered = columns;
         if (destinationObjectId.HasValue)
         {
-            // SqlBulkCopy consumes source values in destination ordinal order. Ask the native catalog to match
-            // destination names under its collation, then order the SELECT rather than buffering/reinterpreting rows.
-            if (columns.Count > 2000) throw new NotSupportedException("Use an explicit projection of at most 2000 columns for native metadata matching.");
-            var parameters = new Dictionary<string, object?> { ["@objectId"] = destinationObjectId.Value };
-            var values = new List<string>(columns.Count);
-            for (int index = 0; index < columns.Count; index++)
+            // Match catalog names exactly as SqlBulkCopy does, then order the SELECT rather than buffering rows.
+            // Bulk mapping brackets are delimiters; native matching uses ordinal equality, not database collation.
+            var mapped = new Dictionary<string, SqlServerBulkSourceColumn>(StringComparer.Ordinal);
+            foreach (var column in columns)
             {
-                string parameter = "@column" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                parameters[parameter] = columns[index].DestinationName;
-                values.Add("(" + index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "," + parameter + ")");
+                string name = column.DestinationName;
+                if (name.Length >= 2 && name[0] == '[' && name[name.Length - 1] == ']')
+                    name = name.Substring(1, name.Length - 2);
+                if (mapped.ContainsKey(name)) throw new ArgumentException("Destination mappings must identify distinct native columns.");
+                mapped.Add(name, column);
             }
-            var ordinals = new List<int>(columns.Count);
+            var parameters = new Dictionary<string, object?> { ["@objectId"] = destinationObjectId.Value };
+            var selected = new List<SqlServerBulkSourceColumn>(columns.Count);
             await using (var destinationReader = await destination.QueryReaderAsync(destinationConnection,
-                "SELECT m.Ordinal FROM sys.columns c JOIN (VALUES " + string.Join(",", values) +
-                ") m(Ordinal,Name) ON c.name=m.Name COLLATE DATABASE_DEFAULT WHERE c.object_id=@objectId ORDER BY c.column_id",
+                "SELECT name FROM sys.columns WHERE object_id=@objectId ORDER BY column_id",
                 parameters, useTransaction: destinationTransaction, cancellationToken: token).ConfigureAwait(false))
             {
-                while (await destinationReader.ReadAsync(token).ConfigureAwait(false)) ordinals.Add(destinationReader.GetInt32(0));
+                while (await destinationReader.ReadAsync(token).ConfigureAwait(false))
+                    if (mapped.TryGetValue(destinationReader.GetString(0), out var column)) selected.Add(column);
             }
-            if (ordinals.Count != columns.Count || ordinals.Distinct().Count() != columns.Count)
+            if (selected.Count != columns.Count)
                 throw new ArgumentException("Every projected source column must map to one visible destination column.");
-            ordered = ordinals.Select(index => columns[index]);
+            ordered = selected;
         }
         return new QueryCompiler(SqlDialect.SqlServer).Compile(new Query().FromRaw(sourceTable)
             .SelectRaw(ordered.Select(column => SqlIdentifier.Quote(SqlDialect.SqlServer, column.SourceName)).ToArray()));
