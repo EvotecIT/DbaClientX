@@ -769,6 +769,15 @@ Module package builds:
 .\Module-FabricClientX\Build\Build-Module.ps1 -RunMode Build
 ```
 
+Regenerate command documentation and external help:
+
+```powershell
+.\Module\Build\Build-Module.ps1 -RunMode Documentation
+.\Module-FabricClientX\Build\Build-Module.ps1 -RunMode Documentation
+```
+
+Documentation mode regenerates command Markdown and external help without running the package lanes, signing, publishing, or changing release versions. `Build` and `Publish` keep their coordinated package lanes.
+
 ## Release Packaging
 
 Package publishing is intentionally manual in this repository because releases are signed locally with the USB key certificate.

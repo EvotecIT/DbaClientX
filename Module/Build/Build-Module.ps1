@@ -1,6 +1,6 @@
 ﻿param(
     [Alias('ConfigurationGateMode')]
-    [ValidateSet('Manifest', 'Build', 'Publish')]
+    [ValidateSet('Manifest', 'Documentation', 'Build', 'Publish')]
     [string] $RunMode = 'Build',
 
     [bool] $SignModule = $true,
@@ -10,7 +10,7 @@
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -MinimumVersion 3.0.88 -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.153 -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'DbaClientX' -NoInteractive {
     # Usual defaults as per standard module
@@ -131,7 +131,7 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
 
     New-ConfigurationBuild @newConfigurationBuildSplat
 
-    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -SignAssemblies:$SignModule -SignPackages:$SignModule
+    New-ConfigurationProjectBuild -Name 'DbaClientX' -ConfigPath '..\Build\project.build.json' -Enabled:$false -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -SignAssemblies:$SignModule -SignPackages:$SignModule
     New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'DbaClientX.Core' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Artefacts\Unpacked' #-RequiredModulesPath "$PSScriptRoot\..\Artefacts\Modules"

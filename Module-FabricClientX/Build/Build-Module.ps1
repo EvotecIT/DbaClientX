@@ -1,6 +1,6 @@
 param(
     [Alias('ConfigurationGateMode')]
-    [ValidateSet('Manifest', 'Build', 'Publish')]
+    [ValidateSet('Manifest', 'Documentation', 'Build', 'Publish')]
     [string] $RunMode = 'Build',
 
     [bool] $SignModule = $true,
@@ -10,7 +10,7 @@ param(
     [string] $GitHubApiKeyPath = 'C:\Support\Important\GitHubAPI.txt'
 )
 
-Import-Module PSPublishModule -MinimumVersion 3.0.88 -Force -ErrorAction Stop
+Import-Module PSPublishModule -MinimumVersion 3.0.153 -Force -ErrorAction Stop
 
 Build-Module -ModuleName 'FabricClientX' -NoInteractive {
     $manifest = @{
@@ -74,7 +74,7 @@ Build-Module -ModuleName 'FabricClientX' -NoInteractive {
     }
     New-ConfigurationBuild @build
 
-    New-ConfigurationProjectBuild -Name 'FabricClientX' -ConfigPath '..\Build\fabricclientx.build.json' -Enabled:$true -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -SignAssemblies:$SignModule -SignPackages:$SignModule
+    New-ConfigurationProjectBuild -Name 'FabricClientX' -ConfigPath '..\Build\fabricclientx.build.json' -Enabled:$false -BuildBeforeModule -UseAsReleaseVersionSource -ProvideLocalNuGetFeed -PublishNuget -SignAssemblies:$SignModule -SignPackages:$SignModule
     New-ConfigurationRelease -StageRoot 'Artefacts\UploadReady' -VersionSource ProjectBuild -PrimaryProject 'FabricClientX.Core' -SynchronizeModuleVersion -BuildOrder 'Packages', 'Module' -PublishOrder 'NuGet', 'PowerShellGallery', 'GitHub'
 
     New-ConfigurationArtefact -Type Unpacked -Enable -Path 'Artefacts\Unpacked'
