@@ -83,6 +83,52 @@ public sealed class SqlServerRecoveryCleanupTests
     }
 
     [Fact]
+    [Trait("Category", "LiveSqlRecovery")]
+    public async Task Scope_RetainsBackupDirectoryWhenDatabaseFileOwnershipChanges()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQL_BACKUP_TEST_CONNECTION");
+        string? backupParent = Environment.GetEnvironmentVariable("DBACLIENTX_SQL_BACKUP_TEST_DIRECTORY");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString) || string.IsNullOrWhiteSpace(backupParent),
+            "Set the local SQL recovery connection and backup directory.");
+        var builder = new SqlConnectionStringBuilder(connectionString)
+        { InitialCatalog = "master", Enlist = false, Pooling = false };
+        using var connection = new SqlConnection(builder.ConnectionString);
+        await connection.OpenAsync();
+        var scope = new SqlServerRecoveryTestScope(builder.ConnectionString, backupParent!);
+        try
+        {
+            await scope.CreateSourceAsync(connection);
+            using var provider = new SqlServer();
+            var backup = await provider.BackupDatabaseCopyOnlyToDiskAsync(builder.ConnectionString,
+                scope.SourceName, scope.BackupDirectory);
+            string extra = Path.Combine(scope.BackupDirectory, "outside-recorded-inventory.ndf");
+            Assert.False(File.Exists(extra));
+            // Deliberately change the owned database's inventory without recording that file
+            // in the scope; cleanup must preserve the directory when its DROP guard refuses.
+            using var add = new SqlCommand($"ALTER DATABASE [{scope.SourceName}] ADD FILE "
+                + $"(NAME=N'UnexpectedFile',FILENAME=N'{extra.Replace("'", "''")}',SIZE=8MB)", connection);
+            await add.ExecuteNonQueryAsync();
+            await Assert.ThrowsAsync<AggregateException>(() => scope.DisposeAsync().AsTask());
+            Assert.True(await SqlServerRecoveryTestScope.DatabaseExistsAsync(connection, scope.SourceName));
+            Assert.True(Directory.Exists(scope.BackupDirectory));
+            Assert.True(File.Exists(backup.ServerBackupPath));
+            Assert.True(File.Exists(extra));
+        }
+        finally
+        {
+            // This test itself owns the extra file and generated source. Remove it natively,
+            // then let the ordinary scope finish only after the database no longer exists.
+            if (await SqlServerRecoveryTestScope.DatabaseExistsAsync(connection, scope.SourceName))
+            {
+                using var drop = new SqlCommand($"DROP DATABASE [{scope.SourceName}]", connection);
+                await drop.ExecuteNonQueryAsync();
+            }
+            await scope.DisposeAsync();
+        }
+        Assert.False(Directory.Exists(scope.BackupDirectory));
+    }
+
+    [Fact]
     public async Task Cleanup_AttemptsEveryIndependentActionAndReportsAllFailures()
     {
         var calls = new List<int>();

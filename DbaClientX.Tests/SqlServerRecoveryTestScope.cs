@@ -104,7 +104,13 @@ internal sealed class SqlServerRecoveryTestScope : IAsyncDisposable
         if (string.Equals(await state.ExecuteScalarAsync() as string, "RESTORING", StringComparison.Ordinal))
         {
             using var recover = new SqlCommand("RESTORE DATABASE [" + name + "] WITH RECOVERY", connection) { CommandTimeout = 30 };
-            await recover.ExecuteNonQueryAsync();
+            try { await recover.ExecuteNonQueryAsync(); }
+            catch (SqlException exception) when (exception.Number == 4333)
+            {
+                // A restore interrupted before its log was restored cannot recover. DROP still
+                // removes this verified owned registration; the absent-name guard below then
+                // permits deletion of its recorded files through the local fixture directory.
+            }
         }
         using var drop = new SqlCommand("DROP DATABASE [" + name + "]", connection) { CommandTimeout = 30 };
         await drop.ExecuteNonQueryAsync();
@@ -125,9 +131,13 @@ internal sealed class SqlServerRecoveryTestScope : IAsyncDisposable
         }));
     }
 
-    private Task DeleteBackupDirectoryAsync()
+    private async Task DeleteBackupDirectoryAsync()
     {
-        if (!Directory.Exists(BackupDirectory)) return Task.CompletedTask;
+        if (!Directory.Exists(BackupDirectory)) return;
+        using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+        if (await DatabaseExistsAsync(connection, RestoreName) || await DatabaseExistsAsync(connection, SourceName))
+            throw new InvalidOperationException("Temporary backup directory was retained because a test database still exists.");
         if ((File.GetAttributes(BackupDirectory) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidOperationException("Cleanup refused a reparse-point backup directory.");
         var actions = Directory.GetFiles(BackupDirectory).Select<string, Func<Task>>(path => () =>
@@ -138,7 +148,7 @@ internal sealed class SqlServerRecoveryTestScope : IAsyncDisposable
             return Task.CompletedTask;
         }).ToList();
         actions.Add(() => { Directory.Delete(BackupDirectory, recursive: false); return Task.CompletedTask; });
-        return RunCleanupAsync(actions);
+        await RunCleanupAsync(actions);
     }
 
     internal static async Task<bool> DatabaseExistsAsync(SqlConnection connection, string name)
