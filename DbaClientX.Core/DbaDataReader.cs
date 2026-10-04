@@ -29,6 +29,9 @@ public sealed partial class DbaDataReader : DbDataReader
     private readonly Func<Exception, CancellationToken, Exception>? _consumptionExceptionFactory;
     private int _disposeState;
 
+    // Provider-owned consumers can retain native value/streaming semantics while this lease still owns cleanup.
+    internal IDataReader ProviderReader => _reader;
+
     /// <summary>Initializes a reader lease around an already-open provider reader.</summary>
     /// <param name="reader">Provider reader that supplies the rows.</param>
     /// <param name="command">Optional command owned by this lease.</param>

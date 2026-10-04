@@ -406,11 +406,11 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
 
         var createTable = sqlServer.SetupCommands[0].CommandText;
-        Assert.Contains("[Amount] decimal(38,18) NULL", createTable);
+        Assert.Contains("[Amount] decimal(29,28) NULL", createTable);
     }
 
     [Fact]
-    public void BulkInsert_WithAutoCreateTable_UsesSafeDecimalScaleWithoutSampleValues()
+    public void BulkInsert_WithAutoCreateTable_UsesDefaultDecimalSchemaWithoutSampleValues()
     {
         using var sqlServer = new AutoCreateBulkCopySqlServer();
         using var table = new DataTable();
@@ -427,7 +427,7 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
-    public void BulkInsert_WithAutoCreateTable_UsesSafeDecimalScaleForWholeNumberSamples()
+    public void BulkInsert_WithAutoCreateTable_UsesActualDecimalScaleForWholeNumberSamples()
     {
         using var sqlServer = new AutoCreateBulkCopySqlServer();
         using var table = new DataTable();
@@ -441,7 +441,7 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
 
         var createTable = sqlServer.SetupCommands[0].CommandText;
-        Assert.Contains("[Amount] decimal(38,18) NULL", createTable);
+        Assert.Contains("[Amount] decimal(1,0) NULL", createTable);
     }
 
     [Fact]
@@ -459,7 +459,32 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", options);
 
         var createTable = sqlServer.SetupCommands[0].CommandText;
-        Assert.Contains("[Amount] decimal(38,18) NULL", createTable);
+        Assert.Contains("[Amount] decimal(29,16) NULL", createTable);
+    }
+
+    [Fact]
+    public void BulkInsert_WithAutoCreateTable_RejectsDecimalsThatCannotShareOneLosslessSchema()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(decimal));
+        table.Rows.Add(decimal.MaxValue);
+        table.Rows.Add(decimal.Parse("0.0000000000000000000000000001", CultureInfo.InvariantCulture));
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, table, "dbo.ImportRows", new DBAClientX.SqlServerBulkInsertOptions { AutoCreateTable = true }));
+        Assert.Empty(sqlServer.SetupCommands);
+    }
+
+    [Fact]
+    public void BulkInsert_WithAutoCreateReader_RequiresDecimalSchemaFacetsBeforeOpeningDestination()
+    {
+        using var sqlServer = new AutoCreateBulkCopySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Amount", typeof(decimal));
+        table.Rows.Add(1m);
+        using var reader = table.CreateDataReader();
+        Assert.Throws<ArgumentException>(() => sqlServer.BulkInsert("s", "db", true, reader, "dbo.ImportRows", new DBAClientX.SqlServerBulkInsertOptions { AutoCreateTable = true }));
+        Assert.Empty(sqlServer.SetupCommands);
+        Assert.False(reader.IsClosed);
     }
 
     [Fact]
