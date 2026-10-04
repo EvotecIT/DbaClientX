@@ -8,7 +8,7 @@ public sealed class SqlServerDiskBackupHeader
     /// <summary>Creates a header from SQL Server RESTORE HEADERONLY metadata.</summary>
     internal SqlServerDiskBackupHeader(string databaseName, Guid backupSetGuid, Guid? familyGuid,
         string mediaName, Guid mediaSetId, int backupType, bool isCopyOnly,
-        bool hasBackupChecksums, bool isDamaged)
+        bool hasBackupChecksums, bool isDamaged, SqlServerBackupChainMetadata? chainMetadata = null)
     {
         DatabaseName = databaseName;
         BackupSetGuid = backupSetGuid;
@@ -20,6 +20,7 @@ public sealed class SqlServerDiskBackupHeader
         IsCopyOnly = isCopyOnly;
         HasBackupChecksums = hasBackupChecksums;
         IsDamaged = isDamaged;
+        ChainMetadata = chainMetadata;
     }
 
     /// <summary>Name of the backed-up database.</summary>
@@ -51,6 +52,9 @@ public sealed class SqlServerDiskBackupHeader
 
     /// <summary>Whether SQL Server marked the backup set as damaged.</summary>
     public bool IsDamaged { get; }
+
+    /// <summary>Native sequence and fork metadata, when supplied by the header reader.</summary>
+    public SqlServerBackupChainMetadata? ChainMetadata { get; }
 }
 
 /// <summary>A newly created SQL Server backup and its verified backup-set identity.</summary>
