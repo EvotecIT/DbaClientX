@@ -196,7 +196,7 @@ public class SqlServerManagementTests
         Assert.Contains("LEFT JOIN sys.services AS target_service", permissions);
         Assert.Contains("FROM sys.availability_groups AS availability_group", permissions);
         Assert.Contains("availability_replica.replica_metadata_id", permissions);
-        Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN COALESCE(availability_group.name", permissions);
+        Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN COALESCE(availability_group.Name", permissions);
         Assert.DoesNotContain("sys.availability_groups", legacyPermissions);
         Assert.DoesNotContain("FROM sys.server_permissions AS permission", legacyPermissions);
         Assert.Contains("WHEN N'AVAILABILITY GROUP' THEN CONVERT(nvarchar(128), permission.major_id)", legacyServerPermissions);
@@ -270,7 +270,6 @@ public class SqlServerManagementTests
     [Fact]
     public void BuildTableScripts_GeneratesQuotedCreateTable()
     {
-        string separator = SqlServerManagementScripting.ConstraintDefinitionSeparator.ToString();
         var columns = new[]
         {
             new SqlServerTableColumnScriptInfo
@@ -284,16 +283,11 @@ public class SqlServerManagementTests
                 IdentitySeed = "1",
                 IdentityIncrement = "1",
                 IdentityNotForReplication = true,
-                AdditionalConstraintDefinitions = string.Join(
-                    separator,
-                    "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')",
+                AdditionalConstraintDefinitions = new[] { "CONSTRAINT [CK_UserAudit_Name] CHECK ([Name]\r\n <> N'')",
                     "CONSTRAINT [CK_UserAudit_Code] CHECK ([Code] <> N'')",
-                    "CONSTRAINT [CK_UserAudit_code] CHECK ([code] <> N'')"),
-                PostCreateStatements = string.Join(
-                    separator,
-                    "ALTER TABLE [dbo].[User]]Audit] ADD CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) ON DELETE CASCADE NOT FOR REPLICATION;",
-                    "ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);",
-                    "ALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];"),
+                    "CONSTRAINT [CK_UserAudit_code] CHECK ([code] <> N'')" },
+                PostCreateStatements = new[] { "ALTER TABLE [dbo].[User]]Audit] ADD CONSTRAINT [FK_UserAudit_Role] FOREIGN KEY ([Id]) REFERENCES [dbo].[Roles] ([Id]) ON DELETE CASCADE NOT FOR REPLICATION;",
+                    "ALTER TABLE [dbo].[User]]Audit] WITH NOCHECK ADD CONSTRAINT [CK_Disabled] CHECK ([Id] > 0);\r\nALTER TABLE [dbo].[User]]Audit] NOCHECK CONSTRAINT [CK_Disabled];" },
                 PrimaryKeyName = "PK_UserAudit",
                 PrimaryKeyOrdinal = 1,
                 PrimaryKeyIndexType = "CLUSTERED",
@@ -714,7 +708,7 @@ public class SqlServerManagementTests
                 Ordinal = 1,
                 DataType = "int",
                 IsNullable = false,
-                PostCreateStatements = "ALTER TABLE [dbo].[Child] ADD CONSTRAINT [FK_Child_Parent] FOREIGN KEY ([ParentId]) REFERENCES [dbo].[Parent] ([Id]);"
+                PostCreateStatements = new[] { "ALTER TABLE [dbo].[Child] ADD CONSTRAINT [FK_Child_Parent] FOREIGN KEY ([ParentId]) REFERENCES [dbo].[Parent] ([Id]);" }
             },
             new SqlServerTableColumnScriptInfo
             {
@@ -828,7 +822,7 @@ public class SqlServerManagementTests
                 UniqueConstraintOrdinal = 1,
                 UniqueConstraintIndexType = "NONCLUSTERED HASH",
                 UniqueConstraintBucketCount = 2048,
-                AdditionalConstraintDefinitions = "INDEX [IX_MemoryUsers_ExternalId] NONCLUSTERED HASH ([ExternalId]) WITH (BUCKET_COUNT = 4096)"
+                AdditionalConstraintDefinitions = new[] { "INDEX [IX_MemoryUsers_ExternalId] NONCLUSTERED HASH ([ExternalId]) WITH (BUCKET_COUNT = 4096)" }
             }
         };
         var graphColumns = new[]
@@ -855,7 +849,7 @@ public class SqlServerManagementTests
                 DataType = "int",
                 IsNullable = true,
                 GraphTableKind = "EDGE",
-                PostCreateStatements = "ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);"
+                PostCreateStatements = new[] { "ALTER TABLE [dbo].[FriendEdge] ADD CONSTRAINT [EC_FriendEdge] CONNECTION ([dbo].[Person] TO [dbo].[Person]);" }
             }
         };
         var graphOnlyColumns = new[]
@@ -867,7 +861,7 @@ public class SqlServerManagementTests
                 ColumnName = "",
                 Ordinal = 0,
                 GraphTableKind = "EDGE",
-                PostCreateStatements = "ALTER TABLE [dbo].[Likes] ADD CONSTRAINT [EC_Likes] CONNECTION ([dbo].[Person] TO [dbo].[Post]);"
+                PostCreateStatements = new[] { "ALTER TABLE [dbo].[Likes] ADD CONSTRAINT [EC_Likes] CONNECTION ([dbo].[Person] TO [dbo].[Post]);" }
             }
         };
         var fileTableColumns = new[]

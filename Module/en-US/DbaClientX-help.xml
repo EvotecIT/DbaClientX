@@ -622,6 +622,18 @@
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>CheckpointId</maml:name>
+          <maml:description>
+            <maml:para>Identifier for durable destination checkpoints across interrupted runs.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+          <dev:type>
+            <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>ClearDestination</maml:name>
           <maml:description>
             <maml:para>Deletes destination table rows before copying source rows.</maml:para>
@@ -741,6 +753,18 @@
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DestinationOrderByColumns</maml:name>
+          <maml:description>
+            <maml:para>Destination key columns for verified readback when source keys are mapped or generated.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String[]</command:parameterValue>
+          <dev:type>
+            <maml:name>String[]</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>DestinationProvider</maml:name>
           <maml:description>
@@ -845,6 +869,18 @@
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MaxPageBytes</maml:name>
+          <maml:description>
+            <maml:para>Estimated maximum in-memory payload for a keyset page.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
+          <dev:type>
+            <maml:name>Int64</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>NoVerify</maml:name>
           <maml:description>
             <maml:para>Skips source and destination row-count verification after the copy.</maml:para>
@@ -896,6 +932,30 @@
           <maml:name>PassThru</maml:name>
           <maml:description>
             <maml:para>Writes a result object with copied table counts, verification state, and elapsed time.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>RequireEmptyDestination</maml:name>
+          <maml:description>
+            <maml:para>Require empty destination tables before writing.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>Resume</maml:name>
+          <maml:description>
+            <maml:para>Resume a previously checkpointed copy after validating committed content.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -995,6 +1055,30 @@
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>UseKeysetPagination</maml:name>
+          <maml:description>
+            <maml:para>Use a unique, non-null ascending source key for bounded keyset pages.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>VerifyContent</maml:name>
+          <maml:description>
+            <maml:para>Verify copied column values as well as row counts.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
       </command:syntaxItem>
     </command:syntax>
     <command:parameters>
@@ -1066,6 +1150,18 @@
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
           <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>CheckpointId</maml:name>
+        <maml:description>
+          <maml:para>Identifier for durable destination checkpoints across interrupted runs.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">String</command:parameterValue>
+        <dev:type>
+          <maml:name>String</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
@@ -1190,6 +1286,18 @@
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
+      <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>DestinationOrderByColumns</maml:name>
+        <maml:description>
+          <maml:para>Destination key columns for verified readback when source keys are mapped or generated.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>DestinationProvider</maml:name>
         <maml:description>
@@ -1294,6 +1402,18 @@
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>MaxPageBytes</maml:name>
+        <maml:description>
+          <maml:para>Estimated maximum in-memory payload for a keyset page.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">Int64</command:parameterValue>
+        <dev:type>
+          <maml:name>Int64</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>NoVerify</maml:name>
         <maml:description>
           <maml:para>Skips source and destination row-count verification after the copy.</maml:para>
@@ -1345,6 +1465,30 @@
         <maml:name>PassThru</maml:name>
         <maml:description>
           <maml:para>Writes a result object with copied table counts, verification state, and elapsed time.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>RequireEmptyDestination</maml:name>
+        <maml:description>
+          <maml:para>Require empty destination tables before writing.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>Resume</maml:name>
+        <maml:description>
+          <maml:para>Resume a previously checkpointed copy after validating committed content.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -1436,6 +1580,30 @@
         <maml:name>TreatMissingTablesAsEmpty</maml:name>
         <maml:description>
           <maml:para>Treats missing source or destination tables as empty during row counts and clear operations.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>UseKeysetPagination</maml:name>
+        <maml:description>
+          <maml:para>Use a unique, non-null ascending source key for bounded keyset pages.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>VerifyContent</maml:name>
+        <maml:description>
+          <maml:para>Verify copied column values as well as row counts.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -2145,7 +2313,7 @@
       </maml:description>
     </command:details>
     <maml:description>
-      <maml:para>Returns SQL Server Agent, security, dependency, scripting, copy-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.</maml:para>
+      <maml:para>Returns SQL Server Agent, security, dependency, scripting, copy-plan, export-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.</maml:para>
     </maml:description>
     <command:syntax>
       <command:syntaxItem parameterSetName="__AllParameterSets">
@@ -2315,6 +2483,7 @@
             <command:parameterValue required="false" variableLength="false">TableScript</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">TableCopyPlan</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">Inventory</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">ExportPlan</command:parameterValue>
           </command:parameterValueGroup>
           <dev:type>
             <maml:name>DbaXSqlServerManagementType</maml:name>
@@ -2490,6 +2659,7 @@
           <command:parameterValue required="false" variableLength="false">TableScript</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">TableCopyPlan</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">Inventory</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">ExportPlan</command:parameterValue>
         </command:parameterValueGroup>
         <dev:type>
           <maml:name>DbaXSqlServerManagementType</maml:name>
@@ -2530,6 +2700,18 @@
         <dev:code>Get-DbaXSqlServerManagement -Type DatabasePrincipal -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'</dev:code>
         <dev:remarks>
           <maml:para>Lists database principals in the current database.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>Review database scripts and their dependencies.</maml:title>
+        <maml:introduction>
+          <maml:para>PS&gt; </maml:para>
+        </maml:introduction>
+        <dev:code>$plan = Get-DbaXSqlServerManagement -Type ExportPlan -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'&#xD;
+            $plan.Issues&#xD;
+            $plan.OrderedScripts | Select-Object Id, ContentFingerprint</dev:code>
+        <dev:remarks>
+          <maml:para>Captures immutable scripts and database permission metadata. Requires database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies; review issues and limitations before using scripts. Does not execute DDL or create a complete migration or security deployment.</maml:para>
         </dev:remarks>
       </command:example>
     </command:examples>
@@ -2659,6 +2841,18 @@
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>MaximumIndexUsageRows</maml:name>
+          <maml:description>
+            <maml:para>Maximum retained indexes when collecting index usage; additional visible indexes set IsTruncated.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
+          <dev:type>
+            <maml:name>Int32</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>MaxLogBackupAgeMinutes</maml:name>
           <maml:description>
             <maml:para>Maximum age in minutes for log backups before status is considered overdue.</maml:para>
@@ -2711,6 +2905,9 @@
             <command:parameterValue required="false" variableLength="false">WaitStatistics</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">AvailabilityGroups</command:parameterValue>
             <command:parameterValue required="false" variableLength="false">All</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">QueryStore</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">IndexUsage</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Workload</command:parameterValue>
           </command:parameterValueGroup>
           <dev:type>
             <maml:name>SqlServerMonitoringScope</maml:name>
@@ -2878,6 +3075,18 @@
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>MaximumIndexUsageRows</maml:name>
+        <maml:description>
+          <maml:para>Maximum retained indexes when collecting index usage; additional visible indexes set IsTruncated.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
+        <dev:type>
+          <maml:name>Int32</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>MaxLogBackupAgeMinutes</maml:name>
         <maml:description>
           <maml:para>Maximum age in minutes for log backups before status is considered overdue.</maml:para>
@@ -2930,6 +3139,9 @@
           <command:parameterValue required="false" variableLength="false">WaitStatistics</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">AvailabilityGroups</command:parameterValue>
           <command:parameterValue required="false" variableLength="false">All</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">QueryStore</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">IndexUsage</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Workload</command:parameterValue>
         </command:parameterValueGroup>
         <dev:type>
           <maml:name>SqlServerMonitoringScope</maml:name>
@@ -8203,6 +8415,21 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ReadOnly</maml:name>
+          <maml:description>
+            <maml:para>Opens the database read-only (Mode=ReadOnly). Statements that modify it fail with a SQLite read-only error, and a&#xD;
+missing database file is reported instead of being created. -Database must be a file path or a file-backed&#xD;
+connection string. SQLite may still create -wal/-shm files next to a WAL database, and statements such&#xD;
+as VACUUM INTO can write other files.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
           <maml:name>ReturnType</maml:name>
           <maml:description>
@@ -8284,6 +8511,21 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>ReadOnly</maml:name>
+        <maml:description>
+          <maml:para>Opens the database read-only (Mode=ReadOnly). Statements that modify it fail with a SQLite read-only error, and a&#xD;
+missing database file is reported instead of being created. -Database must be a file path or a file-backed&#xD;
+connection string. SQLite may still create -wal/-shm files next to a WAL database, and statements such&#xD;
+as VACUUM INTO can write other files.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="As">
         <maml:name>ReturnType</maml:name>
         <maml:description>
@@ -8350,6 +8592,16 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
           <maml:para>Streams each row as it is received, which is useful for large result sets.</maml:para>
         </dev:remarks>
       </command:example>
+      <command:example>
+        <maml:title>Query a database without being able to change it.</maml:title>
+        <maml:introduction>
+          <maml:para>PS&gt; </maml:para>
+        </maml:introduction>
+        <dev:code>Invoke-DbaXSQLite -Database 'C:\ProgramData\App\monitoring.db' -Query 'SELECT COUNT(*) AS Probes FROM ProbeResults' -ReadOnly</dev:code>
+        <dev:remarks>
+          <maml:para>Opens the file with Mode=ReadOnly: statements that write fail and a missing file is never created. Use it to inspect a database that a service owns.</maml:para>
+        </dev:remarks>
+      </command:example>
     </command:examples>
     <command:relatedLinks>
       <maml:navigationLink>
@@ -8391,6 +8643,26 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
           </command:parameterValueGroup>
           <dev:type>
             <maml:name>DbaXSQLiteMaintenanceAction</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>BackupMethod</maml:name>
+          <maml:description>
+            <maml:para>How the Backup action reads the source. Auto (the default) copies a WAL database as a held snapshot, which&#xD;
+completes while other connections write, and any other database step-wise. Snapshot always holds one read&#xD;
+transaction across the copy (in rollback-journal mode writers wait until it ends). Incremental releases the&#xD;
+source between steps, so writers never wait for more than one step, but every write restarts the copy.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SqliteBackupMethod</command:parameterValue>
+          <command:parameterValueGroup>
+            <command:parameterValue required="false" variableLength="false">Auto</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Snapshot</command:parameterValue>
+            <command:parameterValue required="false" variableLength="false">Incremental</command:parameterValue>
+          </command:parameterValueGroup>
+          <dev:type>
+            <maml:name>SqliteBackupMethod</maml:name>
             <maml:uri />
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
@@ -8490,6 +8762,26 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         </command:parameterValueGroup>
         <dev:type>
           <maml:name>DbaXSQLiteMaintenanceAction</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>BackupMethod</maml:name>
+        <maml:description>
+          <maml:para>How the Backup action reads the source. Auto (the default) copies a WAL database as a held snapshot, which&#xD;
+completes while other connections write, and any other database step-wise. Snapshot always holds one read&#xD;
+transaction across the copy (in rollback-journal mode writers wait until it ends). Incremental releases the&#xD;
+source between steps, so writers never wait for more than one step, but every write restarts the copy.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SqliteBackupMethod</command:parameterValue>
+        <command:parameterValueGroup>
+          <command:parameterValue required="false" variableLength="false">Auto</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Snapshot</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">Incremental</command:parameterValue>
+        </command:parameterValueGroup>
+        <dev:type>
+          <maml:name>SqliteBackupMethod</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
@@ -10287,6 +10579,18 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
         <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>DestinationOrderByColumns</maml:name>
+          <maml:description>
+            <maml:para>Destination key columns for verified readback when source keys are mapped or generated.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">String[]</command:parameterValue>
+          <dev:type>
+            <maml:name>String[]</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>ExcludedColumns</maml:name>
           <maml:description>
             <maml:para>Optional columns to exclude from copy pages.</maml:para>
@@ -10330,6 +10634,18 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
           <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
           <dev:type>
             <maml:name>String</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>UseKeysetPagination</maml:name>
+          <maml:description>
+            <maml:para>Use a unique, non-null ascending source key instead of offset paging.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
             <maml:uri />
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
@@ -10410,6 +10726,18 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
       <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>DestinationOrderByColumns</maml:name>
+        <maml:description>
+          <maml:para>Destination key columns for verified readback when source keys are mapped or generated.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">String[]</command:parameterValue>
+        <dev:type>
+          <maml:name>String[]</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="true" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>ExcludedColumns</maml:name>
         <maml:description>
           <maml:para>Optional columns to exclude from copy pages.</maml:para>
@@ -10453,6 +10781,18 @@ A disabled switch remains compatible with ordinary buffered query options.</maml
         <command:parameterValue required="true" variableLength="false">String</command:parameterValue>
         <dev:type>
           <maml:name>String</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>UseKeysetPagination</maml:name>
+        <maml:description>
+          <maml:para>Use a unique, non-null ascending source key instead of offset paging.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>

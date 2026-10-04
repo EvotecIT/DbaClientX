@@ -1,6 +1,7 @@
 using System;
 using System.Data;
 using System.Text.RegularExpressions;
+using System.Xml;
 
 namespace DBAClientX.SqlServerManagement;
 
@@ -200,9 +201,27 @@ internal static class SqlServerManagementMappers
             UniqueConstraintBucketCount = GetNullableInt64(record, "UniqueConstraintBucketCount"),
             GraphTableKind = GetString(record, "GraphTableKind"),
             FileTableOptions = GetString(record, "FileTableOptions"),
-            AdditionalConstraintDefinitions = GetString(record, "AdditionalConstraintDefinitions"),
-            PostCreateStatements = GetString(record, "PostCreateStatements")
+            AdditionalConstraintDefinitions = ReadStatementList(GetString(record, "AdditionalConstraintDefinitions")),
+            PostCreateStatements = ReadStatementList(GetString(record, "PostCreateStatements"))
         };
+
+    // Native XML contains Base64 UTF-16LE entries so arbitrary SQL text never acts as a delimiter or XML markup.
+    internal static IReadOnlyList<string> ReadStatementList(string? xml)
+    {
+        if (string.IsNullOrEmpty(xml)) return Array.Empty<string>();
+        var statements = new List<string>();
+        using var text = new StringReader(xml);
+        using var reader = XmlReader.Create(text, new XmlReaderSettings {
+            ConformanceLevel = ConformanceLevel.Fragment, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null });
+        while (reader.MoveToContent() != XmlNodeType.None)
+        {
+            if (reader.NodeType != XmlNodeType.Element || reader.Name != "item")
+                throw new FormatException("Unexpected SQL Server statement metadata element.");
+            byte[] bytes = Convert.FromBase64String(reader.ReadElementContentAsString());
+            statements.Add(new UnicodeEncoding(false, false, true).GetString(bytes));
+        }
+        return statements.AsReadOnly();
+    }
 
     internal static string NormalizeModuleScript(string script)
     {

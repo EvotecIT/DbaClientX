@@ -2,6 +2,8 @@ namespace DBAClientX;
 
 public partial class SqlServer
 {
+    // Catalog text and XML-generated text can have different collations. Explicit database collation
+    // keeps string composition valid without changing identifiers, definitions or SQL literal content.
     private const string SqlServerMaskedColumnsSupportQuery = @"
 SELECT CASE WHEN OBJECT_ID(N'sys.masked_columns') IS NULL THEN 0 ELSE 1 END;";
 
@@ -98,7 +100,7 @@ OUTER APPLY (
             WHERE function_order_column.object_id = object_info.object_id
             ORDER BY function_order_column.order_column_id
             FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+        ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
     ) AS order_info
 ) AS function_order_info";
 
@@ -119,8 +121,8 @@ SELECT
     ReferencingType = trigger_info.type_desc COLLATE DATABASE_DEFAULT,
     ReferencedServerName = dependency.referenced_server_name COLLATE DATABASE_DEFAULT,
     ReferencedDatabaseName = dependency.referenced_database_name COLLATE DATABASE_DEFAULT,
-    ReferencedSchemaName = dependency.referenced_schema_name COLLATE DATABASE_DEFAULT,
-    ReferencedEntityName = dependency.referenced_entity_name COLLATE DATABASE_DEFAULT,
+    ReferencedSchemaName = {DependencyReferencedSchema} COLLATE DATABASE_DEFAULT,
+    ReferencedEntityName = {DependencyReferencedEntity} COLLATE DATABASE_DEFAULT,
     ReferencedClassDescription = dependency.referenced_class_desc COLLATE DATABASE_DEFAULT,
     IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
     IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
@@ -157,7 +159,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS server_trigger_order_info
 WHERE module_info.definition IS NOT NULL
   AND @schema IS NULL
@@ -197,7 +199,7 @@ OUTER APPLY (
         WHERE event_info.object_id = trigger_info.object_id
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
 ) AS server_trigger_events
 OUTER APPLY (
     SELECT OrderStatements = (
@@ -211,7 +213,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS server_trigger_order_info
 WHERE @schema IS NULL
   AND (@name IS NULL OR trigger_info.name COLLATE DATABASE_DEFAULT = @name)";
@@ -253,7 +255,7 @@ OUTER APPLY (
         WHERE event_info.object_id = trigger_info.object_id
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
 ) AS database_trigger_events
 OUTER APPLY (
     SELECT OrderStatements = (
@@ -267,7 +269,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS database_trigger_order_info
 WHERE trigger_info.parent_class = 0
   AND @schema IS NULL
@@ -325,7 +327,7 @@ OUTER APPLY (
             ) AS options(option_value)
             WHERE option_value IS NOT NULL
             FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+        ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
     ) AS option_info
 ) AS clr_options
 OUTER APPLY (
@@ -335,7 +337,7 @@ OUTER APPLY (
         WHERE event_info.object_id = object_info.object_id
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
 ) AS clr_trigger_events
 OUTER APPLY (
     SELECT OrderStatements = (
@@ -348,7 +350,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS clr_trigger_order_info
 OUTER APPLY (
     SELECT ParameterList = STUFF((
@@ -377,7 +379,7 @@ OUTER APPLY (
           AND parameter_item.parameter_id > 0
         ORDER BY parameter_item.parameter_id
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
 ) AS parameter_info
 LEFT JOIN sys.parameters AS return_parameter ON return_parameter.object_id = object_info.object_id AND return_parameter.parameter_id = 0
 LEFT JOIN sys.types AS return_type ON return_type.user_type_id = return_parameter.user_type_id
@@ -416,7 +418,7 @@ OUTER APPLY (
         WHERE column_item.object_id = object_info.object_id
         ORDER BY column_item.column_id
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
 ) AS table_return_info
 {DatabaseClrFunctionOrderApply}
 WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
@@ -465,7 +467,7 @@ WHERE object_info.type IN ('PC', 'FS', 'FT', 'TA', 'AF')
 
     private const string SqlServerTableScriptLegacyEncryptionDefinitionProjection = "CONVERT(nvarchar(4000), NULL)";
 
-    private const string SqlServerTableScriptEncryptionDefinitionProjection = "CASE WHEN column_info.encryption_type_desc IS NULL THEN NULL ELSE N'ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = ' + QUOTENAME(encryption_key.name) + N', ENCRYPTION_TYPE = ' + column_info.encryption_type_desc + N', ALGORITHM = ''' + column_info.encryption_algorithm_name + N''')' END";
+    private const string SqlServerTableScriptEncryptionDefinitionProjection = "CASE WHEN column_info.encryption_type_desc IS NULL THEN NULL ELSE N'ENCRYPTED WITH (COLUMN_ENCRYPTION_KEY = ' + QUOTENAME(encryption_key.name) COLLATE DATABASE_DEFAULT + N', ENCRYPTION_TYPE = ' + column_info.encryption_type_desc + N', ALGORITHM = ''' + column_info.encryption_algorithm_name + N''')' END";
 
     private const string SqlServerTableScriptEncryptionJoin = "LEFT JOIN sys.column_encryption_keys AS encryption_key ON encryption_key.column_encryption_key_id = column_info.column_encryption_key_id";
 
@@ -542,22 +544,22 @@ OUTER APPLY (
         SELECT Options = STUFF((
             SELECT N', ' + option_value
             FROM (VALUES
-                (CASE WHEN filetable_source.directory_name IS NOT NULL THEN N'FILETABLE_DIRECTORY = N''' + REPLACE(filetable_source.directory_name, N'''', N'''''') + N'''' ELSE NULL END),
-                (CASE WHEN filetable_source.filename_collation_name IS NOT NULL THEN N'FILETABLE_COLLATE_FILENAME = ' + filetable_source.filename_collation_name ELSE NULL END),
-                (CASE WHEN filetable_primary_key.primary_key_name IS NOT NULL THEN N'FILETABLE_PRIMARY_KEY_CONSTRAINT_NAME = ' + QUOTENAME(filetable_primary_key.primary_key_name) ELSE NULL END),
-                (CASE WHEN filetable_stream_unique.stream_unique_name IS NOT NULL THEN N'FILETABLE_STREAMID_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_stream_unique.stream_unique_name) ELSE NULL END),
-                (CASE WHEN filetable_fullpath_unique.fullpath_unique_name IS NOT NULL THEN N'FILETABLE_FULLPATH_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_fullpath_unique.fullpath_unique_name) ELSE NULL END)
+                (CASE WHEN filetable_source.directory_name IS NOT NULL THEN N'FILETABLE_DIRECTORY = N''' + REPLACE(filetable_source.directory_name, N'''', N'''''') + N'''' ELSE NULL END COLLATE DATABASE_DEFAULT),
+                (CASE WHEN filetable_source.filename_collation_name IS NOT NULL THEN N'FILETABLE_COLLATE_FILENAME = ' + filetable_source.filename_collation_name ELSE NULL END COLLATE DATABASE_DEFAULT),
+                (CASE WHEN filetable_primary_key.primary_key_name IS NOT NULL THEN N'FILETABLE_PRIMARY_KEY_CONSTRAINT_NAME = ' + QUOTENAME(filetable_primary_key.primary_key_name) ELSE NULL END COLLATE DATABASE_DEFAULT),
+                (CASE WHEN filetable_stream_unique.stream_unique_name IS NOT NULL THEN N'FILETABLE_STREAMID_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_stream_unique.stream_unique_name) ELSE NULL END COLLATE DATABASE_DEFAULT),
+                (CASE WHEN filetable_fullpath_unique.fullpath_unique_name IS NOT NULL THEN N'FILETABLE_FULLPATH_UNIQUE_CONSTRAINT_NAME = ' + QUOTENAME(filetable_fullpath_unique.fullpath_unique_name) ELSE NULL END COLLATE DATABASE_DEFAULT)
             ) AS filetable_options(option_value)
             WHERE option_value IS NOT NULL
             FOR XML PATH(N''), TYPE
-        ).value(N'.', N'nvarchar(max)'), 1, 2, N'')
+        ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'')
     ) AS option_info
     WHERE filetable_source.object_id = table_info.object_id
 ) AS filetable_info";
 
     private const string SqlServerPermissionsLegacyAvailabilityGroupNameProjection = "CONVERT(nvarchar(128), permission.major_id) COLLATE DATABASE_DEFAULT";
 
-    private const string SqlServerPermissionsAvailabilityGroupNameProjection = "COALESCE(availability_group.name, CONVERT(nvarchar(128), permission.major_id)) COLLATE DATABASE_DEFAULT";
+    private const string SqlServerPermissionsAvailabilityGroupNameProjection = "COALESCE(availability_group.Name, CONVERT(nvarchar(128), permission.major_id)) COLLATE DATABASE_DEFAULT";
 
     private const string SqlServerPermissionsAvailabilityGroupJoin = @"
 LEFT JOIN (
@@ -636,12 +638,12 @@ LEFT JOIN sys.external_languages AS target_external_language ON target_external_
                     WHERE edge_clause.object_id = edge_constraint.object_id
                     ORDER BY edge_clause.clause_number
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'') + N')' +
                 CASE WHEN edge_constraint.delete_referential_action_desc IS NOT NULL AND edge_constraint.delete_referential_action_desc <> N'NO_ACTION' THEN
                     N' ON DELETE ' + REPLACE(edge_constraint.delete_referential_action_desc, N'_', N' ')
                 ELSE N'' END + N';' +
                 CASE WHEN edge_constraint.is_disabled = 1 THEN
-                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    CHAR(13) + CHAR(10) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
                     N' NOCHECK CONSTRAINT ' + QUOTENAME(edge_constraint.name) + N';'
                 ELSE N'' END
             FROM sys.edge_constraints AS edge_constraint
@@ -711,16 +713,16 @@ OUTER APPLY (
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS graph_info
 OUTER APPLY (
-    SELECT statements = STUFF((
-        SELECT CHAR(30) + statement
+    SELECT statements = CONVERT(nvarchar(max), (
+        SELECT CONVERT(varbinary(max), CONVERT(nvarchar(max), statement)) AS [item]
         FROM (
-            SELECT statement = CONVERT(nvarchar(max), NULL)
+            SELECT statement = CONVERT(nvarchar(max), NULL) COLLATE DATABASE_DEFAULT
             WHERE 1 = 0
 {GraphEdgeConstraintStatements}
         ) AS table_statement
         WHERE statement IS NOT NULL
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+        FOR XML PATH(N''), BINARY BASE64, TYPE
+    ))
 ) AS graph_only_post_create_info
 WHERE graph_info.graph_kind IN (N'NODE', N'EDGE')
   AND (@schema IS NULL OR schema_info.name = @schema)
@@ -1021,8 +1023,8 @@ SELECT
     ReferencingType = referencing_object.type_desc,
     ReferencedServerName = dependency.referenced_server_name,
     ReferencedDatabaseName = dependency.referenced_database_name,
-    ReferencedSchemaName = dependency.referenced_schema_name,
-    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedSchemaName = {DependencyReferencedSchema},
+    ReferencedEntityName = {DependencyReferencedEntity},
     ReferencedClassDescription = dependency.referenced_class_desc,
     IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
     IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
@@ -1040,8 +1042,8 @@ SELECT
     ReferencingType = trigger_info.type_desc,
     ReferencedServerName = dependency.referenced_server_name,
     ReferencedDatabaseName = dependency.referenced_database_name,
-    ReferencedSchemaName = dependency.referenced_schema_name,
-    ReferencedEntityName = dependency.referenced_entity_name,
+    ReferencedSchemaName = {DependencyReferencedSchema},
+    ReferencedEntityName = {DependencyReferencedEntity},
     ReferencedClassDescription = dependency.referenced_class_desc,
     IsCallerDependent = CONVERT(bit, dependency.is_caller_dependent),
     IsAmbiguous = CONVERT(bit, dependency.is_ambiguous)
@@ -1103,7 +1105,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS trigger_order_info
 WHERE object_info.type IN ('P', 'X', 'V', 'TR', 'FN', 'IF', 'TF')
   AND module_info.definition IS NOT NULL
@@ -1135,7 +1137,7 @@ OUTER APPLY (
           AND (event_info.is_first = 1 OR event_info.is_last = 1)
         ORDER BY event_info.type_desc
         FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)')
+    ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT
 ) AS database_trigger_order_info
 WHERE trigger_info.parent_class = 0
   AND module_info.definition IS NOT NULL
@@ -1353,8 +1355,8 @@ OUTER APPLY (
     FROM (SELECT data = (SELECT table_info.* FOR XML PATH(N'table'), TYPE)) AS table_metadata
 ) AS external_info
 OUTER APPLY (
-    SELECT definitions = STUFF((
-        SELECT CHAR(30) + definition
+    SELECT definitions = CONVERT(nvarchar(max), (
+        SELECT CONVERT(varbinary(max), CONVERT(nvarchar(max), definition)) AS [item]
         FROM (
             SELECT definition =
                 N'CONSTRAINT ' + QUOTENAME(unique_index.name) + N' UNIQUE ' +
@@ -1369,7 +1371,7 @@ OUTER APPLY (
                       AND unique_index_column.key_ordinal > 0
                     ORDER BY unique_index_column.key_ordinal
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'') + N')' +
                 {UniqueHashBucketCount}
             FROM sys.indexes AS unique_index
             {UniqueHashJoin}
@@ -1390,7 +1392,7 @@ OUTER APPLY (
                       AND memory_index_column.key_ordinal > 0
                     ORDER BY memory_index_column.key_ordinal
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'') + N')' +
                 {MemoryHashBucketCount}
             FROM sys.indexes AS memory_index
             {MemoryHashJoin}
@@ -1411,12 +1413,12 @@ OUTER APPLY (
               AND check_info.is_disabled = 0
               AND check_info.is_not_trusted = 0
         ) AS table_constraint
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+        FOR XML PATH(N''), BINARY BASE64, TYPE
+    ))
 ) AS constraint_info
 OUTER APPLY (
-    SELECT statements = STUFF((
-        SELECT CHAR(30) + statement
+    SELECT statements = CONVERT(nvarchar(max), (
+        SELECT CONVERT(varbinary(max), CONVERT(nvarchar(max), statement)) AS [item]
         FROM (
             SELECT statement =
                 N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
@@ -1425,7 +1427,7 @@ OUTER APPLY (
                 CASE WHEN check_info.is_not_for_replication = 1 THEN N'NOT FOR REPLICATION ' ELSE N'' END +
                 check_info.definition + N';' +
                 CASE WHEN check_info.is_disabled = 1 THEN
-                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    CHAR(13) + CHAR(10) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
                     N' NOCHECK CONSTRAINT ' + QUOTENAME(check_info.name) + N';'
                 ELSE N'' END
             FROM sys.check_constraints AS check_info
@@ -1443,7 +1445,7 @@ OUTER APPLY (
                     WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
                     ORDER BY foreign_key_column.constraint_column_id
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N') REFERENCES ' +
+                ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'') + N') REFERENCES ' +
                 QUOTENAME(referenced_schema.name) + N'.' + QUOTENAME(referenced_table.name) + N' (' +
                 STUFF((
                     SELECT N', ' + QUOTENAME(referenced_column.name)
@@ -1452,13 +1454,13 @@ OUTER APPLY (
                     WHERE foreign_key_column.constraint_object_id = foreign_key.object_id
                     ORDER BY foreign_key_column.constraint_column_id
                     FOR XML PATH(N''), TYPE
-                ).value(N'.', N'nvarchar(max)'), 1, 2, N'') + N')' +
+                ).value(N'.', N'nvarchar(max)') COLLATE DATABASE_DEFAULT, 1, 2, N'') + N')' +
                 CASE WHEN foreign_key.delete_referential_action_desc <> N'NO_ACTION' THEN N' ON DELETE ' + REPLACE(foreign_key.delete_referential_action_desc, N'_', N' ') ELSE N'' END +
                 CASE WHEN foreign_key.update_referential_action_desc <> N'NO_ACTION' THEN N' ON UPDATE ' + REPLACE(foreign_key.update_referential_action_desc, N'_', N' ') ELSE N'' END +
                 CASE WHEN foreign_key.is_not_for_replication = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END +
                 N';' +
                 CASE WHEN foreign_key.is_disabled = 1 THEN
-                    CHAR(30) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
+                    CHAR(13) + CHAR(10) + N'ALTER TABLE ' + QUOTENAME(schema_info.name) + N'.' + QUOTENAME(table_info.name) +
                     N' NOCHECK CONSTRAINT ' + QUOTENAME(foreign_key.name) + N';'
                 ELSE N'' END
             FROM sys.foreign_keys AS foreign_key
@@ -1467,8 +1469,8 @@ OUTER APPLY (
             WHERE foreign_key.parent_object_id = table_info.object_id
 {GraphEdgeConstraintStatements}
         ) AS table_statement
-        FOR XML PATH(N''), TYPE
-    ).value(N'.', N'nvarchar(max)'), 1, 1, N'')
+        FOR XML PATH(N''), BINARY BASE64, TYPE
+    ))
 ) AS post_create_info
 WHERE (@schema IS NULL OR schema_info.name = @schema)
   AND (@name IS NULL OR table_info.name = @name)

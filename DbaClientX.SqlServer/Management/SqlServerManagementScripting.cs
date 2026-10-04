@@ -8,8 +8,6 @@ namespace DBAClientX.SqlServerManagement;
 
 internal static class SqlServerManagementScripting
 {
-    internal const char ConstraintDefinitionSeparator = '\u001e';
-
     public static IReadOnlyList<SqlServerScriptInfo> BuildTableScripts(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         var tableGroups = columns
@@ -617,9 +615,7 @@ internal static class SqlServerManagementScripting
     private static IEnumerable<string> BuildAdditionalConstraintDefinitions(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         return columns
-            .Select(column => column.AdditionalConstraintDefinitions)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .SelectMany(SplitMetadataList)
+            .SelectMany(column => column.AdditionalConstraintDefinitions)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(value => value, StringComparer.Ordinal);
     }
@@ -627,23 +623,9 @@ internal static class SqlServerManagementScripting
     private static IEnumerable<string> BuildPostCreateStatements(IEnumerable<SqlServerTableColumnScriptInfo> columns)
     {
         return columns
-            .Select(column => column.PostCreateStatements)
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .SelectMany(SplitMetadataList)
-            .Distinct(StringComparer.Ordinal);
-    }
-
-    private static IEnumerable<string> SplitMetadataList(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return Array.Empty<string>();
-        }
-
-        return value!
-            .Split(new[] { ConstraintDefinitionSeparator }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(item => item.Trim())
-            .Where(item => item.Length > 0);
+            .SelectMany(column => column.PostCreateStatements)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal);
     }
 
     private static string QualifyName(string schema, string name)

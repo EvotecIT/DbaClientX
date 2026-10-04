@@ -11,7 +11,7 @@ Collects a SQL Server monitoring snapshot through the DbaClientX SQL Server prov
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Get-DbaXSqlServerMonitoring -Server <string> [-Database <string>] [-Scope <SqlServerMonitoringScope>] [-Port <Int32>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-IncludeSystemDatabases] [-IncludeDisabledAgentJobs] [-MaxFullBackupAgeHours <Double>] [-MaxDifferentialBackupAgeHours <Double>] [-MaxLogBackupAgeMinutes <Double>] [-MaxCheckDbAgeDays <Double>] [-WaitStatisticThresholdPercent <decimal>] [-ConnectTimeoutSeconds <Int32>] [-ApplicationName <string>] [<CommonParameters>]
+Get-DbaXSqlServerMonitoring -Server <string> [-Database <string>] [-Scope <SqlServerMonitoringScope>] [-Port <Int32>] [-Username <string>] [-Password <string>] [-Credential <pscredential>] [-TrustServerCertificate] [-IncludeSystemDatabases] [-IncludeDisabledAgentJobs] [-MaxFullBackupAgeHours <Double>] [-MaxDifferentialBackupAgeHours <Double>] [-MaxLogBackupAgeMinutes <Double>] [-MaxCheckDbAgeDays <Double>] [-WaitStatisticThresholdPercent <decimal>] [-MaximumIndexUsageRows <int>] [-ConnectTimeoutSeconds <Int32>] [-ApplicationName <string>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -172,6 +172,22 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -MaximumIndexUsageRows
+Maximum retained indexes when collecting index usage; additional visible indexes set IsTruncated.
+
+```yaml
+Type: Int32
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -MaxLogBackupAgeMinutes
 Maximum age in minutes for log backups before status is considered overdue.
 
@@ -227,7 +243,7 @@ Monitoring areas to collect.
 Type: SqlServerMonitoringScope
 Parameter Sets: __AllParameterSets
 Aliases: None
-Possible values: None, Connectivity, DatabaseState, BackupFreshness, CheckDbFreshness, AgentJobs, Baseline, WaitStatistics, AvailabilityGroups, All
+Possible values: None, Connectivity, DatabaseState, BackupFreshness, CheckDbFreshness, AgentJobs, Baseline, WaitStatistics, AvailabilityGroups, All, QueryStore, IndexUsage, Workload
 
 Required: False
 Position: named

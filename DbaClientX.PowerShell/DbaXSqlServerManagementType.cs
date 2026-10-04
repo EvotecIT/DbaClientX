@@ -45,5 +45,8 @@ public enum DbaXSqlServerManagementType
     TableCopyPlan,
 
     /// <summary>SQL Server instance inventory snapshot.</summary>
-    Inventory
+    Inventory,
+
+    /// <summary>Immutable database script and permission review manifest.</summary>
+    ExportPlan
 }

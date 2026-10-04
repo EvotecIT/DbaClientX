@@ -90,6 +90,10 @@ public partial class SqlServer
     public virtual IReadOnlyList<SqlServerPermissionInfo> GetSqlServerPermissions(
         string connectionString,
         string? principalName = null)
+        => GetSqlServerPermissionsCore(connectionString, principalName, includeServer: true);
+
+    private IReadOnlyList<SqlServerPermissionInfo> GetSqlServerPermissionsCore(
+        string connectionString, string? principalName, bool includeServer)
     {
         ValidateConnectionString(connectionString);
         SqlConnection? connection = null;
@@ -98,8 +102,8 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            bool includeAvailabilityGroups = SupportsAvailabilityGroups(connection, transaction);
-            bool includeServerPermissions = SupportsServerPermissions(connection, transaction);
+            bool includeAvailabilityGroups = includeServer && SupportsAvailabilityGroups(connection, transaction);
+            bool includeServerPermissions = includeServer && SupportsServerPermissions(connection, transaction);
             bool includeFullTextStoplists = SupportsFullTextStoplists(connection, transaction);
             bool includeSearchPropertyLists = SupportsSearchPropertyLists(connection, transaction);
             bool includeDatabaseScopedCredentials = SupportsDatabaseScopedCredentials(connection, transaction);
@@ -181,9 +185,17 @@ public partial class SqlServer
     }
 
     private static string BuildSqlServerDependenciesManagementQuery(bool includeServerTriggers)
-        => SqlServerDependenciesManagementQuery.Replace(
+        => ExpandSqlServerDependencyNames(SqlServerDependenciesManagementQuery.Replace(
             SqlServerDependenciesServerTriggerUnionToken,
-            includeServerTriggers ? SqlServerDependenciesServerTriggerUnion : string.Empty);
+            includeServerTriggers ? SqlServerDependenciesServerTriggerUnion : string.Empty), resolvedNames: false);
+
+    private static string ExpandSqlServerDependencyNames(string query, bool resolvedNames)
+        => query.Replace("{DependencyReferencedSchema}", resolvedNames
+            ? "CASE WHEN dependency.referenced_class = 1 AND dependency.referenced_id IS NOT NULL THEN OBJECT_SCHEMA_NAME(dependency.referenced_id) ELSE dependency.referenced_schema_name END"
+            : "dependency.referenced_schema_name")
+            .Replace("{DependencyReferencedEntity}", resolvedNames
+            ? "CASE WHEN dependency.referenced_class = 1 AND dependency.referenced_id IS NOT NULL THEN OBJECT_NAME(dependency.referenced_id) ELSE dependency.referenced_entity_name END"
+            : "dependency.referenced_entity_name");
 
     /// <summary>
     /// Lists SQL Server module definitions for procedures, functions, views, and triggers.
@@ -192,6 +204,10 @@ public partial class SqlServer
         string connectionString,
         string? schema = null,
         string? name = null)
+        => GetSqlServerModuleScriptsCore(connectionString, schema, name, includeServer: true);
+
+    private IReadOnlyList<SqlServerScriptInfo> GetSqlServerModuleScriptsCore(
+        string connectionString, string? schema, string? name, bool includeServer)
     {
         ValidateConnectionString(connectionString);
         SqlConnection? connection = null;
@@ -201,7 +217,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             string query = BuildSqlServerModuleScriptsManagementQuery(
-                SupportsServerTriggerModules(connection, transaction),
+                includeServer && SupportsServerTriggerModules(connection, transaction),
                 SupportsDatabaseClrModules(connection, transaction),
                 SupportsDatabaseClrFunctionOrdering(connection, transaction));
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapScript, parameters: new Dictionary<string, object?>

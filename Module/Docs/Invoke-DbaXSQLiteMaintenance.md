@@ -11,7 +11,7 @@ Runs SQLite maintenance operations through the DbaClientX SQLite provider.
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Invoke-DbaXSQLiteMaintenance [-Database] <string> [-Action] <DbaXSQLiteMaintenanceAction> [-Destination <string>] [-CheckpointMode <SqliteCheckpointMode>] [-BusyTimeoutMs <Int32>] [-SkipOptimize] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Invoke-DbaXSQLiteMaintenance [-Database] <string> [-Action] <DbaXSQLiteMaintenanceAction> [-Destination <string>] [-BackupMethod <SqliteBackupMethod>] [-CheckpointMode <SqliteCheckpointMode>] [-BusyTimeoutMs <Int32>] [-SkipOptimize] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -39,6 +39,25 @@ Possible values: Backup, Checkpoint, Optimize, PrepareForShutdown
 
 Required: True
 Position: 1
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -BackupMethod
+How the Backup action reads the source. Auto (the default) copies a WAL database as a held snapshot, which
+completes while other connections write, and any other database step-wise. Snapshot always holds one read
+transaction across the copy (in rollback-journal mode writers wait until it ends). Incremental releases the
+source between steps, so writers never wait for more than one step, but every write restarts the copy.
+
+```yaml
+Type: SqliteBackupMethod
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values: Auto, Snapshot, Incremental
+
+Required: False
+Position: named
 Default value: None
 Accept pipeline input: False
 Accept wildcard characters: False
