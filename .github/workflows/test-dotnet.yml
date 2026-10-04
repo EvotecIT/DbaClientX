@@ -149,11 +149,11 @@ jobs:
           docker logs "$postgres_container"
           exit 1
 
-      - name: Enable MySQL local-infile for bulk-copy contracts
+      - name: Configure MySQL bulk-copy and plan qualification
         run: >-
           docker exec ${{ job.services.mysql.id }}
           mysql -uroot --password=dbax-root-password
-          -e "SET GLOBAL local_infile=ON;"
+          -e "SET GLOBAL local_infile=ON; GRANT ALL PRIVILEGES ON \`dbx_plan_%\`.* TO 'dbax'@'%';"
 
       - name: Restore dependencies
         run: dotnet restore DbaClientX.Tests/DbaClientX.Tests.csproj
@@ -168,6 +168,7 @@ jobs:
         env:
           DBACLIENTX_POSTGRESQL_TEST_CONNECTION: Host=127.0.0.1;Port=5432;Database=dbax;Username=dbax;Password=dbax-test-password;SSL Mode=Require
           DBACLIENTX_MYSQL_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=Required
+          DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION: Server=127.0.0.1;Port=3306;Database=dbax;User ID=dbax;Password=dbax-test-password;SslMode=Required
 
   package-contracts:
     name: NuGet API compatibility

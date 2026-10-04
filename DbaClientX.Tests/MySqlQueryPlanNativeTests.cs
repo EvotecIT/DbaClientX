@@ -8,6 +8,7 @@ namespace DbaClientX.Tests;
 public sealed class MySqlQueryPlanNativeTests
 {
     [Theory]
+    [Trait("Category", "LiveProvider")]
     [InlineData("DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION", MySqlQueryPlanFormat.MySqlJsonV1)]
     [InlineData("DBACLIENTX_MARIADB_PLAN_TEST_CONNECTION", MySqlQueryPlanFormat.MariaDbJson)]
     public async Task Native_BoundPlansPreserveNativeIdentityAndNeverExecuteDml(string setting, MySqlQueryPlanFormat format)
@@ -58,6 +59,7 @@ public sealed class MySqlQueryPlanNativeTests
     }
 
     [Theory]
+    [Trait("Category", "LiveProvider")]
     [InlineData("DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION")]
     [InlineData("DBACLIENTX_MARIADB_PLAN_TEST_CONNECTION")]
     public async Task Native_CancellationAfterObservedLockReleasesOwnedSession(string setting)
@@ -97,6 +99,7 @@ public sealed class MySqlQueryPlanNativeTests
     }
 
     [Theory]
+    [Trait("Category", "LiveProvider")]
     [InlineData("DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION", "ANSI_QUOTES")]
     [InlineData("DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION", "NO_BACKSLASH_ESCAPES")]
     [InlineData("DBACLIENTX_MARIADB_PLAN_TEST_CONNECTION", "ANSI_QUOTES")]
@@ -110,6 +113,7 @@ public sealed class MySqlQueryPlanNativeTests
     }
 
     [Theory]
+    [Trait("Category", "LiveProvider")]
     [InlineData("DBACLIENTX_MYSQL_PLAN_TEST_CONNECTION")]
     [InlineData("DBACLIENTX_MARIADB_PLAN_TEST_CONNECTION")]
     public async Task Native_LateCancellationBlocksDeliveryAndClientTransactionStaysOwned(string setting)
