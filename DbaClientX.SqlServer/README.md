@@ -11,6 +11,28 @@ SQL Server provider for DbaClientX. Thin, fast ADO.NET wrapper with streaming, r
 dotnet add package DBAClientX.SqlServer
 ```
 
+## Export review plans
+
+`GetSqlServerExportPlan` captures table and module scripts, database permission metadata and known dependencies in an immutable manifest. It reuses the management readers and requires database `VIEW DEFINITION` permission. Freeze source DDL when consistency is required; capture uses several catalog reads rather than an atomic DDL snapshot.
+
+```csharp
+using var sql = new DBAClientX.SqlServer();
+var plan = sql.GetSqlServerExportPlan(connectionString);
+foreach (var issue in plan.Issues)
+    Console.WriteLine($"{issue.Kind}: {issue.ObjectName} — {issue.Detail}");
+foreach (var script in plan.OrderedScripts)
+    Console.WriteLine($"{script.Id}: {script.ContentFingerprint}");
+Console.WriteLine(plan.Fingerprint);
+```
+
+`Scripts` retains all available supported scripts. `OrderedScripts` places resolved local prerequisites before their dependents, including post-create constraints, and excludes scripts blocked by dependency cycles. Issues identify unavailable definitions, unsupported objects, missing prerequisites and unresolved or external references. Optional `schema` and `name` filters use native database comparisons; dependencies outside the selected scripts remain explicit prerequisites. Permission metadata covers the database regardless of these filters.
+
+For existing reader results, use `DBAClientX.SqlServerManagement.SqlServerExportPlan.Create(scripts, dependencies, permissions, sourceDatabaseName)`. Offline inputs require exact catalog schema/name identities; matching is ordinal and preserves case-sensitive names. Fingerprints use SHA-256 over exact UTF-8 script text and framed manifest metadata. They retain SQL literal line endings and exclude timestamps and runtime culture.
+
+PowerShell exposes the same owner through `Get-DbaXSqlServerManagement -Type ExportPlan -ConnectionString $connectionString`. Review `Issues` and `Limitations` before storing or using scripts. The plan does not execute DDL, write files, create users or grants, export data or secrets, or establish migration readiness. Backing schemas, user types, assemblies, filegroups and other deployment prerequisites remain caller responsibilities. Dynamic SQL can have dependencies absent from catalog metadata. Captured definitions can contain sensitive application literals.
+
+The opt-in Windows localhost replay tests use uniquely named temporary databases. Set `DBACLIENTX_SQL_EXPORT_TEST_CONNECTION` to an integrated-security localhost connection and `DBACLIENTX_SQL_EXPORT_TEST_DIRECTORY` to an existing writable scratch directory, install `sqlcmd`, and select `Category=LiveSqlExport`. The executable is used only by the replay test.
+
 ## Quick examples
 
 Execute non-query:

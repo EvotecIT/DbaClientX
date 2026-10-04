@@ -3,7 +3,7 @@ using DBAClientX.SqlServerManagement;
 namespace DBAClientX.PowerShell;
 
 /// <summary>Gets SQL Server-specific management metadata without requiring SQL Server Management Objects.</summary>
-/// <para>Returns SQL Server Agent, security, dependency, scripting, copy-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.</para>
+/// <para>Returns SQL Server Agent, security, dependency, scripting, copy-plan, export-plan, inventory, instance property, and configuration metadata using native SQL Server catalog queries.</para>
 /// <example>
 /// <summary>List SQL Server Agent jobs.</summary>
 /// <prefix>PS&gt; </prefix>
@@ -15,6 +15,14 @@ namespace DBAClientX.PowerShell;
 /// <prefix>PS&gt; </prefix>
 /// <code>Get-DbaXSqlServerManagement -Type DatabasePrincipal -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'</code>
 /// <para>Lists database principals in the current database.</para>
+/// </example>
+/// <example>
+/// <summary>Review database scripts and their dependencies.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>$plan = Get-DbaXSqlServerManagement -Type ExportPlan -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'
+/// $plan.Issues
+/// $plan.OrderedScripts | Select-Object Id, ContentFingerprint</code>
+/// <para>Captures immutable scripts and database permission metadata. Requires VIEW DEFINITION; review issues and limitations before using scripts. Does not execute DDL or create a complete migration or security deployment.</para>
 /// </example>
 [Cmdlet(VerbsCommon.Get, "DbaXSqlServerManagement")]
 [CmdletBinding()]
@@ -94,6 +102,7 @@ public sealed class CmdletGetDbaXSqlServerManagement : AsyncPSCmdlet
             DbaXSqlServerManagementType.TableScript => client.GetSqlServerTableScripts(ConnectionString, Schema, Name),
             DbaXSqlServerManagementType.TableCopyPlan => GetTableCopyPlan(client),
             DbaXSqlServerManagementType.Inventory => client.GetSqlServerInventory(ConnectionString, IncludeSystem.IsPresent, IncludeAdvanced.IsPresent, IncludeDisabled.IsPresent),
+            DbaXSqlServerManagementType.ExportPlan => client.GetSqlServerExportPlan(ConnectionString, Schema, Name),
             _ => throw new NotSupportedException($"SQL Server management type '{Type}' is not supported.")
         };
 

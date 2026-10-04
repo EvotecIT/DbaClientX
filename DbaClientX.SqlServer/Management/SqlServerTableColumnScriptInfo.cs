@@ -98,7 +98,7 @@ internal sealed class SqlServerTableColumnScriptInfo
 
     public string? FileTableOptions { get; set; }
 
-    public string? AdditionalConstraintDefinitions { get; set; }
+    public IReadOnlyList<string> AdditionalConstraintDefinitions { get; set; } = Array.Empty<string>();
 
-    public string? PostCreateStatements { get; set; }
+    public IReadOnlyList<string> PostCreateStatements { get; set; } = Array.Empty<string>();
 }

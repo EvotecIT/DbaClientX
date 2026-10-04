@@ -181,9 +181,17 @@ public partial class SqlServer
     }
 
     private static string BuildSqlServerDependenciesManagementQuery(bool includeServerTriggers)
-        => SqlServerDependenciesManagementQuery.Replace(
+        => ExpandSqlServerDependencyNames(SqlServerDependenciesManagementQuery.Replace(
             SqlServerDependenciesServerTriggerUnionToken,
-            includeServerTriggers ? SqlServerDependenciesServerTriggerUnion : string.Empty);
+            includeServerTriggers ? SqlServerDependenciesServerTriggerUnion : string.Empty), resolvedNames: false);
+
+    private static string ExpandSqlServerDependencyNames(string query, bool resolvedNames)
+        => query.Replace("{DependencyReferencedSchema}", resolvedNames
+            ? "CASE WHEN dependency.referenced_class = 1 AND dependency.referenced_id IS NOT NULL THEN OBJECT_SCHEMA_NAME(dependency.referenced_id) ELSE dependency.referenced_schema_name END"
+            : "dependency.referenced_schema_name")
+            .Replace("{DependencyReferencedEntity}", resolvedNames
+            ? "CASE WHEN dependency.referenced_class = 1 AND dependency.referenced_id IS NOT NULL THEN OBJECT_NAME(dependency.referenced_id) ELSE dependency.referenced_entity_name END"
+            : "dependency.referenced_entity_name");
 
     /// <summary>
     /// Lists SQL Server module definitions for procedures, functions, views, and triggers.
