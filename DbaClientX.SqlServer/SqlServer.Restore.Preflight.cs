@@ -20,9 +20,10 @@ public partial class SqlServer
     /// <param name="cancellationToken">Caller cancellation.</param>
     /// <returns>An immutable plan after native checksum and MOVE verification.</returns>
     /// <remarks>
-    /// SQL Server verifies readability, checksums, relocation collisions and destination capacity using MOVE.
-    /// This is a point-in-time preflight, not a reservation of names, media, access or space. The restore operation
-    /// revalidates it. File sizes exclude CHECKDB, growth and other temporary space. The caller owns the target
+    /// SQL Server verifies readability, checksums and relocation using MOVE. Native free-space verification
+    /// varies by server and platform; a successful plan does not establish sufficient physical capacity.
+    /// Independently confirm destination capacity. This preflight reserves neither names, media, access nor space,
+    /// and restore revalidates it. File sizes exclude CHECKDB, growth and other temporary space. The caller owns the target
     /// database and its explicit cleanup after restore; preparation never creates or deletes it.
     /// </remarks>
     public virtual async Task<SqlServerRestorePlan> PrepareRestoreAsNewAsync(
