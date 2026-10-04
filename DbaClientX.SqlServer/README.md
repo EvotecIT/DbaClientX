@@ -13,7 +13,7 @@ dotnet add package DBAClientX.SqlServer
 
 ## Export review plans
 
-`GetSqlServerExportPlan` captures table and module scripts, database permission metadata and known dependencies in an immutable manifest. It reuses the management readers and requires database `VIEW DEFINITION` permission. Freeze source DDL when consistency is required; capture uses several catalog reads rather than an atomic DDL snapshot.
+`GetSqlServerExportPlan` captures table and module scripts, database permission metadata and known dependencies in an immutable manifest. It reuses the database management readers and requires database `VIEW DEFINITION` plus `SELECT` on `sys.sql_expression_dependencies`. It omits instance metadata reads. Freeze source DDL when consistency is required; capture uses several catalog reads rather than an atomic DDL snapshot.
 
 ```csharp
 using var sql = new DBAClientX.SqlServer();

@@ -92,6 +92,27 @@ public sealed class SqlServerExportNativeTests
 
     [Fact]
     [Trait("Category", "LiveSqlExport")]
+    public async Task FilteredGraphExportReportsEndpointPrerequisites()
+    {
+        var settings = Settings();
+        await using var scope = new SqlServerRecoveryTestScope(settings.Connection, settings.Directory);
+        await using var admin = new SqlConnection(settings.Connection); await admin.OpenAsync(); await scope.CreateSourceAsync(admin);
+        string connectionString = new SqlConnectionStringBuilder(settings.Connection) { InitialCatalog = scope.SourceName }.ConnectionString;
+        await using var connection = new SqlConnection(connectionString); await connection.OpenAsync();
+        await Execute(connection, "CREATE TABLE dbo.ZFrom(Id int) AS NODE; CREATE TABLE dbo.ZTo(Id int) AS NODE; CREATE TABLE dbo.AEdge AS EDGE; "
+            + "ALTER TABLE dbo.AEdge ADD CONSTRAINT EC_Connection CONNECTION (dbo.ZFrom TO dbo.ZTo)");
+        using var client = new SqlServer();
+        var filtered = client.GetSqlServerExportPlan(connectionString, name: "AEdge");
+        Assert.Contains(filtered.Issues, issue => issue.Kind == SqlServerExportIssueKind.MissingPrerequisite && issue.Detail.Contains("[dbo].[ZFrom]"));
+        Assert.Contains(filtered.Issues, issue => issue.Kind == SqlServerExportIssueKind.MissingPrerequisite && issue.Detail.Contains("[dbo].[ZTo]"));
+        var complete = client.GetSqlServerExportPlan(connectionString);
+        Assert.Empty(complete.Issues);
+        var post = complete.Scripts.Single(script => script.ObjectName == "AEdge" && script.ScriptType == "TablePostCreate");
+        Assert.Contains("Table:[dbo].[ZFrom]", post.RequiredScriptIds); Assert.Contains("Table:[dbo].[ZTo]", post.RequiredScriptIds);
+    }
+
+    [Fact]
+    [Trait("Category", "LiveSqlExport")]
     public async Task NativeResolutionUsesCatalogCaseAndSchemaAndRefusesInvisibleDefinitions()
     {
         var settings = Settings();
@@ -119,6 +140,22 @@ public sealed class SqlServerExportNativeTests
             return owned;
         } } };
         Assert.Throws<UnauthorizedAccessException>(() => restricted.GetSqlServerExportPlan(connectionString));
+        await Execute(connection, "CREATE USER ExportAllowed WITHOUT LOGIN; GRANT VIEW DEFINITION TO ExportAllowed; "
+            + "GRANT SELECT ON sys.sql_expression_dependencies TO ExportAllowed");
+        using var allowed = new SqlServer { ConnectionOptions = new SqlServerConnectionOptions { ConnectionFactory = text => {
+            var owned = new SqlConnection(text);
+            owned.StateChange += (_, state) => {
+                if (state.OriginalState == ConnectionState.Closed && state.CurrentState == ConnectionState.Open)
+                    using (var impersonate = new SqlCommand("EXECUTE AS USER = 'ExportAllowed'", owned)) impersonate.ExecuteNonQuery();
+            };
+            return owned;
+        } } };
+        var leastPrivilege = allowed.GetSqlServerExportPlan(connectionString);
+        Assert.Empty(leastPrivilege.Issues);
+        Assert.Equal(plan.Scripts.Select(script => script.Id), leastPrivilege.Scripts.Select(script => script.Id));
+        Assert.All(leastPrivilege.Permissions, permission => Assert.Equal("Database", permission.Scope));
+        await Execute(connection, "DENY SELECT ON sys.sql_expression_dependencies TO ExportAllowed");
+        Assert.Throws<UnauthorizedAccessException>(() => allowed.GetSqlServerExportPlan(connectionString));
     }
 
     private static (string Connection, string Directory) Settings()

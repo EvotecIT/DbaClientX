@@ -90,6 +90,10 @@ public partial class SqlServer
     public virtual IReadOnlyList<SqlServerPermissionInfo> GetSqlServerPermissions(
         string connectionString,
         string? principalName = null)
+        => GetSqlServerPermissionsCore(connectionString, principalName, includeServer: true);
+
+    private IReadOnlyList<SqlServerPermissionInfo> GetSqlServerPermissionsCore(
+        string connectionString, string? principalName, bool includeServer)
     {
         ValidateConnectionString(connectionString);
         SqlConnection? connection = null;
@@ -98,8 +102,8 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
-            bool includeAvailabilityGroups = SupportsAvailabilityGroups(connection, transaction);
-            bool includeServerPermissions = SupportsServerPermissions(connection, transaction);
+            bool includeAvailabilityGroups = includeServer && SupportsAvailabilityGroups(connection, transaction);
+            bool includeServerPermissions = includeServer && SupportsServerPermissions(connection, transaction);
             bool includeFullTextStoplists = SupportsFullTextStoplists(connection, transaction);
             bool includeSearchPropertyLists = SupportsSearchPropertyLists(connection, transaction);
             bool includeDatabaseScopedCredentials = SupportsDatabaseScopedCredentials(connection, transaction);
@@ -200,6 +204,10 @@ public partial class SqlServer
         string connectionString,
         string? schema = null,
         string? name = null)
+        => GetSqlServerModuleScriptsCore(connectionString, schema, name, includeServer: true);
+
+    private IReadOnlyList<SqlServerScriptInfo> GetSqlServerModuleScriptsCore(
+        string connectionString, string? schema, string? name, bool includeServer)
     {
         ValidateConnectionString(connectionString);
         SqlConnection? connection = null;
@@ -209,7 +217,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction: false);
             string query = BuildSqlServerModuleScriptsManagementQuery(
-                SupportsServerTriggerModules(connection, transaction),
+                includeServer && SupportsServerTriggerModules(connection, transaction),
                 SupportsDatabaseClrModules(connection, transaction),
                 SupportsDatabaseClrFunctionOrdering(connection, transaction));
             return ExecuteMappedQuery(connection, transaction, query, SqlServerManagementMappers.MapScript, parameters: new Dictionary<string, object?>

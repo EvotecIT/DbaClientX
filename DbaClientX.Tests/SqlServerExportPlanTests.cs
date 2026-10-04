@@ -1,12 +1,38 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Reflection;
+using DBAClientX;
 using DBAClientX.SqlServerManagement;
 
 namespace DbaClientX.Tests;
 
 public sealed class SqlServerExportPlanTests
 {
+    [Theory]
+    [InlineData("TR", "SQL_TRIGGER")]
+    [InlineData("TA", "CLR_TRIGGER")]
+    public void NativeTriggerParentProjectionOrdersBothKindsAndReportsFilteredParents(string code, string type)
+    {
+        // CLR activation is not required: exercise the native catalog projection and public plan together.
+        Type itemType = typeof(SqlServer).GetNestedType("ExportCatalogObject", BindingFlags.NonPublic)!;
+        object item = Activator.CreateInstance(itemType, nonPublic: true)!;
+        foreach (var pair in new Dictionary<string, string> { ["Code"] = code, ["Schema"] = "dbo", ["Name"] = "A_Trigger",
+            ["ParentSchema"] = "dbo", ["ParentName"] = "Z_Parent" })
+            itemType.GetProperty(pair.Key, BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(item, pair.Value);
+        Array catalog = Array.CreateInstance(itemType, 1); catalog.SetValue(item, 0);
+        var dependencies = ((IEnumerable<SqlServerDependencyInfo>)typeof(SqlServer)
+            .GetMethod("BuildExportTriggerParentDependencies", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, new object[] { catalog })!).ToArray();
+        var trigger = Script("A_Trigger", "Module"); trigger.ObjectType = type;
+        var plan = SqlServerExportPlan.Create(new[] { trigger, Script("Z_Parent") }, dependencies);
+        Assert.Equal(new[] { "Z_Parent", "A_Trigger" }, plan.OrderedScripts.Select(script => script.ObjectName));
+        Assert.Equal(new[] { "Table:[dbo].[Z_Parent]" }, plan.Scripts.Single(script => script.ObjectName == "A_Trigger").RequiredScriptIds);
+        Assert.Contains(SqlServerExportPlan.Create(new[] { trigger }, dependencies).Issues,
+            issue => issue.Kind == SqlServerExportIssueKind.MissingPrerequisite && issue.Detail.Contains("Z_Parent"));
+        if (code == "TA") Assert.Contains(plan.Issues, issue => issue.Detail.Contains("CLR assembly"));
+    }
+
     [Fact]
     public void NativeStatementListTransportPreservesLiteralControlCharactersAndEntryBoundaries()
     {

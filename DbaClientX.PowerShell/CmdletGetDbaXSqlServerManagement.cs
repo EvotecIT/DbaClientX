@@ -22,7 +22,7 @@ namespace DBAClientX.PowerShell;
 /// <code>$plan = Get-DbaXSqlServerManagement -Type ExportPlan -ConnectionString 'Server=.;Database=AppDb;Integrated Security=True;Encrypt=True;TrustServerCertificate=True'
 /// $plan.Issues
 /// $plan.OrderedScripts | Select-Object Id, ContentFingerprint</code>
-/// <para>Captures immutable scripts and database permission metadata. Requires VIEW DEFINITION; review issues and limitations before using scripts. Does not execute DDL or create a complete migration or security deployment.</para>
+/// <para>Captures immutable scripts and database permission metadata. Requires database VIEW DEFINITION and SELECT on sys.sql_expression_dependencies; review issues and limitations before using scripts. Does not execute DDL or create a complete migration or security deployment.</para>
 /// </example>
 [Cmdlet(VerbsCommon.Get, "DbaXSqlServerManagement")]
 [CmdletBinding()]
