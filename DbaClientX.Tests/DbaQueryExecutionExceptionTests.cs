@@ -131,6 +131,41 @@ public sealed class DbaQueryExecutionExceptionTests
         }
     }
 
+    [Theory]
+    [InlineData("CREATE INDEX IX_Missing ON Rows (provider_sensitive_column)", DbaProviderErrorKind.MissingColumn, false)]
+    [InlineData("CREATE INDEX IX_Missing ON Rows (provider_sensitive_column)", DbaProviderErrorKind.MissingColumn, true)]
+    [InlineData("INSERT INTO Rows (provider_sensitive_column) VALUES (1)", DbaProviderErrorKind.MissingColumn, true)]
+    [InlineData("ALTER TABLE Rows ADD COLUMN provider_sensitive_column INTEGER", DbaProviderErrorKind.DuplicateColumn, false)]
+    [InlineData("ALTER TABLE Rows ADD COLUMN provider_sensitive_column INTEGER", DbaProviderErrorKind.DuplicateColumn, true)]
+    [InlineData("SELEC provider_sensitive_column FROM Rows", DbaProviderErrorKind.Unknown, true)]
+    public async Task SqliteSchemaFailures_RetainClassificationWithoutColumnNames(
+        string query, DbaProviderErrorKind expectedKind, bool asynchronous)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"dbaclientx-{Guid.NewGuid():N}.db");
+        try
+        {
+            using var sqlite = new SQLite();
+            string schema = expectedKind == DbaProviderErrorKind.DuplicateColumn
+                ? "CREATE TABLE Rows (provider_sensitive_column INTEGER)"
+                : "CREATE TABLE Rows (Id INTEGER)";
+            sqlite.ExecuteNonQuery(path, schema);
+
+            DbaQueryExecutionException exception = asynchronous
+                ? await Assert.ThrowsAsync<DbaQueryExecutionException>(() => sqlite.ExecuteNonQueryAsync(path, query))
+                : Assert.Throws<DbaQueryExecutionException>(() => sqlite.ExecuteNonQuery(path, query));
+
+            Assert.Equal(expectedKind, exception.ProviderErrorKind);
+            Assert.Equal(1, exception.ProviderErrorCode);
+            Assert.DoesNotContain("provider_sensitive_column", exception.ToString(), StringComparison.Ordinal);
+            var adapter = new SQLiteTableCopyAdapter($"Data Source={path}");
+            Assert.False(((IDbaTableCopyMissingTableClassifier)adapter).IsMissingTableException(exception));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     private sealed class PostgreSqlExceptionFactory : PostgreSql
     {
         internal DbaQueryExecutionException Wrap(Exception exception)
