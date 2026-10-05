@@ -235,10 +235,20 @@ public partial class SQLite
 
     /// <inheritdoc />
     protected override DbaProviderErrorKind GetProviderErrorKind(Exception exception)
-        => FindSqliteException(exception) is SqliteException sqliteException &&
-           SQLiteTableCopyAdapter.IsMissingTableError(sqliteException.SqliteErrorCode, sqliteException.Message)
-            ? DbaProviderErrorKind.MissingTable
-            : base.GetProviderErrorKind(exception);
+    {
+        if (FindSqliteException(exception) is SqliteException sqliteException && sqliteException.SqliteErrorCode == 1)
+        {
+            if (SQLiteTableCopyAdapter.IsMissingTableError(sqliteException.SqliteErrorCode, sqliteException.Message))
+                return DbaProviderErrorKind.MissingTable;
+            if (sqliteException.Message.Contains("no such column:", StringComparison.OrdinalIgnoreCase) ||
+                sqliteException.Message.Contains("has no column named ", StringComparison.OrdinalIgnoreCase))
+                return DbaProviderErrorKind.MissingColumn;
+            if (sqliteException.Message.Contains("duplicate column name:", StringComparison.OrdinalIgnoreCase))
+                return DbaProviderErrorKind.DuplicateColumn;
+        }
+
+        return base.GetProviderErrorKind(exception);
+    }
 
     private static SqliteException? FindSqliteException(Exception exception)
     {
