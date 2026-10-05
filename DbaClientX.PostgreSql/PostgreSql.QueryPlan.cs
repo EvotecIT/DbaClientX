@@ -67,17 +67,22 @@ public partial class PostgreSql
                 var setting = await ExecuteNonReplayableCommandAsync(() => settings.ExecuteScalarAsync(cancellationToken), connection,
                     settings.CommandText, cancellationToken, NonReplayableCommandKind.Scalar).ConfigureAwait(false);
                 if (!string.Equals(setting as string, "on", StringComparison.OrdinalIgnoreCase))
-                    throw new NotSupportedException("Estimated capture requires standard_conforming_strings=on.");
+                    throw QueryPlanCaptureContractException.UnsupportedMode("Estimated capture requires standard_conforming_strings=on.");
             }
             var document = await ReadQueryPlanDocumentAsync(connection, transaction, input.Statement, input.Values, input.Types,
                 cancellationToken).ConfigureAwait(false);
-            result = PostgreSqlQueryPlanParser.Parse(query, document,
-                input.Values?.Count > 0 ? DbaQueryPlanParameterMode.BoundValues : DbaQueryPlanParameterMode.None);
+            try
+            {
+                result = PostgreSqlQueryPlanParser.Parse(query, document,
+                    input.Values?.Count > 0 ? DbaQueryPlanParameterMode.BoundValues : DbaQueryPlanParameterMode.None);
+            }
+            catch (FormatException) { throw QueryPlanCaptureContractException.InvalidDocument("The native estimated plan document is invalid or unsupported."); }
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch (Exception exception)
         {
-            failure = IsCallerCancellation(exception, cancellationToken) || exception is FormatException or NotSupportedException ? exception
+            failure = IsCallerCancellation(exception, cancellationToken) ? CreateCallerCancellationException(exception, cancellationToken)
+                : exception is QueryPlanCaptureContractException contract ? contract.PublicFailure
                 : CreateQueryExecutionOrCancellationException("Failed to obtain the estimated query plan.", query, exception, cancellationToken);
         }
         finally
@@ -140,7 +145,7 @@ public partial class PostgreSql
         {
             while (await AwaitWithCallerCancellationAsync(() => reader.ReadAsync(token), token).ConfigureAwait(false))
             {
-                if (reader.FieldCount != 1 || document != null) throw new FormatException("Expected exactly one native plan document.");
+                if (reader.FieldCount != 1 || document != null) throw QueryPlanCaptureContractException.InvalidDocument("Expected exactly one native plan document.");
                 using var text = reader.GetTextReader(0);
                 var buffer = new char[4096];
                 var builder = new StringBuilder();
@@ -148,12 +153,12 @@ public partial class PostgreSql
                 while ((count = await AwaitWithCallerCancellationAsync(() => text.ReadAsync(buffer, 0, buffer.Length), token).ConfigureAwait(false)) != 0)
                 {
                     if (builder.Length > PostgreSqlQueryPlanParser.MaximumDocumentCharacters - count)
-                        throw new FormatException("The native plan document exceeds the supported size.");
+                        throw QueryPlanCaptureContractException.InvalidDocument("The native plan document exceeds the supported size.");
                     builder.Append(buffer, 0, count);
                 }
                 document = builder.ToString();
             }
         } while (await AwaitWithCallerCancellationAsync(() => reader.NextResultAsync(token), token).ConfigureAwait(false));
-        return document ?? throw new FormatException("PostgreSQL did not return an estimated statement plan.");
+        return document ?? throw QueryPlanCaptureContractException.InvalidDocument("PostgreSQL did not return an estimated statement plan.");
     }
 }
