@@ -27,7 +27,8 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         framework: [net8.0, net10.0]
-    timeout-minutes: 10
+    # Include cold restore/build time and the full coverage-enabled provider suite.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
