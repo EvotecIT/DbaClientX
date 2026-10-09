@@ -36,6 +36,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.OfficeIMO", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FabricClientX.PowerShell", "FabricClientX.PowerShell\FabricClientX.PowerShell.csproj", "{B847AB37-36F8-4BA6-9D4D-AED44386B793}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Dbf", "DbaClientX.Dbf\DbaClientX.Dbf.csproj", "{018E0AF3-6B6B-4F02-81E1-769E614F12A4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DbaClientX.Dbf.Tests", "DbaClientX.Dbf.Tests\DbaClientX.Dbf.Tests.csproj", "{CFFC8AA0-9E0A-4521-B025-77AF6FC05D79}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -110,6 +114,14 @@ Global
 		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B847AB37-36F8-4BA6-9D4D-AED44386B793}.Release|Any CPU.Build.0 = Release|Any CPU
+		{018E0AF3-6B6B-4F02-81E1-769E614F12A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{018E0AF3-6B6B-4F02-81E1-769E614F12A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{018E0AF3-6B6B-4F02-81E1-769E614F12A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{018E0AF3-6B6B-4F02-81E1-769E614F12A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CFFC8AA0-9E0A-4521-B025-77AF6FC05D79}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CFFC8AA0-9E0A-4521-B025-77AF6FC05D79}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CFFC8AA0-9E0A-4521-B025-77AF6FC05D79}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CFFC8AA0-9E0A-4521-B025-77AF6FC05D79}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
