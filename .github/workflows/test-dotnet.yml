@@ -203,6 +203,7 @@ jobs:
             'DbaClientX.SQLite/DbaClientX.SQLite.csproj'
             'DbaClientX.Oracle/DbaClientX.Oracle.csproj'
             'DbaClientX.AzureTables/DbaClientX.AzureTables.csproj'
+            'DbaClientX.Dbf/DbaClientX.Dbf.csproj'
           )
           foreach ($project in $projects) {
             dotnet pack $project `
