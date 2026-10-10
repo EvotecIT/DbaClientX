@@ -1,3 +1,6 @@
+#if NET8_0_OR_GREATER
+using System.Diagnostics.CodeAnalysis;
+#endif
 using System.Collections;
 using System.Data;
 using System.Data.Common;
@@ -190,6 +193,9 @@ public sealed partial class DbfDataReader : DbDataReader
     /// <inheritdoc />
     public override string GetName(int ordinal) => Column(ordinal).Name;
     /// <inheritdoc />
+#if NET8_0_OR_GREATER
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
     public override Type GetFieldType(int ordinal) => Column(ordinal).DataType;
     /// <inheritdoc />
     public override string GetDataTypeName(int ordinal) => Column(ordinal).NativeType.ToString();
@@ -200,6 +206,9 @@ public sealed partial class DbfDataReader : DbDataReader
     public override IEnumerator GetEnumerator() => new DbEnumerator(this, closeReader: false);
 
     /// <inheritdoc />
+#if NET8_0_OR_GREATER
+    [UnconditionalSuppressMessage("Trimming", "IL2111", Justification = "The schema table stores Type values as data and does not reflect over Type members.")]
+#endif
     public override DataTable GetSchemaTable()
     {
         CheckState();

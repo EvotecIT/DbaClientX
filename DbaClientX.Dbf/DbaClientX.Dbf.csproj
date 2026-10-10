@@ -15,6 +15,10 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPublishable>true</IsPublishable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0' or '$(TargetFramework)' == 'net10.0'">
+    <IsAotCompatible>true</IsAotCompatible>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0' or '$(TargetFramework)' == 'net472'">
     <PackageReference Include="System.Text.Encoding.CodePages" />
   </ItemGroup>

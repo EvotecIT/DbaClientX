@@ -1,3 +1,6 @@
+#if NET8_0_OR_GREATER
+using System.Diagnostics.CodeAnalysis;
+#endif
 using System.Collections.ObjectModel;
 
 namespace DBAClientX.Dbf;
@@ -16,7 +19,11 @@ public enum DbfDialect
 /// <summary>Immutable metadata for an exposed DBF column. No index, expression, or object is executed.</summary>
 public sealed class DbfColumn
 {
-    internal DbfColumn(string name, char nativeType, int length, int decimalCount, byte flags, int offset, int nullBit, Type type)
+    internal DbfColumn(string name, char nativeType, int length, int decimalCount, byte flags, int offset, int nullBit,
+#if NET8_0_OR_GREATER
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
+        Type type)
     {
         Name = name; NativeType = nativeType; Length = length; DecimalCount = decimalCount;
         NativeFlags = flags; RecordOffset = offset; NullBit = nullBit; DataType = type;
@@ -33,6 +40,9 @@ public sealed class DbfColumn
     /// <summary>Original field flags; their meaning is dialect-specific.</summary>
     public byte NativeFlags { get; }
     /// <summary>Type returned by <see cref="DbfDataReader.GetValue"/> when the value is not <see cref="DBNull"/>.</summary>
+#if NET8_0_OR_GREATER
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
     public Type DataType { get; }
     /// <summary>Whether Visual FoxPro stores an explicit nullable-field bit for this column.</summary>
     public bool IsNullable => NullBit >= 0;
