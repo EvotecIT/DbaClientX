@@ -2,6 +2,7 @@
   <PropertyGroup Condition="$([System.String]::Copy('$(PackageId)').StartsWith('DBAClientX.')) Or '$(PackageId)' == 'DbaClientX.AzureTables'">
     <!-- Compare public packages with the current published contract during pack. -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>1.0.8</PackageValidationBaselineVersion>
+    <!-- The new file codec has no published baseline; keep cross-framework package validation enabled. -->
+    <PackageValidationBaselineVersion Condition="'$(PackageId)' != 'DBAClientX.Dbf'">1.0.8</PackageValidationBaselineVersion>
   </PropertyGroup>
 </Project>

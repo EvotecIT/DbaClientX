@@ -706,6 +706,7 @@ The SQL Server provider creates dedicated checksummed full, differential and log
 | Path | Purpose |
 | --- | --- |
 | [`DbaClientX.Core`](DbaClientX.Core) | Shared base client, retry logic, query builder, connection validation, invoker abstractions |
+| [`DbaClientX.Dbf`](DbaClientX.Dbf) | Forward-only DBF/xBase table and DBT/FPT memo reader without SQL providers |
 | [`DbaClientX.SqlServer`](DbaClientX.SqlServer) | SQL Server provider |
 | [`DbaClientX.PostgreSql`](DbaClientX.PostgreSql) | PostgreSQL provider |
 | [`DbaClientX.MySql`](DbaClientX.MySql) | MySQL provider |

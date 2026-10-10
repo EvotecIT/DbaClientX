@@ -9,7 +9,8 @@
     "DbaClientX.PostgreSql": "1.0.X",
     "DbaClientX.MySql": "1.0.X",
     "DbaClientX.SQLite": "1.0.X",
-    "DbaClientX.Oracle": "1.0.X"
+    "DbaClientX.Oracle": "1.0.X",
+    "DbaClientX.Dbf": "1.0.X"
   },
   "ExpectedVersionMapAsInclude": true,
   "ExpectedVersionMapUseWildcards": false,
@@ -18,6 +19,7 @@
     "DbaClientX.PowerShell",
     "DbaClientX.Tests",
     "DbaClientX.AzureTables.Tests",
+    "DbaClientX.Dbf.Tests",
     "DbaClientX.Benchmarks",
     "DbaClientX.Examples",
     "FabricClientX.Core",
