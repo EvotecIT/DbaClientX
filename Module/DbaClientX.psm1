@@ -57,13 +57,13 @@ if ($PowerForgeDevelopmentEnabled) {
                     $PowerForgeDevelopmentArch = [string]$env:PROCESSOR_ARCHITECTURE
                 }
                 $PowerForgeDevelopmentArchFolder = switch ($PowerForgeDevelopmentArch) {
-                    'X64' { 'win-x64' }
+                    'X64'   { 'win-x64' }
                     'AMD64' { 'win-x64' }
-                    'X86' { 'win-x86' }
-                    'I386' { 'win-x86' }
+                    'X86'   { 'win-x86' }
+                    'I386'  { 'win-x86' }
                     'Arm64' { 'win-arm64' }
-                    'Arm' { 'win-arm' }
-                    default {
+                    'Arm'   { 'win-arm' }
+                    Default {
                         if ([string]::IsNullOrWhiteSpace($PowerForgeDevelopmentArch)) {
                             if ([IntPtr]::Size -eq 4) { 'win-x86' } else { 'win-x64' }
                         } else {
@@ -191,7 +191,7 @@ namespace DbaClientX.DevelopmentModuleLoadContext
                 $PowerForgeDevelopmentInnerModule = & $ImportModule -Assembly $PowerForgeDevelopmentModuleAssembly -Force -PassThru -ErrorAction Stop
                 $ModuleAssembly = $PowerForgeDevelopmentModuleAssembly
                 $LibFolder = [IO.Path]::GetDirectoryName($PowerForgeDevelopmentBinaryPath)
-                # Type accelerator registration relies on $ModuleAssembly and $LibFolder from this ALC loader scope.
+                        # Type accelerator registration relies on $ModuleAssembly and $LibFolder from this ALC loader scope.
                 $RegisterPowerForgeAssemblyTypeAccelerators = {
                     param(
                         [Parameter(Mandatory = $true)][System.Reflection.Assembly] $ModuleAssembly,
