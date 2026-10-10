@@ -1,3 +1,6 @@
+#if NET8_0_OR_GREATER
+using System.Diagnostics.CodeAnalysis;
+#endif
 using System.Text;
 
 namespace DBAClientX.Dbf.Internal;
@@ -83,6 +86,9 @@ internal sealed class DbfHeaderReader
         };
     }
 
+#if NET8_0_OR_GREATER
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
     private static Type GetValueType(char type, int length, int decimals, DbfDialect dialect, bool binary)
     {
         bool visual = dialect == DbfDialect.VisualFoxPro;
