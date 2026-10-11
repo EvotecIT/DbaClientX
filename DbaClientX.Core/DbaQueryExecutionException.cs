@@ -100,6 +100,21 @@ public class DbaQueryExecutionException : DbaClientXException
             : providerErrorKind;
     }
 
+    /// <summary>Includes retained provider error metadata in the diagnostic exception text.</summary>
+    /// <remarks>The message is unchanged. Raw query text, parameter values, and the original provider exception remain excluded.</remarks>
+    public override string ToString()
+    {
+        string diagnostic = base.ToString();
+        if (ProviderErrorCode == null && ProviderSqlState == null && ProviderErrorKind == DbaProviderErrorKind.Unknown)
+        {
+            return diagnostic;
+        }
+
+        return diagnostic + Environment.NewLine +
+            $"Provider error code: {ProviderErrorCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unavailable"}; " +
+            $"SQLSTATE: {ProviderSqlState ?? "unavailable"}; category: {ProviderErrorKind}.";
+    }
+
     private static string? NormalizeSqlState(string? sqlState)
     {
         if (sqlState == null || sqlState.Length != 5 ||
