@@ -67,7 +67,33 @@ public sealed class DbaQueryExecutionExceptionTests
         Assert.Equal(208, exception.ProviderErrorCode);
         Assert.Equal("42P01", exception.ProviderSqlState);
         Assert.Equal(DbaProviderErrorKind.MissingTable, exception.ProviderErrorKind);
-        Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
+        string rendered = exception.ToString();
+        Assert.Contains("Provider error code: 208", rendered, StringComparison.Ordinal);
+        Assert.Contains("SQLSTATE: 42P01", rendered, StringComparison.Ordinal);
+        Assert.Contains("category: MissingTable", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, rendered, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(1205)]
+    public void ToString_RendersNativeErrorCodeWithoutProviderDetails(int errorCode)
+    {
+        const string secret = "provider-and-query-secret";
+        var native = new InvalidOperationException(secret);
+        native.Data["parameter"] = secret;
+        var exception = new DbaQueryExecutionException(
+            "Database operation failed.",
+            $"SELECT '{secret}'",
+            native,
+            providerErrorCode: errorCode);
+
+        string rendered = exception.ToString();
+
+        Assert.Contains($"Provider error code: {errorCode}", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, rendered, StringComparison.Ordinal);
+        Assert.Contains(exception.QueryFingerprint!, rendered, StringComparison.Ordinal);
+        Assert.Equal("Database operation failed. Statement fingerprint: " + exception.QueryFingerprint + ".", exception.Message);
     }
 
     [Fact]
