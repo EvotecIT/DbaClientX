@@ -99,17 +99,17 @@ public partial class SQLite {
     internal async Task<TResult> ExecuteSessionTransactionAsync<TResult>(
         SqliteConnection connection,
         Func<SQLiteAsyncSession, CancellationToken, Task<TResult>> operation,
+        SQLiteTransactionMode mode,
         CancellationToken cancellationToken) {
         if (operation is null) {
             throw new ArgumentNullException(nameof(operation));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)BeginDbTransaction(connection, mode);
 #else
-        using var transaction = connection.BeginTransaction();
+        using var transaction = (SqliteTransaction)BeginDbTransaction(connection, mode);
 #endif
         var transactionSession = new SQLiteAsyncSession(this, connection, transaction);
         try {

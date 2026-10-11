@@ -783,7 +783,7 @@ Documentation mode regenerates command Markdown and external help without runnin
 
 Package publishing is intentionally manual in this repository because releases are signed locally with the USB key certificate.
 
-The DbaClientX PowerShell module and its seven NuGet packages use one coordinated version. FabricClientX remains a separate release train.
+The DbaClientX PowerShell module and its eight NuGet packages use one coordinated version. FabricClientX remains a separate release train.
 
 Generate a package plan without changing versions:
 

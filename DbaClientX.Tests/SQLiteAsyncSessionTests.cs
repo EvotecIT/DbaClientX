@@ -35,8 +35,10 @@ public class SQLiteAsyncSessionTests
         }
     }
 
-    [Fact]
-    public async Task RunInTransactionAsync_RollsBackWhenOperationFails()
+    [Theory]
+    [InlineData(SQLiteTransactionMode.Immediate)]
+    [InlineData(SQLiteTransactionMode.Deferred)]
+    public async Task RunInTransactionAsync_RollsBackWhenOperationFails(SQLiteTransactionMode mode)
     {
         string path = Path.Join(Path.GetTempPath(), $"{Guid.NewGuid():N}.db");
         try
@@ -45,7 +47,7 @@ public class SQLiteAsyncSessionTests
             await using SQLiteAsyncSession session = await sqlite.OpenSessionAsync(path);
             await session.ExecuteNonQueryAsync("CREATE TABLE items (name TEXT NOT NULL);");
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => session.RunInTransactionAsync<int>(async (tx, token) =>
+            await Assert.ThrowsAsync<InvalidOperationException>(() => session.RunInTransactionAsync<int>(mode, async (tx, token) =>
             {
                 await tx.ExecuteNonQueryAsync("INSERT INTO items (name) VALUES ('temp');", cancellationToken: token);
                 throw new InvalidOperationException("stop");
