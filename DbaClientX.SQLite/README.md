@@ -20,6 +20,14 @@ dotnet add package DBAClientX.SQLite
 
 ## Quick examples
 
+Native shared-library hosts on .NET 8 or later can load SQLite from their own deployment directory before opening a connection:
+
+```csharp
+DBAClientX.SQLite.InitializeNativeLibraryDirectory(absoluteDeploymentDirectory);
+```
+
+Deploy the platform's bundled native library (`e_sqlite3.dll`, `libe_sqlite3.so`, or `libe_sqlite3.dylib`) in that trusted directory. This is useful when the host library is deployed separately from the application's executable. The method requires an absolute directory, allows repeated calls for that directory, and rejects switching directories afterward. The loaded library remains available until the process exits; the method does not change the process DLL search path. Ordinary managed applications use the provider's default native-asset resolution.
+
 Query table:
 
 ```csharp

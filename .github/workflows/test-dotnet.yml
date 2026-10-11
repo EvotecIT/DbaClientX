@@ -20,6 +20,32 @@ env:
   BUILD_CONFIGURATION: 'Release'
 
 jobs:
+  sqlite-nativeaot:
+    name: SQLite NativeAOT (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            executable: DbaClientX.SQLite.AotSmoke.exe
+          - os: ubuntu-latest
+            rid: linux-x64
+            executable: DbaClientX.SQLite.AotSmoke
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+      - name: Publish native SQLite reader
+        run: dotnet publish DbaClientX.SQLite.AotSmoke/DbaClientX.SQLite.AotSmoke.csproj -c Release -r ${{ matrix.rid }} -o artifacts/sqlite-native
+      - name: Exercise the native reader
+        shell: pwsh
+        run: |
+          & './artifacts/sqlite-native/${{ matrix.executable }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Native reader verification failed.' }
+
   test:
     name: ${{ matrix.os }} (${{ matrix.framework }})
     runs-on: ${{ matrix.os }}

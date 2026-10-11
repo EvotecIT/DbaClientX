@@ -181,10 +181,15 @@ public sealed partial class DbaDataReader : DbDataReader
         => ExecuteConsumptionOperation(() => _reader.GetDouble(ordinal), CancellationToken.None);
 
     /// <inheritdoc />
-#pragma warning disable IL2093, IL2073
+#if NET8_0_OR_GREATER
+    [return: System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields |
+        System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2073",
+        Justification = "The wrapped DbDataReader supplies the annotated field type; the consumption delegate only forwards that value.")]
     public override Type GetFieldType(int ordinal)
         => ExecuteConsumptionOperation(() => _reader.GetFieldType(ordinal), CancellationToken.None);
-#pragma warning restore IL2093, IL2073
 
     /// <inheritdoc />
     public override float GetFloat(int ordinal)
