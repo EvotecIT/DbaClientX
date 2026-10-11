@@ -100,8 +100,20 @@ public sealed class SQLiteAsyncSession : IAsyncDisposable {
             cancellationToken);
     }
 
-    /// <summary>Runs related operations inside one SQLite transaction.</summary>
+    /// <summary>Runs related operations inside one immediate SQLite transaction.</summary>
     public Task<TResult> RunInTransactionAsync<TResult>(
+        Func<SQLiteAsyncSession, CancellationToken, Task<TResult>> operation,
+        CancellationToken cancellationToken = default)
+        => RunInTransactionAsync(SQLiteTransactionMode.Immediate, operation, cancellationToken);
+
+    /// <summary>Runs related operations inside one SQLite transaction using the requested mode.</summary>
+    /// <param name="operation">Operations that share one connection and transaction.</param>
+    /// <param name="mode">Use deferred mode for a consistent read snapshot without reserving write intent.</param>
+    /// <param name="cancellationToken">Cancellation observed before starting and passed to each operation.</param>
+    /// <returns>The callback result after a successful commit.</returns>
+    /// <remarks>A deferred snapshot is established by its first read. The callback must use the supplied transaction session.</remarks>
+    public Task<TResult> RunInTransactionAsync<TResult>(
+        SQLiteTransactionMode mode,
         Func<SQLiteAsyncSession, CancellationToken, Task<TResult>> operation,
         CancellationToken cancellationToken = default) {
         ThrowIfDisposed();
@@ -109,18 +121,30 @@ public sealed class SQLiteAsyncSession : IAsyncDisposable {
             throw new DbaTransactionException("A session transaction is already active.");
         }
 
-        return _client.ExecuteSessionTransactionAsync(_connection, operation, cancellationToken);
+        return _client.ExecuteSessionTransactionAsync(_connection, operation, mode, cancellationToken);
     }
 
-    /// <summary>Runs related operations inside one SQLite transaction.</summary>
+    /// <summary>Runs related operations inside one immediate SQLite transaction.</summary>
+    public Task RunInTransactionAsync(
+        Func<SQLiteAsyncSession, CancellationToken, Task> operation,
+        CancellationToken cancellationToken = default)
+        => RunInTransactionAsync(SQLiteTransactionMode.Immediate, operation, cancellationToken);
+
+    /// <summary>Runs related operations inside one SQLite transaction using the requested mode.</summary>
+    /// <param name="operation">Operations that share one connection and transaction.</param>
+    /// <param name="mode">Use deferred mode for a consistent read snapshot without reserving write intent.</param>
+    /// <param name="cancellationToken">Cancellation observed before starting and passed to each operation.</param>
+    /// <returns>A task that completes after the callback and transaction commit.</returns>
+    /// <remarks>A deferred snapshot is established by its first read. The callback must use the supplied transaction session.</remarks>
     public async Task RunInTransactionAsync(
+        SQLiteTransactionMode mode,
         Func<SQLiteAsyncSession, CancellationToken, Task> operation,
         CancellationToken cancellationToken = default) {
         if (operation is null) {
             throw new ArgumentNullException(nameof(operation));
         }
 
-        await RunInTransactionAsync(async (session, token) => {
+        await RunInTransactionAsync(mode, async (session, token) => {
             await operation(session, token).ConfigureAwait(false);
             return true;
         }, cancellationToken).ConfigureAwait(false);
