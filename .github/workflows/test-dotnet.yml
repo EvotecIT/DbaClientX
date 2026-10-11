@@ -29,10 +29,13 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
-            executable: DbaClientX.SQLite.AotSmoke.exe
+            library: DbaClientX.SQLite.AotSmoke.dll
           - os: ubuntu-latest
             rid: linux-x64
-            executable: DbaClientX.SQLite.AotSmoke
+            library: DbaClientX.SQLite.AotSmoke.so
+          - os: macos-latest
+            rid: osx-arm64
+            library: DbaClientX.SQLite.AotSmoke.dylib
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -43,7 +46,7 @@ jobs:
       - name: Exercise the native reader
         shell: pwsh
         run: |
-          & './artifacts/sqlite-native/${{ matrix.executable }}'
+          python DbaClientX.SQLite.AotSmoke/verify_native.py './artifacts/sqlite-native/${{ matrix.library }}'
           if ($LASTEXITCODE -ne 0) { throw 'Native reader verification failed.' }
 
   test:

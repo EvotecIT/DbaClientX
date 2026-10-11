@@ -36,7 +36,18 @@ public partial class SQLite
                     throw new InvalidOperationException("The SQLite native library directory is already initialized.");
                 return;
             }
-            _nativeLibraryHandle = NativeLibrary.Load(path);
+            nint handle = NativeLibrary.Load(path);
+            try
+            {
+                NativeLibrary.SetDllImportResolver(typeof(SQLitePCL.SQLite3Provider_e_sqlite3).Assembly,
+                    (name, _, _) => name == "e_sqlite3" ? handle : 0);
+            }
+            catch
+            {
+                NativeLibrary.Free(handle);
+                throw;
+            }
+            _nativeLibraryHandle = handle;
             _nativeLibraryPath = path;
         }
     }
