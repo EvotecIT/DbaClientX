@@ -222,6 +222,17 @@ await foreach (var row in sq.QueryReadOnlyStreamAsync("app.db", "SELECT Id, Name
 }
 ```
 
+Prepared column names and declared types, without binding parameter values or evaluating result rows:
+
+```csharp
+using var sqlite = new DBAClientX.SQLite();
+var columns = sqlite.GetQueryColumns("app.db", "SELECT Name, Amount FROM Orders LIMIT @count");
+foreach (var column in columns)
+    Console.WriteLine($"{column.Name}: {column.DeclaredTypeName}");
+```
+
+`GetQueryColumns` inspects only the first SQL statement and never steps it. Labels retain their order and can be duplicated. Expressions without a declared SQLite type have an empty `DeclaredTypeName`; their runtime types require execution. Normal connection configuration still runs, and connections and prepared statements are released before the method returns.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
