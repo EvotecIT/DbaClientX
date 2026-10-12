@@ -38,7 +38,7 @@ public partial class SQLite
                 return columns.AsReadOnly();
             }
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!IsCallerCancellation(exception, cancellationToken))
         {
             throw CreateQueryExecutionOrCancellationException("Failed to inspect prepared query columns.", query,
                 exception, cancellationToken);

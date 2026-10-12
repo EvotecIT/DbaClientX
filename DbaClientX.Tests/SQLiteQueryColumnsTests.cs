@@ -1,4 +1,6 @@
 using DBAClientX;
+using System.Data;
+using System.Data.Common;
 using System.Threading;
 
 namespace DbaClientX.Tests;
@@ -34,5 +36,30 @@ public class SQLiteQueryColumnsTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         Assert.ThrowsAny<OperationCanceledException>(() => client.GetQueryColumns(":memory:", "SELECT 1", cancellation.Token));
+    }
+
+    [Fact]
+    public void CancellationDuringConnectionOpeningPreservesCallerTokenAndClosesConnection()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var client = new CancelAfterOpenSQLite(cancellation);
+        OperationCanceledException exception = Assert.ThrowsAny<OperationCanceledException>(
+            () => client.GetQueryColumns(":memory:", "SELECT 1", cancellation.Token));
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.NotNull(client.OpenedConnection);
+        Assert.Equal(ConnectionState.Closed, client.OpenedConnection.State);
+        Assert.Single(client.GetQueryColumns(":memory:", "SELECT 1"));
+    }
+
+    private sealed class CancelAfterOpenSQLite(CancellationTokenSource cancellation) : SQLite
+    {
+        public DbConnection? OpenedConnection { get; private set; }
+
+        public override DbConnection OpenDbConnection(string database, SQLiteConnectionOptions? options = null)
+        {
+            OpenedConnection = base.OpenDbConnection(database, options);
+            cancellation.Cancel();
+            return OpenedConnection;
+        }
     }
 }
