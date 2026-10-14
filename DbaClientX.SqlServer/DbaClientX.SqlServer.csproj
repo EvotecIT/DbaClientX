@@ -34,6 +34,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <!-- SqlClient permits older CMS packages; the provider owns the security-patched runtime floor. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
     <Reference Include="System.Data.Common" />
