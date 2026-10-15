@@ -6,6 +6,9 @@
 # PowerForge script preamble end
 
 
+$UnregisterPowerForgeDesktopAssemblyResolver = $null
+$PowerForgeModuleImportCompleted = $false
+try {
 $PowerForgeDevelopmentBinaryLoaded = $false
 # Source development binary loader
 $PowerForgeDevelopmentBinaryRoot = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..', 'DbaClientX.PowerShell', 'bin'))
@@ -891,7 +894,15 @@ namespace DbaClientX.DevelopmentModuleLoadContext
 # PowerForge script payload begin
 
 # PowerForge script payload end
+# PowerForge exports begin
 $FunctionsToExport = @()
 $CmdletsToExport = @('ConvertTo-DbaXParameterMap', 'Copy-DbaXAzureTableData', 'Copy-DbaXTableData', 'Get-DbaXAzureTableEntity', 'Get-DbaXMetadata', 'Get-DbaXProviderCapability', 'Get-DbaXSQLiteDiagnostics', 'Get-DbaXSqlServerManagement', 'Get-DbaXSqlServerMonitoring', 'Get-DbaXTableCopyPlan', 'Invoke-DbaXBulkInsert', 'Invoke-DbaXMySql', 'Invoke-DbaXMySqlNonQuery', 'Invoke-DbaXMySqlScalar', 'Invoke-DbaXMySqlTransaction', 'Invoke-DbaXNonQuery', 'Invoke-DbaXOracle', 'Invoke-DbaXOracleNonQuery', 'Invoke-DbaXOracleScalar', 'Invoke-DbaXOracleTransaction', 'Invoke-DbaXPostgreSql', 'Invoke-DbaXPostgreSqlNonQuery', 'Invoke-DbaXPostgreSqlTransaction', 'Invoke-DbaXQuery', 'Invoke-DbaXQueryStream', 'Invoke-DbaXSQLite', 'Invoke-DbaXSQLiteMaintenance', 'Invoke-DbaXSQLiteTransaction', 'Invoke-DbaXStoredProcedure', 'Invoke-DbaXTransaction', 'New-DbaXConnectionString', 'New-DbaXQuery', 'New-DbaXTableCopyDefinition', 'New-DbaXTableCopyPlan', 'Test-DbaXConnection', 'Write-DbaXAzureTableEntity', 'Write-DbaXTableData')
 $AliasesToExport = @()
 Export-ModuleMember -Function $FunctionsToExport -Alias $AliasesToExport -Cmdlet $CmdletsToExport
+# PowerForge exports end
+    $PowerForgeModuleImportCompleted = $true
+} finally {
+    if (-not $PowerForgeModuleImportCompleted -and $null -ne $UnregisterPowerForgeDesktopAssemblyResolver) {
+        & $UnregisterPowerForgeDesktopAssemblyResolver
+    }
+}
