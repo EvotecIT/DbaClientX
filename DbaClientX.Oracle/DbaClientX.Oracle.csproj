@@ -31,6 +31,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DbaClientX.Core\DbaClientX.Core.csproj" />
+    <!-- Oracle permits older CMS packages; keep the provider's runtime floor security-patched. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' != 'net472'">
     <PackageReference Include="Oracle.ManagedDataAccess.Core" />
