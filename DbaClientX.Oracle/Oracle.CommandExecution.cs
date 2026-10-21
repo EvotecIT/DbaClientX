@@ -244,7 +244,7 @@ public partial class Oracle
 
         foreach (var pair in parameters)
         {
-            var value = pair.Value ?? DBNull.Value;
+            object value = DbaParameterValue.Unwrap(pair.Value, out DbaParameterValue? metadata);
             var parameter = new OracleParameter
             {
                 ParameterName = pair.Key,
@@ -259,11 +259,16 @@ public partial class Oracle
             {
                 parameter.DbType = explicitType;
             }
+            else if (metadata?.Type is DbType metadataType)
+            {
+                parameter.DbType = metadataType;
+            }
             else
             {
                 parameter.DbType = InferParameterDbType(value);
             }
 
+            DbaParameterValue.ApplySize(parameter, metadata);
             if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;

@@ -14,6 +14,16 @@ public class ProviderParameterLookupParityTests
 {
     private sealed class SqlServerParameterProbe : DBAClientX.SqlServer
     {
+        public SqlParameter CaptureMetadata(string? value)
+        {
+            using var command = new SqlCommand();
+            AddParameters(command,
+                new Dictionary<string, object?> { ["@VALUE"] = new DbaParameterValue(value, DbType.AnsiString, 4000) },
+                ConvertParameterTypes(new Dictionary<string, SqlDbType> { ["@value"] = SqlDbType.NVarChar }),
+                new Dictionary<string, ParameterDirection> { ["@value"] = ParameterDirection.InputOutput });
+            return (SqlParameter)command.Parameters[0];
+        }
+
         public SqlParameter Capture()
         {
             using var command = new SqlCommand();
@@ -28,6 +38,16 @@ public class ProviderParameterLookupParityTests
 
     private sealed class MySqlParameterProbe : DBAClientX.MySql
     {
+        public MySqlParameter CaptureMetadata(string? value)
+        {
+            using var command = new MySqlCommand();
+            AddParameters(command,
+                new Dictionary<string, object?> { ["@VALUE"] = new DbaParameterValue(value, DbType.AnsiString, 4000) },
+                ConvertParameterTypes(new Dictionary<string, MySqlDbType> { ["@value"] = MySqlDbType.VarChar }),
+                new Dictionary<string, ParameterDirection> { ["@value"] = ParameterDirection.InputOutput });
+            return (MySqlParameter)command.Parameters[0];
+        }
+
         public MySqlParameter Capture()
         {
             using var command = new MySqlCommand();
@@ -42,6 +62,16 @@ public class ProviderParameterLookupParityTests
 
     private sealed class PostgreSqlParameterProbe : DBAClientX.PostgreSql
     {
+        public NpgsqlParameter CaptureMetadata(string? value)
+        {
+            using var command = new NpgsqlCommand();
+            AddParameters(command,
+                new Dictionary<string, object?> { ["@VALUE"] = new DbaParameterValue(value, DbType.AnsiString, 4000) },
+                ConvertParameterTypes(new Dictionary<string, NpgsqlDbType> { ["@value"] = NpgsqlDbType.Text }),
+                new Dictionary<string, ParameterDirection> { ["@value"] = ParameterDirection.InputOutput });
+            return (NpgsqlParameter)command.Parameters[0];
+        }
+
         public NpgsqlParameter Capture()
         {
             using var command = new NpgsqlCommand();
@@ -56,6 +86,16 @@ public class ProviderParameterLookupParityTests
 
     private sealed class OracleParameterProbe : DBAClientX.Oracle
     {
+        public OracleParameter CaptureMetadata(string? value)
+        {
+            using var command = new OracleCommand();
+            AddParameters(command,
+                new Dictionary<string, object?> { ["@VALUE"] = new DbaParameterValue(value, DbType.AnsiString, 4000) },
+                ConvertParameterTypes(new Dictionary<string, OracleDbType> { ["@value"] = OracleDbType.NVarchar2 }),
+                new Dictionary<string, ParameterDirection> { ["@value"] = ParameterDirection.InputOutput });
+            return (OracleParameter)command.Parameters[0];
+        }
+
         public OracleParameter Capture()
         {
             using var command = new OracleCommand();
@@ -68,6 +108,26 @@ public class ProviderParameterLookupParityTests
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("é漢字")]
+    public void ProviderSpecificParameterMetadata_UnwrapsValueAndSizeWithoutReplacingNativeType(string? value)
+    {
+        var sql = new SqlServerParameterProbe().CaptureMetadata(value);
+        var mysql = new MySqlParameterProbe().CaptureMetadata(value);
+        var postgreSql = new PostgreSqlParameterProbe().CaptureMetadata(value);
+        var oracle = new OracleParameterProbe().CaptureMetadata(value);
+        Assert.Equal(SqlDbType.NVarChar, sql.SqlDbType);
+        Assert.Equal(MySqlDbType.VarChar, mysql.MySqlDbType);
+        Assert.Equal(NpgsqlDbType.Text, postgreSql.NpgsqlDbType);
+        Assert.Equal(OracleDbType.NVarchar2, oracle.OracleDbType);
+        foreach (System.Data.Common.DbParameter parameter in new System.Data.Common.DbParameter[] { sql, mysql, postgreSql, oracle })
+        {
+            Assert.Equal(value ?? (object)DBNull.Value, parameter.Value);
+            Assert.Equal(4000, parameter.Size);
+            Assert.Equal(ParameterDirection.InputOutput, parameter.Direction);
+        }
+    }
     [Fact]
     public void ProviderSpecificParameterTypes_MatchKeysCaseInsensitively()
     {

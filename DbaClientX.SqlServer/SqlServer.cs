@@ -419,7 +419,7 @@ public partial class SqlServer : DatabaseClientBase
 
         foreach (var pair in parameters)
         {
-            var value = pair.Value ?? DBNull.Value;
+            object value = DbaParameterValue.Unwrap(pair.Value, out DbaParameterValue? metadata);
             var parameter = new SqlParameter
             {
                 ParameterName = pair.Key,
@@ -434,6 +434,10 @@ public partial class SqlServer : DatabaseClientBase
             {
                 parameter.DbType = explicitType;
             }
+            else if (metadata?.Type is DbType metadataType)
+            {
+                parameter.DbType = metadataType;
+            }
             else
             {
                 parameter.DbType = value is DateTime && UseDateTime2ForDateTimeParameters
@@ -441,6 +445,7 @@ public partial class SqlServer : DatabaseClientBase
                     : InferParameterDbType(value);
             }
 
+            DbaParameterValue.ApplySize(parameter, metadata);
             if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
