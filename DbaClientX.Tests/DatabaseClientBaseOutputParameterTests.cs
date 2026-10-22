@@ -15,6 +15,10 @@ public class DatabaseClientBaseOutputParameterTests
 {
     private sealed class TestClient : DatabaseClientBase
     {
+        public void Bind(DbCommand command, IDictionary<string, object?> parameters,
+            IDictionary<string, DbType>? types = null, IDictionary<string, ParameterDirection>? directions = null)
+            => AddParameters(command, parameters, types, directions);
+
         public object? RunQuery(DbConnection connection, IDictionary<string, object?> parameters, IDictionary<string, ParameterDirection> directions)
             => ExecuteQuery(connection, null, "q", parameters, parameterDirections: directions);
 
@@ -37,6 +41,56 @@ public class DatabaseClientBaseOutputParameterTests
             IDictionary<string, ParameterDirection>? directions = null)
             => ExecuteMappedQueryStreamAsync(connection, null, "q", map, initialize, parameters, parameterDirections: directions);
     }
+
+    [Fact]
+    public void AddParameters_ExplicitMetadata_PreservesNullUnicodeAndUnboundedValues()
+    {
+        var client = new TestClient();
+        using var command = new FakeCommand();
+        string large = new string('é', 5001);
+        client.Bind(command, new Dictionary<string, object?>
+        {
+            ["short"] = new DbaParameterValue("é", DbType.String, 160),
+            ["missing"] = new DbaParameterValue(null, DbType.String, 160),
+            ["large"] = new DbaParameterValue(large, DbType.String, -1)
+        });
+        Assert.Equal("é", command.Parameters["short"].Value);
+        Assert.Equal(DbType.String, command.Parameters["short"].DbType);
+        Assert.Equal(160, command.Parameters["short"].Size);
+        Assert.Same(DBNull.Value, command.Parameters["missing"].Value);
+        Assert.Equal(DbType.String, command.Parameters["missing"].DbType);
+        Assert.Equal(160, command.Parameters["missing"].Size);
+        Assert.Equal(large, command.Parameters["large"].Value);
+        Assert.Equal(-1, command.Parameters["large"].Size);
+    }
+
+    [Fact]
+    public void AddParameters_DictionaryMetadata_OverridesTypeAndRetainsDirectionAndSize()
+    {
+        var client = new TestClient();
+        using var command = new FakeCommand();
+        client.Bind(command, new Dictionary<string, object?> { ["name"] = new DbaParameterValue("value", DbType.String, 256) },
+            new Dictionary<string, DbType> { ["name"] = DbType.AnsiString },
+            new Dictionary<string, ParameterDirection> { ["name"] = ParameterDirection.InputOutput });
+        Assert.Equal(DbType.AnsiString, command.Parameters["name"].DbType);
+        Assert.Equal(ParameterDirection.InputOutput, command.Parameters["name"].Direction);
+        Assert.Equal(256, command.Parameters["name"].Size);
+    }
+
+    [Fact]
+    public void AddParameters_OrdinaryValue_RetainsProviderSizeInference()
+    {
+        var client = new TestClient();
+        using var command = new FakeCommand();
+        client.Bind(command, new Dictionary<string, object?> { ["name"] = "value" });
+        Assert.Equal("value", command.Parameters["name"].Value);
+        Assert.Equal(DbType.String, command.Parameters["name"].DbType);
+        Assert.Equal(0, command.Parameters["name"].Size);
+    }
+
+    [Fact]
+    public void DbaParameterValue_UnsupportedNegativeSize_RejectsBeforeBinding()
+        => Assert.Throws<ArgumentOutOfRangeException>(() => new DbaParameterValue("value", size: -2));
 
     private sealed class FakeConnection : DbConnection
     {

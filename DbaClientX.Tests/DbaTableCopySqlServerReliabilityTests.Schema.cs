@@ -113,7 +113,9 @@ public sealed partial class DbaTableCopySqlServerReliabilityTests
             await fixture.Sql.ExecuteNonQueryAsync(
                 fixture.Connection,
                 $"CREATE TABLE {targetName} (Id bigint NOT NULL PRIMARY KEY, Value nvarchar(50) NULL); " +
-                $"INSERT INTO {targetName} VALUES (99,N'preserve'); " +
+                $"INSERT INTO {targetName} VALUES (99,N'preserve'); ");
+            await fixture.Sql.ExecuteNonQueryAsync(
+                fixture.Connection,
                 $"CREATE TRIGGER {triggerName} ON {targetName} AFTER DELETE AS BEGIN SET NOCOUNT ON; END");
             var emptyDefinition = new DbaTableCopyDefinition("EmptySourceRows", targetName, new[] { "Id" })
             {

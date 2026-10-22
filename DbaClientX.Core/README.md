@@ -13,6 +13,13 @@ Core building blocks for DbaClientX: retryable execution pipeline, parameter map
 
 ## Quick start (POCO → parameters → execute)
 
+Use `DBAClientX.DbaParameterValue` in a parameter dictionary when a command needs
+an explicit ADO.NET type or size. For example,
+`new DbaParameterValue(null, DbType.String, 4000)` keeps a nullable Unicode input
+at a stable size. A separate parameter-type dictionary takes precedence over
+the descriptor's type; ordinary values continue to use provider inference.
+Size `-1` requests an unbounded value where the provider supports it.
+
 ```csharp
 using DBAClientX.Invoker;
 using DBAClientX.Mapping;

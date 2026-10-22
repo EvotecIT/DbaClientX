@@ -29,13 +29,17 @@ public abstract partial class DatabaseClientBase
 
         foreach (var pair in parameters)
         {
-            var value = pair.Value ?? DBNull.Value;
+            object value = DbaParameterValue.Unwrap(pair.Value, out DbaParameterValue? metadata);
             var parameter = command.CreateParameter();
             parameter.ParameterName = pair.Key;
             parameter.Value = value;
             if (TryGetDictionaryValue(parameterTypes, pair.Key, out var explicitType))
             {
                 parameter.DbType = explicitType;
+            }
+            else if (metadata?.Type is DbType metadataType)
+            {
+                parameter.DbType = metadataType;
             }
             else
             {
@@ -45,6 +49,7 @@ public abstract partial class DatabaseClientBase
             {
                 parameter.Direction = direction;
             }
+            DbaParameterValue.ApplySize(parameter, metadata);
             command.Parameters.Add(parameter);
         }
     }

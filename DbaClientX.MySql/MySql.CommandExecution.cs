@@ -238,7 +238,7 @@ public partial class MySql
 
         foreach (var pair in parameters)
         {
-            var value = pair.Value ?? DBNull.Value;
+            object value = DbaParameterValue.Unwrap(pair.Value, out DbaParameterValue? metadata);
             var parameter = new MySqlParameter
             {
                 ParameterName = pair.Key,
@@ -253,11 +253,16 @@ public partial class MySql
             {
                 parameter.DbType = explicitType;
             }
+            else if (metadata?.Type is DbType metadataType)
+            {
+                parameter.DbType = metadataType;
+            }
             else
             {
                 parameter.DbType = InferParameterDbType(value);
             }
 
+            DbaParameterValue.ApplySize(parameter, metadata);
             if (TryGetDictionaryValue(parameterDirections, pair.Key, out var direction))
             {
                 parameter.Direction = direction;
