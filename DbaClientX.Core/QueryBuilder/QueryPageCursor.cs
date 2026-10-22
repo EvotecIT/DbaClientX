@@ -258,6 +258,12 @@ internal static class QueryPageCursor
                 ValidateValueSize(column.Column);
                 writer.Write(column.Column);
                 writer.Write(column.Descending);
+                if (column.Rank is { } rank)
+                {
+                    writer.Write("\0value-rank-v1");
+                    rank.WriteFingerprint(writer);
+                    writer.Write(column.ValueType!.FullName!);
+                }
                 // Only keys that have them write these, so cursors of plain column keys keep their binding.
                 if (column.IsExpression || column.Collation != null)
                 {

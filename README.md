@@ -688,6 +688,64 @@ A key can sort under a collation or by an expression, in both the seek condition
 - Cursors are unsigned by default, so treat them as untrusted input. Declare key types (`KeysetColumn.Asc<long>("Id")`, matching the CLR type the provider returns) to reject cursor values of another type, and set `SigningKey` (32 random bytes kept on the server and used only for paging) to reject any modified cursor. Signing proves the server issued a cursor; it does not authorize access, so keep applying the caller's filters. For offset paging, also cap the offset you accept.
 - SQL Server sends `DateTime` parameters as `datetime` (1/300 s precision). For `datetime2` keys, set `UseDateTime2ForDateTimeParameters = true` on the `SqlServer` client or pass an explicit `SqlDbType.DateTime2` parameter type, so page boundaries do not repeat or skip rows.
 
+### Declared category order on SQLite
+
+`SqlValueRank` gives raw text categories an explicit ordinal rank without putting their values into SQL. Reuse the
+immutable declaration in a projection, an offset query's order, or a keyset key. SQLite is the qualified dialect;
+compiling a rank for another dialect throws `NotSupportedException`. Existing non-rank queries retain their provider behavior.
+
+The Core rank APIs and SQLite collation are included in the libraries' maintained `net472` (Windows),
+`netstandard2.1`, `net8.0` and `net10.0` targets. The SQLite dialect restriction is the same on every target.
+
+```csharp
+using DBAClientX;
+using DBAClientX.QueryBuilder;
+
+string? cursor = null; // Use the previous page's NextCursor to continue.
+var rank = SqlValueRank.Ordinal("state", new[] { "validation-failed", "act", "confirm", "smtp-starttls-25" });
+var source = new Query().Select("id", "state").SelectValueRank(rank, "state_rank")
+    .From("review_records").WhereNotNull("state");
+var paging = new KeysetPagination(25, new[] {
+    KeysetColumn.ValueRank(rank, "state_rank"),
+    KeysetColumn.Asc<string>("state").WithCollation(SQLiteUnicodeText.OrdinalCollation)
+}, KeysetColumn.Asc<long>("id"));
+var (sql, parameters) = paging.CreatePageQuery(source, cursor).CompileWithNamedParameters(SqlDialect.SQLite);
+```
+
+Tokens are copied and bound by the compiler in SELECT, ORDER BY and every seek occurrence. Case and whitespace are
+significant, including under a column's `NOCASE` collation. Declaration position is the integral rank; unknown values
+and null have rank `Tokens.Count`. The raw token breaks ties within that fallback rank, followed by the unique key.
+Selected raw category values are unchanged. SQLite returns ranks as `long`; the keyset factory declares that type.
+Rank keys cannot be the last unique key, and changing token values or declaration order invalidates existing rank cursors.
+
+Register `SQLiteUnicodeText.Register(connection)` through `SQLite.ConfigureConnection` on each connection. It installs
+`DBX_ORDINAL` alongside the existing functions and `DBX_NOCASE`. `DBX_ORDINAL` matches UTF-16 code-unit order, including
+supplementary characters: SQLite's UTF-8 `BINARY` sort alone does not. Ordering and seek use the same collation; a
+text index must use that collation to serve the text order. This does not guarantee index support for the full bound
+rank expression. The ordinal callback uses provider-managed strings and can allocate.
+
+For offset/all-row queries, use `OrderByValueRank(rank, descending)` followed by the safely quoted raw column under
+`DBX_ORDINAL` and the remaining stable keys. For example, `OrderByRaw("\"state\" COLLATE DBX_ORDINAL")` is trusted structure
+only; category tokens still belong exclusively to the bound descriptor. Add explicit null-last ordering if nulls must
+appear last in either direction. Keyset paging continues to require non-null keys. An id-only seek/count query can omit
+the rank projection when it already has a cursor's key values; normal page materialization selects the rank alias.
+
+Declarations contain 1–512 ordinally distinct, nonempty valid-Unicode tokens, at most 4,096 UTF-16 units each and
+1,048,576 units total. Nonempty whitespace tokens are preserved. Backend bind limits still apply when a multi-column
+seek repeats a declaration. Literal `Compile()` refuses rank expressions; use parameterized compilation. Direct compound
+rank ordering is unsupported: order an ordinary derived SELECT instead.
+
+The [category-rank example](DbaClientX.Examples/CategoryValueRankExample.cs) reads an existing
+`review_records(id INTEGER PRIMARY KEY, state TEXT)` table through the canonical SQLite client, opened read-only:
+
+```sh
+dotnet run --project DbaClientX.Examples --framework net8.0 -- valuerank existing-review.db
+```
+
+The examples project targets `net8.0` and `net10.0`; select either installed target explicitly. Pass its printed cursor
+as the next argument to continue the same order. Null states are excluded from this keyset example. It creates no
+database or schema.
+
 ### Qualify a SQL Server backup
 
 The SQL Server provider creates dedicated checksummed full, differential and log backups, preflights pinned single-backup or ordered chain plans, restores to new database names with explicit file relocation, and runs full or physical-only CHECKDB. See the [SQL Server recovery example](DbaClientX.SqlServer/README.md#backup-and-restore-qualification) for the separate verification, restore and integrity steps, required permissions and cleanup responsibilities.

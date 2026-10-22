@@ -3,9 +3,9 @@ using System.Collections.Generic;
 
 namespace DBAClientX.QueryBuilder;
 
-internal readonly record struct QueryExpression(string Text, bool IsRaw);
+internal readonly record struct QueryExpression(string Text, bool IsRaw, SqlValueRank? Rank = null);
 
-internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending, string? Collation = null);
+internal readonly record struct QueryOrderExpression(string Text, bool IsRaw, bool Descending, string? Collation = null, SqlValueRank? Rank = null);
 
 internal sealed record QueryJoinClause(
     string Type,
@@ -21,6 +21,8 @@ internal readonly record struct QueryHavingClause(string Expression, string Oper
 internal sealed record RawConditionToken(string Expression, string Operator, object Value) : IWhereToken;
 
 internal sealed record FunctionConditionToken(string Function, string Expression, string Operator, object Value, IReadOnlyList<object> Arguments) : IWhereToken;
+
+internal sealed record ValueRankConditionToken(SqlValueRank Rank, string Operator, object Value) : IWhereToken;
 
 internal sealed record RawNullToken(string Expression) : IWhereToken;
 

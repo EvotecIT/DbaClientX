@@ -135,6 +135,11 @@ public partial class QueryCompiler
         bool standalone = query.TableExpression == null && !query.FromSubquery.HasValue;
         foreach (var expression in query.SelectExpressions)
         {
+            if (expression.Rank != null)
+            {
+                names.Add(expression.Text);
+                continue;
+            }
             if (!expression.IsRaw)
             {
                 if (expression.Text == "*" || expression.Text.EndsWith(".*", StringComparison.Ordinal)) return null;
