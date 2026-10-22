@@ -6,6 +6,23 @@ namespace DbaClientX.Tests;
 public class DbaParameterValueExecutionTests
 {
     [Fact]
+    public async Task QueryAsync_SqliteZeroSize_UsesInferenceForTextAndBinary()
+    {
+        using var provider = new SQLite { ReturnType = ReturnType.DataTable };
+        var result = await provider.QueryAsync(":memory:",
+            "SELECT @text AS TextValue, @binary AS BinaryValue;",
+            new Dictionary<string, object?>
+            {
+                ["@text"] = new DbaParameterValue("é漢字", DbType.String, 0),
+                ["@binary"] = new DbaParameterValue(new byte[] { 0, 128, 255 }, DbType.Binary, 0)
+            });
+
+        var row = Assert.Single(Assert.IsType<DataTable>(result).Rows.Cast<DataRow>());
+        Assert.Equal("é漢字", row["TextValue"]);
+        Assert.Equal(new byte[] { 0, 128, 255 }, Assert.IsType<byte[]>(row["BinaryValue"]));
+    }
+
+    [Fact]
     public async Task QueryAsync_SqliteMetadataValues_PreservesUnicodeBinaryAndNull()
     {
         using var provider = new SQLite { ReturnType = ReturnType.DataTable };

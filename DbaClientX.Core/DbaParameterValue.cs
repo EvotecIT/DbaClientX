@@ -37,6 +37,7 @@ public sealed class DbaParameterValue
 
     internal static void ApplySize(DbParameter parameter, DbaParameterValue? metadata)
     {
-        if (metadata?.Size is int size) parameter.Size = size;
+        // An unset size preserves inference; SQLite treats an explicitly assigned zero as truncation.
+        if (metadata?.Size is int size && size != 0) parameter.Size = size;
     }
 }
