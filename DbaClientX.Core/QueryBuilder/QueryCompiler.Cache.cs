@@ -91,6 +91,7 @@ public partial class QueryCompiler
         {
             sb.Append(expression.IsRaw ? "SR:" : "SI:");
             AppendCacheText(sb, expression.Text);
+            if (expression.Rank is { } rank) AppendValueRankCacheKey(sb, rank);
             sb.Append('|');
         }
         sb.Append(query.IsDistinct).Append('|');
@@ -167,6 +168,13 @@ public partial class QueryCompiler
                         break;
                     case FunctionConditionToken function:
                         AppendFunctionCacheKey(sb, function);
+                        break;
+                    case ValueRankConditionToken rank:
+                        sb.Append("WVR:");
+                        AppendValueRankCacheKey(sb, rank.Rank);
+                        AppendCacheText(sb, rank.Operator);
+                        AppendCacheValueShape(sb, rank.Value);
+                        sb.Append('|');
                         break;
                     case OperatorToken op:
                         sb.Append("WO:");
@@ -324,6 +332,7 @@ public partial class QueryCompiler
         {
             foreach (var expression in query.OrderByExpressions)
             {
+                if (expression.Rank is { } rank) AppendValueRankCacheKey(sb, rank);
                 sb.Append(expression.IsRaw ? "OR:" : "OI:");
                 AppendCacheText(sb, expression.Text);
                 sb.Append(':').Append(expression.Descending).Append(':');

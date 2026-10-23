@@ -54,6 +54,14 @@ var sql = QueryBuilder
     .Compile(SqlDialect.SqlServer);
 ```
 
+For declared category ordering, `SqlValueRank.Ordinal(column, tokens)` supplies an immutable, bounded declaration
+shared by `SelectValueRank`, `OrderByValueRank` and `KeysetColumn.ValueRank`. Tokens are compiler-bound values;
+unknown values have rank `Tokens.Count`, and changing the declaration invalidates rank cursors. These APIs are included
+in all the Core target frameworks listed above, but rank compilation accepts only `SqlDialect.SQLite` and requires
+parameterized compilation. Rank keys expect `long` values and a subsequent unique key. See the
+[SQLite category-order example](../README.md#declared-category-order-on-sqlite) for raw-token ordinal tie-breaks,
+connection registration, null handling and declaration limits.
+
 Identifier methods quote every identifier; spaces and parentheses no longer switch the compiler into raw-SQL mode. Use an explicit raw method only for trusted expressions:
 
 ```csharp

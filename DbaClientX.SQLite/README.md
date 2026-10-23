@@ -120,6 +120,13 @@ var adapter = new SQLiteTableCopyAdapter("app.db")
 
 Register functions or collations used by expression indexes, views or triggers on every connection that accesses them, including external tools. The callback runs after operational pragmas and before the first caller command; it must be thread-safe if the client or adapter opens connections concurrently.
 
+`SQLiteUnicodeText.Register` also installs `SQLiteUnicodeText.OrdinalCollation` (`DBX_ORDINAL`), which compares raw text
+with .NET UTF-16 ordinal semantics, preserving case and whitespace. Its provider-managed callback can allocate.
+Use it for both ordering and seek predicates when raw category tokens break ties after a bound
+[`SqlValueRank` declaration](../README.md#declared-category-order-on-sqlite). SQLite's UTF-8 `BINARY` order differs for
+supplementary/BMP character pairs. The rank APIs and ordinal collation are included in all the target frameworks
+listed above; rank compilation is SQLite-only. Keyset keys remain non-null, and rank values use SQLite's `long` type.
+
 Sessions reuse one connection. A session and its prepared commands execute sequentially; do not run them concurrently or dispose the session during execution. Canceling an async session or prepared command interrupts its running statement outside an explicit transaction. The cancellation registration ends before the connection can be reused. Inside a transaction, SQLite interruption can roll back earlier writes, so cancellation is cooperative and may wait for the provider statement to finish. This includes transactions opened with SQL `BEGIN` or `SAVEPOINT`, and batches that start one.
 
 Commands, including result-returning batches and prepared scalars, execute once by default. Set `CommandRetryMode = CommandRetryMode.ReplaySafe` on a dedicated client only when every command and callback is safe to repeat after partial success. Individual commands inside transactions are never replayed. See [Core retry behavior](../DbaClientX.Core/README.md#retry-behavior).

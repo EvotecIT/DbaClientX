@@ -63,6 +63,10 @@ public partial class QueryCompiler
             return;
         }
 
+        foreach (var expression in query.SelectExpressions)
+        {
+            if (expression.Rank is { } rank) CollectValueRank(rank, parameters);
+        }
         if (query.FromSubquery.HasValue)
         {
             CollectParameters(query.FromSubquery.Value.Item1, parameters);
@@ -77,6 +81,10 @@ public partial class QueryCompiler
         foreach (var (_, compoundQuery) in query.CompoundQueries)
         {
             CollectParameters(compoundQuery, parameters);
+        }
+        foreach (var expression in query.OrderByExpressions)
+        {
+            if (expression.Rank is { } rank) CollectValueRank(rank, parameters);
         }
     }
 
@@ -95,6 +103,10 @@ public partial class QueryCompiler
                 case FunctionConditionToken function:
                     foreach (var argument in function.Arguments) CollectValue(argument, parameters);
                     CollectValue(function.Value, parameters);
+                    break;
+                case ValueRankConditionToken rank:
+                    CollectValueRank(rank.Rank, parameters);
+                    CollectValue(rank.Value, parameters);
                     break;
                 case CollatedConditionToken condition:
                     CollectValue(condition.Value, parameters);

@@ -36,7 +36,7 @@ public partial class Query
 
         foreach (var column in columns)
         {
-            page._orderBy.Add(new QueryOrderExpression(column.Column, column.IsExpression, column.Descending, column.Collation));
+            page._orderBy.Add(new QueryOrderExpression(column.Column, column.IsExpression, column.Descending, column.Collation, column.Rank));
         }
 
         return page.Limit(fetch);
@@ -134,7 +134,12 @@ public partial class Query
     /// </summary>
     private void WhereKey(KeysetColumn key, string op, object value)
     {
-        if (key.IsExpression)
+        if (key.Rank is { } rank)
+        {
+            AddLogicalOperator(null);
+            _where.Add(new ValueRankConditionToken(rank, op, value));
+        }
+        else if (key.IsExpression)
         {
             AddCondition(key.Column, op, value, isRawExpression: true);
         }
@@ -156,7 +161,8 @@ public partial class Query
             _distinct = _distinct,
             _from = _from,
             _fromAlias = _fromAlias,
-            _fromSubquery = _fromSubquery
+            _fromSubquery = _fromSubquery,
+            _requiresParameterizedCompile = _requiresParameterizedCompile
         };
         clone._select.AddRange(_select);
         clone._joins.AddRange(_joins);

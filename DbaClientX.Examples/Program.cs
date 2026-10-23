@@ -40,6 +40,10 @@ public class Program
             case "orderby":
                 OrderByExample.Run();
                 break;
+            case "valuerank":
+                if (args.Length < 2) throw new ArgumentException("valuerank requires an existing SQLite database path.");
+                await CategoryValueRankExample.RunAsync(args[1], args.Length > 2 ? args[2] : null).ConfigureAwait(false);
+                break;
             case "nonquery":
                 NonQueryExample.Run();
                 break;
@@ -59,7 +63,7 @@ public class Program
                 InsertOrUpdateExample.Run();
                 break;
             default:
-                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, mysqltransaction, cancellation, nestedquery, streamquery, nonquery, orderby, nullconditions, parameterized, inferdbtype, joins, upsert");
+                Console.WriteLine("Available examples: asyncquery, pgasyncquery, mysqlasyncquery, parallelqueries, transaction, mysqltransaction, cancellation, nestedquery, streamquery, nonquery, orderby, valuerank, nullconditions, parameterized, inferdbtype, joins, upsert");
                 break;
         }
     }

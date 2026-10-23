@@ -316,6 +316,12 @@ public partial class QueryCompiler
                 case FunctionConditionToken function:
                     AppendFunctionCondition(sb, function, parameters);
                     break;
+                case ValueRankConditionToken rank:
+                    sb.Append('(');
+                    AppendValueRank(sb, rank.Rank, parameters);
+                    sb.Append(") ").Append(rank.Operator).Append(' ');
+                    AppendValue(sb, rank.Value, parameters);
+                    break;
                 case CollatedConditionToken cond:
                     sb.Append(QuoteIdentifier(cond.Column));
                     AppendCollation(sb, cond.Collation);

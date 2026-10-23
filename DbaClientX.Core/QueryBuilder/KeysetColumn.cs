@@ -31,7 +31,7 @@ public sealed class KeysetColumn
     {
     }
 
-    private KeysetColumn(string column, bool descending, string? resultColumn, Type? valueType, bool isExpression, string? collation)
+    private KeysetColumn(string column, bool descending, string? resultColumn, Type? valueType, bool isExpression, string? collation, SqlValueRank? rank = null)
     {
         if (string.IsNullOrWhiteSpace(column))
         {
@@ -47,6 +47,7 @@ public sealed class KeysetColumn
         Descending = descending;
         IsExpression = isExpression;
         Collation = collation;
+        Rank = rank;
         ResultColumn = resultColumn ?? column.Substring(column.LastIndexOf('.') + 1);
         ValueType = valueType == null ? null : Nullable.GetUnderlyingType(valueType) ?? valueType;
         if (ValueType is { IsEnum: true })
@@ -57,7 +58,8 @@ public sealed class KeysetColumn
 
     /// <summary>
     /// Gets the column identifier used in <c>WHERE</c> and <c>ORDER BY</c>, or the SQL expression when
-    /// <see cref="IsExpression"/> is set.
+    /// <see cref="IsExpression"/> is set. For a category rank, this is its source identifier; <see cref="Rank"/>
+    /// carries the bound declaration.
     /// </summary>
     public string Column { get; }
 
@@ -75,9 +77,12 @@ public sealed class KeysetColumn
 
     /// <summary>
     /// Gets a value indicating whether two different rows can have equal keys although their stored values differ: an
-    /// expression or a collation. Such a key cannot be the last, unique key of a <see cref="KeysetPagination"/>.
+    /// expression, a collation or a category rank. Such a key cannot be the last, unique key of a <see cref="KeysetPagination"/>.
     /// </summary>
-    internal bool CanTieDistinctValues => IsExpression || Collation != null;
+    internal bool CanTieDistinctValues => IsExpression || Collation != null || Rank != null;
+
+    /// <summary>The immutable bound category declaration, or null for ordinary column/expression keys.</summary>
+    public SqlValueRank? Rank { get; }
 
     /// <summary>Gets a value indicating whether the key is sorted in descending order.</summary>
     public bool Descending { get; }
@@ -112,6 +117,25 @@ public sealed class KeysetColumn
     /// <param name="column">Column identifier.</param>
     /// <returns>The key column.</returns>
     public static KeysetColumn Desc<T>(string column) => new(column, descending: true, valueType: typeof(T));
+
+    /// <summary>Creates an integral category-rank key, currently qualified for SQLite. It cannot be the final unique key.</summary>
+    /// <param name="rank">Immutable raw-token declaration, compiled with parameters in both seek and ordering.</param>
+    /// <param name="resultColumn">The result alias selected with <see cref="Query.SelectValueRank"/>.</param>
+    /// <param name="descending">Whether the rank is sorted descending.</param>
+    /// <returns>A key expecting <see cref="long"/> rank values, with existing checked integer conversions.</returns>
+    /// <exception cref="ArgumentNullException">The rank is null.</exception>
+    /// <exception cref="ArgumentException">The result alias is invalid.</exception>
+    /// <remarks>
+    /// Select the rank under this result alias when materializing pages. An id-only seek/count query may omit that
+    /// projection when its cursor already carries the key values. Rank order ties need subsequent raw-token and
+    /// unique keys. Changing the declaration's token values or order invalidates existing rank cursors.
+    /// </remarks>
+    public static KeysetColumn ValueRank(SqlValueRank rank, string resultColumn, bool descending = false)
+    {
+        if (rank == null) throw new ArgumentNullException(nameof(rank));
+        SqlValueRank.ValidateAlias(resultColumn);
+        return new KeysetColumn(rank.Column, descending, resultColumn, typeof(long), isExpression: false, collation: null, rank: rank);
+    }
 
     /// <summary>
     /// Creates a key on a trusted SQL expression, for an order no plain column gives: for example SQLite's
@@ -152,7 +176,7 @@ public sealed class KeysetColumn
     /// <see cref="Expression"/>.</param>
     /// <returns>The key column with the collation.</returns>
     /// <exception cref="ArgumentException">The name is not a plain collation name.</exception>
-    /// <exception cref="InvalidOperationException">The key is an expression; write <c>COLLATE</c> inside it.</exception>
+    /// <exception cref="InvalidOperationException">The key is an expression or a category rank and owns its comparison semantics.</exception>
     /// <remarks>
     /// A collation can make different values equal (<c>a</c> and <c>A</c>), so a collated key cannot be the last key:
     /// end the key with a unique plain column. An index serves the order only when it uses the same collation. Oracle
@@ -161,9 +185,9 @@ public sealed class KeysetColumn
     /// </remarks>
     public KeysetColumn WithCollation(string collation)
     {
-        if (IsExpression)
+        if (IsExpression || Rank != null)
         {
-            throw new InvalidOperationException("An expression key carries its own COLLATE; write it inside the expression.");
+            throw new InvalidOperationException("An expression or category-rank key owns its comparison semantics; its collation cannot be overridden.");
         }
 
         if (!IsPlainName(collation))

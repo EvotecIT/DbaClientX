@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace DBAClientX.QueryBuilder;
@@ -9,6 +10,8 @@ public partial class QueryCompiler
     private string CompileSelect(Query query, List<object>? parameters, StringBuilder sb)
     {
         bool compound = query.CompoundQueries.Count > 0;
+        if (compound && query.OrderByExpressions.Any(static expression => expression.Rank != null))
+            throw new NotSupportedException("Category rank ordering requires an ordinary SELECT source. Order a derived SELECT instead of a direct compound query.");
         sb.Append("SELECT ");
         if (query.IsDistinct)
         {
@@ -30,9 +33,17 @@ public partial class QueryCompiler
                 }
 
                 var expression = query.SelectExpressions[index];
-                sb.Append(expression.IsRaw
-                    ? expression.Text
-                    : QuoteSelectColumn(expression.Text, allowStandaloneLiterals));
+                if (expression.Rank is { } rank)
+                {
+                    AppendValueRank(sb, rank, parameters);
+                    sb.Append(" AS ").Append(SqlIdentifier.Quote(_dialect, expression.Text));
+                }
+                else
+                {
+                    sb.Append(expression.IsRaw
+                        ? expression.Text
+                        : QuoteSelectColumn(expression.Text, allowStandaloneLiterals));
+                }
             }
         }
         else
@@ -134,7 +145,8 @@ public partial class QueryCompiler
                     sb.Append(", ");
                 }
                 var expression = query.OrderByExpressions[index];
-                sb.Append(expression.IsRaw ? expression.Text : compound
+                if (expression.Rank is { } rank) AppendValueRank(sb, rank, parameters);
+                else sb.Append(expression.IsRaw ? expression.Text : compound
                     ? CompileCompoundOrderColumn(query, expression.Text, expression.Collation)
                     : QuoteIdentifier(expression.Text));
                 if (expression.Collation != null)

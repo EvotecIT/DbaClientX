@@ -5,7 +5,7 @@ using SQLitePCL;
 namespace DBAClientX;
 
 /// <summary>
-/// Unicode case folding for SQLite connections, matching .NET's <see cref="string.ToLowerInvariant"/> (and the
+/// Ordinal text comparison and Unicode case folding for SQLite connections. Case folding matches .NET's <see cref="string.ToLowerInvariant"/> (and the
 /// browser's <c>toLowerCase()</c> except its special cases such as Turkish dotted I and final sigma), where SQLite's
 /// own <c>lower()</c>, <c>LIKE</c> and <c>NOCASE</c> fold ASCII only.
 /// </summary>
@@ -14,7 +14,7 @@ namespace DBAClientX;
 /// <c>new SQLite { ConfigureConnection = c =&gt; SQLiteUnicodeText.Register(c) }</c>. Then
 /// <c>dbx_lower(Name) = dbx_lower(@p)</c> compares without case, <c>ORDER BY Name COLLATE DBX_NOCASE</c> sorts without
 /// case, and <c>WhereContains("Name", text, TextFolding.Invariant)</c> searches without case. The functions
-/// run in .NET for every row they read, so they cost more than the built-ins on large scans. The collation compares the
+/// run in .NET for every row they read, so they cost more than the built-ins on large scans. <see cref="NoCaseCollation"/> compares the
 /// stored UTF-8 bytes in place and allocates nothing per comparison (on .NET Framework and .NET Standard builds, text
 /// with characters outside the Basic Multilingual Plane still allocates): a sort of 1,000,000 short texts took about
 /// twice the time of a <c>BINARY</c> sort.
@@ -23,6 +23,8 @@ namespace DBAClientX;
 /// runtime's order: every process that writes the database needs the same registration, and a <c>REINDEX</c> is
 /// needed after moving to a runtime with different case tables. Built-in <c>lower()</c> and <c>upper()</c> are not
 /// replaced: a pooled connection that had them replaced would leave the built-ins unusable for the next user.</para>
+/// <para><see cref="OrdinalCollation"/> compares raw text with <c>string.CompareOrdinal</c>, preserving case and
+/// whitespace. It uses the provider's string callback and can allocate on every target framework.</para>
 /// </remarks>
 public static partial class SQLiteUnicodeText
 {
@@ -41,8 +43,8 @@ public static partial class SQLiteUnicodeText
     private static readonly delegate_collation NoCaseUtf8 = static (_, left, right) => CompareUtf8(left, right);
 
     /// <summary>
-    /// Registers <see cref="LowerFunction"/>, <see cref="UpperFunction"/> and <see cref="NoCaseCollation"/> on an open
-    /// connection.
+    /// Registers <see cref="LowerFunction"/>, <see cref="UpperFunction"/>, <see cref="NoCaseCollation"/> and
+    /// <see cref="OrdinalCollation"/> on an open connection.
     /// </summary>
     /// <param name="connection">An open connection with no statement running (no open reader).</param>
     /// <exception cref="ArgumentNullException"><paramref name="connection"/> is null.</exception>
@@ -50,7 +52,7 @@ public static partial class SQLiteUnicodeText
     /// <remarks>
     /// The registrations last until the connection closes, also when the provider pools its handle. If the same
     /// <see cref="SqliteConnection"/> is opened again without calling this method, the provider registers the
-    /// collation again with its string-based comparison, which orders the same way but allocates two strings per
+    /// <see cref="NoCaseCollation"/> again with its string-based comparison, which orders the same way but allocates two strings per
     /// comparison. The collation name <c>dbx_registration_probe</c> is reserved for the check that no statement runs;
     /// SQL and schemas must not use it.
     /// </remarks>
@@ -68,6 +70,7 @@ public static partial class SQLiteUnicodeText
 
         var handle = connection.Handle!;
         ThrowIfStatementRuns(handle);
+        RegisterOrdinal(connection);
 
         connection.CreateFunction<string?, string?>(LowerFunction, static value => value?.ToLowerInvariant(), isDeterministic: true);
         connection.CreateFunction<string?, string?>(UpperFunction, static value => value?.ToUpperInvariant(), isDeterministic: true);
