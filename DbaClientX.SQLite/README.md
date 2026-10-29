@@ -3,7 +3,7 @@
 SQLite provider for DbaClientX (Microsoft.Data.Sqlite). Supports non-query, scalar, queries, streaming, transactions, bulk insert.
 Also includes SQLite maintenance helpers for online database backup, WAL checkpointing, `PRAGMA optimize`, and graceful shutdown preparation.
 
-- Target Frameworks: `net472` (win-x64), `netstandard2.1`, `net8.0`, `net10.0`
+- Target Frameworks: `net472` (win-x64), `net8.0`, `net10.0`
 - NuGet: `DBAClientX.SQLite`
 
 On Windows, long database paths use extended-length filenames and the locking-capable `win32-longpath` VFS so SQLite can also open journal and WAL files. This applies to path, connection-string, session, backup, diagnostics and table-copy entrypoints. An explicit connection-string or file-URI `vfs` choice takes precedence. File URIs retain mode, cache and native options such as `immutable=1`. Escaped URI names and ordinary named-memory targets keep distinct shared-memory databases isolated; extended and ordinary drive/UNC aliases share the same destructive-copy and backup guards.
@@ -38,7 +38,7 @@ var result = sq.Query(
 );
 ```
 
-Stream query (netstandard2.1+/net8.0):
+Stream query (net8.0+):
 
 ```csharp
 await foreach (DataRow row in sq.QueryStreamAsync(
