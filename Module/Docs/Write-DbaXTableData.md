@@ -11,7 +11,7 @@ Writes tabular pipeline input to a database table using provider-native bulk ins
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-InputBatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -159,6 +159,22 @@ SQL Server-only option to fire insert triggers during the copy.
 
 ```yaml
 Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -InputBatchSize
+Accepts individual objects, dictionaries, scalars, DataRow and DataRowView values. Pipe collections as individual rows; DataTable, DataView, IDataReader and nested enumerable inputs are not accepted in this mode. The first batch establishes column names and types; later batches must match. Completed batches can remain committed if a later batch or the upstream pipeline fails. This bounds retained row count, not total bytes or provider buffers.
+
+```yaml
+Type: Int32
 Parameter Sets: __AllParameterSets
 Aliases: None
 Possible values:

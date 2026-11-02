@@ -134,6 +134,25 @@ Invoke-DbaXOracle -Server 'ora01' -Database 'service' -Query 'select * from user
 Invoke-DbaXSQLite -Database '.\app.db' -Query 'select * from users limit 10'
 ```
 
+Filter in SQLite when you only need matching rows. This query returns administrators to the pipeline:
+
+```powershell
+Invoke-DbaXSQLite -Database './app.db' `
+    -Query 'SELECT Name, Role FROM Users WHERE Role = @Role' `
+    -Parameters @{ Role = 'Admin' } |
+    Select-Object Name
+```
+
+The following retrieves every user's name and role before PowerShell filters them:
+
+```powershell
+Invoke-DbaXSQLite -Database './app.db' -Query 'SELECT Name, Role FROM Users' |
+    Where-Object Role -CEQ 'Admin' |
+    Select-Object Name
+```
+
+Both examples use case-sensitive equality. On PowerShell 7, `-Stream` emits query rows without buffering the entire result, but downstream `Where-Object` still processes rows SQLite could exclude. Windows PowerShell 5.1 does not support `-Stream` for this cmdlet.
+
 `-ReadOnly` opens a SQLite database with `Mode=ReadOnly`, so statements that modify it fail and a missing file is not created (SQLite may still create `-wal`/`-shm` files next to a WAL database). Use it to inspect a database that a running service owns:
 
 ```powershell
@@ -284,6 +303,24 @@ Get-DbaXMetadata `
 ### Write Table Data
 
 Use `Write-DbaXTableData` when the data is already in PowerShell and the next step is a database table. The command accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects from the pipeline. SQL Server `IDataReader` input streams directly into `SqlBulkCopy`; when passing a reader through `-InputObject`, wrap it as `-InputObject (, $reader)` so PowerShell treats it as one object.
+
+Ordinary object input is buffered by default so columns and types can be discovered across all rows. `-BatchSize` controls provider write batches; it does not limit that input buffer. Use `-InputBatchSize` to write bounded groups of individual rows as they arrive:
+
+```powershell
+1..100000 | ForEach-Object {
+    [pscustomobject]@{ Id = $_; DisplayName = "User $_" }
+} | Write-DbaXTableData `
+    -Provider SQLite `
+    -ConnectionString 'Data Source=app.db' `
+    -DestinationTable Users `
+    -InputBatchSize 2000 `
+    -BatchSize 500 `
+    -ErrorAction Stop
+```
+
+Create the destination table first (`Id INTEGER PRIMARY KEY, DisplayName TEXT` for this example). The first input batch establishes column names and types. Later batches must use the same columns and non-null value types; property order can differ and null values are allowed. Choose explicit types for columns that would otherwise contain only nulls in the first batch, or use the default buffered mode. Pipe collections as individual rows; omit `-InputBatchSize` for `DataTable`, `DataView` or `IDataReader` input.
+
+Each input batch is a separate provider call. Completed batches may remain committed if a later batch or upstream command fails; a batch failure stops further writes even with `-ErrorAction Continue`. `-PassThru` reports the total rows only on successful completion. The input limit bounds retained row count, not bytes per row, caller-owned collections or provider buffers.
 
 ```powershell
 $rows = @(

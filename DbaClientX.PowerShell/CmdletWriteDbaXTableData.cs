@@ -26,7 +26,7 @@ namespace DBAClientX.PowerShell;
 /// </example>
 [Cmdlet(VerbsCommunications.Write, "DbaXTableData", SupportsShouldProcess = true)]
 [CmdletBinding()]
-public sealed class CmdletWriteDbaXTableData : PSCmdlet
+public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
 {
     internal static ScriptBlock? BulkInsertOverride { get; set; }
 
@@ -55,6 +55,12 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     /// <summary>Optional number of rows per provider bulk batch.</summary>
     [Parameter]
     public int? BatchSize { get; set; }
+
+    /// <summary>Limits each input batch to this many rows. Omit to discover columns across all input.</summary>
+    /// <para>Accepts individual objects, dictionaries, scalars, DataRow and DataRowView values. Pipe collections as individual rows; DataTable, DataView, IDataReader and nested enumerable inputs are not accepted in this mode. The first batch establishes column names and types; later batches must match. Completed batches can remain committed if a later batch or the upstream pipeline fails. This bounds retained row count, not total bytes or provider buffers.</para>
+    [Parameter]
+    [ValidateRange(1, int.MaxValue)]
+    public int? InputBatchSize { get; set; }
 
     /// <summary>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</summary>
     [Parameter]
@@ -100,17 +106,35 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
     protected override void BeginProcessing()
     {
         _errorAction = this.ResolveErrorAction();
+        if (InputBatchSize.HasValue)
+        {
+            ValidateOptions();
+            _skipInputBatches = !ShouldProcess(DestinationTable, $"Bulk write input batches using {Provider}") ||
+                !TryValidateProviderConnection(GetProviderAlias(Provider)) ||
+                (Provider == DbaXBulkProvider.MySql &&
+                 !PowerShellHelpers.TryRequireMySqlBulkCopyLocalInfile(this, ConnectionString, _errorAction));
+        }
     }
 
     /// <inheritdoc />
     protected override void ProcessRecord()
     {
+        if (InputBatchSize.HasValue)
+        {
+            ProcessInputBatchRow();
+            return;
+        }
         _input.Add(InputObject);
     }
 
     /// <inheritdoc />
     protected override void EndProcessing()
     {
+        if (InputBatchSize.HasValue)
+        {
+            CompleteInputBatches();
+            return;
+        }
         try
         {
             ValidateOptions();
@@ -453,6 +477,11 @@ public sealed class CmdletWriteDbaXTableData : PSCmdlet
 
     private void WriteRowsCopiedProgress(int? totalRows, long rowsCopied)
     {
+        if (InputBatchSize.HasValue)
+        {
+            rowsCopied += _inputRowsWritten;
+            totalRows = null;
+        }
         var percentComplete = totalRows.GetValueOrDefault() > 0
             ? Math.Min(100, (int)Math.Round(rowsCopied * 100d / totalRows.GetValueOrDefault()))
             : -1;
