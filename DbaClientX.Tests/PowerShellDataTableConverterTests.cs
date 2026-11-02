@@ -5,6 +5,21 @@ namespace DbaClientX.Tests;
 
 public class PowerShellDataTableConverterTests
 {
+    [Fact]
+    public void ToDataTable_InputBatch_RejectsReusingCaseDistinctSchemaColumn()
+    {
+        using var schema = new DataTable();
+        schema.Columns.Add("Name", typeof(string));
+        schema.Columns.Add("name", typeof(string));
+        using var source = new DataTable();
+        source.Columns.Add("Name", typeof(string));
+        source.Columns.Add("Extra", typeof(string));
+        source.Rows.Add("kept", "must not disappear");
+
+        Assert.Throws<ArgumentException>(() => PowerShellDataTableConverter.ToDataTable(
+            new object?[] { source.Rows[0] }, "Records", schema));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

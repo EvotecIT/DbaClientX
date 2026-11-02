@@ -31,7 +31,6 @@ See [`Module-FabricClientX`](Module-FabricClientX) for the intended command surf
 
 [![Test .NET](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-dotnet.yml/badge.svg)](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-dotnet.yml)
 [![Test PowerShell](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-powershell.yml/badge.svg)](https://github.com/EvotecIT/DbaClientX/actions/workflows/test-powershell.yml)
-[![codecov](https://codecov.io/gh/EvotecIT/DbaClientX/branch/master/graph/badge.svg)](https://codecov.io/gh/EvotecIT/DbaClientX)
 [![license](https://img.shields.io/github/license/EvotecIT/DbaClientX.svg)](https://github.com/EvotecIT/DbaClientX)
 
 ## Author and Community
@@ -318,7 +317,7 @@ Ordinary object input is buffered by default so columns and types can be discove
     -ErrorAction Stop
 ```
 
-Create the destination table first (`Id INTEGER PRIMARY KEY, DisplayName TEXT` for this example). The first input batch establishes column names and types. Later batches must use the same columns and non-null value types; property order can differ and null values are allowed. Choose explicit types for columns that would otherwise contain only nulls in the first batch, or use the default buffered mode. Pipe collections as individual rows; omit `-InputBatchSize` for `DataTable`, `DataView` or `IDataReader` input.
+Create the destination table first (`Id INTEGER PRIMARY KEY, DisplayName TEXT` for this example). The first input batch establishes column names and types. Later batches must use the same columns and non-null value types; property order can differ and null values are allowed. For columns containing only nulls in the first batch, supply typed `DataRow` values or use the default buffered mode. Pipe collections as individual rows; omit `-InputBatchSize` for `DataTable`, `DataView` or `IDataReader` input.
 
 Each input batch is a separate provider call. Completed batches may remain committed if a later batch or upstream command fails; a batch failure stops further writes even with `-ErrorAction Continue`. `-PassThru` reports the total rows only on successful completion. The input limit bounds retained row count, not bytes per row, caller-owned collections or provider buffers.
 

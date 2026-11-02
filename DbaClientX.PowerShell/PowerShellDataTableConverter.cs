@@ -33,15 +33,18 @@ internal static class PowerShellDataTableConverter
             if (table.Columns.Count != schema.Columns.Count)
                 throw new ArgumentException("Input batch columns must match the first batch. Use consistent rows or omit InputBatchSize.");
 
+            var matchedColumns = new HashSet<DataColumn>();
+            var sourceColumns = new List<DataColumn>();
             foreach (DataColumn expected in schema.Columns)
             {
                 var column = table.Columns[expected.ColumnName];
-                if (column == null ||
+                if (column == null || !matchedColumns.Add(column) ||
                     (column.DataType != expected.DataType && table.Rows.Cast<DataRow>().Any(row => !row.IsNull(column))) ||
                     (column.DataType == typeof(DateTime) && column.DateTimeMode != expected.DateTimeMode))
                 {
                     throw new ArgumentException("Input batch column names and types must match the first batch. Use consistent rows or omit InputBatchSize.");
                 }
+                sourceColumns.Add(column);
             }
 
             var aligned = schema.Clone();
@@ -50,7 +53,7 @@ internal static class PowerShellDataTableConverter
                 foreach (DataRow source in table.Rows)
                 {
                     var row = aligned.NewRow();
-                    foreach (DataColumn column in aligned.Columns) row[column] = source[column.ColumnName];
+                    for (var index = 0; index < sourceColumns.Count; index++) row[index] = source[sourceColumns[index]];
                     aligned.Rows.Add(row);
                 }
                 return aligned;
