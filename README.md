@@ -137,7 +137,7 @@ Filter in SQLite when you only need matching rows. This query returns administra
 
 ```powershell
 Invoke-DbaXSQLite -Database './app.db' `
-    -Query 'SELECT Name, Role FROM Users WHERE Role = @Role' `
+    -Query 'SELECT Name, Role FROM Users WHERE Role COLLATE BINARY = @Role' `
     -Parameters @{ Role = 'Admin' } |
     Select-Object Name
 ```

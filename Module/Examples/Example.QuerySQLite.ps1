@@ -15,7 +15,7 @@ ON CONFLICT(Id) DO UPDATE SET Name = excluded.Name, Role = excluded.Role;
 
 # SQLite filters the rows; only administrators enter the PowerShell pipeline.
 Invoke-DbaXSQLite -Database $database `
-    -Query 'SELECT Name, Role FROM ExampleUsers WHERE Role = @Role ORDER BY Name' `
+    -Query 'SELECT Name, Role FROM ExampleUsers WHERE Role COLLATE BINARY = @Role ORDER BY Name' `
     -Parameters @{ Role = 'Admin' } |
     Select-Object Name, Role
 
