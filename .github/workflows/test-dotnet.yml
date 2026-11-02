@@ -96,13 +96,6 @@ jobs:
           name: coverage-reports-${{ matrix.os }}-${{ matrix.framework }}
           path: '**/coverage.cobertura.xml'
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
-        continue-on-error: true
-        with:
-          files: '**/coverage.cobertura.xml'
-          fail_ci_if_error: false
-
   live-provider-contracts:
     name: PostgreSQL and MySQL live contracts
     runs-on: ubuntu-latest

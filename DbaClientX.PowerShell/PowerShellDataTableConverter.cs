@@ -23,6 +23,49 @@ internal static class PowerShellDataTableConverter
             ProjectObject = ProjectPowerShellObject
         });
 
+    /// <summary>Converts one bounded batch, preserving the first batch's column order and types without coercing later non-null values.</summary>
+    internal static DataTable ToDataTable(IReadOnlyList<object?> input, string tableName, DataTable? schema)
+    {
+        var table = ToDataTable(input, tableName);
+        if (schema == null) return table;
+        using (table)
+        {
+            if (table.Columns.Count != schema.Columns.Count)
+                throw new ArgumentException("Input batch columns must match the first batch. Use consistent rows or omit InputBatchSize.");
+
+            var matchedColumns = new HashSet<DataColumn>();
+            var sourceColumns = new List<DataColumn>();
+            foreach (DataColumn expected in schema.Columns)
+            {
+                var column = table.Columns[expected.ColumnName];
+                if (column == null || !matchedColumns.Add(column) ||
+                    (column.DataType != expected.DataType && table.Rows.Cast<DataRow>().Any(row => !row.IsNull(column))) ||
+                    (column.DataType == typeof(DateTime) && column.DateTimeMode != expected.DateTimeMode))
+                {
+                    throw new ArgumentException("Input batch column names and types must match the first batch. Use consistent rows or omit InputBatchSize.");
+                }
+                sourceColumns.Add(column);
+            }
+
+            var aligned = schema.Clone();
+            try
+            {
+                foreach (DataRow source in table.Rows)
+                {
+                    var row = aligned.NewRow();
+                    for (var index = 0; index < sourceColumns.Count; index++) row[index] = source[sourceColumns[index]];
+                    aligned.Rows.Add(row);
+                }
+                return aligned;
+            }
+            catch
+            {
+                aligned.Dispose();
+                throw;
+            }
+        }
+    }
+
     private static IReadOnlyDictionary<string, object?>? ProjectPowerShellObject(object? item, IReadOnlyList<string>? _)
     {
         if (item is PSObject psObject &&

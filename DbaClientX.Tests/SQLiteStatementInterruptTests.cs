@@ -99,17 +99,17 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
     [InlineData("\uFEFF/* comment */ SAVEPOINT unit", true, true)]
     public async Task SessionWrite_InSqlManagedTransaction_CancellationPreservesEarlierWrites(string begin, bool prepared, bool transactionStartsInBatch)
     {
-        using var sqlite = new DBAClientX.SQLite();
+        using var cancellation = new CancellationTokenSource();
+        using var sqlite = CreateCancelingWriteClient(cancellation);
         await using var session = await sqlite.OpenSessionAsync(_database);
         if (!transactionStartsInBatch)
         {
             await session.ExecuteNonQueryAsync(begin);
             await session.ExecuteNonQueryAsync("INSERT INTO Numbers (Value) VALUES (-1)");
         }
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
         var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
-            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
-            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+            .Replace("SELECT count(*) FROM", "SELECT cancel_write(x) FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000", StringComparison.Ordinal);
         if (transactionStartsInBatch)
             insert = begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
         try
@@ -124,6 +124,7 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         }
         catch (OperationCanceledException) { }
 
+        Assert.True(cancellation.IsCancellationRequested);
         Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
         await session.ExecuteNonQueryAsync("COMMIT");
         Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
@@ -136,13 +137,13 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
     [InlineData(":item(O'Reilly)", "SAVEPOINT unit", false)]
     public async Task SessionBatch_WithSqliteParameterSuffix_CancellationPreservesTransaction(string parameter, string begin, bool prepared)
     {
-        using var sqlite = new DBAClientX.SQLite();
+        using var cancellation = new CancellationTokenSource();
+        using var sqlite = CreateCancelingWriteClient(cancellation);
         await using var session = await sqlite.OpenSessionAsync(_database);
         var insert = "INSERT INTO Numbers (Value) " + EndlessQuery
-            .Replace("SELECT count(*) FROM", "SELECT x FROM", StringComparison.Ordinal)
-            .Replace("LIMIT 1000000000", "LIMIT 1000000", StringComparison.Ordinal);
+            .Replace("SELECT count(*) FROM", "SELECT cancel_write(x) FROM", StringComparison.Ordinal)
+            .Replace("LIMIT 1000000000", "LIMIT 1000", StringComparison.Ordinal);
         var batch = "SELECT " + parameter + "; " + begin + "; INSERT INTO Numbers (Value) VALUES (-1); " + insert;
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
         try
         {
             if (prepared)
@@ -155,10 +156,23 @@ public sealed class SQLiteStatementInterruptTests : IDisposable
         }
         catch (OperationCanceledException) { }
 
+        Assert.True(cancellation.IsCancellationRequested);
         Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT count(*) FROM Numbers WHERE Value = -1"));
         await session.ExecuteNonQueryAsync("COMMIT");
         Assert.Equal(1L, sqlite.ExecuteScalar(_database, "SELECT count(*) FROM Numbers WHERE Value = -1"));
     }
+
+    private static DBAClientX.SQLite CreateCancelingWriteClient(CancellationTokenSource cancellation)
+        => new()
+        {
+            // Cancel inside the write itself, after the earlier insert has executed. A timer can fire
+            // before the SQL batch starts on a busy runner and invalidate the transaction assertion.
+            ConfigureConnection = connection => connection.CreateFunction<long, long>("cancel_write", value =>
+            {
+                if (!cancellation.IsCancellationRequested) cancellation.Cancel();
+                return value;
+            })
+        };
 
     [Fact]
     public async Task QueryWithConnectionStringAsync_AfterAnInterruptedQuery_PooledConnectionRunsTheNextQuery()
