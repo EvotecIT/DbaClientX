@@ -330,6 +330,35 @@ Add `DBACLIENTX_SQL_POPULATED_RECOVERY_TEST=1` to qualify 1,350,000 rows with mo
 
 The allocated and populated capacity probes share a serial test collection. Their space guards run after that collection starts, so they do not compete with each other or other collections in the same test run. The workload probes also require 2 GiB free on SQL Server's default source data/log volumes; the populated fixture bounds its source log at 512 MiB and checkpoints its loading batches. Run separate test processes against the same instance sequentially; the collection does not reserve space against other processes.
 
+## Session-locked transactions
+
+Use a dedicated application-lock session when the lock and the database writes
+must remain on the same SQL Server connection:
+
+```csharp
+await using var held = await cli.AcquireSessionLockAsync(
+    connectionString, "inventory-refresh", cancellationToken: ct);
+await held.ExecuteInTransactionAsync(async (scope, token) =>
+{
+    await scope.ExecuteNonQueryAsync(
+        "UPDATE dbo.Inventory SET CheckedAt = @at WHERE Id = @id;",
+        new Dictionary<string, object?> { ["@at"] = DateTime.UtcNow, ["@id"] = 42 }, token);
+}, cancellationToken: ct);
+```
+
+The callback must await each scope command. Do not keep the scope after the
+callback, switch databases, or change connection, transaction or application-lock
+lifetime through SQL. A lock does not fence writes made through other clients.
+Commands are not retried or reconnected. A command failure prevents commit even
+when the callback catches it; cancellation or connection loss invalidates the
+handle. A commit failure can have an uncertain durable outcome and requires
+reconciliation before another operation.
+
+`QueryAsync` returns the first table after completing all result sets. Additional
+result sets are materialized to expose later SQL failures before commit.
+Set `DBACLIENTX_SQLSERVER_SESSION_LOCK_TEST_CONNECTION` only to an isolated SQL
+Server test database when running the locking and rollback integration tests.
+
 ## See also
 
 - Core mapping + invoker: `DBAClientX.Core`
