@@ -58,4 +58,34 @@ SELECT COUNT(*) FROM (
             await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}; DROP TABLE IF EXISTS {source};");
         }
     }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task BulkInsertWithResultAsync_ReaderCanceledMidCopy_StopsAndThrowsCancellation()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string destination = "dbo.DbaxBulkCancel" + Guid.NewGuid().ToString("N");
+        using var rows = new System.Data.DataTable();
+        rows.Columns.Add("Id", typeof(int));
+        for (int id = 1; id <= 200_000; id++) rows.Rows.Add(id);
+        using var sql = new SqlServer();
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"CREATE TABLE {destination} (Id int NOT NULL)");
+            using System.Data.IDataReader reader = rows.CreateDataReader();
+            var options = new SqlServerBulkInsertOptions { NotifyAfter = 1000, RowsCopied = _ => cancellation.Cancel() };
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sql.BulkInsertWithResultAsync(
+                connectionString!, reader, destination, options, batchSize: 1000, cancellationToken: cancellation.Token));
+
+            long copied = Convert.ToInt64(await sql.ExecuteScalarAsync(connectionString!, $"SELECT COUNT_BIG(*) FROM {destination}"));
+            Assert.InRange(copied, 1, 199_999);
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}");
+        }
+    }
 }

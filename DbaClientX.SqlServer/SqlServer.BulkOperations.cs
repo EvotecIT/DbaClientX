@@ -257,7 +257,45 @@ public partial class SqlServer
     /// <param name="reader">Source data reader.</param>
     /// <param name="cancellationToken">Token used to cancel the bulk copy operation.</param>
     /// <returns>A task that completes when the transfer finishes.</returns>
-    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken) => bulkCopy.WriteToServerAsync(GetNativeBulkReader(reader), cancellationToken);
+    /// <remarks>
+    /// SqlBulkCopy's asynchronous reader path reads a <see cref="System.Data.Common.DbDataReader"/> source one asynchronous
+    /// call per row and took about twice as long as the synchronous path for a 1M-row SQL Server source. The synchronous
+    /// copy runs on a worker thread; cancellation aborts it at the next rows-copied notification.
+    /// </remarks>
+    protected virtual Task WriteToServerAsync(SqlBulkCopy bulkCopy, IDataReader reader, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        IDataReader source = GetNativeBulkReader(reader);
+        if (cancellationToken.CanBeCanceled)
+        {
+            if (bulkCopy.NotifyAfter <= 0)
+            {
+                bulkCopy.NotifyAfter = CancellationNotifyRows;
+            }
+
+            bulkCopy.SqlRowsCopied += (_, args) =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    args.Abort = true;
+                }
+            };
+        }
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                bulkCopy.WriteToServer(source);
+            }
+            catch (Exception ex) when (cancellationToken.IsCancellationRequested && ex is not OperationCanceledException)
+            {
+                throw new OperationCanceledException("The bulk copy was canceled.", ex, cancellationToken);
+            }
+        }, CancellationToken.None);
+    }
+
+    private const int CancellationNotifyRows = 5000;
 
     private static IDataReader GetNativeBulkReader(IDataReader reader)
         => reader is DbaDataReader owned && owned.ProviderReader is SqlDataReader native ? native : reader;
