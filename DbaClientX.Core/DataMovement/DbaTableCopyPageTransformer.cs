@@ -105,7 +105,7 @@ internal static class DbaTableCopyPageTransformer
         internal DbaTableCopyColumnType Conversion(string sourceName, string destinationName) => ResolveConversion(_conversions, sourceName, destinationName);
     }
 
-    private static bool HasTransforms(DbaTableCopyDefinition definition)
+    internal static bool HasTransforms(DbaTableCopyDefinition definition)
         => definition.ColumnMappings is { Count: > 0 } ||
            definition.ExcludedColumns is { Count: > 0 } ||
            definition.ColumnTypeConversions is { Count: > 0 };
