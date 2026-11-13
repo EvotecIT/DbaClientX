@@ -105,7 +105,7 @@ if ($ReadShape.Count -eq 0) {
 Assert-DbaClientXBenchmarkValue -Name InputKind -Value $InputKind -ValidValue @('DataTable', 'DataReader', 'PSCustomObject', 'Class')
 Assert-DbaClientXBenchmarkValue -Name ReadShape -Value $ReadShape -ValidValue @('DataTableAll', 'DataSetAll', 'PSObjectAll')
 Assert-DbaClientXBenchmarkValue -Name Engine -Value $Engine -ValidValue @('DbaClientX', 'dbatools', 'SqlServer')
-Assert-DbaClientXBenchmarkValue -Name Operation -Value $Operation -ValidValue @('Read', 'Write')
+Assert-DbaClientXBenchmarkValue -Name Operation -Value $Operation -ValidValue @('Read', 'Write', 'Copy')
 if ($Iterations -lt 1) {
     throw 'Iterations must be greater than zero.'
 }
@@ -117,6 +117,7 @@ if ($Engine -contains 'dbatools') {
     $requiredCommands = @('Connect-DbaInstance')
     if (-not $Operation -or $Operation -contains 'Write') { $requiredCommands += 'Write-DbaDbTableData' }
     if (-not $Operation -or $Operation -contains 'Read') { $requiredCommands += 'Invoke-DbaQuery' }
+    if ($Operation -contains 'Copy') { $requiredCommands += 'Copy-DbaDbTableData' }
     $missingCommands = @($requiredCommands | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
     if ($missingCommands.Count -gt 0) {
         throw "The explicitly requested dbatools benchmark engine is unavailable. Missing command(s): $($missingCommands -join ', ')."
@@ -795,6 +796,167 @@ CREATE TABLE dbo.$TableName
             Add-BenchmarkComparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
             if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
                 Add-BenchmarkReadmeBlock $readmePath -Block 'sqlserver-data-movement-read-benchmark' -Renderer ComparisonTable
+            }
+            Set-BenchmarkArtifacts Json, Csv, Markdown
+        }
+    }
+
+    if ($selectedOperations -contains 'Copy') {
+        New-BenchmarkSuite 'sqlserver-data-movement-copy' -OutputRoot (Join-Path $outputRootBase 'Copy') {
+            Set-BenchmarkPolicy -Warmup $benchmarkWarmupCount -Iterations $benchmarkIterationCount -Order Rotated -MemoryCleanup BeforeIteration -OutlierMode None
+            Set-BenchmarkProfile Current -Cleanup KeepOnFailure
+            Add-BenchmarkMetadata ProcessorAffinity $appliedProcessorAffinity
+            Add-BenchmarkMetadata ProcessPriority $appliedProcessPriority
+
+            Add-BenchmarkCaseSource {
+                foreach ($rowCount in $rowCounts) {
+                    foreach ($batchSize in $batchSizes) {
+                        [pscustomobject]@{
+                            Scenario = "$rowCount rows / batch $batchSize / table copy"
+                            RowCount = $rowCount
+                            BatchSize = $batchSize
+                        }
+                    }
+                }
+            }
+
+            Set-BenchmarkSetup {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $run.Server = $server
+                $run.Database = $database
+                $run.ModulePath = $modulePath
+                $run.KeepTables = $keepTables
+                $run.ConnectionString = "Server=$($run.Server);Database=$($run.Database);Encrypt=True;TrustServerCertificate=True;Integrated Security=True"
+                $token = '{0}_{1}' -f ($case.Engine -replace '[^A-Za-z0-9_]', ''), ([guid]::NewGuid().ToString('N').Substring(0, 8))
+                $run.SourceTable = "DbaClientXBench_CopySource_$token"
+                $run.TableName = "DbaClientXBench_CopyDest_$token"
+                $run.DropTableQuery = (& $getDropTableQuery -TableName $run.TableName) + ' ' + (& $getDropTableQuery -TableName $run.SourceTable)
+
+                Import-Module $run.ModulePath -Global -Force -ErrorAction Stop
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.SourceTable) -ErrorAction Stop | Out-Null
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -QueryTimeout 600 -ErrorAction Stop -Query @"
+WITH numbers AS
+(
+    SELECT TOP ($([int] $case.RowCount)) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Id
+    FROM sys.all_objects AS a CROSS JOIN sys.all_objects AS b CROSS JOIN sys.all_objects AS c
+)
+INSERT INTO dbo.$($run.SourceTable) WITH (TABLOCK) (Id, DisplayName, Score, CreatedUtc)
+SELECT Id, CONCAT(N'Row ', Id), CONVERT(decimal(18,2), Id * 1.25), DATEADD(second, Id, CONVERT(datetime2, '2026-01-01T00:00:00'))
+FROM numbers;
+"@ | Out-Null
+                Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query (& $getCreateTableQuery -TableName $run.TableName) -ErrorAction Stop | Out-Null
+
+                if ($case.Engine -eq 'dbatools') {
+                    $run.DbatoolsInstance = Connect-DbaInstance -SqlInstance $run.Server -Database $run.Database -TrustServerCertificate
+                }
+            }
+
+            Add-BenchmarkSkipRule {
+                param($case)
+
+                if ($case.Engine -eq 'SqlServer') {
+                    return $true
+                }
+
+                if ($case.Engine -eq 'dbatools' -and -not (Get-Command Copy-DbaDbTableData -ErrorAction SilentlyContinue)) {
+                    return $true
+                }
+
+                return $false
+            }
+
+            # Both lanes copy an existing table into an existing empty table on
+            # the same instance with a table lock and the case batch size.
+            Add-BenchmarkEngine DbaClientX {
+                Add-BenchmarkOperation Copy {
+                    param($case, $run)
+
+                    $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                    Copy-DbaXTableData `
+                        -SourceProvider SqlServer `
+                        -SourceConnectionString $run.ConnectionString `
+                        -SourceTable "dbo.$($run.SourceTable)" `
+                        -DestinationProvider SqlServer `
+                        -DestinationConnectionString $run.ConnectionString `
+                        -DestinationTable "dbo.$($run.TableName)" `
+                        -AllowUnordered `
+                        -BatchSize ([int] $case.BatchSize) `
+                        -BulkCopyTimeout 600 `
+                        -TableLock `
+                        -ErrorAction Stop | Out-Null
+                }
+            }
+
+            Add-BenchmarkEngine dbatools {
+                Add-BenchmarkOperation Copy {
+                    param($case, $run)
+
+                    $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                    Copy-DbaDbTableData `
+                        -SqlInstance $run.DbatoolsInstance `
+                        -Database $run.Database `
+                        -Table "dbo.$($run.SourceTable)" `
+                        -DestinationTable "dbo.$($run.TableName)" `
+                        -BatchSize ([int] $case.BatchSize) `
+                        -BulkCopyTimeout 600 `
+                        -EnableException | Out-Null
+                }
+            }
+
+            Add-BenchmarkEngine SqlServer {
+                Add-BenchmarkOperation Copy {
+                    throw 'The SqlServer module has no table-copy command.'
+                }
+            }
+
+            Add-BenchmarkValidation {
+                param($case, $run)
+
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+                $comparison = Invoke-DbaXQuery `
+                    -Server $run.Server `
+                    -Database $run.Database `
+                    -TrustServerCertificate `
+                    -QueryTimeout 600 `
+                    -ReturnType PSObject `
+                    -ErrorAction Stop `
+                    -Query @"
+SELECT
+    (SELECT COUNT(*) FROM dbo.$($run.TableName)) AS [Rows],
+    (SELECT COUNT(*) FROM (SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable) EXCEPT SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.TableName)) AS missing) AS [Missing],
+    (SELECT COUNT(*) FROM (SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.TableName) EXCEPT SELECT Id, DisplayName, Score, CreatedUtc FROM dbo.$($run.SourceTable)) AS extra) AS [Extra];
+"@
+                if ([int] $comparison.Rows -ne [int] $case.RowCount -or [int] $comparison.Missing -ne 0 -or [int] $comparison.Extra -ne 0) {
+                    throw "$($case.Engine) copied Rows=$($comparison.Rows), Missing=$($comparison.Missing), Extra=$($comparison.Extra) for $($case.RowCount) source row(s)."
+                }
+
+                $run.RowsProcessed = [int] $comparison.Rows
+                if (-not $run.KeepTables) {
+                    Invoke-DbaXNonQuery -Server $run.Server -Database $run.Database -TrustServerCertificate -Query $run.DropTableQuery -ErrorAction Stop | Out-Null
+                }
+            }
+
+            Add-BenchmarkMetric RowsProcessed {
+                param($case, $run)
+
+                $run.RowsProcessed
+            }
+
+            Add-BenchmarkMetric RowsPerSecond {
+                param($case, $run)
+
+                if ($run.DurationMs -le 0) {
+                    return 0
+                }
+
+                [double] $case.RowCount / ($run.DurationMs / 1000)
+            }
+
+            Add-BenchmarkComparison Engine -Baseline DbaClientX -Metric MedianMs -TieTolerance 0.05 -RequireBaselineFastest
+            if ($updateReadme -and (Test-Path -LiteralPath $readmePath)) {
+                Add-BenchmarkReadmeBlock $readmePath -Block 'sqlserver-data-movement-copy-benchmark' -Renderer ComparisonTable
             }
             Set-BenchmarkArtifacts Json, Csv, Markdown
         }

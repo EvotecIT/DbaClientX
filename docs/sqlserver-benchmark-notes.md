@@ -28,7 +28,19 @@ Use `-Plan` to inspect the matrix without touching SQL Server:
 .\Module\Examples\Benchmark.SqlServerDataMovement.ps1 -Plan
 ```
 
-The write suite benchmarks DbaClientX `Write-DbaXTableData` across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes. It compares DbaClientX with dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` on their supported client-side input shapes. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into SQL Server bulk copy. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path. `Copy-DbaDbTableData` is intentionally not part of this matrix because it measures SQL table-to-table streaming rather than client-side object/DataTable import.
+The write suite benchmarks DbaClientX `Write-DbaXTableData` across `DataTable`, `DataReader`, `PSCustomObject`, and typed class input shapes. It compares DbaClientX with dbatools `Write-DbaDbTableData` and SqlServer `Write-SqlTableData` on their supported client-side input shapes. The `DataReader` lane is DbaClientX-only because it measures the public streaming path into SQL Server bulk copy. The dbatools `DataTable` lane passes a direct value to `-InputObject`, matching dbatools' documented SqlBulkCopy fast path and avoiding the slower piped `DataRow` path.
+
+The copy suite (`-Operation Copy`) measures SQL table-to-table copies on one instance: DbaClientX `Copy-DbaXTableData -AllowUnordered -TableLock` against dbatools `Copy-DbaDbTableData`, with the same batch size and an existing empty destination. The source is seeded outside the measured operation. DbaClientX keeps its default source/destination row-count verification inside the timing; dbatools has no equivalent check. Each lane then compares source and destination with `EXCEPT` in both directions.
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerDataMovement.ps1 `
+    -Operation Copy `
+    -Engine DbaClientX,dbatools `
+    -RowCount 25000,250000,1000000 `
+    -BatchSize 5000,50000 `
+    -WarmupCount 3 `
+    -Iterations 10
+```
 
 The read suite seeds an isolated SQL Server table outside the measured operation, then compares DbaClientX `Invoke-DbaXQuery` with dbatools `Invoke-DbaQuery`. By default it reads every row as full-result `DataTable` and PowerShell-object output; pass `-ReadShape DataSetAll` to include a `DataSet` materialization lane for local diagnosis. Successful lanes verify row count plus simple data integrity (`Id` min/max/sum and `Score` sum) and then drop their isolated table. Failed lanes keep their table so the failing state can be inspected. Full `DataTable` materialization is allocation-heavy and can form GC timing clusters, so the default five warmups and twenty measurements are intentional; do not reduce them for a release comparison.
 
@@ -103,6 +115,34 @@ worker and batch limits:
 The parallel controls are recorded in benchmark metadata. They affect only the
 typed CSV and typed compressed-CSV cases; other file kinds retain their normal
 reader path.
+
+`Benchmark.SqlServerCsvImport.ps1` measures file-to-table import only. The
+runner writes each input file with its own generator, so neither engine reads a
+file produced by its own writer:
+
+- `Narrow`: four columns (int, text, decimal, timestamp).
+- `Wide`: 40 columns (13 groups of int, decimal and text).
+- `Quoted`: quoted fields with embedded delimiters, doubled quotes and, on every
+  tenth row, an embedded line break.
+
+Both engines load the same file into an existing typed table with a table lock
+and the same batch size, and both convert text to the column types through
+their default import path: DbaClientX streams `Import-OfficeCsv -AsDataReader`
+into `Write-DbaXTableData`; dbatools runs `Import-DbaCsv` (with
+`-SupportsMultiline` for the quoted shape and `-NoTransaction` to match
+DbaClientX's default). dbatools 2.8.2 rejects the quoted file with "CSV parse
+error" from about 5,000 rows when it uses its default buffer, so the quoted
+lane passes `-BufferSize 4MB`, the setting that let it finish. Validation checks every imported row against the
+generator formula on the server.
+
+```powershell
+.\Module\Examples\Benchmark.SqlServerCsvImport.ps1 `
+    -RowCount 100000,1000000 `
+    -Shape Narrow,Wide,Quoted `
+    -Engine DbaClientX,dbatools `
+    -WarmupCount 3 `
+    -Iterations 10
+```
 
 Run the Excel round-trip lanes:
 
