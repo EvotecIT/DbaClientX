@@ -13,6 +13,8 @@ namespace DBAClientX;
 // under pl-PL a decimal 0.25 became "0,25", a DateTime lost its fraction and "1.25" did not load into a decimal.
 // Values that cross between text and numeric or temporal columns are converted here instead, invariantly and in
 // the form SQL Server's own CAST to nvarchar produces. Native SqlDataReader sources keep SqlClient's typed path.
+// Text read from CSV or Excel has no NULL marker: an empty field for a numeric, temporal, bit, uniqueidentifier or
+// binary column can only mean NULL, so it loads as NULL instead of failing the whole copy.
 public partial class SqlServer
 {
     private static readonly HashSet<string> CharacterTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -32,6 +34,9 @@ public partial class SqlServer
         "date" or "datetime" or "datetime2" or "smalldatetime" => typeof(DateTime),
         "datetimeoffset" => typeof(DateTimeOffset),
         "time" => typeof(TimeSpan),
+        "bit" => typeof(bool),
+        "uniqueidentifier" => typeof(Guid),
+        "binary" or "varbinary" or "image" => typeof(byte[]),
         _ => null
     };
 
@@ -172,7 +177,9 @@ public partial class SqlServer
             if (value is DBNull) return value;
             if (ParseTarget != null)
             {
-                return value is string text && DbaInvariantText.TryParse(text, ParseTarget, out object parsed) ? parsed : value;
+                if (value is not string text) return value;
+                if (string.IsNullOrWhiteSpace(text)) return DBNull.Value;
+                return TryParseText(text, ParseTarget, out object parsed) ? parsed : value;
             }
 
             return value switch
@@ -186,6 +193,64 @@ public partial class SqlServer
         }
 
         internal Type FieldType(Type sourceType) => ParseTarget ?? typeof(string);
+
+        private static bool TryParseText(string text, Type target, out object value)
+        {
+            if (target == typeof(bool))
+            {
+                string trimmed = text.Trim();
+                bool? flag = trimmed switch
+                {
+                    "1" => true,
+                    "0" => false,
+                    _ when bool.TryParse(trimmed, out bool parsedFlag) => parsedFlag,
+                    _ => null
+                };
+                value = flag.HasValue ? flag.Value : text;
+                return flag.HasValue;
+            }
+
+            if (target == typeof(Guid))
+            {
+                bool parsed = Guid.TryParse(text.Trim(), out Guid guid);
+                value = parsed ? guid : text;
+                return parsed;
+            }
+
+            if (target == typeof(byte[]))
+            {
+                // The CONVERT(varchar, varbinary, 1) form; other text is left for SqlBulkCopy to reject.
+                bool parsed = TryParseHex(text.Trim(), out byte[]? bytes);
+                value = parsed ? bytes! : text;
+                return parsed;
+            }
+
+            return DbaInvariantText.TryParse(text, target, out value);
+        }
+
+        private static bool TryParseHex(string text, out byte[]? bytes)
+        {
+            bytes = null;
+            if (text.Length < 2 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X') || text.Length % 2 != 0) return false;
+            var result = new byte[(text.Length - 2) / 2];
+            for (int index = 0; index < result.Length; index++)
+            {
+                int high = HexValue(text[2 + index * 2]), low = HexValue(text[3 + index * 2]);
+                if (high < 0 || low < 0) return false;
+                result[index] = (byte)((high << 4) | low);
+            }
+
+            bytes = result;
+            return true;
+        }
+
+        private static int HexValue(char character) => character switch
+        {
+            >= '0' and <= '9' => character - '0',
+            >= 'a' and <= 'f' => character - 'a' + 10,
+            >= 'A' and <= 'F' => character - 'A' + 10,
+            _ => -1
+        };
     }
 
     /// <summary>Passes reader values through, converting the planned columns.</summary>
