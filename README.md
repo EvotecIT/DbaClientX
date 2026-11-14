@@ -394,6 +394,8 @@ try {
 
 These examples use PSWriteOffice 3.6.1 or later. With its defaults `Export-OfficeCsv` writes dates without their fraction of a second and writes NULL and an empty string the same way. For a round trip that keeps both, pass `-DateTimeFormat o -NullValue '\N'` to `Export-OfficeCsv` and `-NullValue '\N'` to `Import-OfficeCsv`. Binary values are written as a list of byte numbers; select binary columns as `CONVERT(varchar(max), Payload, 1)` and the `0x...` text loads back into a binary column. Empty fields load as NULL into numeric, date, `bit`, `uniqueidentifier` and binary columns.
 
+SQL Server writes keep NULL values (pass `-UseColumnDefaultsForNulls` to let column defaults fill them). Results return `decimal(29..38)` columns as `SqlDecimal` and `hierarchyid`/`geometry`/`geography` as their serialized bytes, which write back unchanged. Copy `sql_variant` columns with `Copy-DbaXTableData` or an `-AsDataReader` reader to keep their base types; SqlBulkCopy cannot load tables that have a sparse column set.
+
 Load compressed CSV back into SQL Server with the same streaming table-write command:
 
 ```powershell

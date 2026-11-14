@@ -11,7 +11,7 @@ Copies table data from one DbaClientX provider connection to another using paged
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-VerifyContent] [-CheckpointId <string>] [-Resume] [-RequireEmptyDestination] [-MaxPageBytes <Int64>] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-VerifyContent] [-CheckpointId <string>] [-Resume] [-RequireEmptyDestination] [-MaxPageBytes <Int64>] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-UseColumnDefaultsForNulls] [-AutoCreateTable] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -35,10 +35,10 @@ Copies all rows from SQL Server into PostgreSQL using provider-native read and w
 
 ### EXAMPLE 3
 ```powershell
-PS> Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls
+PS> Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity
 ```
 
-Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.
+Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values; NULLs stay NULL.
 
 ### EXAMPLE 4
 ```powershell
@@ -469,7 +469,8 @@ Accept wildcard characters: False
 ```
 
 ### -KeepNulls
-SQL Server destination option to preserve null values from the source data.
+Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.
+Cannot be combined with UseColumnDefaultsForNulls.
 
 ```yaml
 Type: SwitchParameter
@@ -710,6 +711,23 @@ Accept wildcard characters: False
 
 ### -TreatMissingTablesAsEmpty
 Treats missing source or destination tables as empty during row counts and clear operations.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -UseColumnDefaultsForNulls
+SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.
 
 ```yaml
 Type: SwitchParameter
