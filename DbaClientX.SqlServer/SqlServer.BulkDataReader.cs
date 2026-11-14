@@ -59,6 +59,7 @@ public partial class SqlServer
         int? bulkCopyTimeout = null)
     {
         ValidateConnectionString(connectionString);
+        reader = PrepareSqlServerSource(reader ?? throw new ArgumentNullException(nameof(reader)), options);
         var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
         ValidateCompatibility(connectionString, options);
 
@@ -166,6 +167,7 @@ public partial class SqlServer
             "DbaClientX.SqlServer.BulkInsert",
             operationId);
         ValidateConnectionString(connectionString);
+        reader = PrepareSqlServerSource(reader ?? throw new ArgumentNullException(nameof(reader)), options);
         var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
         ValidateCompatibility(connectionString, options);
 
@@ -235,6 +237,7 @@ public partial class SqlServer
         CancellationToken cancellationToken = default)
     {
         ValidateConnectionString(connectionString);
+        reader = PrepareSqlServerSource(reader ?? throw new ArgumentNullException(nameof(reader)), options);
         var columns = ValidateBulkInsertInputs(reader, destinationTable, batchSize, bulkCopyTimeout, options);
         ValidateCompatibility(connectionString, options);
 
@@ -414,6 +417,7 @@ public partial class SqlServer
     {
         var columns = new List<SqlServerBulkSourceColumn>(reader.FieldCount);
         var schemaRows = GetReaderSchemaRows(reader);
+        bool sqlServerTypes = IsSqlServerSource(reader);
         var sourceNames = GetReaderSourceNames(reader, columnMappings);
         for (var ordinal = 0; ordinal < reader.FieldCount; ordinal++)
         {
@@ -422,6 +426,7 @@ public partial class SqlServer
                 ? mappedColumn
                 : sourceName;
             var schemaRow = schemaRows.TryGetValue(ordinal, out var row) ? row : null;
+            string? sqlTypeName = sqlServerTypes && TryGetSchemaValue<string>(schemaRow, "DataTypeName", out var typeName) ? typeName : null;
             columns.Add(new SqlServerBulkSourceColumn(
                 ordinal,
                 sourceName,
@@ -430,7 +435,8 @@ public partial class SqlServer
                 GetReaderColumnAllowNull(schemaRow),
                 GetReaderColumnSize(schemaRow),
                 GetReaderNumericFacet(schemaRow, "NumericPrecision"),
-                GetReaderNumericFacet(schemaRow, "NumericScale")));
+                GetReaderNumericFacet(schemaRow, "NumericScale"),
+                sqlTypeName));
         }
 
         return columns;
@@ -515,8 +521,9 @@ public partial class SqlServer
 
     private readonly struct SqlServerBulkSourceColumn
     {
-        internal SqlServerBulkSourceColumn(int ordinal, string sourceName, string destinationName, Type dataType, bool allowDBNull, int? maxLength, int? numericPrecision, int? numericScale)
+        internal SqlServerBulkSourceColumn(int ordinal, string sourceName, string destinationName, Type dataType, bool allowDBNull, int? maxLength, int? numericPrecision, int? numericScale, string? sqlTypeName = null)
         {
+            SqlTypeName = sqlTypeName;
             Ordinal = ordinal;
             SourceName = sourceName;
             DestinationName = destinationName;
@@ -542,5 +549,8 @@ public partial class SqlServer
         internal int? NumericPrecision { get; }
 
         internal int? NumericScale { get; }
+
+        /// <summary>The SQL Server type name when the source is a SQL Server reader.</summary>
+        internal string? SqlTypeName { get; }
     }
 }

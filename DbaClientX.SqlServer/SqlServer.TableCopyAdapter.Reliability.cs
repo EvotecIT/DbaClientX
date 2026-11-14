@@ -80,7 +80,17 @@ public sealed partial class SqlServerTableCopyAdapter
         using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         try
         {
-            return await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false);
+            bool[]? udt = SqlServer.GetUdtColumns(reader);
+            return udt == null
+                ? await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false)
+                : await DbaTableCopyPageReader.ReadAsync(
+                        reader,
+                        maxBytes,
+                        fieldPayloadBytes: null,
+                        readFieldValue: column => udt[column] ? SqlServer.ReadUdtBytes(reader, column) : reader.GetValue(column),
+                        normalizedFieldType: column => udt[column] ? typeof(byte[]) : reader.GetFieldType(column),
+                        cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch
         {
@@ -99,8 +109,10 @@ public sealed partial class SqlServerTableCopyAdapter
     protected override async Task WriteTransactionalPageAsync(DbConnection connection, DbTransaction transaction, DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken)
     {
         ValidateCopyOptions(options);
+        HashSet<string> generated = await GetGeneratedDestinationColumnsAsync(definition, cancellationToken).ConfigureAwait(false);
+        using DataTable? writable = WithoutGeneratedColumns(page, generated, GetEffectiveBulkInsertOptions(options, externalTransaction: true)?.ColumnMappings);
         using var server = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
-        await server.WriteTableCopyRowsAsync((SqlConnection)connection, (SqlTransaction)transaction, page,
+        await server.WriteTableCopyRowsAsync((SqlConnection)connection, (SqlTransaction)transaction, writable ?? page,
             NormalizeQuotedBulkDestinationTableName(definition.DestinationName), GetEffectiveBulkInsertOptions(options, externalTransaction: true),
             options.BatchSize, options.BulkCopyTimeout, cancellationToken).ConfigureAwait(false);
     }
