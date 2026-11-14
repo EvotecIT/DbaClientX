@@ -290,7 +290,7 @@ public partial class SqlServer
             }
             catch (Exception ex) when (cancellationToken.IsCancellationRequested && ex is not OperationCanceledException)
             {
-                throw new OperationCanceledException("The bulk copy was canceled.", ex, cancellationToken);
+                throw CreateCallerCancellationException(ex, cancellationToken);
             }
         }, CancellationToken.None);
     }
