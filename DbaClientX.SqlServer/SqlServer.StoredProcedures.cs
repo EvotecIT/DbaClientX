@@ -58,7 +58,7 @@ public partial class SqlServer
             ApplyCommandTimeout(command);
 
             var dataSet = new DataSet();
-            using var reader = command.ExecuteReader(CommandBehavior.SequentialAccess);
+            using var reader = AdaptReader(command.ExecuteReader(CommandBehavior.SequentialAccess));
             var tableIndex = 0;
             do
             {

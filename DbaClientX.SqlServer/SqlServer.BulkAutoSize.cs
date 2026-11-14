@@ -282,6 +282,10 @@ public partial class SqlServer
             System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields |
             System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
 #endif
+#if NET8_0_OR_GREATER
+        [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2063",
+            Justification = "The cached types come from the inner reader's annotated GetFieldType.")]
+#endif
         public Type GetFieldType(int i) => _fieldTypes[i];
 
         public int GetOrdinal(string name)

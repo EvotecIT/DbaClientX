@@ -21,6 +21,8 @@ public sealed partial class SqlServerTableCopyAdapter
                 throw new ArgumentException("Verified and resumable copies require KeepIdentity in DbaTableCopyOptions so identity behavior is bound to the checkpoint contract.", nameof(options));
             if ((flags & (SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.AllowEncryptedValueModifications)) != 0)
                 throw new ArgumentException("Verified and resumable copies do not support adapter flags that change trigger or encrypted-value write semantics.", nameof(options));
+            if (_bulkInsertOptions?.UseColumnDefaultsForNulls == true)
+                throw new ArgumentException("Verified and resumable copies keep NULL values, so they cannot use UseColumnDefaultsForNulls.", nameof(options));
         }
         using var server = new SqlServer { ConnectionOptions = _connectionOptions };
         server.ValidateCompatibility(ConnectionString, GetEffectiveBulkInsertOptions(options));
@@ -80,17 +82,7 @@ public sealed partial class SqlServerTableCopyAdapter
         using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         try
         {
-            bool[]? udt = SqlServer.GetUdtColumns(reader);
-            return udt == null
-                ? await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false)
-                : await DbaTableCopyPageReader.ReadAsync(
-                        reader,
-                        maxBytes,
-                        fieldPayloadBytes: null,
-                        readFieldValue: column => udt[column] ? SqlServer.ReadUdtBytes(reader, column) : reader.GetValue(column),
-                        normalizedFieldType: column => udt[column] ? typeof(byte[]) : reader.GetFieldType(column),
-                        cancellationToken)
-                    .ConfigureAwait(false);
+            return await DbaTableCopyPageReader.ReadAsync(SqlServer.AdaptValues(reader), maxBytes, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -136,7 +128,8 @@ public sealed partial class SqlServerTableCopyAdapter
             AutoCreateTable = !externalTransaction && (_bulkInsertOptions?.AutoCreateTable ?? false),
             ColumnMappings = _bulkInsertOptions?.ColumnMappings,
             NotifyAfter = _bulkInsertOptions?.NotifyAfter,
-            RowsCopied = _bulkInsertOptions?.RowsCopied
+            RowsCopied = _bulkInsertOptions?.RowsCopied,
+            UseColumnDefaultsForNulls = _bulkInsertOptions?.UseColumnDefaultsForNulls ?? false
         };
     }
 }

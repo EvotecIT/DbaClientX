@@ -50,26 +50,188 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 #endif
     }
 
+    // Windows PowerShell loads every module into one AppDomain. This resolver used to answer any failed load with the
+    // module's own copy, whatever its version and whoever asked, so dbatools' Azure.Identity received DbaClientX's
+    // Azure.Core and PSPublishModule received DbaClientX's System.Collections.Immutable, and both failed to load.
+    // It now ignores requests from other modules' assemblies, answers requests without a known requester only for
+    // identities DbaClientX's loaded assemblies reference or with a same major and minor version, never hands out an
+    // older version than requested, and returns null instead of throwing, which would fail the load for everyone.
     private static Assembly? MyResolveEventHandler(object? sender, ResolveEventArgs args) {
-        var requestedAssemblyName = GetSimpleAssemblyName(args.Name);
-        if (string.IsNullOrEmpty(requestedAssemblyName) ||
-            string.Equals(requestedAssemblyName, "DBAClientX.PowerShell", StringComparison.OrdinalIgnoreCase)) {
+        try {
+            return Resolve(args);
+        } catch (Exception ex) when (ex is not OutOfMemoryException) {
+            return null;
+        }
+    }
+
+    private static Assembly? Resolve(ResolveEventArgs args) {
+        AssemblyName requested;
+        try {
+            requested = new AssemblyName(args.Name);
+        } catch (Exception ex) when (ex is ArgumentException or FileLoadException) {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(requested.Name) ||
+            string.Equals(requested.Name, "DBAClientX.PowerShell", StringComparison.OrdinalIgnoreCase)) {
             return null;
         }
 
         var directoryPath = Path.GetDirectoryName(typeof(OnModuleImportAndRemove).Assembly.Location);
-        if (string.IsNullOrEmpty(directoryPath)) {
+        if (string.IsNullOrEmpty(directoryPath) || !IsModuleRequest(args.RequestingAssembly, directoryPath!, out var unknownRequester)) {
             return null;
         }
 
-        foreach (var file in Directory.EnumerateFiles(directoryPath, "*.dll")) {
-            var assemblyName = Path.GetFileNameWithoutExtension(file);
-            if (string.Equals(assemblyName, requestedAssemblyName, StringComparison.OrdinalIgnoreCase)) {
-                return Assembly.LoadFile(file);
+        // .NET Framework usually reports no requester, and PowerShell asks on behalf of whichever module it is
+        // importing, so such a request may belong to another module. It is answered fully only when an assembly
+        // loaded from this module references exactly the requested identity (Microsoft.Data.Sqlite asks for
+        // SQLitePCLRaw.core 2.1, which this module ships as 3.0). Otherwise only a same major and minor version is
+        // offered (Azure.Identity built for Azure.Core 1.38 fails against 1.44), and a request without a version
+        // only gets a copy this module already loaded.
+        var strict = unknownRequester && !IsOwnAssembly(requested.Name) && !IsReferencedByModule(requested, directoryPath!);
+        if (strict && requested.Version == null) {
+            foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
+                var name = loaded.GetName();
+                if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!) &&
+                    TokensMatch(name.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+                    return loaded;
+                }
+            }
+
+            return null;
+        }
+
+        foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
+            var name = loaded.GetName();
+            if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && Satisfies(name, requested) &&
+                (!strict || SameMinor(name.Version, requested.Version))) {
+                return loaded;
             }
         }
 
-        return null;
+        var file = Path.Combine(directoryPath, requested.Name + ".dll");
+        if (!File.Exists(file)) {
+            return null;
+        }
+
+        AssemblyName candidate;
+        try {
+            candidate = AssemblyName.GetAssemblyName(file);
+        } catch (Exception ex) when (ex is BadImageFormatException or FileLoadException or IOException) {
+            return null;
+        }
+
+        if ((requested.Version != null && candidate.Version < requested.Version) ||
+            !TokensMatch(candidate.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+            return null;
+        }
+
+        if (strict && !SameMinor(candidate.Version, requested.Version)) {
+            return null;
+        }
+
+        return Assembly.LoadFile(file);
+    }
+
+    // Requests from another module's assemblies are left to that module, which ships the versions it was built with.
+    private static bool IsModuleRequest(Assembly? requesting, string directoryPath, out bool unknownRequester) {
+        unknownRequester = true;
+        if (requesting == null || requesting.IsDynamic) {
+            return true;
+        }
+
+        string location;
+        try {
+            location = requesting.Location;
+        } catch (NotSupportedException) {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(location)) {
+            return true;
+        }
+
+        // PowerShell itself asks on behalf of whichever module is loading (Import-Module of another module's
+        // assembly first tries Assembly.Load by name), so its requests count as unknown.
+        if (IsPowerShellEngine(requesting)) {
+            return true;
+        }
+
+        unknownRequester = false;
+
+        var directory = Path.GetDirectoryName(location);
+        return string.Equals(directory, directoryPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFromDirectory(Assembly assembly, string directoryPath) {
+        if (assembly.IsDynamic) {
+            return false;
+        }
+
+        try {
+            // In-memory assemblies report an empty location, which GetDirectoryName rejects on .NET Framework.
+            var location = assembly.Location;
+            return !string.IsNullOrEmpty(location) &&
+                   string.Equals(Path.GetDirectoryName(location), directoryPath, StringComparison.OrdinalIgnoreCase);
+        } catch (Exception ex) when (ex is NotSupportedException or ArgumentException) {
+            return false;
+        }
+    }
+
+    private static bool SameMinor(Version? left, Version? right)
+        => left != null && right != null && left.Major == right.Major && left.Minor == right.Minor;
+
+    private static bool IsOwnAssembly(string name)
+        => name.StartsWith("DbaClientX.", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPowerShellEngine(Assembly assembly)
+        => string.Equals(assembly.GetName().Name, "System.Management.Automation", StringComparison.OrdinalIgnoreCase);
+
+    private static bool Satisfies(AssemblyName loaded, AssemblyName requested) {
+        if (!TokensMatch(loaded.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+            return false;
+        }
+
+        return requested.Version == null || loaded.Version == null ||
+               (loaded.Version.Major == requested.Version.Major && loaded.Version >= requested.Version);
+    }
+
+    private static bool IsReferencedByModule(AssemblyName requested, string directoryPath) {
+        if (requested.Version == null) {
+            return false;
+        }
+
+        foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
+            if (!IsFromDirectory(loaded, directoryPath)) {
+                continue;
+            }
+
+            foreach (var reference in loaded.GetReferencedAssemblies()) {
+                if (string.Equals(reference.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && reference.Version == requested.Version) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TokensMatch(byte[]? loaded, byte[]? requested) {
+        if (requested == null || requested.Length == 0) {
+            return true;
+        }
+
+        if (loaded == null || loaded.Length != requested.Length) {
+            return false;
+        }
+
+        for (var index = 0; index < requested.Length; index++) {
+            if (loaded[index] != requested[index]) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string? GetSimpleAssemblyName(string? assemblyName) {

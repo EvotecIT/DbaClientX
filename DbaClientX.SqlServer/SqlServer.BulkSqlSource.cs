@@ -44,31 +44,6 @@ public partial class SqlServer
         return anyUdt || autoCreateText ? new SqlServerSourceReader(reader, native, udt, wide, schema) : reader;
     }
 
-    // Paged table copies read the same UDT columns as bytes; returns null when the result has none.
-    internal static bool[]? GetUdtColumns(SqlDataReader reader)
-    {
-        DataTable? schema = reader.GetSchemaTable();
-        if (schema == null || !schema.Columns.Contains("ProviderType")) return null;
-        var udt = new bool[reader.FieldCount];
-        bool any = false;
-        foreach (DataRow row in schema.Rows)
-        {
-            if (row["ColumnOrdinal"] is int ordinal && ordinal >= 0 && ordinal < udt.Length &&
-                row["ProviderType"] is int providerType && (SqlDbType)providerType == SqlDbType.Udt)
-            {
-                udt[ordinal] = any = true;
-            }
-        }
-
-        return any ? udt : null;
-    }
-
-    internal static object ReadUdtBytes(SqlDataReader reader, int ordinal)
-    {
-        SqlBytes bytes = reader.GetSqlBytes(ordinal);
-        return bytes.IsNull ? DBNull.Value : bytes.Value;
-    }
-
     private static bool IsSqlServerSource(IDataReader reader)
         => reader is SqlServerSourceReader || GetNativeBulkReader(reader) is SqlDataReader;
 

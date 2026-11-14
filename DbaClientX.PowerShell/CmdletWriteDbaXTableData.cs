@@ -86,9 +86,19 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
     [Parameter]
     public SwitchParameter KeepIdentity { get; set; }
 
-    /// <summary>SQL Server-only option to preserve null values from the source data.</summary>
+    /// <summary>
+    /// Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.
+    /// Cannot be combined with UseColumnDefaultsForNulls.
+    /// </summary>
     [Parameter]
     public SwitchParameter KeepNulls { get; set; }
+
+    /// <summary>
+    /// SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,
+    /// which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.
+    /// </summary>
+    [Parameter]
+    public SwitchParameter UseColumnDefaultsForNulls { get; set; }
 
     /// <summary>SQL Server-only option to create the destination schema and table when they do not already exist.</summary>
     [Parameter]
@@ -338,9 +348,14 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
             throw new PSArgumentException("NotifyAfter must be greater than zero.", nameof(NotifyAfter));
         }
 
+        if (KeepNulls.IsPresent && UseColumnDefaultsForNulls.IsPresent)
+        {
+            throw new PSArgumentException("KeepNulls cannot be combined with UseColumnDefaultsForNulls.", nameof(UseColumnDefaultsForNulls));
+        }
+
         if (Provider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
         {
-            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, AutoCreateTable, and NotifyAfter are only supported for the SqlServer provider.");
+            throw new PSArgumentException("ColumnMap, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, UseColumnDefaultsForNulls, AutoCreateTable, and NotifyAfter are only supported for the SqlServer provider.");
         }
     }
 
@@ -478,6 +493,7 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
             KeepNulls.IsPresent,
             AutoCreateTable.IsPresent,
             ConvertColumnMap(),
+            UseColumnDefaultsForNulls.IsPresent,
             NotifyAfter,
             NotifyAfter.HasValue ? rowsCopied => WriteRowsCopiedProgress(totalRows, rowsCopied) : null);
     }
@@ -497,6 +513,7 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
            FireTriggers.IsPresent ||
            KeepIdentity.IsPresent ||
            KeepNulls.IsPresent ||
+           UseColumnDefaultsForNulls.IsPresent ||
            AutoCreateTable.IsPresent ||
            NotifyAfter.HasValue;
 

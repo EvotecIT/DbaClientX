@@ -308,7 +308,7 @@ public partial class SqlServer
     private static string GetSqlServerColumnType(DataColumn column)
     {
         var type = Nullable.GetUnderlyingType(column.DataType) ?? column.DataType;
-        if (type == typeof(decimal)) return GetSqlServerDecimalColumnType(column);
+        if (type == typeof(decimal) || type == typeof(System.Data.SqlTypes.SqlDecimal)) return GetSqlServerDecimalColumnType(column);
         int? maxLength = column.MaxLength is > 0 ? column.MaxLength : null;
         return GetSqlServerColumnType(type, maxLength);
     }
@@ -320,7 +320,7 @@ public partial class SqlServer
         foreach (DataRow row in column.Table!.Rows)
         {
             if (row.RowState == DataRowState.Deleted || row.IsNull(column)) continue;
-            var value = new System.Data.SqlTypes.SqlDecimal((decimal)row[column]);
+            var value = row[column] is System.Data.SqlTypes.SqlDecimal wide ? wide : new System.Data.SqlTypes.SqlDecimal((decimal)row[column]);
             integerDigits = Math.Max(integerDigits, value.Precision - value.Scale);
             scale = Math.Max(scale, value.Scale);
             sampled = true;

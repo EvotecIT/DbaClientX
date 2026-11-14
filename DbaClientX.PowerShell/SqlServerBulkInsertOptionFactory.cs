@@ -10,6 +10,7 @@ internal static class SqlServerBulkInsertOptionFactory
         bool keepNulls,
         bool autoCreateTable,
         Dictionary<string, string>? columnMappings = null,
+        bool useColumnDefaultsForNulls = false,
         int? notifyAfter = null,
         Action<long>? rowsCopied = null)
     {
@@ -18,7 +19,8 @@ internal static class SqlServerBulkInsertOptionFactory
             ColumnMappings = columnMappings,
             AutoCreateTable = autoCreateTable,
             NotifyAfter = notifyAfter,
-            RowsCopied = rowsCopied
+            RowsCopied = rowsCopied,
+            UseColumnDefaultsForNulls = useColumnDefaultsForNulls
         };
 
         SetBulkCopyOptions(options, tableLock, checkConstraints, fireTriggers, keepIdentity, keepNulls);

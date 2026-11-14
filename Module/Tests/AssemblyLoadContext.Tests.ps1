@@ -1,6 +1,14 @@
 Describe 'Assembly Load Context' {
     BeforeAll {
-        Import-Module (Join-Path $PSScriptRoot '..' 'DbaClientX.psd1') -Force
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'DbaClientX.psd1') -Force
+    }
+
+    # Windows PowerShell shares one AppDomain between modules. dbatools requests its own Azure.Core and
+    # PSPublishModule its own System.Collections.Immutable; answering with DbaClientX's copies broke both imports.
+    It 'leaves other modules'' dependency requests to those modules on Windows PowerShell' -Skip:($PSVersionTable.PSEdition -ne 'Desktop') {
+        { [System.Reflection.Assembly]::Load('Azure.Core, Version=1.38.0.0, Culture=neutral, PublicKeyToken=92742159e12e44c8') } | Should -Throw
+        { [System.Reflection.Assembly]::Load('System.Collections.Immutable, Version=10.0.0.14, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a') } | Should -Throw
+        [System.Reflection.Assembly]::Load('DbaClientX.Core').GetName().Name | Should -Be 'DbaClientX.Core'
     }
 
     It 'creates custom ALC on CoreCLR' -Skip:(-not $IsCoreCLR) {

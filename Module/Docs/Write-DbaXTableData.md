@@ -11,7 +11,7 @@ Writes tabular pipeline input to a database table using provider-native bulk ins
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-InputBatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-ClearDestination] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-InputBatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-UseColumnDefaultsForNulls] [-AutoCreateTable] [-ClearDestination] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -236,7 +236,8 @@ Accept wildcard characters: False
 ```
 
 ### -KeepNulls
-SQL Server-only option to preserve null values from the source data.
+Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.
+Cannot be combined with UseColumnDefaultsForNulls.
 
 ```yaml
 Type: SwitchParameter
@@ -301,6 +302,23 @@ Accept wildcard characters: False
 
 ### -TableLock
 SQL Server-only option to acquire a bulk update lock for the duration of the copy.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -UseColumnDefaultsForNulls
+SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.
 
 ```yaml
 Type: SwitchParameter

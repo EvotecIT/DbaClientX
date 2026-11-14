@@ -35,7 +35,7 @@ public abstract partial class DatabaseClientBase
             ApplyCommandTimeout(command);
 
             object? result;
-            using (var reader = command.ExecuteReader(CommandBehavior.SequentialAccess))
+            using (var reader = AdaptReader(command.ExecuteReader(CommandBehavior.SequentialAccess)))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
@@ -122,7 +122,7 @@ public abstract partial class DatabaseClientBase
             ApplyCommandTimeout(command);
 
             var rows = new List<T>();
-            using (var reader = command.ExecuteReader(CommandBehavior.Default))
+            using (var reader = AdaptReader(command.ExecuteReader(CommandBehavior.Default)))
             {
                 initialize?.Invoke(reader);
                 while (reader.Read())
@@ -215,9 +215,9 @@ public abstract partial class DatabaseClientBase
             ApplyCommandTimeout(command);
 
             object? result;
-            using (var reader = await AwaitWithCallerCancellationAsync(
+            using (var reader = AdaptReader(await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken).ConfigureAwait(false)))
             {
                 var returnType = ReturnType;
                 if (returnType == ReturnType.DataRow)
@@ -310,9 +310,9 @@ public abstract partial class DatabaseClientBase
             ApplyCommandTimeout(command);
 
             var rows = new List<T>();
-            using (var reader = await AwaitWithCallerCancellationAsync(
+            using (var reader = AdaptReader(await AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
-                cancellationToken).ConfigureAwait(false))
+                cancellationToken).ConfigureAwait(false)))
             {
                 initialize?.Invoke(reader);
                 while (await AwaitWithCallerCancellationAsync(

@@ -874,7 +874,8 @@ types, create the table from the copied values.</maml:para>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>KeepNulls</maml:name>
           <maml:description>
-            <maml:para>SQL Server destination option to preserve null values from the source data.</maml:para>
+            <maml:para>Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.&#xD;
+Cannot be combined with UseColumnDefaultsForNulls.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -1062,6 +1063,19 @@ types, create the table from the copied values.</maml:para>
           <maml:name>TreatMissingTablesAsEmpty</maml:name>
           <maml:description>
             <maml:para>Treats missing source or destination tables as empty during row counts and clear operations.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>UseColumnDefaultsForNulls</maml:name>
+          <maml:description>
+            <maml:para>SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,&#xD;
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -1422,7 +1436,8 @@ types, create the table from the copied values.</maml:para>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>KeepNulls</maml:name>
         <maml:description>
-          <maml:para>SQL Server destination option to preserve null values from the source data.</maml:para>
+          <maml:para>Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.&#xD;
+Cannot be combined with UseColumnDefaultsForNulls.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -1619,6 +1634,19 @@ types, create the table from the copied values.</maml:para>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>UseColumnDefaultsForNulls</maml:name>
+        <maml:description>
+          <maml:para>SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,&#xD;
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>UseKeysetPagination</maml:name>
         <maml:description>
           <maml:para>Use a unique, non-null ascending source key for bounded keyset pages.</maml:para>
@@ -1682,9 +1710,9 @@ types, create the table from the copied values.</maml:para>
         <maml:introduction>
           <maml:para>PS&gt; </maml:para>
         </maml:introduction>
-        <dev:code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls</dev:code>
+        <dev:code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity</dev:code>
         <dev:remarks>
-          <maml:para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.</maml:para>
+          <maml:para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values; NULLs stay NULL.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -11852,7 +11880,8 @@ source between steps, so writers never wait for more than one step, but every wr
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>KeepNulls</maml:name>
           <maml:description>
-            <maml:para>SQL Server-only option to preserve null values from the source data.</maml:para>
+            <maml:para>Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.&#xD;
+Cannot be combined with UseColumnDefaultsForNulls.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -11908,6 +11937,19 @@ source between steps, so writers never wait for more than one step, but every wr
           <maml:name>TableLock</maml:name>
           <maml:description>
             <maml:para>SQL Server-only option to acquire a bulk update lock for the duration of the copy.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>UseColumnDefaultsForNulls</maml:name>
+          <maml:description>
+            <maml:para>SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,&#xD;
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -12067,7 +12109,8 @@ source between steps, so writers never wait for more than one step, but every wr
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>KeepNulls</maml:name>
         <maml:description>
-          <maml:para>SQL Server-only option to preserve null values from the source data.</maml:para>
+          <maml:para>Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.&#xD;
+Cannot be combined with UseColumnDefaultsForNulls.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -12123,6 +12166,19 @@ source between steps, so writers never wait for more than one step, but every wr
         <maml:name>TableLock</maml:name>
         <maml:description>
           <maml:para>SQL Server-only option to acquire a bulk update lock for the duration of the copy.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>UseColumnDefaultsForNulls</maml:name>
+        <maml:description>
+          <maml:para>SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,&#xD;
+which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>

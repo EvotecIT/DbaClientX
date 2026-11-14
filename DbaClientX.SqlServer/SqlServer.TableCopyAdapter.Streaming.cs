@@ -6,8 +6,13 @@ namespace DBAClientX;
 
 public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSource, IDbaTableCopyStreamDestination
 {
-    // Describes exactly the columns SELECT * returns, including views, synonyms and three-part names.
+    // Describes exactly the columns SELECT * returns, including views, synonyms and three-part names. A table with a
+    // sparse column set returns that XML column instead of its sparse columns, and SqlBulkCopy cannot write a column
+    // set, so such a table is described, read and written as its individual columns without the column set.
     private const string StreamColumnsQuery =
+        "DECLARE @columns nvarchar(max) = CASE WHEN EXISTS (SELECT 1 FROM {0}sys.columns WHERE object_id = OBJECT_ID(@name) AND is_column_set = 1) " +
+        "THEN STUFF((SELECT N', ' + QUOTENAME(name) FROM {0}sys.columns WHERE object_id = OBJECT_ID(@name) AND is_column_set = 0 ORDER BY column_id FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'') END; " +
+        "DECLARE @query nvarchar(max) = N'SELECT ' + ISNULL(@columns, N'*') + N' FROM ' + @name; " +
         "SELECT name, CONVERT(int, COLLATIONPROPERTY(collation_name, 'LCID')), error_number, " +
         "CONVERT(bit, CASE WHEN is_computed_column = 1 OR system_type_id = 189 THEN 1 ELSE 0 END) " +
         "FROM sys.dm_exec_describe_first_result_set(@query, NULL, 0) WHERE ISNULL(is_hidden, 0) = 0 ORDER BY column_ordinal";
@@ -148,7 +153,8 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
                 AutoCreateTable = bulkOptions?.AutoCreateTable ?? false,
                 ColumnMappings = bulkOptions?.ColumnMappings,
                 NotifyAfter = bulkOptions?.NotifyAfter,
-                RowsCopied = configured == null ? rowsCopied : rows => { configured(rows); rowsCopied(rows); }
+                RowsCopied = configured == null ? rowsCopied : rows => { configured(rows); rowsCopied(rows); },
+                UseColumnDefaultsForNulls = bulkOptions?.UseColumnDefaultsForNulls ?? false
             };
         }
 
@@ -167,9 +173,12 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
 
     private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken, SqlTransaction? transaction = null)
     {
-        using SqlCommand command = CreateSourceCommand(connection, StreamColumnsQuery);
+        string quoted = QuotePath(tableName);
+        IReadOnlyList<string> segments = DbaIdentifierPath.SplitSegments(tableName);
+        string catalog = segments.Count == 3 ? QuotePath(segments[0]) + "." : string.Empty;
+        using SqlCommand command = CreateSourceCommand(connection, string.Format(System.Globalization.CultureInfo.InvariantCulture, StreamColumnsQuery, catalog));
         if (transaction != null) command.Transaction = transaction;
-        command.Parameters.Add("@query", SqlDbType.NVarChar, -1).Value = "SELECT * FROM " + QuotePath(tableName);
+        command.Parameters.Add("@name", SqlDbType.NVarChar, -1).Value = quoted;
         var columns = new List<DbaTableCopyStreamColumn>();
         using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

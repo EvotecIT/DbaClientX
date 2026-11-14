@@ -14,6 +14,14 @@ namespace DBAClientX;
 public abstract partial class DatabaseClientBase
 {
     /// <summary>
+    /// Lets a provider present values its client cannot materialize as ordinary .NET values (for example values
+    /// beyond <see cref="decimal"/>) before results are read into tables, rows or mapped objects.
+    /// </summary>
+    /// <param name="reader">Reader returned by the provider command.</param>
+    /// <returns>The reader to read results from; the default returns <paramref name="reader"/>.</returns>
+    protected virtual DbDataReader AdaptReader(DbDataReader reader) => reader;
+
+    /// <summary>
     /// Shapes a <see cref="DataSet"/> into the configured <see cref="ReturnType"/>.
     /// </summary>
     /// <param name="dataSet">The data set produced by a query.</param>
@@ -159,9 +167,9 @@ public abstract partial class DatabaseClientBase
         CancellationToken cancellationToken)
     {
         var dataSet = new DataSet();
-        using var reader = await AwaitWithCallerCancellationAsync(
+        using var reader = AdaptReader(await AwaitWithCallerCancellationAsync(
             () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false));
         var tableIndex = 0;
         do
         {

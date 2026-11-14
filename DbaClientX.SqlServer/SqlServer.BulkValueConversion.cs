@@ -42,30 +42,62 @@ public partial class SqlServer
 
     private IDataReader? CreateConvertedReader(SqlConnection connection, SqlTransaction? transaction, DataTable table, string destinationTable, SqlServerBulkInsertOptions? options)
     {
-        if (!NeedsDestinationTypes(connection, table.Columns.Cast<DataColumn>().Select(static column => column.DataType))) return null;
+        if (connection.State != ConnectionState.Open) return null;
         Dictionary<string, string>? types = ReadDestinationTypes(connection, transaction, destinationTable);
+        RejectColumnSetDestination(types, destinationTable);
+        if (!NeedsDestinationTypes(connection, table.Columns.Cast<DataColumn>().Select(static column => column.DataType))) return null;
         return CreateConvertedReader(table, types, options);
     }
 
     private async Task<IDataReader?> CreateConvertedReaderAsync(SqlConnection connection, SqlTransaction? transaction, DataTable table, string destinationTable, SqlServerBulkInsertOptions? options, CancellationToken cancellationToken)
     {
-        if (!NeedsDestinationTypes(connection, table.Columns.Cast<DataColumn>().Select(static column => column.DataType))) return null;
+        if (connection.State != ConnectionState.Open) return null;
         Dictionary<string, string>? types = await ReadDestinationTypesAsync(connection, transaction, destinationTable, cancellationToken).ConfigureAwait(false);
+        RejectColumnSetDestination(types, destinationTable);
+        if (!NeedsDestinationTypes(connection, table.Columns.Cast<DataColumn>().Select(static column => column.DataType))) return null;
         return CreateConvertedReader(table, types, options);
     }
 
     private IDataReader ConvertReader(SqlConnection connection, SqlTransaction? transaction, IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, string destinationTable)
     {
-        if (GetNativeBulkReader(reader) is SqlDataReader || !NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
+        if (connection.State != ConnectionState.Open) return reader;
         Dictionary<string, string>? types = ReadDestinationTypes(connection, transaction, destinationTable);
+        RejectColumnSetDestination(types, destinationTable);
+        // A native reader keeps SqlClient's typed path unless a column must become text, which SqlBulkCopy refuses
+        // for a native reader whose source locale differs from the character destination's.
+        if (GetNativeBulkReader(reader) is SqlDataReader) return CreateConvertedReader(reader, columns, types, textOnly: true) ?? reader;
+
+        if (!NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
         return CreateConvertedReader(reader, columns, types) ?? reader;
     }
 
     private async Task<IDataReader> ConvertReaderAsync(SqlConnection connection, SqlTransaction? transaction, IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, string destinationTable, CancellationToken cancellationToken)
     {
-        if (GetNativeBulkReader(reader) is SqlDataReader || !NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
+        if (connection.State != ConnectionState.Open) return reader;
         Dictionary<string, string>? types = await ReadDestinationTypesAsync(connection, transaction, destinationTable, cancellationToken).ConfigureAwait(false);
+        RejectColumnSetDestination(types, destinationTable);
+        if (GetNativeBulkReader(reader) is SqlDataReader) return CreateConvertedReader(reader, columns, types, textOnly: true) ?? reader;
+
+        if (!NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
         return CreateConvertedReader(reader, columns, types) ?? reader;
+    }
+
+    // Destination types carry this marker type for sparse column sets, which SqlBulkCopy cannot write.
+    private const string ColumnSetType = "column_set";
+
+    private static bool HasColumnSet(Dictionary<string, string>? types)
+        => types != null && types.ContainsValue(ColumnSetType);
+
+    // SqlBulkCopy cannot load a table with a sparse column set: it describes the destination by SELECT *, which
+    // returns the column set instead of the sparse columns, and fails or writes the wrong columns. Such a load is
+    // refused with the alternative before any row is sent.
+    private static void RejectColumnSetDestination(Dictionary<string, string>? types, string destinationTable)
+    {
+        if (!HasColumnSet(types)) return;
+        string columnSet = types!.First(static pair => pair.Value == ColumnSetType).Key;
+        throw new SqlServerBulkCopyLimitationException(
+            $"'{destinationTable}' has the sparse column set '{columnSet}', and SqlBulkCopy cannot load a table with a column set. " +
+            "Load the rows into a table without the column set, for example a staging table with the same sparse columns, and move them with INSERT ... SELECT.");
     }
 
     // Byte arrays and other binary sources never need text conversion; everything else might. A connection that is
@@ -88,14 +120,16 @@ public partial class SqlServer
         return any ? new BulkValueConversionReader(table.CreateDataReader(), conversions, ownsInner: true) : null;
     }
 
-    private static IDataReader? CreateConvertedReader(IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, Dictionary<string, string>? types)
+    private static IDataReader? CreateConvertedReader(IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, Dictionary<string, string>? types, bool textOnly = false)
     {
         if (types == null) return null;
         var conversions = new BulkValueConversion?[reader.FieldCount];
         bool any = false;
         foreach (SqlServerBulkSourceColumn column in columns)
         {
-            any |= (conversions[column.Ordinal] = PlanConversion(column.DataType, column.DestinationName, types)) != null;
+            BulkValueConversion? conversion = PlanConversion(column.DataType, column.DestinationName, types);
+            if (textOnly && !ReferenceEquals(conversion, BulkValueConversion.ToText)) conversion = null;
+            any |= (conversions[column.Ordinal] = conversion) != null;
         }
 
         return any ? new BulkValueConversionReader(reader, conversions, ownsInner: false) : null;
@@ -111,6 +145,10 @@ public partial class SqlServer
 
         if (!types.TryGetValue(destinationName, out string? sqlType)) return null;
         Type type = Nullable.GetUnderlyingType(sourceType) ?? sourceType;
+        if (string.Equals(sqlType, "sql_variant", StringComparison.OrdinalIgnoreCase))
+        {
+            return type == typeof(object) || type == typeof(DateTime) ? BulkValueConversion.VariantDateTimeGuard(destinationName) : null;
+        }
         if (CharacterTypes.Contains(sqlType)) return type == typeof(string) ? null : BulkValueConversion.ToText;
         Type? target = GetTextParseTarget(sqlType);
         return target != null && (type == typeof(string) || type == typeof(object)) ? BulkValueConversion.FromText(target) : null;
@@ -121,7 +159,7 @@ public partial class SqlServer
         string? query = BuildDestinationSchemaQuery(destinationTable);
         if (query == null) return null;
         using SqlCommand command = CreateDestinationSchemaCommand(connection, transaction, query);
-        using SqlDataReader reader = command.ExecuteReader(CommandBehavior.SchemaOnly);
+        using SqlDataReader reader = command.ExecuteReader();
         return ReadColumnTypes(reader);
     }
 
@@ -130,7 +168,7 @@ public partial class SqlServer
         string? query = BuildDestinationSchemaQuery(destinationTable);
         if (query == null) return null;
         using SqlCommand command = CreateDestinationSchemaCommand(connection, transaction, query);
-        using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SchemaOnly, cancellationToken).ConfigureAwait(false);
+        using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         return ReadColumnTypes(reader);
     }
 
@@ -151,6 +189,12 @@ public partial class SqlServer
             types[reader.GetName(ordinal)] = reader.GetDataTypeName(ordinal);
         }
 
+        // The second result names sparse column sets, which SELECT * reports as xml.
+        if (reader.NextResult())
+        {
+            while (reader.Read()) types[reader.GetString(0)] = ColumnSetType;
+        }
+
         return types;
     }
 
@@ -159,7 +203,9 @@ public partial class SqlServer
     {
         IReadOnlyList<string> segments = DbaIdentifierPath.SplitSegments(destinationTable);
         if (segments.Count is < 1 or > 4) return null;
-        return "SELECT TOP (0) * FROM " + string.Join(".", segments.Select(static segment => "[" + DbaIdentifierPath.UnquoteSegment(segment).Replace("]", "]]") + "]"));
+        string quoted = string.Join(".", segments.Select(static segment => "[" + DbaIdentifierPath.UnquoteSegment(segment).Replace("]", "]]") + "]"));
+        string catalog = segments.Count == 3 ? "[" + DbaIdentifierPath.UnquoteSegment(segments[0]).Replace("]", "]]") + "].sys.columns" : "sys.columns";
+        return "SELECT TOP (0) * FROM " + quoted + "; SELECT name FROM " + catalog + " WHERE object_id = OBJECT_ID(N'" + quoted.Replace("'", "''") + "') AND is_column_set = 1;";
     }
 
     private sealed class BulkValueConversion
@@ -172,9 +218,27 @@ public partial class SqlServer
 
         internal static BulkValueConversion FromText(Type target) => new(target);
 
+        // SqlBulkCopy stores a .NET DateTime in sql_variant as datetime, which rounds to 1/300 s and starts at 1753.
+        // A value that datetime cannot hold exactly is refused instead of being rounded.
+        internal static BulkValueConversion VariantDateTimeGuard(string columnName) => new(null) { VariantColumn = columnName };
+
+        private string? VariantColumn { get; init; }
+
         internal object Convert(object value)
         {
             if (value is DBNull) return value;
+            if (VariantColumn != null)
+            {
+                if (value is DateTime dateTime && !IsExactSqlDateTime(dateTime))
+                {
+                    throw new SqlServerBulkCopyLimitationException(
+                        $"Column '{VariantColumn}' is sql_variant and SqlBulkCopy would store {dateTime.ToString("yyyy-MM-dd HH:mm:ss.fffffff", System.Globalization.CultureInfo.InvariantCulture)} as datetime, which changes it. " +
+                        "Copy sql_variant values from an Invoke-DbaXQuery -AsDataReader reader, which keeps their base types.");
+                }
+
+                return value;
+            }
+
             if (ParseTarget != null)
             {
                 if (value is not string text) return value;
@@ -192,7 +256,13 @@ public partial class SqlServer
             };
         }
 
-        internal Type FieldType(Type sourceType) => ParseTarget ?? typeof(string);
+        // Decimal text can parse to SqlDecimal beyond System.Decimal, so that column reports object and SqlBulkCopy
+        // converts each value by its own type.
+        internal Type FieldType(Type sourceType) => VariantColumn != null ? sourceType : ParseTarget == typeof(decimal) ? typeof(object) : ParseTarget ?? typeof(string);
+
+        private static bool IsExactSqlDateTime(DateTime value)
+            => value >= System.Data.SqlTypes.SqlDateTime.MinValue.Value && value <= System.Data.SqlTypes.SqlDateTime.MaxValue.Value &&
+               new System.Data.SqlTypes.SqlDateTime(value).Value == value;
 
         private static bool TryParseText(string text, Type target, out object value)
         {
@@ -225,7 +295,73 @@ public partial class SqlServer
                 return parsed;
             }
 
-            return DbaInvariantText.TryParse(text, target, out value);
+            // decimal.TryParse rounds text with more than 28 significant digits, so such text is parsed only exactly, as
+            // SqlDecimal (a single comma counts as the decimal separator); text that cannot be is left for SqlBulkCopy
+            // to reject rather than rounded.
+            if (target == typeof(decimal) && CountDigits(text) > 28)
+            {
+                string normalized = text.Trim();
+                if (normalized.IndexOf('.') < 0 && normalized.IndexOf(',') == normalized.LastIndexOf(',')) normalized = normalized.Replace(',', '.');
+                if (TryParseWideDecimal(normalized, out System.Data.SqlTypes.SqlDecimal exact))
+                {
+                    value = exact;
+                    return true;
+                }
+
+                value = text;
+                return false;
+            }
+
+            if (DbaInvariantText.TryParse(text, target, out value)) return true;
+            // decimal(29..38) text beyond System.Decimal loads as SqlDecimal, which SqlBulkCopy writes unchanged.
+            if (target == typeof(decimal) && TryParseWideDecimal(text.Trim(), out System.Data.SqlTypes.SqlDecimal wide))
+            {
+                value = wide;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int CountDigits(string text)
+        {
+            int digits = 0;
+            foreach (char character in text)
+            {
+                if (character is >= '0' and <= '9') digits++;
+            }
+
+            return digits;
+        }
+
+        private static bool TryParseWideDecimal(string text, out System.Data.SqlTypes.SqlDecimal value)
+        {
+            value = System.Data.SqlTypes.SqlDecimal.Null;
+            if (text.Length == 0 || text.Length > 80) return false;
+            int start = text[0] is '-' or '+' ? 1 : 0;
+            bool digits = false, point = false;
+            for (int index = start; index < text.Length; index++)
+            {
+                char character = text[index];
+                if (character is >= '0' and <= '9') digits = true;
+                else if (character == '.' && !point) point = true;
+                else return false;
+            }
+
+            if (!digits) return false;
+            try
+            {
+                value = System.Data.SqlTypes.SqlDecimal.Parse(text);
+                return true;
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
         }
 
         private static bool TryParseHex(string text, out byte[]? bytes)

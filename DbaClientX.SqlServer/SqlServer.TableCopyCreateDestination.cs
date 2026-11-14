@@ -23,7 +23,7 @@ FROM sys.columns AS c
 JOIN sys.types AS t ON t.user_type_id = c.user_type_id
 LEFT JOIN sys.identity_columns AS ic ON ic.object_id = c.object_id AND ic.column_id = c.column_id
 LEFT JOIN sys.computed_columns AS cc ON cc.object_id = c.object_id AND cc.column_id = c.column_id
-WHERE c.object_id = OBJECT_ID(@source) AND c.is_hidden = 0
+WHERE c.object_id = OBJECT_ID(@source) AND ISNULL(COLUMNPROPERTY(c.object_id, c.name, 'IsHidden'), 0) = 0
 ORDER BY c.column_id;
 SELECT computed.name, referenced.name
 FROM sys.sql_expression_dependencies AS d
