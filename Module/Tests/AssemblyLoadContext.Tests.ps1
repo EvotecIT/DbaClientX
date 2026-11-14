@@ -62,7 +62,6 @@ Describe 'Packaged Assembly Load Context' -Tag 'PackagedALC' {
     It 'loads packaged cmdlets through the module-scoped ALC on CoreCLR' {
         $packagedModuleRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Artefacts\Unpacked'))
         $packagedModule = [IO.Path]::GetFullPath((Join-Path $packagedModuleRoot 'DbaClientX'))
-        $packagedLoader = Join-Path $packagedModule 'Lib\Core\DbaClientX.ModuleLoadContext.dll'
         $conflictAssemblyPath = Join-Path $packagedModule 'Lib\Core\Microsoft.Data.SqlClient.dll'
         $requirePackagedSmoke = $env:DBACLIENTX_REQUIRE_ALC_SMOKE -eq 'true'
 
@@ -73,14 +72,12 @@ Describe 'Packaged Assembly Load Context' -Tag 'PackagedALC' {
 
         if (-not $requirePackagedSmoke -and (
                 -not (Test-Path -LiteralPath $packagedModule) -or
-                -not (Test-Path -LiteralPath $packagedLoader) -or
                 -not (Test-Path -LiteralPath $conflictAssemblyPath))) {
             Set-ItResult -Skipped -Because 'packaged Core artifact is required'
             return
         }
 
         Test-Path -LiteralPath $packagedModule | Should -BeTrue -Because 'the packaged module must exist before the ALC smoke test runs'
-        Test-Path -LiteralPath $packagedLoader | Should -BeTrue -Because 'the packaged module must include the PSPublishModule ALC loader'
         Test-Path -LiteralPath $conflictAssemblyPath | Should -BeTrue -Because 'the conflict assembly must exist before the smoke test runs'
 
         $moduleRootLiteral = $packagedModuleRoot.Replace("'", "''")
@@ -131,6 +128,8 @@ Import-Module DbaClientX -Force
     InvokeDbaXQueryALC = `$commandAlc.Name
     InvokeDbaXQueryALCIsDefault = [object]::ReferenceEquals(`$commandAlc, [System.Runtime.Loader.AssemblyLoadContext]::Default)
     ModuleSqlClientAssembly = if (`$moduleSqlClientAssembly) { `$moduleSqlClientAssembly.Location } else { `$null }
+    ModuleSqlClientIsSeparateCopy = `$null -ne `$moduleSqlClientAssembly -and -not [object]::ReferenceEquals(`$moduleSqlClientAssembly, `$defaultConflictAssembly)
+    ModuleLoaderAssembly = ([System.Management.Automation.PSTypeName]'PowerForge.ModuleLoader.V1.ModuleAssemblyLoadContext').Type.Assembly.Location
     LoadedAssemblies = @(`$loadedAssemblies)
 } | ConvertTo-Json -Depth 6 -Compress
 "@
@@ -148,6 +147,11 @@ Import-Module DbaClientX -Force
         $result.InvokeDbaXQueryAssembly | Should -Be $expectedCommandAssembly
         $result.InvokeDbaXQueryALC | Should -Be 'DbaClientX'
         $result.InvokeDbaXQueryALCIsDefault | Should -BeFalse
+        # The module keeps its own SqlClient even though the session already loaded one into the default context.
+        $result.ModuleSqlClientIsSeparateCopy | Should -BeTrue
+        # PowerForge loads the module through the precompiled loader shipped in the package, not one compiled at import.
+        $packagedLoaderRoot = [IO.Path]::GetFullPath((Join-Path $packagedModule 'Loader\Core')) + [IO.Path]::DirectorySeparatorChar
+        $result.ModuleLoaderAssembly | Should -BeLike "$packagedLoaderRoot*"
         if ($IsWindows) {
             $expectedSqlClientAssembly = [IO.Path]::GetFullPath((Join-Path $packagedModuleRoot 'DbaClientX/Lib/Core/runtimes/win/lib/net8.0/Microsoft.Data.SqlClient.dll'))
             $result.ModuleSqlClientAssembly | Should -Be $expectedSqlClientAssembly
