@@ -1,0 +1,276 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Globalization;
+using System.Text;
+
+namespace DBAClientX;
+
+// Auto-created text columns are sized from the data instead of nvarchar(max), which SqlBulkCopy writes as
+// a large-value type. Tables created this way carry an extended property; later writes, pages and streamed
+// rows that need more room widen those columns in place (a metadata-only change below nvarchar(max)), so a
+// value longer than the observed sample is never truncated or rejected.
+public partial class SqlServer
+{
+    private const string AutoCreatedProperty = "DbaClientX.AutoCreated";
+    private const int AutoSizedTextMinimumLength = 16;
+    private const int AutoSizedTextMaximumLength = 4000;
+    private const int AutoSizedTextSampleRows = 1000;
+
+    private static bool IsAutoSizedText(Type dataType, int? maxLength)
+        => (Nullable.GetUnderlyingType(dataType) ?? dataType) == typeof(string) && maxLength is null or <= 0;
+
+    // Returns the declared nvarchar length for the longest observed value, or null for nvarchar(max).
+    private static int? GetAutoSizedTextLength(int longest)
+    {
+        if (longest > AutoSizedTextMaximumLength) return null;
+        int length = AutoSizedTextMinimumLength;
+        while (length < longest) length *= 2;
+        return Math.Min(length, AutoSizedTextMaximumLength);
+    }
+
+    // Returns the longest text value in the column, or -1 when it holds no text.
+    private static int GetLongestText(DataColumn column)
+    {
+        int longest = -1;
+        foreach (DataRow row in column.Table!.Rows)
+        {
+            if (row.RowState == DataRowState.Deleted || row[column] is not string value) continue;
+            if (value.Length > longest) longest = value.Length;
+        }
+
+        return longest;
+    }
+
+    private static string GetAutoSizedTextType(int? length)
+        => length.HasValue ? "nvarchar(" + length.Value.ToString(CultureInfo.InvariantCulture) + ")" : "nvarchar(max)";
+
+    private static void AppendAutoCreatedMarker(StringBuilder builder)
+    {
+        builder.AppendLine("    DECLARE @dbaxSchema sysname = OBJECT_SCHEMA_NAME(OBJECT_ID(@objectName, N'U')), @dbaxTable sysname = OBJECT_NAME(OBJECT_ID(@objectName, N'U'));");
+        builder.Append("    EXEC sys.sp_addextendedproperty @name = N'").Append(AutoCreatedProperty)
+            .AppendLine("', @value = N'1', @level0type = N'SCHEMA', @level0name = @dbaxSchema, @level1type = N'TABLE', @level1name = @dbaxTable;");
+    }
+
+    // Widens nvarchar(n) columns of a DbaClientX-created table to at least the requested lengths. Other tables,
+    // other types and nvarchar(max) columns are left unchanged.
+    private static void AppendWidenAutoSizedText(StringBuilder builder, IReadOnlyCollection<KeyValuePair<string, int?>> columns, bool elseBranch)
+    {
+        if (columns.Count == 0) return;
+        builder.Append(elseBranch ? "ELSE " : string.Empty)
+            .Append("IF EXISTS (SELECT 1 FROM sys.extended_properties WHERE class = 1 AND major_id = OBJECT_ID(@objectName, N'U') AND minor_id = 0 AND name = N'")
+            .Append(AutoCreatedProperty).AppendLine("')");
+        builder.AppendLine("BEGIN");
+        builder.AppendLine("    DECLARE @dbaxAlter nvarchar(max) = N'';");
+        builder.AppendLine("    SELECT @dbaxAlter += N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(c.object_id)) + N'.' + QUOTENAME(OBJECT_NAME(c.object_id)) + N' ALTER COLUMN ' + QUOTENAME(c.name)");
+        builder.AppendLine("        + N' nvarchar(' + CASE WHEN w.length IS NULL THEN N'max' ELSE CONVERT(nvarchar(10), w.length) END + N')' + CASE WHEN c.is_nullable = 1 THEN N' NULL;' ELSE N' NOT NULL;' END");
+        builder.Append("    FROM (VALUES ");
+        bool first = true;
+        foreach (KeyValuePair<string, int?> column in columns)
+        {
+            if (!first) builder.Append(", ");
+            first = false;
+            builder.Append("(N'").Append(column.Key.Replace("'", "''")).Append("', ")
+                .Append(column.Value.HasValue ? column.Value.Value.ToString(CultureInfo.InvariantCulture) : "NULL").Append(')');
+        }
+
+        builder.AppendLine(") AS w(name, length)");
+        builder.AppendLine("    JOIN sys.columns AS c ON c.object_id = OBJECT_ID(@objectName, N'U') AND c.name = w.name");
+        builder.AppendLine("    WHERE c.system_type_id = 231 AND c.user_type_id = 231 AND c.max_length <> -1 AND (w.length IS NULL OR c.max_length / 2 < w.length);");
+        builder.AppendLine("    IF @dbaxAlter <> N'' EXEC sys.sp_executesql @dbaxAlter;");
+        builder.AppendLine("END");
+    }
+
+    private static string BuildWidenAutoSizedTextCommand(IReadOnlyCollection<KeyValuePair<string, int?>> columns)
+    {
+        var builder = new StringBuilder();
+        AppendWidenAutoSizedText(builder, columns, elseBranch: false);
+        return builder.ToString();
+    }
+
+    private static AutoSizedTextReader? CreateAutoSizedTextReader(IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, SqlServerBulkInsertOptions? options)
+    {
+        if (options?.AutoCreateTable != true) return null;
+        List<SqlServerBulkSourceColumn>? text = null;
+        foreach (SqlServerBulkSourceColumn column in columns)
+        {
+            if (IsAutoSizedText(column.DataType, column.MaxLength)) (text ??= new List<SqlServerBulkSourceColumn>()).Add(column);
+        }
+
+        return text == null ? null : new AutoSizedTextReader(reader, text);
+    }
+
+    /// <summary>
+    /// Replays a sampled prefix of a reader, then stops before a row whose text exceeds a column's declared length so the
+    /// caller can widen the column and continue with the held row.
+    /// </summary>
+    private sealed class AutoSizedTextReader : IDataReader
+    {
+        private readonly IDataReader _inner;
+        private readonly int[] _ordinals;
+        private readonly string[] _names;
+        private readonly int?[] _limits;
+        private readonly bool[] _observed;
+        private readonly int[] _needed;
+        private readonly Queue<object[]> _sample = new();
+        private object[] _values;
+        private object[]? _held;
+        private bool _innerDone;
+
+        internal AutoSizedTextReader(IDataReader inner, IReadOnlyList<SqlServerBulkSourceColumn> columns)
+        {
+            _inner = inner;
+            _ordinals = new int[columns.Count];
+            _names = new string[columns.Count];
+            _limits = new int?[columns.Count];
+            _observed = new bool[columns.Count];
+            _needed = new int[columns.Count];
+            _values = new object[inner.FieldCount];
+            var longest = new int[columns.Count];
+            for (int index = 0; index < columns.Count; index++)
+            {
+                _ordinals[index] = columns[index].Ordinal;
+                _names[index] = columns[index].DestinationName;
+                longest[index] = -1;
+            }
+
+            while (_sample.Count < AutoSizedTextSampleRows && _inner.Read())
+            {
+                var row = new object[_values.Length];
+                _inner.GetValues(row);
+                for (int index = 0; index < _ordinals.Length; index++)
+                {
+                    if (row[_ordinals[index]] is string value && value.Length > longest[index]) longest[index] = value.Length;
+                }
+
+                _sample.Enqueue(row);
+            }
+
+            _innerDone = _sample.Count < AutoSizedTextSampleRows;
+            for (int index = 0; index < _limits.Length; index++)
+            {
+                // Without a sampled value the length is unknown, so the column keeps the unbounded type.
+                _observed[index] = longest[index] >= 0;
+                _limits[index] = _observed[index] ? GetAutoSizedTextLength(longest[index]) : null;
+            }
+        }
+
+        /// <summary>Rows written by earlier segments, before the last widening.</summary>
+        internal long CopiedBeforeSegment { get; private set; }
+
+        internal bool TryGetLimit(int ordinal, out int? length, out bool observed)
+        {
+            int index = Array.IndexOf(_ordinals, ordinal);
+            length = index < 0 ? null : _limits[index];
+            observed = index >= 0 && _observed[index];
+            return index >= 0;
+        }
+
+        /// <summary>Returns the columns to widen when the last segment stopped before a longer value.</summary>
+        internal IReadOnlyCollection<KeyValuePair<string, int?>>? TakeOverflow(long segmentRows)
+        {
+            if (_held == null) return null;
+            CopiedBeforeSegment += segmentRows;
+            var widen = new List<KeyValuePair<string, int?>>();
+            for (int index = 0; index < _needed.Length; index++)
+            {
+                if (_needed[index] == 0) continue;
+                _limits[index] = GetAutoSizedTextLength(_needed[index]);
+                _needed[index] = 0;
+                widen.Add(new KeyValuePair<string, int?>(_names[index], _limits[index]));
+            }
+
+            return widen;
+        }
+
+        public bool Read()
+        {
+            if (_held != null)
+            {
+                _values = _held;
+                _held = null;
+                return true;
+            }
+
+            if (_sample.Count > 0)
+            {
+                _values = _sample.Dequeue();
+                return true;
+            }
+
+            if (_innerDone || !_inner.Read())
+            {
+                _innerDone = true;
+                return false;
+            }
+
+            _inner.GetValues(_values);
+            bool overflow = false;
+            for (int index = 0; index < _ordinals.Length; index++)
+            {
+                if (_limits[index] is int limit && _values[_ordinals[index]] is string value && value.Length > limit)
+                {
+                    _needed[index] = Math.Max(_needed[index], value.Length);
+                    overflow = true;
+                }
+            }
+
+            if (!overflow) return true;
+            _held = _values;
+            _values = new object[_held.Length];
+            return false;
+        }
+
+        public int FieldCount => _inner.FieldCount;
+        public object this[int i] => _values[i];
+        public object this[string name] => _values[_inner.GetOrdinal(name)];
+        public int Depth => 0;
+        public bool IsClosed => _innerDone && _held == null && _sample.Count == 0;
+        public int RecordsAffected => -1;
+        public void Close() { }
+        public void Dispose() { }
+        public DataTable? GetSchemaTable() => _inner.GetSchemaTable();
+        public bool NextResult() => false;
+        public string GetName(int i) => _inner.GetName(i);
+        public string GetDataTypeName(int i) => _inner.GetDataTypeName(i);
+        public Type GetFieldType(int i) => _inner.GetFieldType(i);
+        public int GetOrdinal(string name) => _inner.GetOrdinal(name);
+        public object GetValue(int i) => _values[i];
+
+        public int GetValues(object[] values)
+        {
+            int count = Math.Min(values.Length, _values.Length);
+            Array.Copy(_values, values, count);
+            return count;
+        }
+
+        public bool IsDBNull(int i) => _values[i] is null or DBNull;
+        public bool GetBoolean(int i) => (bool)_values[i];
+        public byte GetByte(int i) => (byte)_values[i];
+        public char GetChar(int i) => (char)_values[i];
+        public DateTime GetDateTime(int i) => (DateTime)_values[i];
+        public decimal GetDecimal(int i) => (decimal)_values[i];
+        public double GetDouble(int i) => (double)_values[i];
+        public float GetFloat(int i) => (float)_values[i];
+        public Guid GetGuid(int i) => (Guid)_values[i];
+        public short GetInt16(int i) => (short)_values[i];
+        public int GetInt32(int i) => (int)_values[i];
+        public long GetInt64(int i) => (long)_values[i];
+        public string GetString(int i) => (string)_values[i];
+        public IDataReader GetData(int i) => throw new NotSupportedException();
+
+        public long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length)
+            => CopyRange((byte[])_values[i], fieldOffset, buffer, bufferoffset, length);
+
+        public long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length)
+            => CopyRange(_values[i] is string text ? text.ToCharArray() : (char[])_values[i], fieldoffset, buffer, bufferoffset, length);
+
+        private static long CopyRange<T>(T[] source, long offset, T[]? buffer, int bufferOffset, int length)
+        {
+            if (buffer == null) return source.Length;
+            int count = (int)Math.Max(0, Math.Min(length, source.Length - offset));
+            Array.Copy(source, offset, buffer, bufferOffset, count);
+            return count;
+        }
+    }
+}

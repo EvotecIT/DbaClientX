@@ -575,11 +575,13 @@ Where dbatools leads:
 - **CSV export** is bound by the CSV writer. With the SQL reader handed over
   unwrapped, PSWriteOffice 3.5.2 still trails `Export-DbaCsv` by about 9%
   on 1M rows, so this row moves with OfficeIMO.CSV releases.
-- **Typed round trips with an auto-created destination** do not create the
-  same table. `Import-DbaCsv -DetectColumnTypes` samples the file and creates
-  `varchar(8)` for the text column; `Write-DbaXTableData -AutoCreateTable`
-  creates `nvarchar(max)` because the reader reports no length. With the same
-  existing destination (the Mapped rows) DbaClientX ties or leads.
+- **Typed round trips with an auto-created destination** were measured when
+  `Write-DbaXTableData -AutoCreateTable` created `nvarchar(max)` for text the
+  reader reports without a length, while `Import-DbaCsv -DetectColumnTypes`
+  scans the file and creates `varchar(8)`. Auto-created text columns are now
+  sized from the data (`nvarchar(16)` here), which made a 100,000-row reader
+  write about four times faster; these rows have not been re-measured yet.
+  With the same existing destination (the Mapped rows) DbaClientX ties or leads.
 
 The 25,000-row SQL Server to XLSX to SQL Server round trip
 (`-FileKind ExcelReader -Engine DbaClientX,ImportExcel`) took 107 ms with
