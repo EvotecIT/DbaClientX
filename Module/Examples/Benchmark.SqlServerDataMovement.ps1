@@ -462,6 +462,7 @@ CREATE TABLE dbo.$TableName
                                 -DestinationTable "dbo.$($run.TableName)" `
                                 -InputObject (, $reader) `
                                 -BatchSize ([int] $case.BatchSize) `
+                                -BulkCopyTimeout 600 `
                                 -TableLock `
                                 -ErrorAction Stop | Out-Null
                         } finally {
@@ -474,6 +475,7 @@ CREATE TABLE dbo.$TableName
                             -DestinationTable "dbo.$($run.TableName)" `
                             -InputObject $run.Data `
                             -BatchSize ([int] $case.BatchSize) `
+                            -BulkCopyTimeout 600 `
                             -TableLock `
                             -ErrorAction Stop | Out-Null
                     }
