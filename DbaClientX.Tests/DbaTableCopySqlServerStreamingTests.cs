@@ -59,6 +59,52 @@ SELECT COUNT(*) FROM (
         }
     }
 
+    // A native sequential reader must be read in destination order, and SqlBulkCopy rejects it when a character
+    // column's collation locale differs from the destination; those locales copy through pages instead.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "LiveProvider")]
+    public async Task CopyAsync_SqlServerDestinationColumnOrderOrLocaleDiffers_CopiesEveryRow(bool differentLocale)
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string suffix = Guid.NewGuid().ToString("N");
+        string source = "dbo.DbaxStreamLayoutSource" + suffix;
+        string destination = "dbo.DbaxStreamLayoutDestination" + suffix;
+        string destinationCollation = differentLocale ? "Polish_CI_AS" : "Latin1_General_CI_AS";
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $@"
+CREATE TABLE {source} (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) COLLATE Latin1_General_CI_AS NULL, Amount decimal(9,2) NULL);
+CREATE TABLE {destination} (Amount decimal(9,2) NULL, Name nvarchar(50) COLLATE {destinationCollation} NULL, Id int NOT NULL PRIMARY KEY);
+WITH numbers AS (SELECT TOP (2500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b)
+INSERT INTO {source} (Id, Name, Amount)
+SELECT n, CASE WHEN n % 3 = 0 THEN NULL ELSE CONCAT(N'Row ', n) END, n / 4.0 FROM numbers;");
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                new SqlServerTableCopyAdapter(connectionString!),
+                new SqlServerTableCopyAdapter(connectionString!),
+                new[] { new DbaTableCopyDefinition(source, destination, new[] { "Id" }) },
+                new DbaTableCopyOptions { PageSize = 1000 });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2500, result.CopiedRows);
+            Assert.Equal(differentLocale ? 3 : 1, Assert.Single(result.Tables).PageCount);
+            object? differences = await sql.ExecuteScalarAsync(connectionString!, $@"
+SELECT COUNT(*) FROM (
+    (SELECT Id, Name COLLATE Latin1_General_BIN2 AS Name, Amount FROM {source} EXCEPT SELECT Id, Name COLLATE Latin1_General_BIN2, Amount FROM {destination})
+    UNION ALL
+    (SELECT Id, Name COLLATE Latin1_General_BIN2 AS Name, Amount FROM {destination} EXCEPT SELECT Id, Name COLLATE Latin1_General_BIN2, Amount FROM {source})) AS differences");
+            Assert.Equal(0, Convert.ToInt32(differences));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}; DROP TABLE IF EXISTS {source};");
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task BulkInsertWithResultAsync_ReaderCanceledMidCopy_StopsAndThrowsCancellation()

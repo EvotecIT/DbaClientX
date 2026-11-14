@@ -200,8 +200,8 @@ public abstract partial class DbaProviderTableCopyAdapterBase : IDbaTableCopySou
     }
 
     /// <summary>Builds the single-statement read used by streamed copies, with the same ordering rules as pages.</summary>
-    internal string BuildTableReadQuery(DbaTableCopyDefinition definition)
-        => $"SELECT * FROM {QuotePath(definition.SourceName)}{BuildOrderByClause(definition.OrderByColumns)}";
+    internal string BuildTableReadQuery(DbaTableCopyDefinition definition, string projection)
+        => $"SELECT {projection} FROM {QuotePath(definition.SourceName)}{BuildOrderByClause(definition.OrderByColumns)}";
 
     private string BuildCountQuery(string tableName, DbaTableCopySourceOptions? sourceOptions)
     {

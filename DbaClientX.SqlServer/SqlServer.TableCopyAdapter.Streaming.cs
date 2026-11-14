@@ -6,13 +6,30 @@ namespace DBAClientX;
 
 public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSource, IDbaTableCopyStreamDestination
 {
+    // Describes exactly the columns SELECT * returns, including views, synonyms and three-part names.
+    private const string StreamColumnsQuery =
+        "SELECT name, CONVERT(int, COLLATIONPROPERTY(collation_name, 'LCID')), error_number " +
+        "FROM sys.dm_exec_describe_first_result_set(@query, NULL, 0) WHERE ISNULL(is_hidden, 0) = 0 ORDER BY column_ordinal";
+
     bool IDbaTableCopyStreamSource.CanStream(DbaTableCopyDefinition definition)
         => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default &&
            definition.SourceOptions?.HasDeduplication != true;
 
-    async Task<IDataReader> IDbaTableCopyStreamSource.OpenStreamAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
+    async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> IDbaTableCopyStreamSource.DescribeStreamAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
     {
-        string query = BuildTableReadQuery(definition);
+        if (_readConnection != null)
+        {
+            return await DescribeStreamColumnsAsync(_readConnection, definition.SourceName, cancellationToken).ConfigureAwait(false);
+        }
+
+        using SqlConnection connection = CreateTableCopyConnection();
+        await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+        return await DescribeStreamColumnsAsync(connection, definition.SourceName, cancellationToken).ConfigureAwait(false);
+    }
+
+    async Task<IDataReader> IDbaTableCopyStreamSource.OpenStreamAsync(DbaTableCopyDefinition definition, IReadOnlyList<string> columns, CancellationToken cancellationToken)
+    {
+        string query = BuildTableReadQuery(definition, string.Join(", ", columns.Select(static column => "[" + column.Replace("]", "]]") + "]")));
         if (_readConnection != null)
         {
             SqlCommand command = CreateSourceCommand(_readConnection, query);
@@ -36,6 +53,60 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
     bool IDbaTableCopyStreamDestination.CanStream(DbaTableCopyDefinition definition, DbaTableCopyOptions options)
         => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default &&
            _bulkInsertOptions?.AutoCreateTable != true;
+
+    // SqlBulkCopy reads a native SqlDataReader in destination column order and rejects character columns whose
+    // collation locale differs from the destination. Order the source projection to match the destination, and
+    // leave locale mismatches and unmatched columns to the page path, which copies through DataTable values.
+    async Task<IReadOnlyList<string>?> IDbaTableCopyStreamDestination.OrderStreamColumnsAsync(
+        DbaTableCopyDefinition definition,
+        DbaTableCopyOptions options,
+        IReadOnlyList<DbaTableCopyStreamColumn> sourceColumns,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<DbaTableCopyStreamColumn>? destinationColumns;
+        using (SqlConnection connection = CreateTableCopyConnection())
+        {
+            await DBAClientX.Diagnostics.DbaClientXDiagnostics.OpenConnectionAsync(connection, cancellationToken).ConfigureAwait(false);
+            destinationColumns = await DescribeStreamColumnsAsync(connection, definition.DestinationName, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (destinationColumns == null)
+        {
+            return null;
+        }
+
+        var destinationOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int ordinal = 0; ordinal < destinationColumns.Count; ordinal++)
+        {
+            destinationOrdinals[destinationColumns[ordinal].Name] = ordinal;
+        }
+
+        IDictionary<string, string>? mappings = GetEffectiveBulkInsertOptions(options)?.ColumnMappings;
+        var ordered = new SortedList<int, string>(sourceColumns.Count);
+        foreach (DbaTableCopyStreamColumn source in sourceColumns)
+        {
+            string destinationName = mappings != null && mappings.TryGetValue(source.Name, out string? mapped) ? mapped : source.Name;
+            if (destinationName.Length >= 2 && destinationName[0] == '[' && destinationName[destinationName.Length - 1] == ']')
+            {
+                destinationName = destinationName.Substring(1, destinationName.Length - 2);
+            }
+
+            if (!destinationOrdinals.TryGetValue(destinationName, out int ordinal) || ordered.ContainsKey(ordinal))
+            {
+                return null;
+            }
+
+            int? destinationLcid = destinationColumns[ordinal].CollationLcid;
+            if (source.CollationLcid.HasValue && destinationLcid.HasValue && source.CollationLcid != destinationLcid)
+            {
+                return null;
+            }
+
+            ordered.Add(ordinal, source.Name);
+        }
+
+        return ordered.Values.ToArray();
+    }
 
     async Task<long> IDbaTableCopyStreamDestination.WriteStreamAsync(
         DbaTableCopyDefinition definition,
@@ -69,5 +140,25 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         return result.RowsCopied;
+    }
+
+    private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken)
+    {
+        using SqlCommand command = CreateSourceCommand(connection, StreamColumnsQuery);
+        command.Parameters.Add("@query", SqlDbType.NVarChar, -1).Value = "SELECT * FROM " + QuotePath(tableName);
+        var columns = new List<DbaTableCopyStreamColumn>();
+        using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // A missing or undescribable object returns an error row; the page path then reports the real failure.
+            if (reader.IsDBNull(0) || !reader.IsDBNull(2))
+            {
+                return null;
+            }
+
+            columns.Add(new DbaTableCopyStreamColumn(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetInt32(1)));
+        }
+
+        return columns.Count == 0 ? null : columns;
     }
 }

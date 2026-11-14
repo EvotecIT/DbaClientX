@@ -235,17 +235,27 @@ public sealed partial class DbaTableCopyEngine
 
         if (CanStreamTable(source, destination, definition, options))
         {
-            page?.Dispose();
-            long streamed = await StreamTableAsync(
-                    (IDbaTableCopyStreamSource)source,
-                    (IDbaTableCopyStreamDestination)destination,
-                    definition,
-                    options,
-                    sourceRows,
-                    cancellationToken,
-                    measurements)
-                .ConfigureAwait(false);
-            return await CompleteCopyAsync(destination, definition, options, sourceRows, streamed, initialDestinationRows, pageCount + 1, cancellationToken, measurements: measurements).ConfigureAwait(false);
+            var streamSource = (IDbaTableCopyStreamSource)source;
+            var streamDestination = (IDbaTableCopyStreamDestination)destination;
+            IReadOnlyList<DbaTableCopyStreamColumn>? sourceColumns = await streamSource.DescribeStreamAsync(definition, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<string>? streamColumns = sourceColumns == null
+                ? null
+                : await streamDestination.OrderStreamColumnsAsync(definition, options, sourceColumns, cancellationToken).ConfigureAwait(false);
+            if (streamColumns != null)
+            {
+                page?.Dispose();
+                long streamed = await StreamTableAsync(
+                        streamSource,
+                        streamDestination,
+                        definition,
+                        options,
+                        streamColumns,
+                        sourceRows,
+                        cancellationToken,
+                        measurements)
+                    .ConfigureAwait(false);
+                return await CompleteCopyAsync(destination, definition, options, sourceRows, streamed, initialDestinationRows, pageCount + 1, cancellationToken, measurements: measurements).ConfigureAwait(false);
+            }
         }
 
         long copied = 0;
@@ -335,6 +345,7 @@ public sealed partial class DbaTableCopyEngine
         IDbaTableCopyStreamDestination destination,
         DbaTableCopyDefinition definition,
         DbaTableCopyOptions options,
+        IReadOnlyList<string> columns,
         long? sourceRows,
         CancellationToken cancellationToken,
         CopyMeasurements? measurements)
@@ -353,7 +364,7 @@ public sealed partial class DbaTableCopyEngine
             };
         try
         {
-            using IDataReader reader = await source.OpenStreamAsync(definition, cancellationToken).ConfigureAwait(false);
+            using IDataReader reader = await source.OpenStreamAsync(definition, columns, cancellationToken).ConfigureAwait(false);
             long copied = await destination.WriteStreamAsync(definition, reader, options, progress, cancellationToken).ConfigureAwait(false);
             if (copied != reported)
             {
