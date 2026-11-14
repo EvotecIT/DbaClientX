@@ -9,7 +9,7 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Write an Excel-imported DataTable to SQL Server.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Import-OfficeExcel .\Data.xlsx -AsDataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import</code>
+/// <code>Import-OfficeExcel .\Data.xlsx -As DataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import</code>
 /// <para>Loads the workbook rows as a DataTable and sends them through the SQL Server bulk-copy provider.</para>
 /// </example>
 /// <example>
@@ -93,6 +93,13 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
     /// <summary>SQL Server-only option to create the destination schema and table when they do not already exist.</summary>
     [Parameter]
     public SwitchParameter AutoCreateTable { get; set; }
+
+    /// <summary>
+    /// Deletes every row of the destination table before the first row is written, as Copy-DbaXTableData
+    /// -ClearDestination does. A destination that AutoCreateTable will create may be missing.
+    /// </summary>
+    [Parameter]
+    public SwitchParameter ClearDestination { get; set; }
 
     /// <summary>SQL Server-only number of rows copied between progress updates.</summary>
     [Parameter]
@@ -205,6 +212,7 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
             }
             else
             {
+                ClearDestinationOnce();
                 InvokeProviderBulkInsert(bulkTable);
             }
 
@@ -270,6 +278,7 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
         }
         else
         {
+            ClearDestinationOnce();
             InvokeSqlServerReaderBulkInsert(bulkReader, sqlServerOptions);
         }
 
@@ -401,6 +410,50 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
 
     private static string GetProviderAlias(DbaXBulkProvider provider)
         => DbaXProviderHelpers.GetAlias(provider.ToString(), nameof(provider));
+
+    private bool _destinationCleared;
+
+    // Clears once per invocation, before the first write, through the same provider adapters Copy-DbaXTableData uses.
+    private void ClearDestinationOnce()
+    {
+        if (!ClearDestination.IsPresent || _destinationCleared)
+        {
+            return;
+        }
+
+        // Rejects an invalid ColumnMap before any row is deleted.
+        _ = BuildSqlServerOptions(totalRows: null);
+        _destinationCleared = true;
+        var options = new DbaProviderTableCopyAdapterOptions { ConnectionString = ConnectionString };
+        DbaProviderTableCopyAdapterBase adapter;
+        switch (Provider)
+        {
+            case DbaXBulkProvider.SqlServer:
+                options.Provider = DbaTableCopyProvider.SqlServer;
+                adapter = new SqlServerTableCopyAdapter(options, AutoCreateTable.IsPresent ? new SqlServerBulkInsertOptions { AutoCreateTable = true } : null);
+                break;
+            case DbaXBulkProvider.PostgreSql:
+                options.Provider = DbaTableCopyProvider.PostgreSql;
+                adapter = new PostgreSqlTableCopyAdapter(options);
+                break;
+            case DbaXBulkProvider.MySql:
+                options.Provider = DbaTableCopyProvider.MySql;
+                adapter = new MySqlTableCopyAdapter(options);
+                break;
+            case DbaXBulkProvider.Oracle:
+                options.Provider = DbaTableCopyProvider.Oracle;
+                adapter = new OracleTableCopyAdapter(options);
+                break;
+            case DbaXBulkProvider.SQLite:
+                options.Provider = DbaTableCopyProvider.SQLite;
+                adapter = new SQLiteTableCopyAdapter(options);
+                break;
+            default:
+                throw new PSArgumentException($"Provider '{Provider}' is not supported.", nameof(Provider));
+        }
+
+        adapter.ClearAsync(new DbaTableCopyDefinition(DestinationTable, DestinationTable)).GetAwaiter().GetResult();
+    }
 
     private DataTable PrepareProviderBulkTable(DataTable table)
         => Provider == DbaXBulkProvider.PostgreSql

@@ -8,7 +8,8 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
 {
     // Describes exactly the columns SELECT * returns, including views, synonyms and three-part names.
     private const string StreamColumnsQuery =
-        "SELECT name, CONVERT(int, COLLATIONPROPERTY(collation_name, 'LCID')), error_number " +
+        "SELECT name, CONVERT(int, COLLATIONPROPERTY(collation_name, 'LCID')), error_number, " +
+        "CONVERT(bit, CASE WHEN is_computed_column = 1 OR system_type_id = 189 THEN 1 ELSE 0 END) " +
         "FROM sys.dm_exec_describe_first_result_set(@query, NULL, 0) WHERE ISNULL(is_hidden, 0) = 0 ORDER BY column_ordinal";
 
     bool IDbaTableCopyStreamSource.CanStream(DbaTableCopyDefinition definition)
@@ -107,6 +108,13 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
                 return null;
             }
 
+            // The server computes computed and rowversion destination columns; the copy leaves them out, as a
+            // destination scripted from the source recomputes them.
+            if (destinationColumns[ordinal].IsGenerated)
+            {
+                continue;
+            }
+
             int? destinationLcid = destinationColumns[ordinal].CollationLcid;
             // A non-character source reports locale 0, which SqlClient also rejects for a character destination.
             if (destinationLcid.HasValue && source.CollationLcid != destinationLcid)
@@ -127,7 +135,10 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
         Action<long>? rowsCopied,
         CancellationToken cancellationToken)
     {
-        SqlServerBulkInsertOptions? bulkOptions = GetEffectiveBulkInsertOptions(options);
+        // Generated destination columns are not in the reader, so their mappings are dropped too.
+        SqlServerBulkInsertOptions? bulkOptions = ForSourceColumns(
+            GetEffectiveBulkInsertOptions(options),
+            Enumerable.Range(0, reader.FieldCount).Select(reader.GetName));
         if (rowsCopied != null)
         {
             Action<long>? configured = bulkOptions?.RowsCopied;
@@ -154,9 +165,10 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
         return result.RowsCopied;
     }
 
-    private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken, SqlTransaction? transaction = null)
     {
         using SqlCommand command = CreateSourceCommand(connection, StreamColumnsQuery);
+        if (transaction != null) command.Transaction = transaction;
         command.Parameters.Add("@query", SqlDbType.NVarChar, -1).Value = "SELECT * FROM " + QuotePath(tableName);
         var columns = new List<DbaTableCopyStreamColumn>();
         using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -168,7 +180,7 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
                 return null;
             }
 
-            columns.Add(new DbaTableCopyStreamColumn(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetInt32(1)));
+            columns.Add(new DbaTableCopyStreamColumn(reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetInt32(1), !reader.IsDBNull(3) && reader.GetBoolean(3)));
         }
 
         return columns.Count == 0 ? null : columns;

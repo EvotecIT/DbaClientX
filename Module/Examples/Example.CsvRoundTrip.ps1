@@ -64,7 +64,7 @@ try {
     }
     $csvImportParameters = @{
         Path = $CsvPath
-        AsDataReader = $true
+        As = 'DataReader'
         ColumnType = @{
             Id = [int]
             DisplayName = [string]

@@ -29,7 +29,7 @@ public partial class SqlServer
             ExecuteBulkInsertSetupCommand(
                 connection,
                 transaction,
-                "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                "IF SCHEMA_ID(@schemaName) IS NULL BEGIN DECLARE @dbaxCreateSchema nvarchar(300) = N'CREATE SCHEMA ' + QUOTENAME(@schemaName); EXEC(@dbaxCreateSchema); END",
                 new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName });
         }
 
@@ -59,7 +59,7 @@ public partial class SqlServer
             ExecuteBulkInsertSetupCommand(
                 connection,
                 transaction,
-                "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                "IF SCHEMA_ID(@schemaName) IS NULL BEGIN DECLARE @dbaxCreateSchema nvarchar(300) = N'CREATE SCHEMA ' + QUOTENAME(@schemaName); EXEC(@dbaxCreateSchema); END",
                 new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName });
         }
 
@@ -89,7 +89,7 @@ public partial class SqlServer
             await ExecuteBulkInsertSetupCommandAsync(
                     connection,
                     transaction,
-                    "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                    "IF SCHEMA_ID(@schemaName) IS NULL BEGIN DECLARE @dbaxCreateSchema nvarchar(300) = N'CREATE SCHEMA ' + QUOTENAME(@schemaName); EXEC(@dbaxCreateSchema); END",
                     new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -124,7 +124,7 @@ public partial class SqlServer
             await ExecuteBulkInsertSetupCommandAsync(
                     connection,
                     transaction,
-                    "IF SCHEMA_ID(@schemaName) IS NULL EXEC(N'CREATE SCHEMA ' + QUOTENAME(@schemaName));",
+                    "IF SCHEMA_ID(@schemaName) IS NULL BEGIN DECLARE @dbaxCreateSchema nvarchar(300) = N'CREATE SCHEMA ' + QUOTENAME(@schemaName); EXEC(@dbaxCreateSchema); END",
                     new Dictionary<string, object?> { ["@schemaName"] = destination.SchemaName },
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -333,6 +333,11 @@ public partial class SqlServer
 
     private static string GetSqlServerReaderColumnType(SqlServerBulkSourceColumn column)
     {
+        if (GetSqlServerSourceColumnType(column.SqlTypeName, column.MaxLength, column.NumericPrecision, column.NumericScale) is { } sourceType)
+        {
+            return sourceType;
+        }
+
         if (column.DataType == typeof(decimal))
         {
             if (!column.NumericPrecision.HasValue || !column.NumericScale.HasValue)

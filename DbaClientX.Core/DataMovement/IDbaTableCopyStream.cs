@@ -5,7 +5,8 @@ namespace DBAClientX.DataMovement;
 /// <summary>A column of a streamed source result, in source order.</summary>
 /// <param name="Name">The column name returned by the source read.</param>
 /// <param name="CollationLcid">The collation locale of a character column, or <see langword="null"/>.</param>
-internal sealed record DbaTableCopyStreamColumn(string Name, int? CollationLcid);
+// IsGenerated marks a destination column the server computes (computed or rowversion), which a copy cannot write.
+internal sealed record DbaTableCopyStreamColumn(string Name, int? CollationLcid, bool IsGenerated = false);
 
 /// <summary>Source that can return a whole table through one reader instead of offset pages.</summary>
 internal interface IDbaTableCopyStreamSource

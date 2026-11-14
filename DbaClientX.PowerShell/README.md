@@ -54,7 +54,7 @@ Import CSV or Excel rows with PSWriteOffice and let DbaClientX own the database 
 SQL Server `IDataReader` input streams directly into `SqlBulkCopy`. When passing a reader through `-InputObject`, wrap it as `-InputObject (, $reader)` so PowerShell treats it as one object.
 
 ```powershell
-Import-OfficeCsv .\Users.csv -AsDataTable |
+Import-OfficeCsv .\Users.csv -As DataTable |
     Write-DbaXTableData `
         -Provider PostgreSql `
         -ConnectionString 'Host=localhost;Database=app;Username=user;Password=secret;SslMode=Require' `
@@ -63,7 +63,7 @@ Import-OfficeCsv .\Users.csv -AsDataTable |
 ```
 
 ```powershell
-$reader = Import-OfficeExcel .\Users.xlsx -AsDataReader
+$reader = Import-OfficeExcel .\Users.xlsx -As DataReader
 try {
     Write-DbaXTableData `
         -Provider SqlServer `

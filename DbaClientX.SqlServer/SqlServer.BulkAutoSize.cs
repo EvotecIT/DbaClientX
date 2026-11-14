@@ -123,6 +123,12 @@ public partial class SqlServer
         private readonly bool[] _observed;
         private readonly int[] _needed;
         private readonly Queue<object[]> _sample = new();
+        // Readers that close themselves after their last row (the OfficeIMO Excel reader does) reject metadata
+        // calls once the sample has drained them, so the shape is captured before the first read.
+        private readonly string[] _fieldNames;
+        private readonly Type[] _fieldTypes;
+        private readonly string[] _dataTypeNames;
+        private readonly DataTable? _schema;
         private object[] _values;
         private object[]? _held;
         private bool _innerDone;
@@ -136,6 +142,17 @@ public partial class SqlServer
             _observed = new bool[columns.Count];
             _needed = new int[columns.Count];
             _values = new object[inner.FieldCount];
+            _fieldNames = new string[inner.FieldCount];
+            _fieldTypes = new Type[inner.FieldCount];
+            _dataTypeNames = new string[inner.FieldCount];
+            for (int ordinal = 0; ordinal < inner.FieldCount; ordinal++)
+            {
+                _fieldNames[ordinal] = inner.GetName(ordinal);
+                _fieldTypes[ordinal] = inner.GetFieldType(ordinal);
+                _dataTypeNames[ordinal] = inner.GetDataTypeName(ordinal);
+            }
+
+            _schema = inner.GetSchemaTable();
             var longest = new int[columns.Count];
             for (int index = 0; index < columns.Count; index++)
             {
@@ -248,25 +265,38 @@ public partial class SqlServer
             return false;
         }
 
-        public int FieldCount => _inner.FieldCount;
+        public int FieldCount => _fieldNames.Length;
         public object this[int i] => _values[i];
-        public object this[string name] => _values[_inner.GetOrdinal(name)];
+        public object this[string name] => _values[GetOrdinal(name)];
         public int Depth => 0;
         public bool IsClosed => _innerDone && _held == null && _sample.Count == 0;
         public int RecordsAffected => -1;
         public void Close() { }
         public void Dispose() { }
-        public DataTable? GetSchemaTable() => _inner.GetSchemaTable();
+        public DataTable? GetSchemaTable() => _schema;
         public bool NextResult() => false;
-        public string GetName(int i) => _inner.GetName(i);
-        public string GetDataTypeName(int i) => _inner.GetDataTypeName(i);
+        public string GetName(int i) => _fieldNames[i];
+        public string GetDataTypeName(int i) => _dataTypeNames[i];
 #if NET8_0_OR_GREATER
         [return: System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
             System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields |
             System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
 #endif
-        public Type GetFieldType(int i) => _inner.GetFieldType(i);
-        public int GetOrdinal(string name) => _inner.GetOrdinal(name);
+        public Type GetFieldType(int i) => _fieldTypes[i];
+
+        public int GetOrdinal(string name)
+        {
+            int ordinal = Array.IndexOf(_fieldNames, name);
+            if (ordinal < 0)
+            {
+                for (int index = 0; index < _fieldNames.Length && ordinal < 0; index++)
+                {
+                    if (string.Equals(_fieldNames[index], name, StringComparison.OrdinalIgnoreCase)) ordinal = index;
+                }
+            }
+
+            return ordinal >= 0 ? ordinal : throw new IndexOutOfRangeException(name);
+        }
         public object GetValue(int i) => _values[i];
 
         public int GetValues(object[] values)

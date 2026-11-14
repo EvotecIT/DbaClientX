@@ -83,7 +83,7 @@ Use PSWriteOffice for the file format and DbaClientX for the database write:
 ```powershell
 $reader = $null
 try {
-    $reader = Import-OfficeCsv .\Users.csv -AsDataReader -InferSchema
+    $reader = Import-OfficeCsv .\Users.csv -As DataReader -InferSchema
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=tempdb;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
@@ -97,7 +97,7 @@ try {
     }
 }
 
-Import-OfficeExcel .\Users.xlsx -AsDataTable |
+Import-OfficeExcel .\Users.xlsx -As DataTable |
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=tempdb;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `

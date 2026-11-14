@@ -80,7 +80,7 @@ Start with the job you need to finish:
 | Stream Azure Table entities between accounts or Table API endpoints | `Copy-DbaXAzureTableData` | Preserves native continuation tokens and keeps each write transaction inside one partition |
 | Query or upsert Azure Table entities from PowerShell | `Get-DbaXAzureTableEntity` / `Write-DbaXAzureTableEntity` | Requires `PartitionKey` and `RowKey`; transaction batches are capped at 100 entities and the service payload limit |
 | Export SQL rows to CSV, compressed CSV, or Excel | `Invoke-DbaXQuery -AsDataReader` or `-ReturnType DataTable` plus PSWriteOffice `Export-OfficeCsv` / `Export-OfficeExcel` | Streams or buffers database rows into the file writer |
-| Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -AsDataReader` / `Import-OfficeExcel -AsDataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
+| Import CSV, compressed CSV, or Excel into SQL Server | PSWriteOffice `Import-OfficeCsv -As DataReader` / `Import-OfficeExcel -As DataReader` plus `Write-DbaXTableData` | Reads the file as tabular data, then bulk-writes it |
 | Stream a reader into SQL Server bulk copy | `Write-DbaXTableData -Provider SqlServer -InputObject (, $reader)` | Pass the reader as a single input object with `, $reader` |
 | Stream database rows into Apache Arrow | Provider `QueryReaderAsync` plus OfficeIMO.Data.Arrow `ReadArrowBatchesAsync` | DbaClientX owns the connection/reader lifetime; OfficeIMO owns Arrow conversion and managed/C stream export |
 
@@ -341,7 +341,7 @@ Import CSV with PSWriteOffice, then hand the reader to DbaClientX for the SQL Se
 ```powershell
 $reader = $null
 try {
-    $reader = Import-OfficeCsv .\Users.csv -AsDataReader -InferSchema
+    $reader = Import-OfficeCsv .\Users.csv -As DataReader -InferSchema
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
@@ -392,12 +392,14 @@ try {
 }
 ```
 
+These examples use PSWriteOffice 3.6.1 or later. With its defaults `Export-OfficeCsv` writes dates without their fraction of a second and writes NULL and an empty string the same way. For a round trip that keeps both, pass `-DateTimeFormat o -NullValue '\N'` to `Export-OfficeCsv` and `-NullValue '\N'` to `Import-OfficeCsv`. Binary values are written as a list of byte numbers; select binary columns as `CONVERT(varchar(max), Payload, 1)` and the `0x...` text loads back into a binary column. Empty fields load as NULL into numeric, date, `bit`, `uniqueidentifier` and binary columns.
+
 Load compressed CSV back into SQL Server with the same streaming table-write command:
 
 ```powershell
 $reader = $null
 try {
-    $reader = Import-OfficeCsv .\Users.csv.gz -CompressionType GZip -AsDataReader -InferSchema
+    $reader = Import-OfficeCsv .\Users.csv.gz -CompressionType GZip -As DataReader -InferSchema
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
@@ -415,7 +417,7 @@ try {
 The same database write path accepts Excel-imported readers:
 
 ```powershell
-$reader = Import-OfficeExcel .\Users.xlsx -AsDataReader
+$reader = Import-OfficeExcel .\Users.xlsx -As DataReader
 try {
     Write-DbaXTableData `
         -Provider SqlServer `

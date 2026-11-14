@@ -574,6 +574,21 @@
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>AutoCreateTable</maml:name>
+          <maml:description>
+            <maml:para>SQL Server destination option to create a missing destination table. A SQL Server source table or view is&#xD;
+described exactly: types with their lengths, precision and scale, collations, nullability, sparse storage,&#xD;
+identity seed and increment, and computed column definitions. Other sources, and copies that convert column&#xD;
+types, create the table from the copied values.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BatchSize</maml:name>
           <maml:description>
             <maml:para>Optional number of rows per provider bulk-write batch.</maml:para>
@@ -600,7 +615,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. Ctrl+C stops it between writes and stops a running SQL Server write at its next rows-copied notification; a write blocked on a lock, or an Oracle bulk write that has started, runs until it can finish. SQLite destinations do not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -1107,6 +1122,21 @@
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>AutoCreateTable</maml:name>
+        <maml:description>
+          <maml:para>SQL Server destination option to create a missing destination table. A SQL Server source table or view is&#xD;
+described exactly: types with their lengths, precision and scale, collations, nullability, sparse storage,&#xD;
+identity seed and increment, and computed column definitions. Other sources, and copies that convert column&#xD;
+types, create the table from the copied values.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BatchSize</maml:name>
         <maml:description>
           <maml:para>Optional number of rows per provider bulk-write batch.</maml:para>
@@ -1133,7 +1163,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. Ctrl+C stops it between writes and stops a running SQL Server write at its next rows-copied notification; a write blocked on a lock, or an Oracle bulk write that has started, runs until it can finish. SQLite destinations do not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -1645,6 +1675,16 @@
         <dev:code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable staging.Customers -DestinationProvider PostgreSql -DestinationConnectionString $dest -DestinationTable public.customers -OrderBy CustomerId -PageSize 25000 -PassThru</dev:code>
         <dev:remarks>
           <maml:para>Copies all rows from SQL Server into PostgreSQL using provider-native read and write paths.</maml:para>
+        </dev:remarks>
+      </command:example>
+      <command:example>
+        <maml:title>Copy a SQL Server table into a new table on another server.</maml:title>
+        <maml:introduction>
+          <maml:para>PS&gt; </maml:para>
+        </maml:introduction>
+        <dev:code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls</dev:code>
+        <dev:remarks>
+          <maml:para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.</maml:para>
         </dev:remarks>
       </command:example>
       <command:example>
@@ -3675,7 +3715,7 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -3781,7 +3821,7 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -11691,7 +11731,7 @@ source between steps, so writers never wait for more than one step, but every wr
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>BulkCopyTimeout</maml:name>
           <maml:description>
-            <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
+            <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
           <dev:type>
@@ -11704,6 +11744,19 @@ source between steps, so writers never wait for more than one step, but every wr
           <maml:name>CheckConstraints</maml:name>
           <maml:description>
             <maml:para>SQL Server-only option to check destination constraints during the copy.</maml:para>
+          </maml:description>
+          <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+          <dev:type>
+            <maml:name>SwitchParameter</maml:name>
+            <maml:uri />
+          </dev:type>
+          <dev:defaultValue>None</dev:defaultValue>
+        </command:parameter>
+        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+          <maml:name>ClearDestination</maml:name>
+          <maml:description>
+            <maml:para>Deletes every row of the destination table before the first row is written, as Copy-DbaXTableData&#xD;
+-ClearDestination does. A destination that AutoCreateTable will create may be missing.</maml:para>
           </maml:description>
           <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
           <dev:type>
@@ -11893,7 +11946,7 @@ source between steps, so writers never wait for more than one step, but every wr
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>BulkCopyTimeout</maml:name>
         <maml:description>
-          <maml:para>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</maml:para>
+          <maml:para>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">Int32</command:parameterValue>
         <dev:type>
@@ -11906,6 +11959,19 @@ source between steps, so writers never wait for more than one step, but every wr
         <maml:name>CheckConstraints</maml:name>
         <maml:description>
           <maml:para>SQL Server-only option to check destination constraints during the copy.</maml:para>
+        </maml:description>
+        <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
+        <dev:type>
+          <maml:name>SwitchParameter</maml:name>
+          <maml:uri />
+        </dev:type>
+        <dev:defaultValue>None</dev:defaultValue>
+      </command:parameter>
+      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
+        <maml:name>ClearDestination</maml:name>
+        <maml:description>
+          <maml:para>Deletes every row of the destination table before the first row is written, as Copy-DbaXTableData&#xD;
+-ClearDestination does. A destination that AutoCreateTable will create may be missing.</maml:para>
         </maml:description>
         <command:parameterValue required="false" variableLength="false">SwitchParameter</command:parameterValue>
         <dev:type>
@@ -12085,7 +12151,7 @@ source between steps, so writers never wait for more than one step, but every wr
         <maml:introduction>
           <maml:para>PS&gt; </maml:para>
         </maml:introduction>
-        <dev:code>Import-OfficeExcel .\Data.xlsx -AsDataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import</dev:code>
+        <dev:code>Import-OfficeExcel .\Data.xlsx -As DataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import</dev:code>
         <dev:remarks>
           <maml:para>Loads the workbook rows as a DataTable and sends them through the SQL Server bulk-copy provider.</maml:para>
         </dev:remarks>

@@ -19,6 +19,12 @@ namespace DBAClientX.PowerShell;
 /// <para>Copies all rows from SQL Server into PostgreSQL using provider-native read and write paths.</para>
 /// </example>
 /// <example>
+/// <summary>Copy a SQL Server table into a new table on another server.</summary>
+/// <prefix>PS&gt; </prefix>
+/// <code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls</code>
+/// <para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.</para>
+/// </example>
+/// <example>
 /// <summary>Copy several planned tables.</summary>
 /// <prefix>PS&gt; </prefix>
 /// <code>$definitions | Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString $source -DestinationProvider SqlServer -DestinationConnectionString $dest -BatchSize 5000 -PassThru</code>
@@ -217,6 +223,15 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
     [Parameter]
     public SwitchParameter KeepNulls { get; set; }
 
+    /// <summary>
+    /// SQL Server destination option to create a missing destination table. A SQL Server source table or view is
+    /// described exactly: types with their lengths, precision and scale, collations, nullability, sparse storage,
+    /// identity seed and increment, and computed column definitions. Other sources, and copies that convert column
+    /// types, create the table from the copied values.
+    /// </summary>
+    [Parameter]
+    public SwitchParameter AutoCreateTable { get; set; }
+
     /// <summary>Writes a result object with copied table counts, verification state, and elapsed time.</summary>
     [Parameter]
     public SwitchParameter PassThru { get; set; }
@@ -336,6 +351,7 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
 
     private async Task<DbaTableCopyResult> CopyAsync(IReadOnlyList<DbaTableCopyDefinition> definitions)
     {
+        _autoCreateFromValues = AutoCreateTable.IsPresent && !await CreateDestinationsFromSourceAsync(definitions).ConfigureAwait(false);
         var request = new DbaProviderTableCopyRequest
         {
             Source = new DbaProviderTableCopyAdapterOptions
@@ -490,7 +506,7 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
 
         if (DestinationProvider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
         {
-            throw new PSArgumentException("TableLock, CheckConstraints, FireTriggers, KeepIdentity, and KeepNulls are only supported for SqlServer destinations.");
+            throw new PSArgumentException("AutoCreateTable, TableLock, CheckConstraints, FireTriggers, KeepIdentity, and KeepNulls are only supported for SqlServer destinations.");
         }
 
         if (SourceFabricWarehouse.IsPresent && SourceProvider != DbaXBulkProvider.SqlServer)
@@ -530,7 +546,8 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
     }
 
     private bool HasSqlServerOnlyOptions()
-        => TableLock.IsPresent ||
+        => AutoCreateTable.IsPresent ||
+           TableLock.IsPresent ||
            CheckConstraints.IsPresent ||
            FireTriggers.IsPresent ||
            KeepIdentity.IsPresent ||
@@ -667,7 +684,7 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
 
     private SqlServerBulkInsertOptions? BuildSqlServerOptions()
     {
-        if (DestinationProvider != DbaXBulkProvider.SqlServer || !HasSqlServerOnlyOptions())
+        if (DestinationProvider != DbaXBulkProvider.SqlServer || (!HasSqlServerOnlyOptions() && !_autoCreateFromValues))
         {
             return null;
         }
@@ -678,7 +695,36 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
             FireTriggers.IsPresent,
             KeepIdentity.IsPresent,
             KeepNulls.IsPresent,
-            autoCreateTable: false);
+            autoCreateTable: _autoCreateFromValues);
+    }
+
+    private bool _autoCreateFromValues;
+
+    // A SQL Server source describes its own columns, so its destination is created before the copy and the copy
+    // keeps the streamed path. Returns false when any destination must instead be created from the copied values.
+    private async Task<bool> CreateDestinationsFromSourceAsync(IReadOnlyList<DbaTableCopyDefinition> definitions)
+    {
+        if (SourceProvider != DbaXBulkProvider.SqlServer || SourceFabricWarehouse.IsPresent || DestinationFabricWarehouse.IsPresent ||
+            definitions.Any(static definition => definition.ColumnTypeConversions is { Count: > 0 }))
+        {
+            return false;
+        }
+
+        using var sqlServer = new DBAClientX.SqlServer();
+        foreach (DbaTableCopyDefinition definition in definitions)
+        {
+            await sqlServer.CreateTableFromSourceAsync(
+                    SourceConnectionString,
+                    definition.SourceName,
+                    DestinationConnectionString,
+                    definition.DestinationName,
+                    definition.ColumnMappings,
+                    definition.ExcludedColumns,
+                    CancelToken)
+                .ConfigureAwait(false);
+        }
+
+        return true;
     }
 
     private static SqlServerConnectionOptions? BuildSqlServerConnectionOptions(bool fabricWarehouse)

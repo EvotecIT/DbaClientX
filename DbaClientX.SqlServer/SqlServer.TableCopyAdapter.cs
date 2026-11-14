@@ -54,12 +54,16 @@ public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdap
     /// <inheritdoc />
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
+        HashSet<string> generated = await GetGeneratedDestinationColumnsAsync(definition, cancellationToken).ConfigureAwait(false);
+        SqlServerBulkInsertOptions? bulkOptions = GetEffectiveBulkInsertOptions(options);
+        using DataTable? writable = WithoutGeneratedColumns(page, generated, bulkOptions?.ColumnMappings);
+        DataTable source = writable ?? page;
         using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await sqlServer.BulkInsertAsync(
                 ConnectionString,
-                page,
+                source,
                 NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
-                GetEffectiveBulkInsertOptions(options),
+                ForSourceColumns(bulkOptions, source.Columns.Cast<DataColumn>().Select(static column => column.ColumnName)),
                 batchSize: options.BatchSize,
                 bulkCopyTimeout: options.BulkCopyTimeout,
                 cancellationToken: cancellationToken)
@@ -83,22 +87,9 @@ public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdap
     }
 
     /// <inheritdoc />
-    protected override async Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
-    {
-        if (_readConnection != null)
-        {
-            return await ExecuteBoundedPageCoreAsync(query, new Dictionary<string, object?>(), null, cancellationToken).ConfigureAwait(false);
-        }
-        using var sqlServer = new SqlServer
-        {
-            ConnectionOptions = _connectionOptions,
-            ReturnType = ReturnType.DataTable,
-            CommandTimeout = CommandTimeout
-        };
-        var result = await sqlServer.QueryAsync(ConnectionString, query, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return result as DataTable
-            ?? throw new InvalidOperationException("SQL Server did not return a DataTable.");
-    }
+    // Pages are read by the table-copy page reader, which reads hierarchyid, geometry and geography as bytes.
+    protected override Task<DataTable> ExecuteTableCoreAsync(string query, CancellationToken cancellationToken)
+        => ExecuteBoundedPageCoreAsync(query, new Dictionary<string, object?>(), null, cancellationToken);
 
     /// <inheritdoc />
     protected override async Task ExecuteNonQueryCoreAsync(string query, CancellationToken cancellationToken)
