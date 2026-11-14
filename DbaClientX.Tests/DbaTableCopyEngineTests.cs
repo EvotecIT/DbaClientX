@@ -974,6 +974,47 @@ public partial class DbaTableCopyEngineTests
         Assert.Equal(42, destination.Rows.Rows[0]["ScoreText"]);
     }
 
+    // Column conversions do not depend on the session culture: text dates are ISO with their fraction, and decimal
+    // text is never read with thousands separators ("14,5" became 145).
+    [Fact]
+    public async Task CopyAsync_ColumnTypeConversionsUnderPolishCulture_AreCultureIndependent()
+    {
+        var sourceTable = new DataTable("SourceRows");
+        sourceTable.Columns.Add("Created", typeof(DateTime));
+        sourceTable.Columns.Add("Amount", typeof(string));
+        sourceTable.Rows.Add(new DateTime(2026, 11, 14, 13, 5, 6, 789).AddTicks(1234), "1234.25");
+        sourceTable.Rows.Add(new DateTime(2026, 1, 2, 3, 4, 5), "14,5");
+        var destination = new MemoryTableCopyDestination();
+        System.Globalization.CultureInfo culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("pl-PL");
+        try
+        {
+            await new DbaTableCopyEngine().CopyAsync(
+                new MemoryTableCopySource(sourceTable),
+                destination,
+                new[]
+                {
+                    new DbaTableCopyDefinition(
+                        "SourceRows",
+                        "DestinationRows",
+                        ColumnTypeConversions: new Dictionary<string, DbaTableCopyColumnType>
+                        {
+                            ["Created"] = DbaTableCopyColumnType.String,
+                            ["Amount"] = DbaTableCopyColumnType.Decimal
+                        })
+                });
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
+
+        Assert.Equal(new object[] { "2026-11-14 13:05:06.7891234", "2026-01-02 03:04:05.0000000" },
+            destination.Rows.Rows.Cast<DataRow>().Select(static row => row["Created"]).ToArray());
+        Assert.Equal(new object[] { 1234.25m, 14.5m },
+            destination.Rows.Rows.Cast<DataRow>().Select(static row => row["Amount"]).ToArray());
+    }
+
     [Theory]
     [InlineData(0, null, null)]
     [InlineData(100, 0, null)]

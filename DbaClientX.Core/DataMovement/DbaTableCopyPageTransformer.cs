@@ -198,13 +198,22 @@ internal static class DbaTableCopyPageTransformer
         return conversion switch
         {
             DbaTableCopyColumnType.Boolean => ConvertToBoolean(value),
-            DbaTableCopyColumnType.Int32 => Convert.ToInt32(value, CultureInfo.InvariantCulture),
-            DbaTableCopyColumnType.Int64 => Convert.ToInt64(value, CultureInfo.InvariantCulture),
-            DbaTableCopyColumnType.Decimal => Convert.ToDecimal(value, CultureInfo.InvariantCulture),
-            DbaTableCopyColumnType.String => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty,
-            DbaTableCopyColumnType.DateTime => Convert.ToDateTime(value, CultureInfo.InvariantCulture),
+            DbaTableCopyColumnType.Int32 => ParseText(value, typeof(int)) ?? Convert.ToInt32(value, CultureInfo.InvariantCulture),
+            DbaTableCopyColumnType.Int64 => ParseText(value, typeof(long)) ?? Convert.ToInt64(value, CultureInfo.InvariantCulture),
+            DbaTableCopyColumnType.Decimal => ParseText(value, typeof(decimal)) ?? Convert.ToDecimal(value, CultureInfo.InvariantCulture),
+            DbaTableCopyColumnType.String => value as string ??
+                (DbaInvariantText.TryFormat(value, out string text) ? text : Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty),
+            DbaTableCopyColumnType.DateTime => ParseText(value, typeof(DateTime)) ?? Convert.ToDateTime(value, CultureInfo.InvariantCulture),
             _ => value
         };
+    }
+
+    // Text goes through the shared parser, which rejects thousands separators; other values convert directly.
+    private static object? ParseText(object value, Type target)
+    {
+        if (value is not string text) return null;
+        if (DbaInvariantText.TryParse(text, target, out object parsed)) return parsed;
+        throw new FormatException($"A text value cannot be converted to {target.Name}; numbers must not contain thousands separators.");
     }
 
     private static bool ConvertToBoolean(object value)
