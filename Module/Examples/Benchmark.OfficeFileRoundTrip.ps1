@@ -370,7 +370,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     }
                     $csvImportParameters = @{
                         Path = $run.FilePath
-                        AsDataReader = $true
+                        As = 'DataReader'
                         ErrorAction = 'Stop'
                     }
                     if ($case.FileKind -in @('CsvGZip', 'CsvGZipTyped')) {
@@ -434,7 +434,7 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                             -QueryTimeout 120 `
                             -AsDataReader `
                             -ErrorAction Stop
-                        Export-OfficeExcel -InputObject $reader -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
+                        Export-OfficeExcel -InputObject $reader -Path $run.FilePath -Sheet Data -TableName Data -ErrorAction Stop
                     } finally {
                         if ($null -ne $reader) {
                             $reader.Dispose()
@@ -446,9 +446,9 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                     $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
                     $excelImportParameters = @{
                         Path = $run.FilePath
-                        WorksheetName = 'Data'
-                        AsDataReader = $true
-                        SchemaSampleSize = [Math]::Min([int] $case.RowCount, 4096)
+                        Sheet = 'Data'
+                        As = 'DataReader'
+                        SchemaSampleRows = [Math]::Min([int] $case.RowCount, 4096)
                         ErrorAction = 'Stop'
                     }
 
@@ -464,12 +464,12 @@ IF OBJECT_ID(N'dbo.$($run.SourceTable)', N'U') IS NOT NULL DROP TABLE dbo.$($run
                         -ReturnType DataTable `
                         -ErrorAction Stop
 
-                    $data | Export-OfficeExcel -Path $run.FilePath -WorksheetName Data -TableName Data -ErrorAction Stop
+                    $data | Export-OfficeExcel -Path $run.FilePath -Sheet Data -TableName Data -ErrorAction Stop
                     $exportTimer.Stop()
                     $run.ExportMs = $exportTimer.Elapsed.TotalMilliseconds
 
                     $loadTimer = [System.Diagnostics.Stopwatch]::StartNew()
-                    $imported = Import-OfficeExcel -Path $run.FilePath -WorksheetName Data -AsDataTable -ErrorAction Stop
+                    $imported = Import-OfficeExcel -Path $run.FilePath -Sheet Data -As DataTable -ErrorAction Stop
                 }
 
                 try {

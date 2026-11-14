@@ -331,7 +331,7 @@ $settings = {
                 param($case, $run)
 
                 $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-                $reader = Import-OfficeCsv -Path $run.FilePath -AsDataReader -ErrorAction Stop
+                $reader = Import-OfficeCsv -Path $run.FilePath -As DataReader -ErrorAction Stop
                 try {
                     Write-DbaXTableData `
                         -Provider SqlServer `

@@ -75,7 +75,7 @@ Prefer a real tabular input. `Write-DbaXTableData` accepts `DataTable`, `DataVie
 CSV and compressed CSV:
 
 ```powershell
-Import-OfficeCsv .\Customers.csv -AsDataTable |
+Import-OfficeCsv .\Customers.csv -As DataTable |
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
@@ -83,7 +83,7 @@ Import-OfficeCsv .\Customers.csv -AsDataTable |
         -AutoCreateTable `
         -BatchSize 5000
 
-Import-OfficeCsv .\Customers.csv.gz -CompressionType GZip -AsDataTable |
+Import-OfficeCsv .\Customers.csv.gz -CompressionType GZip -As DataTable |
     Write-DbaXTableData `
         -Provider SqlServer `
         -ConnectionString 'Server=sql01;Database=warehouse;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' `
@@ -95,7 +95,7 @@ Import-OfficeCsv .\Customers.csv.gz -CompressionType GZip -AsDataTable |
 Excel:
 
 ```powershell
-$reader = Import-OfficeExcel .\Customers.xlsx -AsDataReader
+$reader = Import-OfficeExcel .\Customers.xlsx -As DataReader
 try {
     Write-DbaXTableData `
         -Provider SqlServer `
@@ -133,7 +133,7 @@ $rows = Invoke-DbaXQuery `
 
 $rows | Export-OfficeCsv -Path .\Customers.csv
 $rows | Export-OfficeCsv -Path .\Customers.csv.gz -CompressionType GZip
-$rows | Export-OfficeExcel -Path .\Customers.xlsx -WorksheetName Customers
+$rows | Export-OfficeExcel -Path .\Customers.xlsx -Sheet Customers
 ```
 
 For the lowest-allocation path, pass one owned reader directly to the file writer and dispose it after the export:

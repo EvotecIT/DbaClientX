@@ -74,9 +74,8 @@ try {
         Export-OfficeExcel `
             -InputObject $sqlReader `
             -Path $ExcelPath `
-            -WorksheetName $WorksheetName `
+            -Sheet $WorksheetName `
             -TableName 'DbaClientXRows' `
-            -AutoFit `
             -ErrorAction Stop | Out-Null
     } finally {
         if ($null -ne $sqlReader) {
@@ -86,8 +85,8 @@ try {
 
     $importedExcel = Import-OfficeExcel `
         -Path $ExcelPath `
-        -WorksheetName $WorksheetName `
-        -AsDataReader `
+        -Sheet $WorksheetName `
+        -As DataReader `
         -ErrorAction Stop
 
     try {
