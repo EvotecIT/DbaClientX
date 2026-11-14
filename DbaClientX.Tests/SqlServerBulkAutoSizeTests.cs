@@ -31,6 +31,7 @@ public sealed class SqlServerBulkAutoSizeTests
             }
 
             Assert.Equal(new[] { "16", "16" }, await GetTextLengthsAsync(sql, connectionString!, destination));
+            await sql.ExecuteNonQueryAsync(connectionString!, $"ALTER TABLE {destination} ALTER COLUMN Name nvarchar(16) COLLATE Polish_CS_AS NULL");
 
             string medium = new('m', 300);
             string large = new('l', 5000);
@@ -40,6 +41,8 @@ public sealed class SqlServerBulkAutoSizeTests
             }
 
             Assert.Equal(new[] { "512", "max" }, await GetTextLengthsAsync(sql, connectionString!, destination));
+            Assert.Equal("Polish_CS_AS", await sql.ExecuteScalarAsync(connectionString!,
+                $"SELECT collation_name FROM sys.columns WHERE object_id = OBJECT_ID(N'{destination}') AND name = N'Name'"));
             object? stored = await sql.ExecuteScalarAsync(connectionString!,
                 $"SELECT COUNT(*) FROM {destination} WHERE (Name = N'Zażółć' AND Notes IS NULL) OR (Name IS NULL AND Notes = N'short') OR (Name = N'abc' AND Notes IS NULL) OR (Name = REPLICATE(N'm', 300) AND Notes = REPLICATE(CAST(N'l' AS nvarchar(max)), 5000))");
             Assert.Equal(4, Convert.ToInt32(stored));
@@ -81,6 +84,38 @@ public sealed class SqlServerBulkAutoSizeTests
             object? matching = await sql.ExecuteScalarAsync(connectionString!,
                 $"SELECT COUNT(*) FROM {destination} WHERE Name = CASE Id WHEN 1200 THEN REPLICATE(N'x', 100) WHEN 1400 THEN REPLICATE(CAST(N'y' AS nvarchar(max)), 5000) ELSE CONCAT(N'Row ', Id) END");
             Assert.Equal(1500, Convert.ToInt32(matching));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}");
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task BulkInsertAsync_ReaderWithoutSampledText_WidensExistingColumnForLaterText()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string destination = "dbo.DbaxAutoSizeUnsampled" + Guid.NewGuid().ToString("N");
+        var options = new SqlServerBulkInsertOptions { AutoCreateTable = true };
+        using var sql = new SqlServer();
+        try
+        {
+            using (DataTable first = CreateRows(("short", "short")))
+            {
+                await sql.BulkInsertAsync(connectionString!, first, destination, options);
+            }
+
+            // The reader's sample holds only NULLs, so the existing nvarchar(16) column must still be widened later.
+            using var rows = CreateRows();
+            for (int index = 0; index < 1200; index++) rows.Rows.Add(DBNull.Value, DBNull.Value);
+            rows.Rows.Add(new string('n', 100), DBNull.Value);
+            using IDataReader reader = rows.CreateDataReader();
+            await sql.BulkInsertAsync(connectionString!, reader, destination, options);
+
+            Assert.Equal(new[] { "128", "16" }, await GetTextLengthsAsync(sql, connectionString!, destination));
+            Assert.Equal(1, Convert.ToInt32(await sql.ExecuteScalarAsync(connectionString!, $"SELECT COUNT(*) FROM {destination} WHERE Name = REPLICATE(N'n', 100)")));
         }
         finally
         {

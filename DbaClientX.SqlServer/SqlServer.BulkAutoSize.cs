@@ -16,6 +16,7 @@ public partial class SqlServer
     private const int AutoSizedTextMinimumLength = 16;
     private const int AutoSizedTextMaximumLength = 4000;
     private const int AutoSizedTextSampleRows = 1000;
+    private const long AutoSizedTextSampleBytes = 8L * 1024 * 1024;
 
     private static bool IsAutoSizedText(Type dataType, int? maxLength)
         => (Nullable.GetUnderlyingType(dataType) ?? dataType) == typeof(string) && maxLength is null or <= 0;
@@ -63,7 +64,8 @@ public partial class SqlServer
         builder.AppendLine("BEGIN");
         builder.AppendLine("    DECLARE @dbaxAlter nvarchar(max) = N'';");
         builder.AppendLine("    SELECT @dbaxAlter += N'ALTER TABLE ' + QUOTENAME(OBJECT_SCHEMA_NAME(c.object_id)) + N'.' + QUOTENAME(OBJECT_NAME(c.object_id)) + N' ALTER COLUMN ' + QUOTENAME(c.name)");
-        builder.AppendLine("        + N' nvarchar(' + CASE WHEN w.length IS NULL THEN N'max' ELSE CONVERT(nvarchar(10), w.length) END + N')' + CASE WHEN c.is_nullable = 1 THEN N' NULL;' ELSE N' NOT NULL;' END");
+        builder.AppendLine("        + N' nvarchar(' + CASE WHEN w.length IS NULL THEN N'max' ELSE CONVERT(nvarchar(10), w.length) END + N')'");
+        builder.AppendLine("        + CASE WHEN c.collation_name IS NULL THEN N'' ELSE N' COLLATE ' + c.collation_name END + CASE WHEN c.is_nullable = 1 THEN N' NULL;' ELSE N' NOT NULL;' END");
         builder.Append("    FROM (VALUES ");
         bool first = true;
         foreach (KeyValuePair<string, int?> column in columns)
@@ -134,8 +136,16 @@ public partial class SqlServer
                 longest[index] = -1;
             }
 
-            while (_sample.Count < AutoSizedTextSampleRows && _inner.Read())
+            // The sample is bounded by rows and by retained bytes, so wide or binary rows are not buffered in bulk.
+            long retained = 0;
+            while (_sample.Count < AutoSizedTextSampleRows && retained < AutoSizedTextSampleBytes)
             {
+                if (!_inner.Read())
+                {
+                    _innerDone = true;
+                    break;
+                }
+
                 var row = new object[_values.Length];
                 _inner.GetValues(row);
                 for (int index = 0; index < _ordinals.Length; index++)
@@ -143,15 +153,16 @@ public partial class SqlServer
                     if (row[_ordinals[index]] is string value && value.Length > longest[index]) longest[index] = value.Length;
                 }
 
+                foreach (object value in row) retained += EstimateRetainedBytes(value);
                 _sample.Enqueue(row);
             }
 
-            _innerDone = _sample.Count < AutoSizedTextSampleRows;
             for (int index = 0; index < _limits.Length; index++)
             {
-                // Without a sampled value the length is unknown, so the column keeps the unbounded type.
+                // A column without a sampled value is created as nvarchar(max), but its length is still unknown: an
+                // existing narrower column may need widening, so the first later text value is checked against 0.
                 _observed[index] = longest[index] >= 0;
-                _limits[index] = _observed[index] ? GetAutoSizedTextLength(longest[index]) : null;
+                _limits[index] = _observed[index] ? GetAutoSizedTextLength(longest[index]) : 0;
             }
         }
 
@@ -161,8 +172,8 @@ public partial class SqlServer
         internal bool TryGetLimit(int ordinal, out int? length, out bool observed)
         {
             int index = Array.IndexOf(_ordinals, ordinal);
-            length = index < 0 ? null : _limits[index];
             observed = index >= 0 && _observed[index];
+            length = observed ? _limits[index] : null;
             return index >= 0;
         }
 
@@ -182,6 +193,14 @@ public partial class SqlServer
 
             return widen;
         }
+
+        private static long EstimateRetainedBytes(object value) => value switch
+        {
+            string text => 24 + 2L * text.Length,
+            byte[] bytes => 24 + bytes.LongLength,
+            char[] chars => 24 + 2L * chars.LongLength,
+            _ => 24
+        };
 
         public bool Read()
         {
@@ -233,6 +252,11 @@ public partial class SqlServer
         public bool NextResult() => false;
         public string GetName(int i) => _inner.GetName(i);
         public string GetDataTypeName(int i) => _inner.GetDataTypeName(i);
+#if NET8_0_OR_GREATER
+        [return: System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicFields |
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)]
+#endif
         public Type GetFieldType(int i) => _inner.GetFieldType(i);
         public int GetOrdinal(string name) => _inner.GetOrdinal(name);
         public object GetValue(int i) => _values[i];
