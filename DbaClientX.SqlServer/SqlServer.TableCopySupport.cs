@@ -15,6 +15,8 @@ public partial class SqlServer
         ValidateCompatibility(connection.ConnectionString, options);
         using SqlBulkCopy bulk = CreateBulkCopy(connection, transaction, options);
         ConfigureBulkCopy(bulk, page, destination, batchSize, timeout, options);
-        await WriteToServerAsync(bulk, page, cancellationToken).ConfigureAwait(false);
+        using IDataReader? converted = await CreateConvertedReaderAsync(connection, transaction, page, bulk.DestinationTableName, options, cancellationToken).ConfigureAwait(false);
+        if (converted != null) await WriteToServerAsync(bulk, converted, cancellationToken).ConfigureAwait(false);
+        else await WriteToServerAsync(bulk, page, cancellationToken).ConfigureAwait(false);
     }
 }

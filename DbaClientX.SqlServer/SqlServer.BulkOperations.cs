@@ -73,7 +73,9 @@ public partial class SqlServer
             EnsureAutoCreatedDestinationTable(connection!, transaction, table, destinationTable, options);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
-            WriteToServer(bulkCopy, table);
+            using IDataReader? converted = CreateConvertedReader(connection!, transaction, table, bulkCopy.DestinationTableName, options);
+            if (converted != null) WriteToServer(bulkCopy, converted);
+            else WriteToServer(bulkCopy, table);
         }
         catch (DbaTransactionException)
         {
@@ -171,8 +173,9 @@ public partial class SqlServer
             await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, table, destinationTable, options, cancellationToken).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(bulkCopy, table, destinationTable, batchSize, bulkCopyTimeout, options);
+            using IDataReader? converted = await CreateConvertedReaderAsync(connection!, transaction, table, bulkCopy.DestinationTableName, options, cancellationToken).ConfigureAwait(false);
             await AwaitWithCallerCancellationAsync(
-                () => WriteToServerAsync(bulkCopy, table, cancellationToken),
+                () => converted != null ? WriteToServerAsync(bulkCopy, converted, cancellationToken) : WriteToServerAsync(bulkCopy, table, cancellationToken),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
