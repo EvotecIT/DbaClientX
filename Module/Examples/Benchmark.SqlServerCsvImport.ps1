@@ -52,11 +52,13 @@ function Convert-DbaClientXBenchmarkList {
 
 $Shape = @(Convert-DbaClientXBenchmarkList -Value $Shape)
 $Engine = @(Convert-DbaClientXBenchmarkList -Value $Engine)
-foreach ($value in $Shape) {
-    if ($value -notin @('Narrow', 'Wide', 'Quoted')) {
+$Shape = @(foreach ($value in $Shape) {
+    $canonical = @('Narrow', 'Wide', 'Quoted') | Where-Object { $_ -eq $value }
+    if (-not $canonical) {
         throw "Shape must contain only: Narrow, Wide, Quoted. Invalid value: $value."
     }
-}
+    $canonical
+}) | Select-Object -Unique
 foreach ($value in $Engine) {
     if ($value -notin @('DbaClientX', 'dbatools')) {
         throw "Engine must contain only: DbaClientX, dbatools. Invalid value: $value."
@@ -186,6 +188,7 @@ $benchmarkProcess = Set-DbaClientXBenchmarkProcess -ProcessorAffinity $Processor
 $originalCulture = [System.Globalization.CultureInfo]::CurrentCulture
 $originalUICulture = [System.Globalization.CultureInfo]::CurrentUICulture
 $inputFiles = @{}
+$inputFileId = [guid]::NewGuid().ToString('N').Substring(0, 8)
 try {
 [System.Globalization.CultureInfo]::CurrentCulture = [System.Globalization.CultureInfo]::InvariantCulture
 [System.Globalization.CultureInfo]::CurrentUICulture = [System.Globalization.CultureInfo]::InvariantCulture
@@ -212,6 +215,7 @@ $settings = {
     $shapes = $Shape
     $batchSize = $BatchSize
     $files = $inputFiles
+    $fileId = $inputFileId
     $wideGroups = [DbaClientX.Benchmarks.CsvImportFileWriter]::WideGroups
 
     function Get-DbaClientXCsvImportCreateTableQuery {
@@ -292,7 +296,7 @@ $settings = {
             New-Item -ItemType Directory -Force -Path $outputRootBase | Out-Null
             $fileKey = '{0}_{1}' -f $case.Shape, $case.RowCount
             if (-not $files.ContainsKey($fileKey)) {
-                $path = Join-Path $outputRootBase ('DbaClientXBench_CsvImport_{0}.csv' -f $fileKey)
+                $path = Join-Path $outputRootBase ('DbaClientXBench_CsvImport_{0}_{1}.csv' -f $fileKey, $fileId)
                 [DbaClientX.Benchmarks.CsvImportFileWriter]::Write($path, [string] $case.Shape, [int] $case.RowCount)
                 $files[$fileKey] = $path
             }
@@ -335,7 +339,6 @@ $settings = {
                         -DestinationTable "dbo.$($run.TableName)" `
                         -InputObject (, $reader) `
                         -BatchSize $batchSize `
-                        -BulkCopyTimeout 600 `
                         -TableLock `
                         -ErrorAction Stop | Out-Null
                 } finally {
