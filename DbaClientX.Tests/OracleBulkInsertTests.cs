@@ -199,7 +199,7 @@ public class OracleBulkInsertTests
 
         oracle.BulkInsert("h", "svc", "u", "p", table, "Dest");
 
-        Assert.Equal(30, oracle.Timeout);
+        Assert.Equal(0, oracle.Timeout);
         Assert.Equal("Dest", oracle.Destination);
         Assert.Equal(table.Columns.Count, oracle.Mappings.Count);
         Assert.Equal(new[] { 2 }, oracle.BatchRowCounts);

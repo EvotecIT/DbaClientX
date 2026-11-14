@@ -233,6 +233,31 @@ public sealed partial class DbaTableCopyEngine
             sourceRows = null;
         }
 
+        if (CanStreamTable(source, destination, definition, options))
+        {
+            var streamSource = (IDbaTableCopyStreamSource)source;
+            var streamDestination = (IDbaTableCopyStreamDestination)destination;
+            IReadOnlyList<DbaTableCopyStreamColumn>? sourceColumns = await streamSource.DescribeStreamAsync(definition, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<string>? streamColumns = sourceColumns == null
+                ? null
+                : await streamDestination.OrderStreamColumnsAsync(definition, options, sourceColumns, cancellationToken).ConfigureAwait(false);
+            if (streamColumns != null)
+            {
+                page?.Dispose();
+                long streamed = await StreamTableAsync(
+                        streamSource,
+                        streamDestination,
+                        definition,
+                        options,
+                        streamColumns,
+                        sourceRows,
+                        cancellationToken,
+                        measurements)
+                    .ConfigureAwait(false);
+                return await CompleteCopyAsync(destination, definition, options, sourceRows, streamed, initialDestinationRows, pageCount + 1, cancellationToken, measurements: measurements).ConfigureAwait(false);
+            }
+        }
+
         long copied = 0;
         string? continuationToken = null;
         var observedTokens = new HashSet<string>(StringComparer.Ordinal);
@@ -300,6 +325,65 @@ public sealed partial class DbaTableCopyEngine
         }
 
         return await CompleteCopyAsync(destination, definition, options, sourceRows, copied, initialDestinationRows, pageCount, cancellationToken, measurements: measurements).ConfigureAwait(false);
+    }
+
+    // Page-level features (transforms, keyset resume, byte bounds, page statistics) keep the paged path.
+    private static bool CanStreamTable(
+        IDbaTableCopySource source,
+        IDbaTableCopyDestination destination,
+        DbaTableCopyDefinition definition,
+        DbaTableCopyOptions options)
+        => !options.CollectPerformanceStatistics &&
+           options.MaxPageBytes == null &&
+           !definition.UseKeysetPagination &&
+           !DbaTableCopyPageTransformer.HasTransforms(definition) &&
+           source is IDbaTableCopyStreamSource streamSource && streamSource.CanStream(definition) &&
+           destination is IDbaTableCopyStreamDestination streamDestination && streamDestination.CanStream(definition, options);
+
+    private static async Task<long> StreamTableAsync(
+        IDbaTableCopyStreamSource source,
+        IDbaTableCopyStreamDestination destination,
+        DbaTableCopyDefinition definition,
+        DbaTableCopyOptions options,
+        IReadOnlyList<string> columns,
+        long? sourceRows,
+        CancellationToken cancellationToken,
+        CopyMeasurements? measurements)
+    {
+        using var activityScope = DbaClientXDiagnostics.StartActivityScope("DbaClientX.TableCopy.StreamTable");
+        var activity = activityScope.Activity;
+        activity?.SetTag("dbaclientx.table", DbaClientXDiagnostics.SanitizeLogicalName(definition.DisplayName));
+        long reported = 0;
+        Action<long>? progress = measurements == null
+            ? null
+            : rows =>
+            {
+                int delta = (int)Math.Min(int.MaxValue, rows - reported);
+                reported = rows;
+                measurements.ReportProgress(definition.DisplayName, rows, sourceRows, delta, rows);
+            };
+        try
+        {
+            using IDataReader reader = await source.OpenStreamAsync(definition, columns, cancellationToken).ConfigureAwait(false);
+            long copied = await destination.WriteStreamAsync(definition, reader, options, progress, cancellationToken).ConfigureAwait(false);
+            if (copied != reported)
+            {
+                progress?.Invoke(copied);
+            }
+
+            activity?.SetTag("dbaclientx.rows_copied", copied);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return copied;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            DbaClientXDiagnostics.RecordException(activity, ex);
+            throw;
+        }
     }
 
     private static int GetReadPageSize(int pageSize, long? sourceRows, long copied)

@@ -118,14 +118,10 @@ public sealed partial class DbaDataReader : DbDataReader
         CancellationToken.None);
 
     /// <inheritdoc />
-    public override object this[int ordinal] => ExecuteConsumptionOperation(
-        () => _reader[ordinal],
-        CancellationToken.None);
+    public override object this[int ordinal] => Consume(ordinal, static (reader, index) => reader[index]);
 
     /// <inheritdoc />
-    public override object this[string name] => ExecuteConsumptionOperation(
-        () => _reader[name],
-        CancellationToken.None);
+    public override object this[string name] => Consume(name, static (reader, key) => reader[key]);
 
     /// <inheritdoc />
     public override void Close() => Dispose();
@@ -135,18 +131,18 @@ public sealed partial class DbaDataReader : DbDataReader
         => ExecuteConsumptionOperation(_reader.GetSchemaTable, CancellationToken.None);
 
     /// <inheritdoc />
-    public override bool NextResult() => ExecuteConsumptionOperation(_reader.NextResult, CancellationToken.None);
+    public override bool NextResult() => Consume(0, static (reader, _) => reader.NextResult());
 
     /// <inheritdoc />
-    public override bool Read() => ExecuteConsumptionOperation(_reader.Read, CancellationToken.None);
+    public override bool Read() => Consume(0, static (reader, _) => reader.Read());
 
     /// <inheritdoc />
     public override bool GetBoolean(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetBoolean(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetBoolean(index));
 
     /// <inheritdoc />
     public override byte GetByte(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetByte(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetByte(index));
 
     /// <inheritdoc />
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
@@ -156,7 +152,7 @@ public sealed partial class DbaDataReader : DbDataReader
 
     /// <inheritdoc />
     public override char GetChar(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetChar(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetChar(index));
 
     /// <inheritdoc />
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
@@ -166,19 +162,19 @@ public sealed partial class DbaDataReader : DbDataReader
 
     /// <inheritdoc />
     public override string GetDataTypeName(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetDataTypeName(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetDataTypeName(index));
 
     /// <inheritdoc />
     public override DateTime GetDateTime(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetDateTime(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetDateTime(index));
 
     /// <inheritdoc />
     public override decimal GetDecimal(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetDecimal(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetDecimal(index));
 
     /// <inheritdoc />
     public override double GetDouble(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetDouble(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetDouble(index));
 
     /// <inheritdoc />
 #if NET8_0_OR_GREATER
@@ -189,56 +185,56 @@ public sealed partial class DbaDataReader : DbDataReader
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2073",
         Justification = "The wrapped DbDataReader supplies the annotated field type; the consumption delegate only forwards that value.")]
     public override Type GetFieldType(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetFieldType(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetFieldType(index));
 
     /// <inheritdoc />
     public override float GetFloat(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetFloat(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetFloat(index));
 
     /// <inheritdoc />
     public override Guid GetGuid(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetGuid(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetGuid(index));
 
     /// <inheritdoc />
     public override short GetInt16(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetInt16(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetInt16(index));
 
     /// <inheritdoc />
     public override int GetInt32(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetInt32(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetInt32(index));
 
     /// <inheritdoc />
     public override long GetInt64(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetInt64(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetInt64(index));
 
     /// <inheritdoc />
     public override string GetName(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetName(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetName(index));
 
     /// <inheritdoc />
     public override int GetOrdinal(string name)
-        => ExecuteConsumptionOperation(() => _reader.GetOrdinal(name), CancellationToken.None);
+        => Consume(name, static (reader, key) => reader.GetOrdinal(key));
 
     /// <inheritdoc />
     public override string GetString(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetString(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetString(index));
 
     /// <inheritdoc />
     public override object GetValue(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.GetValue(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.GetValue(index));
 
     /// <inheritdoc />
     public override int GetValues(object[] values)
-        => ExecuteConsumptionOperation(() => _reader.GetValues(values), CancellationToken.None);
+        => Consume(values, static (reader, buffer) => reader.GetValues(buffer));
 
     /// <inheritdoc />
     public override bool IsDBNull(int ordinal)
-        => ExecuteConsumptionOperation(() => _reader.IsDBNull(ordinal), CancellationToken.None);
+        => Consume(ordinal, static (reader, index) => reader.IsDBNull(index));
 
     /// <inheritdoc />
     protected override DbDataReader GetDbDataReader(int ordinal)
     {
-        var nestedReader = ExecuteConsumptionOperation(() => _reader.GetData(ordinal), CancellationToken.None);
+        var nestedReader = Consume(ordinal, static (reader, index) => reader.GetData(index));
         if (nestedReader is not DbDataReader dbDataReader)
         {
             throw new NotSupportedException("The nested reader is not a DbDataReader.");
@@ -264,7 +260,7 @@ public sealed partial class DbaDataReader : DbDataReader
     /// <inheritdoc />
     public override T GetFieldValue<T>(int ordinal)
         => _dbReader != null
-            ? ExecuteConsumptionOperation(() => _dbReader.GetFieldValue<T>(ordinal), CancellationToken.None)
+            ? ConsumeFieldValue<T>(_dbReader, ordinal)
             : (T)GetValue(ordinal);
 
     /// <inheritdoc />
@@ -312,6 +308,31 @@ public sealed partial class DbaDataReader : DbDataReader
         => ExecuteConsumptionOperationAsync(
             () => _dbReader?.GetFieldValueAsync<T>(ordinal, cancellationToken) ?? base.GetFieldValueAsync<T>(ordinal, cancellationToken),
             cancellationToken);
+
+    private T Consume<TArgument, T>(TArgument argument, Func<IDataReader, TArgument, T> operation)
+    {
+        // Row and value accessors run per field; cached static delegates keep them allocation-free.
+        try
+        {
+            return operation(_reader, argument);
+        }
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception, CancellationToken.None))
+        {
+            throw _consumptionExceptionFactory!(exception, CancellationToken.None);
+        }
+    }
+
+    private T ConsumeFieldValue<T>(DbDataReader reader, int ordinal)
+    {
+        try
+        {
+            return reader.GetFieldValue<T>(ordinal);
+        }
+        catch (Exception exception) when (ShouldNormalizeConsumptionException(exception, CancellationToken.None))
+        {
+            throw _consumptionExceptionFactory!(exception, CancellationToken.None);
+        }
+    }
 
     private T ExecuteConsumptionOperation<T>(Func<T> operation, CancellationToken cancellationToken)
     {

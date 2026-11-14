@@ -45,7 +45,8 @@ public partial class SqlServer
         SqlTransaction? transaction,
         IReadOnlyList<SqlServerBulkSourceColumn> columns,
         string destinationTable,
-        SqlServerBulkInsertOptions? options)
+        SqlServerBulkInsertOptions? options,
+        AutoSizedTextReader? sizing = null)
     {
         if (options?.AutoCreateTable != true)
         {
@@ -65,7 +66,7 @@ public partial class SqlServer
         ExecuteBulkInsertSetupCommand(
             connection,
             transaction,
-            BuildCreateTableCommand(columns, destination),
+            BuildCreateTableCommand(columns, destination, sizing),
             new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName });
     }
 
@@ -109,7 +110,8 @@ public partial class SqlServer
         IReadOnlyList<SqlServerBulkSourceColumn> columns,
         string destinationTable,
         SqlServerBulkInsertOptions? options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AutoSizedTextReader? sizing = null)
     {
         if (options?.AutoCreateTable != true)
         {
@@ -131,7 +133,7 @@ public partial class SqlServer
         await ExecuteBulkInsertSetupCommandAsync(
                 connection,
                 transaction,
-                BuildCreateTableCommand(columns, destination),
+                BuildCreateTableCommand(columns, destination, sizing),
                 new Dictionary<string, object?> { ["@objectName"] = destination.QuotedFullName },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -157,7 +159,7 @@ public partial class SqlServer
         command.Transaction = transaction;
         command.CommandText = commandText;
         AddParameters(command, parameters);
-        ApplyCommandTimeout(command);
+        ApplySetupCommandTimeout(command);
         command.ExecuteNonQuery();
     }
 
@@ -181,8 +183,16 @@ public partial class SqlServer
         command.Transaction = transaction;
         command.CommandText = commandText;
         AddParameters(command, parameters);
-        ApplyCommandTimeout(command);
+        ApplySetupCommandTimeout(command);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // Widening an auto-created column to nvarchar(max) rewrites the table, so setup DDL is not cut off by the
+    // provider's 30-second default. An explicitly configured CommandTimeout still applies.
+    private void ApplySetupCommandTimeout(SqlCommand command)
+    {
+        if (TryGetCommandTimeout(out int timeout)) command.CommandTimeout = timeout;
+        else command.CommandTimeout = 0;
     }
 
     private static void AddParameters(SqlCommand command, IReadOnlyDictionary<string, object?> parameters)
@@ -199,6 +209,7 @@ public partial class SqlServer
         IDictionary<string, string>? columnMappings)
     {
         var builder = new StringBuilder();
+        var autoSized = new List<KeyValuePair<string, int?>>();
         builder.AppendLine("IF OBJECT_ID(@objectName, N'U') IS NULL");
         builder.AppendLine("BEGIN");
         builder.Append("    CREATE TABLE ").Append(destination.QuotedFullName).AppendLine();
@@ -210,11 +221,25 @@ public partial class SqlServer
             var destinationColumnName = columnMappings?.TryGetValue(column.ColumnName, out var mappedColumn) == true
                 ? mappedColumn
                 : column.ColumnName;
+            string columnType;
+            if (IsAutoSizedText(column.DataType, column.MaxLength))
+            {
+                // A column without values keeps nvarchar(max) when created and is not widened by this write.
+                int longest = GetLongestText(column);
+                int? length = longest < 0 ? null : GetAutoSizedTextLength(longest);
+                if (longest >= 0) autoSized.Add(new KeyValuePair<string, int?>(destinationColumnName, length));
+                columnType = GetAutoSizedTextType(length);
+            }
+            else
+            {
+                columnType = GetSqlServerColumnType(column);
+                AddDeclaredTextLength(autoSized, destinationColumnName, column.DataType, column.MaxLength);
+            }
 
             builder.Append("        ")
                 .Append(QuoteSqlServerIdentifier(destinationColumnName))
                 .Append(' ')
-                .Append(GetSqlServerColumnType(column))
+                .Append(columnType)
                 .Append(column.AllowDBNull ? " NULL" : " NOT NULL");
 
             if (index + 1 < table.Columns.Count)
@@ -226,15 +251,19 @@ public partial class SqlServer
         }
 
         builder.AppendLine("    );");
+        AppendAutoCreatedMarker(builder);
         builder.AppendLine("END");
+        AppendWidenAutoSizedText(builder, autoSized, elseBranch: true);
         return builder.ToString();
     }
 
     private static string BuildCreateTableCommand(
         IReadOnlyList<SqlServerBulkSourceColumn> columns,
-        SqlServerDestinationTable destination)
+        SqlServerDestinationTable destination,
+        AutoSizedTextReader? sizing)
     {
         var builder = new StringBuilder();
+        var autoSized = new List<KeyValuePair<string, int?>>();
         builder.AppendLine("IF OBJECT_ID(@objectName, N'U') IS NULL");
         builder.AppendLine("BEGIN");
         builder.Append("    CREATE TABLE ").Append(destination.QuotedFullName).AppendLine();
@@ -243,10 +272,22 @@ public partial class SqlServer
         for (var index = 0; index < columns.Count; index++)
         {
             var column = columns[index];
+            string columnType;
+            if (sizing != null && sizing.TryGetLimit(column.Ordinal, out int? length, out bool observed))
+            {
+                if (observed) autoSized.Add(new KeyValuePair<string, int?>(column.DestinationName, length));
+                columnType = GetAutoSizedTextType(length);
+            }
+            else
+            {
+                columnType = GetSqlServerReaderColumnType(column);
+                AddDeclaredTextLength(autoSized, column.DestinationName, column.DataType, column.MaxLength);
+            }
+
             builder.Append("        ")
                 .Append(QuoteSqlServerIdentifier(column.DestinationName))
                 .Append(' ')
-                .Append(GetSqlServerReaderColumnType(column))
+                .Append(columnType)
                 .Append(column.AllowDBNull ? " NULL" : " NOT NULL");
 
             if (index + 1 < columns.Count)
@@ -258,7 +299,9 @@ public partial class SqlServer
         }
 
         builder.AppendLine("    );");
+        AppendAutoCreatedMarker(builder);
         builder.AppendLine("END");
+        AppendWidenAutoSizedText(builder, autoSized, elseBranch: true);
         return builder.ToString();
     }
 

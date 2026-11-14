@@ -187,7 +187,7 @@ Use these options for the matching SQL Server requirement:
 | Preserve incoming nulls instead of destination defaults | `-KeepNulls` |
 | Report progress during longer imports | `-NotifyAfter` |
 
-These switches are SQL Server-specific. Other providers reject them instead of silently ignoring them. `-AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` shape; existing tables are left unchanged.
+These switches are SQL Server-specific. Other providers reject them instead of silently ignoring them. `-AutoCreateTable` creates missing schemas and destination tables from the incoming `DataTable` or reader shape. Text columns without a declared length are sized from the data: `nvarchar(n)` with `n` the next power of two from 16 up to 4,000 above the longest value, and `nvarchar(max)` for longer values or when no value is present (readers are sampled from their first 1,000 rows). Tables it creates are marked with the `DbaClientX.AutoCreated` extended property, and a later write with `-AutoCreateTable`, or a streamed row longer than the sample, widens those columns instead of failing or truncating. Other existing tables are left unchanged. Text stays Unicode; `varchar` would silently replace characters outside the database code page in later rows.
 
 PowerShell input conversion is intentionally small. `TimeSpan` values are preserved as scalar values, scalar pipeline input becomes a `Value` column, and a single enumerable input expands into rows. When a source format needs richer coercion, keep that logic in the owning file-format library and pass DbaClientX a shaped `DataTable`, `IDataReader`, or object stream.
 

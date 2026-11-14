@@ -33,8 +33,8 @@ public sealed class SqlServerTableTransferRequest
     /// <summary>Timeout in seconds for source and metadata commands. Zero disables the timeout.</summary>
     public int CommandTimeout { get; set; } = 600;
 
-    /// <summary>Timeout in seconds for native bulk copy. Zero disables the timeout.</summary>
-    public int BulkCopyTimeout { get; set; } = 600;
+    /// <summary>Timeout in seconds for native bulk copy. The default, zero, lets the copy run until it completes; cancellation still stops it.</summary>
+    public int BulkCopyTimeout { get; set; }
 
     /// <summary>Owned source transaction isolation: ReadCommitted, Snapshot or Serializable. Snapshot must already be enabled on the database.</summary>
     public IsolationLevel SourceIsolationLevel { get; set; } = IsolationLevel.ReadCommitted;

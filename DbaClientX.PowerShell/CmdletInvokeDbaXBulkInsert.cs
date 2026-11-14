@@ -39,7 +39,7 @@ public sealed class CmdletInvokeDbaXBulkInsert : PSCmdlet
     [Parameter(Mandatory = false)]
     public int? BatchSize { get; set; }
 
-    /// <summary>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</summary>
+    /// <summary>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</summary>
     [Parameter(Mandatory = false)]
     public int? BulkCopyTimeout { get; set; }
 

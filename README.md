@@ -489,18 +489,24 @@ Transaction helpers honor `-WhatIf` and `-Confirm`, commit when the script block
 
 ## SQL Server Benchmarks
 
-Current workstation timings are below. Commands, measured operations, validation,
-and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md).
+Current workstation timings are below: medians of ten measured iterations after two warmups on
+PowerShell 7.6.10, SQL Server 2025 Standard on the same machine, dbatools 2.8.2, PSWriteOffice 3.5.2
+and ImportExcel 7.8.10, pinned to one 16-processor CPU domain. Every lane validates its rows on the server.
+Commands, measured operations, validation, and artifact details are in
+[SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md).
 
 ### Write Benchmark
 
 <!-- sqlserver-data-movement-write-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 25000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=25000 | Core-7.6.3 | Write | 1.00x (373ms) | 5.70x (2.13s) | DbaClientX fastest |
-| 25000 rows / batch 5000 / DataReader | BatchSize=5000, InputKind=DataReader, RowCount=25000 | Core-7.6.3 | Write | 1.00x (70ms) | Skipped | DbaClientX only successful |
-| 25000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=25000 | Core-7.6.3 | Write | 1.00x (40ms) | 1.51x (60ms) | DbaClientX fastest |
-| 25000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=25000 | Core-7.6.3 | Write | 1.00x (423ms) | 5.12x (2.17s) | DbaClientX fastest |
+| 25000 rows / batch 5000 / Class | BatchSize=5000, InputKind=Class, RowCount=25000 | Core-7.6.10 | Write | 1.00x (349ms) | 5.54x (1.93s) | DbaClientX fastest |
+| 25000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=25000 | Core-7.6.10 | Write | 1.00x (42ms) | 1.26x (54ms) | DbaClientX fastest |
+| 25000 rows / batch 5000 / PSCustomObject | BatchSize=5000, InputKind=PSCustomObject, RowCount=25000 | Core-7.6.10 | Write | 1.00x (336ms) | 5.15x (1.73s) | DbaClientX fastest |
+| 250000 rows / batch 5000 / DataTable | BatchSize=5000, InputKind=DataTable, RowCount=250000 | Core-7.6.10 | Write | 1.00x (212ms) | 1.09x (231ms) | DbaClientX fastest |
+| 250000 rows / batch 50000 / DataTable | BatchSize=50000, InputKind=DataTable, RowCount=250000 | Core-7.6.10 | Write | 1.00x (145ms) | 1.46x (211ms) | DbaClientX fastest |
+| 250000 rows / batch 50000 / Class | BatchSize=50000, InputKind=Class, RowCount=250000 | Core-7.6.10 | Write | 1.00x (6.33s) | 4.05x (25.64s) | DbaClientX fastest |
+| 250000 rows / batch 50000 / PSCustomObject | BatchSize=50000, InputKind=PSCustomObject, RowCount=250000 | Core-7.6.10 | Write | 1.00x (6.90s) | 3.30x (22.82s) | DbaClientX fastest |
 <!-- sqlserver-data-movement-write-benchmark:end -->
 
 ### Read Benchmark
@@ -508,35 +514,81 @@ and artifact details are in [SQL Server benchmark notes](docs/sqlserver-benchmar
 <!-- sqlserver-data-movement-read-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 25000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=25000 | Core-7.6.3 | Read | 1.00x (32ms) | 1.33x (43ms) | DbaClientX fastest |
-| 25000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=25000 | Core-7.6.3 | Read | 1.00x (151ms) | 2.03x (308ms) | DbaClientX fastest |
+| 25000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=25000 | Core-7.6.10 | Read | 1.00x (23ms) | 1.81x (41ms) | DbaClientX fastest |
+| 25000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=25000 | Core-7.6.10 | Read | 1.00x (164ms) | 1.35x (221ms) | DbaClientX fastest |
+| 250000 rows / DataTableAll | ReadShape=DataTableAll, RowCount=250000 | Core-7.6.10 | Read | 1.00x (274ms) | 1.52x (416ms) | DbaClientX fastest |
+| 250000 rows / PSObjectAll | ReadShape=PSObjectAll, RowCount=250000 | Core-7.6.10 | Read | 1.00x (3.25s) | 1.08x (3.52s) | DbaClientX fastest |
 <!-- sqlserver-data-movement-read-benchmark:end -->
+
+### Table Copy Benchmark
+
+<!-- sqlserver-data-movement-copy-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 25000 rows / batch 5000 / table copy | BatchSize=5000, RowCount=25000 | Core-7.6.10 | Copy | 1.00x (41ms) | 2.89x (118ms) | DbaClientX fastest |
+| 25000 rows / batch 50000 / table copy | BatchSize=50000, RowCount=25000 | Core-7.6.10 | Copy | 1.00x (36ms) | 3.27x (117ms) | DbaClientX fastest |
+| 250000 rows / batch 5000 / table copy | BatchSize=5000, RowCount=250000 | Core-7.6.10 | Copy | 1.00x (262ms) | 1.69x (443ms) | DbaClientX fastest |
+| 250000 rows / batch 50000 / table copy | BatchSize=50000, RowCount=250000 | Core-7.6.10 | Copy | 1.00x (200ms) | 1.57x (313ms) | DbaClientX fastest |
+| 1000000 rows / batch 5000 / table copy | BatchSize=5000, RowCount=1000000 | Core-7.6.10 | Copy | 1.00x (972ms) | 1.11x (1.07s) | DbaClientX fastest |
+| 1000000 rows / batch 50000 / table copy | BatchSize=50000, RowCount=1000000 | Core-7.6.10 | Copy | 1.00x (725ms) | 1.15x (835ms) | DbaClientX fastest |
+<!-- sqlserver-data-movement-copy-benchmark:end -->
 
 ## SQL Server CSV Export
 
 <!-- sqlserver-csv-export-benchmark:start -->
-| Scenario | Variables | Host | Operation | DbaClientXReader | bcp | DbaClientXDataTable | DbaClientXPowerShellStream | dbatools | Result |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 100000 rows / CSV export | RowCount=100000 | Core-7.6.4 | Export | 1.00x (58ms) | 1.92x (112ms) | 17.82x (1.04s) | 19.32x (1.13s) | 1.08x (63ms) | DbaClientXReader fastest |
+| Scenario | Variables | Host | Operation | DbaClientXReader | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 100000 rows / CSV export | RowCount=100000 | Core-7.6.10 | Export | 2.14x (274ms) | 1.00x (128ms) | dbatools fastest |
+| 1000000 rows / CSV export | RowCount=1000000 | Core-7.6.10 | Export | 1.12x (653ms) | 1.00x (584ms) | dbatools fastest |
 <!-- sqlserver-csv-export-benchmark:end -->
+
+## SQL Server CSV Import
+
+<!-- sqlserver-csv-import-benchmark:start -->
+| Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| 100000 rows / Narrow CSV import | RowCount=100000, Shape=Narrow | Core-7.6.10 | Import | 1.00x (91ms) | 1.74x (158ms) | DbaClientX fastest |
+| 100000 rows / Quoted CSV import | RowCount=100000, Shape=Quoted | Core-7.6.10 | Import | 1.00x (107ms) | 1.38x (147ms) | DbaClientX fastest |
+| 100000 rows / Wide CSV import | RowCount=100000, Shape=Wide | Core-7.6.10 | Import | 1.00x (517ms) | 1.44x (744ms) | DbaClientX fastest |
+| 750000 rows / Narrow CSV import | RowCount=750000, Shape=Narrow | Core-7.6.10 | Import | 1.00x (551ms) | 1.72x (949ms) | DbaClientX fastest |
+| 750000 rows / Quoted CSV import | RowCount=750000, Shape=Quoted | Core-7.6.10 | Import | 1.00x (642ms) | 1.19x (762ms) | DbaClientX fastest |
+| 750000 rows / Wide CSV import | RowCount=750000, Shape=Wide | Core-7.6.10 | Import | 1.00x (3.21s) | 1.47x (4.71s) | DbaClientX fastest |
+<!-- sqlserver-csv-import-benchmark:end -->
 
 ## Office File Round Trip
 
 <!-- office-file-roundtrip-benchmark:start -->
 | Scenario | Variables | Host | Operation | DbaClientX | dbatools | Result |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 100000 rows / Csv | ColumnShape=Default, FileKind=Csv, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (639ms) | 4.07x (2.60s) | DbaClientX fastest |
-| 100000 rows / CsvGZip | ColumnShape=Default, FileKind=CsvGZip, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (658ms) | 3.99x (2.63s) | DbaClientX fastest |
-| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (561ms) | 1.10x (614ms) | DbaClientX fastest |
-| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (567ms) | 1.18x (671ms) | DbaClientX fastest |
-| 100000 rows / CsvTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvTyped, RowCount=100000 | Core-7.6.3 | RoundTrip | 1.00x (282ms) | 1.92x (541ms) | DbaClientX fastest |
+| 100000 rows / Csv | ColumnShape=Default, FileKind=Csv, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.00x (657ms) | 4.25x (2.80s) | DbaClientX fastest |
+| 100000 rows / Csv / Mapped columns | ColumnShape=Mapped, FileKind=Csv, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.00x (241ms) | 1.05x (254ms) | DbaClientX fastest |
+| 100000 rows / CsvGZip | ColumnShape=Default, FileKind=CsvGZip, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.00x (690ms) | 4.10x (2.83s) | DbaClientX fastest |
+| 100000 rows / CsvGZip / Mapped columns | ColumnShape=Mapped, FileKind=CsvGZip, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.00x (265ms) | 1.03x (274ms) | DbaClientX fastest |
+| 100000 rows / CsvTyped | ColumnShape=Default, FileKind=CsvTyped, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.36x (362ms) | 1.00x (266ms) | dbatools fastest |
+| 100000 rows / CsvTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvTyped, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.00x (252ms) | 1.10x (277ms) | DbaClientX fastest |
+| 100000 rows / CsvGZipTyped | ColumnShape=Default, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.40x (393ms) | 1.00x (282ms) | dbatools fastest |
+| 100000 rows / CsvGZipTyped / Mapped columns | ColumnShape=Mapped, FileKind=CsvGZipTyped, RowCount=100000 | Core-7.6.10 | RoundTrip | 1.03x (284ms) | 1.00x (277ms) | dbatools fastest |
 <!-- office-file-roundtrip-benchmark:end -->
 
-The affinity-pinned streaming XLSX round-trip comparison is documented in the
+Where dbatools leads:
+
+- **CSV export** is bound by the CSV writer. With the SQL reader handed over
+  unwrapped, PSWriteOffice 3.5.2 still trails `Export-DbaCsv` by about 9%
+  on 1M rows, so this row moves with OfficeIMO.CSV releases.
+- **Typed round trips with an auto-created destination** were measured when
+  `Write-DbaXTableData -AutoCreateTable` created `nvarchar(max)` for text the
+  reader reports without a length, while `Import-DbaCsv -DetectColumnTypes`
+  scans the file and creates `varchar(8)`. Auto-created text columns are now
+  sized from the data (`nvarchar(16)` here), which made a 100,000-row reader
+  write about four times faster; these rows have not been re-measured yet.
+  With the same existing destination (the Mapped rows) DbaClientX ties or leads.
+
+The 25,000-row SQL Server to XLSX to SQL Server round trip
+(`-FileKind ExcelReader -Engine DbaClientX,ImportExcel`) took 107 ms with
+DbaClientX/PSWriteOffice against 2.89 s with ImportExcel 7.8.10 on the same run,
+3.7% of ImportExcel's time. The earlier affinity-pinned comparison is documented
+in the
 [SQL Server benchmark notes](docs/sqlserver-benchmark-notes.md#dated-streaming-xlsx-round-trip-snapshot-2026-08-09).
-On this source-linked run, the DbaClientX/PSWriteOffice/OfficeIMO path used
-6.2-6.6% of ImportExcel's median time while passing the same SQL-side value and
-schema validation.
 
 ## .NET Usage
 
@@ -821,7 +873,7 @@ The SQL Server provider creates dedicated checksummed full, differential and log
 
 - PowerShell examples: [`Module/Examples`](Module/Examples)
 - C# examples: [`DbaClientX.Examples`](DbaClientX.Examples)
-- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1), [`Module/Examples/Benchmark.SqlServerCsvExport.ps1`](Module/Examples/Benchmark.SqlServerCsvExport.ps1), [`Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
+- Benchmarks: [`Module/Examples/Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1), [`Module/Examples/Benchmark.SqlServerCsvExport.ps1`](Module/Examples/Benchmark.SqlServerCsvExport.ps1), [`Module/Examples/Benchmark.SqlServerCsvImport.ps1`](Module/Examples/Benchmark.SqlServerCsvImport.ps1), [`Module/Examples/Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - Data movement guide: [`docs/data-movement.md`](docs/data-movement.md)
 - SQL Server benchmark notes: [`docs/sqlserver-benchmark-notes.md`](docs/sqlserver-benchmark-notes.md)
 
@@ -833,6 +885,7 @@ Useful example files:
 - [`Example.ExcelRoundTrip.ps1`](Module/Examples/Example.ExcelRoundTrip.ps1)
 - [`Benchmark.SqlServerDataMovement.ps1`](Module/Examples/Benchmark.SqlServerDataMovement.ps1)
 - [`Benchmark.SqlServerCsvExport.ps1`](Module/Examples/Benchmark.SqlServerCsvExport.ps1)
+- [`Benchmark.SqlServerCsvImport.ps1`](Module/Examples/Benchmark.SqlServerCsvImport.ps1)
 - [`Benchmark.OfficeFileRoundTrip.ps1`](Module/Examples/Benchmark.OfficeFileRoundTrip.ps1)
 - [`Example.QueryPostgreSql.ps1`](Module/Examples/Example.QueryPostgreSql.ps1)
 - [`Example.QueryMySql.ps1`](Module/Examples/Example.QueryMySql.ps1)

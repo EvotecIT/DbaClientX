@@ -90,7 +90,7 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
     [Parameter]
     public int? BatchSize { get; set; }
 
-    /// <summary>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.</summary>
+    /// <summary>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. Ctrl+C stops it between writes and stops a running SQL Server write at its next rows-copied notification; a write blocked on a lock, or an Oracle bulk write that has started, runs until it can finish. SQLite destinations do not support this option.</summary>
     [Parameter]
     public int? BulkCopyTimeout { get; set; }
 

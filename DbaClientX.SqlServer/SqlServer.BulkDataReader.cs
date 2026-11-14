@@ -69,10 +69,16 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
-            EnsureAutoCreatedDestinationTable(connection!, transaction, columns, destinationTable, options);
+            var sizing = CreateAutoSizedTextReader(reader, columns, options);
+            EnsureAutoCreatedDestinationTable(connection!, transaction, columns, destinationTable, options, sizing);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
-            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options);
-            WriteToServer(bulkCopy, reader);
+            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options, sizing);
+            WriteToServer(bulkCopy, (IDataReader?)sizing ?? reader);
+            while (sizing?.TakeOverflow(bulkCopy.RowsCopied64) is { } widen)
+            {
+                ExecuteBulkInsertSetupCommand(connection!, transaction, BuildWidenAutoSizedTextCommand(widen), AutoSizeParameters(destinationTable));
+                WriteToServer(bulkCopy, sizing);
+            }
         }
         catch (DbaTransactionException)
         {
@@ -171,13 +177,15 @@ public partial class SqlServer
                 connectionString,
                 useTransaction,
                 cancellationToken).ConfigureAwait(false);
+            var sizing = CreateAutoSizedTextReader(reader, columns, options);
             await EnsureAutoCreatedDestinationTableAsync(
                 connection!,
                 transaction,
                 columns,
                 destinationTable,
                 options,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                sizing).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
             ConfigureBulkCopy(
                 bulkCopy,
@@ -185,11 +193,10 @@ public partial class SqlServer
                 destinationTable,
                 batchSize,
                 bulkCopyTimeout,
-                options);
-            await AwaitWithCallerCancellationAsync(
-                () => WriteToServerAsync(bulkCopy, reader, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            return new SqlServerBulkInsertResult(bulkCopy.RowsCopied64, operation.OperationId);
+                options,
+                sizing);
+            long rows = await WriteAutoSizedRowsAsync(connection!, transaction, bulkCopy, reader, sizing, destinationTable, cancellationToken).ConfigureAwait(false);
+            return new SqlServerBulkInsertResult(rows, operation.OperationId);
         }
         catch (DbaTransactionException)
         {
@@ -237,12 +244,11 @@ public partial class SqlServer
         try
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
-            await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, columns, destinationTable, options, cancellationToken).ConfigureAwait(false);
+            var sizing = CreateAutoSizedTextReader(reader, columns, options);
+            await EnsureAutoCreatedDestinationTableAsync(connection!, transaction, columns, destinationTable, options, cancellationToken, sizing).ConfigureAwait(false);
             using var bulkCopy = CreateBulkCopy(connection!, transaction, options);
-            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options);
-            await AwaitWithCallerCancellationAsync(
-                () => WriteToServerAsync(bulkCopy, reader, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
+            ConfigureBulkCopy(bulkCopy, columns, destinationTable, batchSize, bulkCopyTimeout, options, sizing);
+            await WriteAutoSizedRowsAsync(connection!, transaction, bulkCopy, reader, sizing, destinationTable, cancellationToken).ConfigureAwait(false);
         }
         catch (DbaTransactionException)
         {
@@ -271,7 +277,35 @@ public partial class SqlServer
         CancellationToken cancellationToken = default)
         => BulkInsertAsync(connectionString, reader, destinationTable, options: null, useTransaction, batchSize, bulkCopyTimeout, cancellationToken);
 
-    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, IReadOnlyList<SqlServerBulkSourceColumn> columns, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
+    private async Task<long> WriteAutoSizedRowsAsync(
+        SqlConnection connection,
+        SqlTransaction? transaction,
+        SqlBulkCopy bulkCopy,
+        IDataReader reader,
+        AutoSizedTextReader? sizing,
+        string destinationTable,
+        CancellationToken cancellationToken)
+    {
+        IDataReader source = (IDataReader?)sizing ?? reader;
+        await AwaitWithCallerCancellationAsync(() => WriteToServerAsync(bulkCopy, source, cancellationToken), cancellationToken).ConfigureAwait(false);
+        while (sizing?.TakeOverflow(bulkCopy.RowsCopied64) is { } widen)
+        {
+            await ExecuteBulkInsertSetupCommandAsync(connection, transaction, BuildWidenAutoSizedTextCommand(widen), AutoSizeParameters(destinationTable), cancellationToken).ConfigureAwait(false);
+            await AwaitWithCallerCancellationAsync(() => WriteToServerAsync(bulkCopy, source, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+
+        return (sizing?.CopiedBeforeSegment ?? 0) + bulkCopy.RowsCopied64;
+    }
+
+    // SqlBulkCopy stops a copy after 30 seconds by default, which fails legitimate large loads. Without an explicit
+    // timeout the copy runs until it completes. Cancellation stops a reader copy at the next rows-copied notification;
+    // a copy blocked on a lock waits for it, as SqlClient's own cancellation does, unless a timeout is given.
+    private const int DefaultBulkCopyTimeout = 0;
+
+    private static Dictionary<string, object?> AutoSizeParameters(string destinationTable)
+        => new() { ["@objectName"] = SqlServerDestinationTable.Parse(destinationTable).QuotedFullName };
+
+    private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, IReadOnlyList<SqlServerBulkSourceColumn> columns, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options, AutoSizedTextReader? sizing = null)
     {
         bulkCopy.DestinationTableName = ResolveBulkCopyDestinationTableName(destinationTable, options);
         bulkCopy.EnableStreaming = true;
@@ -280,17 +314,14 @@ public partial class SqlServer
             bulkCopy.BatchSize = batchSize.Value;
         }
 
-        if (bulkCopyTimeout.HasValue)
-        {
-            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-        }
+        bulkCopy.BulkCopyTimeout = bulkCopyTimeout ?? DefaultBulkCopyTimeout;
 
         var notifyAfter = options?.NotifyAfter;
         var rowsCopiedCallback = options?.RowsCopied;
         if (rowsCopiedCallback != null)
         {
             bulkCopy.NotifyAfter = notifyAfter.GetValueOrDefault(batchSize.GetValueOrDefault(5000));
-            bulkCopy.SqlRowsCopied += (_, args) => rowsCopiedCallback(args.RowsCopied);
+            bulkCopy.SqlRowsCopied += (_, args) => rowsCopiedCallback((sizing?.CopiedBeforeSegment ?? 0) + args.RowsCopied);
         }
         else if (notifyAfter.HasValue)
         {

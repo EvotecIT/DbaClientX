@@ -197,10 +197,8 @@ public partial class Oracle
     private static void ConfigureBulkCopy(OracleBulkCopy bulkCopy, DataTable table, string destinationTable, int? bulkCopyTimeout)
     {
         bulkCopy.DestinationTableName = destinationTable;
-        if (bulkCopyTimeout.HasValue)
-        {
-            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-        }
+        // The driver's own default stops large copies after 30 seconds; run until done unless a timeout is given.
+        bulkCopy.BulkCopyTimeout = bulkCopyTimeout ?? 0;
 
         foreach (DataColumn column in table.Columns)
         {
