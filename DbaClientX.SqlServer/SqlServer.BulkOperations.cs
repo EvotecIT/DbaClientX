@@ -307,10 +307,7 @@ public partial class SqlServer
         {
             bulkCopy.BatchSize = batchSize.Value;
         }
-        if (bulkCopyTimeout.HasValue)
-        {
-            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-        }
+        bulkCopy.BulkCopyTimeout = bulkCopyTimeout ?? DefaultBulkCopyTimeout;
 
         var notifyAfter = options?.NotifyAfter;
         var rowsCopiedCallback = options?.RowsCopied;

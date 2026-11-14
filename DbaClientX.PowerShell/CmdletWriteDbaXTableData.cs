@@ -62,7 +62,7 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
     [ValidateRange(1, int.MaxValue)]
     public int? InputBatchSize { get; set; }
 
-    /// <summary>Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.</summary>
+    /// <summary>Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.</summary>
     [Parameter]
     public int? BulkCopyTimeout { get; set; }
 

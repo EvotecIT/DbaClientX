@@ -614,7 +614,7 @@ public class SqlServerBulkInsertTests
         sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest");
 
         Assert.Equal(0, sqlServer.BatchSize);
-        Assert.Equal(30, sqlServer.Timeout);
+        Assert.Equal(0, sqlServer.Timeout);
         Assert.Equal("dbo.Dest", sqlServer.Destination);
         Assert.Equal(table.Columns.Count, sqlServer.Mappings.Count);
     }

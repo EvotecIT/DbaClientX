@@ -462,7 +462,6 @@ CREATE TABLE dbo.$TableName
                                 -DestinationTable "dbo.$($run.TableName)" `
                                 -InputObject (, $reader) `
                                 -BatchSize ([int] $case.BatchSize) `
-                                -BulkCopyTimeout 600 `
                                 -TableLock `
                                 -ErrorAction Stop | Out-Null
                         } finally {
@@ -475,7 +474,6 @@ CREATE TABLE dbo.$TableName
                             -DestinationTable "dbo.$($run.TableName)" `
                             -InputObject $run.Data `
                             -BatchSize ([int] $case.BatchSize) `
-                            -BulkCopyTimeout 600 `
                             -TableLock `
                             -ErrorAction Stop | Out-Null
                     }
@@ -885,7 +883,6 @@ FROM numbers;
                         -DestinationTable "dbo.$($run.TableName)" `
                         -AllowUnordered `
                         -BatchSize ([int] $case.BatchSize) `
-                        -BulkCopyTimeout 600 `
                         -TableLock `
                         -ErrorAction Stop | Out-Null
                 }
@@ -902,7 +899,6 @@ FROM numbers;
                         -Table "dbo.$($run.SourceTable)" `
                         -DestinationTable "dbo.$($run.TableName)" `
                         -BatchSize ([int] $case.BatchSize) `
-                        -BulkCopyTimeout 600 `
                         -EnableException | Out-Null
                 }
             }

@@ -297,6 +297,10 @@ public partial class SqlServer
         return (sizing?.CopiedBeforeSegment ?? 0) + bulkCopy.RowsCopied64;
     }
 
+    // SqlBulkCopy stops a copy after 30 seconds by default, which fails legitimate large loads. Without an explicit
+    // timeout the copy runs until it completes; caller cancellation still stops it.
+    private const int DefaultBulkCopyTimeout = 0;
+
     private static Dictionary<string, object?> AutoSizeParameters(string destinationTable)
         => new() { ["@objectName"] = SqlServerDestinationTable.Parse(destinationTable).QuotedFullName };
 
@@ -309,10 +313,7 @@ public partial class SqlServer
             bulkCopy.BatchSize = batchSize.Value;
         }
 
-        if (bulkCopyTimeout.HasValue)
-        {
-            bulkCopy.BulkCopyTimeout = bulkCopyTimeout.Value;
-        }
+        bulkCopy.BulkCopyTimeout = bulkCopyTimeout ?? DefaultBulkCopyTimeout;
 
         var notifyAfter = options?.NotifyAfter;
         var rowsCopiedCallback = options?.RowsCopied;
