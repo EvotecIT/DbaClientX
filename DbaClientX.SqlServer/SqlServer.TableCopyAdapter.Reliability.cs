@@ -21,6 +21,8 @@ public sealed partial class SqlServerTableCopyAdapter
                 throw new ArgumentException("Verified and resumable copies require KeepIdentity in DbaTableCopyOptions so identity behavior is bound to the checkpoint contract.", nameof(options));
             if ((flags & (SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.AllowEncryptedValueModifications)) != 0)
                 throw new ArgumentException("Verified and resumable copies do not support adapter flags that change trigger or encrypted-value write semantics.", nameof(options));
+            if (_bulkInsertOptions?.UseColumnDefaultsForNulls == true)
+                throw new ArgumentException("Verified and resumable copies keep NULL values, so they cannot use UseColumnDefaultsForNulls.", nameof(options));
         }
         using var server = new SqlServer { ConnectionOptions = _connectionOptions };
         server.ValidateCompatibility(ConnectionString, GetEffectiveBulkInsertOptions(options));

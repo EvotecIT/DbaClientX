@@ -17,7 +17,7 @@ public partial class SqlServer
 {
     /// <inheritdoc />
     protected override DbDataReader AdaptReader(DbDataReader reader)
-        => reader is SqlDataReader native && SqlServerValueReader.NeedsAdapting(native) ? new SqlServerValueReader(native) : reader;
+        => reader is SqlDataReader native ? new SqlServerValueReader(native) : reader;
 
     // Table-copy pages read the same values as query results.
     internal static DbDataReader AdaptValues(SqlDataReader reader)
@@ -31,6 +31,7 @@ public partial class SqlServer
         private const int MaxSystemDecimalPrecision = 28;
         private readonly SqlDataReader _inner;
         private ColumnKind[] _kinds = Array.Empty<ColumnKind>();
+        private bool _adapted;
 
         private enum ColumnKind : byte
         {
@@ -42,7 +43,13 @@ public partial class SqlServer
         internal SqlServerValueReader(SqlDataReader inner)
         {
             _inner = inner;
-            _kinds = Classify(inner);
+            SetKinds(Classify(inner));
+        }
+
+        private void SetKinds(ColumnKind[] kinds)
+        {
+            _kinds = kinds;
+            _adapted = Array.Exists(kinds, static kind => kind != ColumnKind.Plain);
         }
 
         internal SqlDataReader Inner => _inner;
@@ -107,6 +114,8 @@ public partial class SqlServer
 
         public override int GetValues(object[] values)
         {
+            // A result without adapted columns keeps SqlClient's own GetValues; a later result set may still need adapting.
+            if (!_adapted) return _inner.GetValues(values);
             int count = Math.Min(values.Length, _kinds.Length);
             for (int ordinal = 0; ordinal < count; ordinal++) values[ordinal] = GetValue(ordinal);
             return count;
@@ -145,7 +154,8 @@ public partial class SqlServer
         }
 
         public override decimal GetDecimal(int ordinal) => _inner.GetDecimal(ordinal);
-        public override T GetFieldValue<T>(int ordinal) => _kinds[ordinal] == ColumnKind.Plain ? _inner.GetFieldValue<T>(ordinal) : (T)GetValue(ordinal);
+        public override T GetFieldValue<T>(int ordinal)
+            => _kinds[ordinal] == ColumnKind.Plain || typeof(T) == typeof(decimal) ? _inner.GetFieldValue<T>(ordinal) : (T)GetValue(ordinal);
         public override object GetProviderSpecificValue(int ordinal) => _kinds[ordinal] == ColumnKind.Plain ? _inner.GetProviderSpecificValue(ordinal) : GetValue(ordinal);
 #if NET8_0_OR_GREATER
         [return: System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
@@ -161,14 +171,14 @@ public partial class SqlServer
         public override bool NextResult()
         {
             bool next = _inner.NextResult();
-            _kinds = next ? Classify(_inner) : Array.Empty<ColumnKind>();
+            SetKinds(next ? Classify(_inner) : Array.Empty<ColumnKind>());
             return next;
         }
 
         public override async Task<bool> NextResultAsync(CancellationToken cancellationToken)
         {
             bool next = await _inner.NextResultAsync(cancellationToken).ConfigureAwait(false);
-            _kinds = next ? Classify(_inner) : Array.Empty<ColumnKind>();
+            SetKinds(next ? Classify(_inner) : Array.Empty<ColumnKind>());
             return next;
         }
 

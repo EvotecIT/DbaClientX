@@ -63,7 +63,9 @@ public partial class SqlServer
         if (connection.State != ConnectionState.Open) return reader;
         Dictionary<string, string>? types = ReadDestinationTypes(connection, transaction, destinationTable);
         RejectColumnSetDestination(types, destinationTable);
-        if (GetNativeBulkReader(reader) is SqlDataReader) return reader;
+        // A native reader keeps SqlClient's typed path unless a column must become text, which SqlBulkCopy refuses
+        // for a native reader whose source locale differs from the character destination's.
+        if (GetNativeBulkReader(reader) is SqlDataReader) return CreateConvertedReader(reader, columns, types, textOnly: true) ?? reader;
 
         if (!NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
         return CreateConvertedReader(reader, columns, types) ?? reader;
@@ -74,7 +76,7 @@ public partial class SqlServer
         if (connection.State != ConnectionState.Open) return reader;
         Dictionary<string, string>? types = await ReadDestinationTypesAsync(connection, transaction, destinationTable, cancellationToken).ConfigureAwait(false);
         RejectColumnSetDestination(types, destinationTable);
-        if (GetNativeBulkReader(reader) is SqlDataReader) return reader;
+        if (GetNativeBulkReader(reader) is SqlDataReader) return CreateConvertedReader(reader, columns, types, textOnly: true) ?? reader;
 
         if (!NeedsDestinationTypes(connection, columns.Select(static column => column.DataType))) return reader;
         return CreateConvertedReader(reader, columns, types) ?? reader;
@@ -118,14 +120,16 @@ public partial class SqlServer
         return any ? new BulkValueConversionReader(table.CreateDataReader(), conversions, ownsInner: true) : null;
     }
 
-    private static IDataReader? CreateConvertedReader(IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, Dictionary<string, string>? types)
+    private static IDataReader? CreateConvertedReader(IDataReader reader, IReadOnlyList<SqlServerBulkSourceColumn> columns, Dictionary<string, string>? types, bool textOnly = false)
     {
         if (types == null) return null;
         var conversions = new BulkValueConversion?[reader.FieldCount];
         bool any = false;
         foreach (SqlServerBulkSourceColumn column in columns)
         {
-            any |= (conversions[column.Ordinal] = PlanConversion(column.DataType, column.DestinationName, types)) != null;
+            BulkValueConversion? conversion = PlanConversion(column.DataType, column.DestinationName, types);
+            if (textOnly && !ReferenceEquals(conversion, BulkValueConversion.ToText)) conversion = null;
+            any |= (conversions[column.Ordinal] = conversion) != null;
         }
 
         return any ? new BulkValueConversionReader(reader, conversions, ownsInner: false) : null;
@@ -229,7 +233,7 @@ public partial class SqlServer
                 {
                     throw new SqlServerBulkCopyLimitationException(
                         $"Column '{VariantColumn}' is sql_variant and SqlBulkCopy would store {dateTime.ToString("yyyy-MM-dd HH:mm:ss.fffffff", System.Globalization.CultureInfo.InvariantCulture)} as datetime, which changes it. " +
-                        "Copy sql_variant values with Copy-DbaXTableData or from an Invoke-DbaXQuery -AsDataReader reader, which keep their base types.");
+                        "Copy sql_variant values from an Invoke-DbaXQuery -AsDataReader reader, which keeps their base types.");
                 }
 
                 return value;
@@ -291,11 +295,21 @@ public partial class SqlServer
                 return parsed;
             }
 
-            // decimal.TryParse rounds text with more than 28 significant digits; such text is parsed exactly as SqlDecimal.
-            if (target == typeof(decimal) && CountDigits(text) > 28 && TryParseWideDecimal(text.Trim(), out System.Data.SqlTypes.SqlDecimal exact))
+            // decimal.TryParse rounds text with more than 28 significant digits, so such text is parsed only exactly, as
+            // SqlDecimal (a single comma counts as the decimal separator); text that cannot be is left for SqlBulkCopy
+            // to reject rather than rounded.
+            if (target == typeof(decimal) && CountDigits(text) > 28)
             {
-                value = exact;
-                return true;
+                string normalized = text.Trim();
+                if (normalized.IndexOf('.') < 0 && normalized.IndexOf(',') == normalized.LastIndexOf(',')) normalized = normalized.Replace(',', '.');
+                if (TryParseWideDecimal(normalized, out System.Data.SqlTypes.SqlDecimal exact))
+                {
+                    value = exact;
+                    return true;
+                }
+
+                value = text;
+                return false;
             }
 
             if (DbaInvariantText.TryParse(text, target, out value)) return true;

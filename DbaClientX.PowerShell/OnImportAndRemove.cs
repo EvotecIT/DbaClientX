@@ -91,7 +91,9 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         var strict = unknownRequester && !IsOwnAssembly(requested.Name) && !IsReferencedByModule(requested, directoryPath!);
         if (strict && requested.Version == null) {
             foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
-                if (string.Equals(loaded.GetName().Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!)) {
+                var name = loaded.GetName();
+                if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!) &&
+                    TokensMatch(name.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
                     return loaded;
                 }
             }
@@ -119,7 +121,8 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             return null;
         }
 
-        if (requested.Version != null && candidate.Version < requested.Version) {
+        if ((requested.Version != null && candidate.Version < requested.Version) ||
+            !TokensMatch(candidate.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
             return null;
         }
 
@@ -185,12 +188,12 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         => string.Equals(assembly.GetName().Name, "System.Management.Automation", StringComparison.OrdinalIgnoreCase);
 
     private static bool Satisfies(AssemblyName loaded, AssemblyName requested) {
-        if (requested.Version == null || loaded.Version == null) {
-            return true;
+        if (!TokensMatch(loaded.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+            return false;
         }
 
-        return loaded.Version.Major == requested.Version.Major && loaded.Version >= requested.Version &&
-               TokensMatch(loaded.GetPublicKeyToken(), requested.GetPublicKeyToken());
+        return requested.Version == null || loaded.Version == null ||
+               (loaded.Version.Major == requested.Version.Major && loaded.Version >= requested.Version);
     }
 
     private static bool IsReferencedByModule(AssemblyName requested, string directoryPath) {

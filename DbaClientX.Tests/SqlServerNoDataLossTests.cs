@@ -100,7 +100,10 @@ INSERT INTO {source} VALUES
 
             Assert.Equal(0, Convert.ToInt32(await sql.ExecuteScalarAsync(connectionString!, $@"
 SELECT COUNT(*) FROM {source} AS s FULL JOIN {destination} AS d ON d.Id = s.Id
-WHERE s.Id IS NULL OR d.Id IS NULL OR ISNULL(s.Big, 0) <> ISNULL(d.Big, 0) OR ISNULL(s.Whole, 0) <> ISNULL(d.Whole, 0) OR ISNULL(s.Small, 0) <> ISNULL(d.Small, 0)
+WHERE s.Id IS NULL OR d.Id IS NULL
+   OR (s.Big IS NULL AND d.Big IS NOT NULL) OR (s.Big IS NOT NULL AND d.Big IS NULL) OR s.Big <> d.Big
+   OR (s.Whole IS NULL AND d.Whole IS NOT NULL) OR (s.Whole IS NOT NULL AND d.Whole IS NULL) OR s.Whole <> d.Whole
+   OR (s.Small IS NULL AND d.Small IS NOT NULL) OR (s.Small IS NOT NULL AND d.Small IS NULL) OR s.Small <> d.Small
    OR ISNULL(CAST(s.Node AS varbinary(max)), 0x00) <> ISNULL(CAST(d.Node AS varbinary(max)), 0x00)
    OR ISNULL(CAST(s.Place AS varbinary(max)), 0x00) <> ISNULL(CAST(d.Place AS varbinary(max)), 0x00)
    OR ISNULL(CAST(s.Shape AS varbinary(max)), 0x00) <> ISNULL(CAST(d.Shape AS varbinary(max)), 0x00)"), CultureInfo.InvariantCulture));
@@ -109,6 +112,59 @@ WHERE s.Id IS NULL OR d.Id IS NULL OR ISNULL(s.Big, 0) <> ISNULL(d.Big, 0) OR IS
         {
             await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}; DROP TABLE IF EXISTS {source};");
         }
+    }
+
+    // A later result set gets the same treatment, and typed decimal access still returns System.Decimal.
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task QueryAsync_WideDecimalInLaterResultSet_IsReadAndTypedAccessStillWorks()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        using var sql = new SqlServer { ReturnType = ReturnType.DataSet };
+
+        var results = Assert.IsType<DataSet>(await sql.QueryAsync(connectionString!,
+            "SELECT 1 AS Plain; SELECT CAST(99999999999999999999999999999999999999 AS decimal(38,0)) AS Big;"));
+        Assert.Equal("99999999999999999999999999999999999999", ((SqlDecimal)results.Tables[1].Rows[0]["Big"]).ToString());
+
+        using DbaDataReader reader = await sql.QueryReaderAsync(connectionString!, "SELECT CAST(1 AS decimal(38,0)) AS Small;");
+        Assert.True(reader.Read());
+        Assert.Equal(1m, reader.GetFieldValue<decimal>(0));
+    }
+
+    // A native reader into a character column of another locale goes through text conversion instead of SqlBulkCopy's
+    // locale check.
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task BulkInsertAsync_NativeReaderNumberIntoText_WritesCastText()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string destination = "dbo.DbaxNumberText" + Guid.NewGuid().ToString("N");
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"CREATE TABLE {destination} (Id int NOT NULL, Label nvarchar(20) COLLATE Polish_CI_AS NULL)");
+
+            using (DbaDataReader reader = await sql.QueryReaderAsync(connectionString!, "SELECT 1 AS Id, 42 AS Label"))
+            {
+                await sql.BulkInsertAsync(connectionString!, reader, destination, options: null);
+            }
+
+            Assert.Equal("42", await sql.ExecuteScalarAsync(connectionString!, $"SELECT Label FROM {destination}"));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination};");
+        }
+    }
+
+    [Fact]
+    public void ValidateCopyOptions_VerifiedCopyWithColumnDefaultsForNulls_IsRejectedBeforeAnyWrite()
+    {
+        var adapter = new SqlServerTableCopyAdapter("Server=s;Database=db;Encrypt=True", bulkInsertOptions: new SqlServerBulkInsertOptions { UseColumnDefaultsForNulls = true });
+
+        Assert.Throws<ArgumentException>(() => adapter.ValidateCopyOptions(new DbaTableCopyOptions { VerifyContent = true }));
     }
 
     // CSV and Excel files carry wide decimals as text, which loads back as SqlDecimal.
@@ -122,18 +178,20 @@ WHERE s.Id IS NULL OR d.Id IS NULL OR ISNULL(s.Big, 0) <> ISNULL(d.Big, 0) OR IS
         using var rows = new DataTable();
         rows.Columns.Add("Id", typeof(string));
         rows.Columns.Add("Big", typeof(string));
-        rows.Rows.Add("1", "-9999999999999999999999999999.9999999999");
+        rows.Columns.Add("Fraction", typeof(string));
+        rows.Rows.Add("1", "-9999999999999999999999999999.9999999999", "0,123456789012345678901234567891");
         using var sql = new SqlServer();
         try
         {
-            await sql.ExecuteNonQueryAsync(connectionString!, $"CREATE TABLE {destination} (Id int NOT NULL, Big decimal(38,10) NULL)");
+            await sql.ExecuteNonQueryAsync(connectionString!, $"CREATE TABLE {destination} (Id int NOT NULL, Big decimal(38,10) NULL, Fraction decimal(38,30) NULL)");
 
             using (IDataReader reader = rows.CreateDataReader())
             {
                 await sql.BulkInsertAsync(connectionString!, reader, destination, options: null);
             }
 
-            Assert.Equal("-9999999999999999999999999999.9999999999", await sql.ExecuteScalarAsync(connectionString!, $"SELECT CONVERT(nvarchar(50), Big) FROM {destination}"));
+            Assert.Equal("-9999999999999999999999999999.9999999999|0.123456789012345678901234567891", await sql.ExecuteScalarAsync(connectionString!,
+                $"SELECT CONCAT(CONVERT(nvarchar(50), Big), '|', CONVERT(nvarchar(50), Fraction)) FROM {destination}"));
         }
         finally
         {

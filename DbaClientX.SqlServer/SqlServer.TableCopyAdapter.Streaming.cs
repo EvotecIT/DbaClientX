@@ -11,7 +11,7 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
     // set, so such a table is described, read and written as its individual columns without the column set.
     private const string StreamColumnsQuery =
         "DECLARE @columns nvarchar(max) = CASE WHEN EXISTS (SELECT 1 FROM {0}sys.columns WHERE object_id = OBJECT_ID(@name) AND is_column_set = 1) " +
-        "THEN STUFF((SELECT N', ' + QUOTENAME(name) FROM {0}sys.columns WHERE object_id = OBJECT_ID(@name) AND is_column_set = 0 AND is_hidden = 0 ORDER BY column_id FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'') END; " +
+        "THEN STUFF((SELECT N', ' + QUOTENAME(name) FROM {0}sys.columns WHERE object_id = OBJECT_ID(@name) AND is_column_set = 0 ORDER BY column_id FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, N'') END; " +
         "DECLARE @query nvarchar(max) = N'SELECT ' + ISNULL(@columns, N'*') + N' FROM ' + @name; " +
         "SELECT name, CONVERT(int, COLLATIONPROPERTY(collation_name, 'LCID')), error_number, " +
         "CONVERT(bit, CASE WHEN is_computed_column = 1 OR system_type_id = 189 THEN 1 ELSE 0 END) " +
