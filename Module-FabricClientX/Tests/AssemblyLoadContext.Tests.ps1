@@ -35,7 +35,6 @@ Describe 'Packaged FabricClientX Assembly Load Context' -Tag 'PackagedALC' {
     It 'loads the packaged module independently through its module-scoped context' {
         $packagedModuleRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Artefacts\Unpacked'))
         $packagedModule = Join-Path $packagedModuleRoot 'FabricClientX'
-        $packagedLoader = Join-Path $packagedModule 'Lib\Core\FabricClientX.ModuleLoadContext.dll'
         $requirePackagedSmoke = $env:FABRICCLIENTX_REQUIRE_ALC_SMOKE -eq 'true'
 
         if (-not $IsCoreCLR) {
@@ -43,15 +42,12 @@ Describe 'Packaged FabricClientX Assembly Load Context' -Tag 'PackagedALC' {
             return
         }
 
-        if (-not $requirePackagedSmoke -and (
-                -not (Test-Path -LiteralPath $packagedModule) -or
-                -not (Test-Path -LiteralPath $packagedLoader))) {
+        if (-not $requirePackagedSmoke -and -not (Test-Path -LiteralPath $packagedModule)) {
             Set-ItResult -Skipped -Because 'packaged FabricClientX artifact is required'
             return
         }
 
         Test-Path -LiteralPath $packagedModule | Should -BeTrue
-        Test-Path -LiteralPath $packagedLoader | Should -BeTrue
 
         $moduleRootLiteral = $packagedModuleRoot.Replace("'", "''")
         $script = @"
@@ -68,6 +64,7 @@ Import-Module FabricClientX -Force -ErrorAction Stop
     AssemblyPath = `$assembly.Location
     Context = `$context.Name
     IsDefault = [object]::ReferenceEquals(`$context, [System.Runtime.Loader.AssemblyLoadContext]::Default)
+    LoaderAssembly = ([System.Management.Automation.PSTypeName]'PowerForge.ModuleLoader.V1.ModuleAssemblyLoadContext').Type.Assembly.Location
 } | ConvertTo-Json -Depth 4 -Compress
 "@
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
@@ -82,6 +79,9 @@ Import-Module FabricClientX -Force -ErrorAction Stop
         $result.AssemblyPath | Should -Be $expectedAssembly
         $result.Context | Should -Be 'FabricClientX'
         $result.IsDefault | Should -BeFalse
+        # The module loads through the precompiled loader shipped in its own package.
+        $packagedLoaderRoot = [IO.Path]::GetFullPath((Join-Path $packagedModule 'Loader\Core')) + [IO.Path]::DirectorySeparatorChar
+        $result.LoaderAssembly | Should -BeLike "$packagedLoaderRoot*"
         @($result.Commands).Count | Should -Be 8
         @($result.Commands | Where-Object { $_ -match 'DbaX' }) | Should -BeNullOrEmpty
     }
