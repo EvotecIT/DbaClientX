@@ -60,25 +60,29 @@ SELECT COUNT(*) FROM (
     }
 
     // A native sequential reader must be read in destination order, and SqlBulkCopy rejects it when a character
-    // column's collation locale differs from the destination; those locales copy through pages instead.
+    // destination's collation locale differs from the source column, including a non-character source; those copy
+    // through pages instead.
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
+    [InlineData("Reordered")]
+    [InlineData("DifferentLocale")]
+    [InlineData("NumberToText")]
     [Trait("Category", "LiveProvider")]
-    public async Task CopyAsync_SqlServerDestinationColumnOrderOrLocaleDiffers_CopiesEveryRow(bool differentLocale)
+    public async Task CopyAsync_SqlServerDestinationLayoutDiffers_CopiesEveryRow(string layout)
     {
         string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
         Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
         string suffix = Guid.NewGuid().ToString("N");
         string source = "dbo.DbaxStreamLayoutSource" + suffix;
         string destination = "dbo.DbaxStreamLayoutDestination" + suffix;
-        string destinationCollation = differentLocale ? "Polish_CI_AS" : "Latin1_General_CI_AS";
+        string destinationCollation = layout == "DifferentLocale" ? "Polish_CI_AS" : "Latin1_General_CI_AS";
+        string sourceAmount = layout == "NumberToText" ? "int" : "decimal(9,2)";
+        string destinationAmount = layout == "NumberToText" ? "nvarchar(20) COLLATE Latin1_General_CI_AS" : "decimal(9,2)";
         using var sql = new SqlServer();
         try
         {
             await sql.ExecuteNonQueryAsync(connectionString!, $@"
-CREATE TABLE {source} (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) COLLATE Latin1_General_CI_AS NULL, Amount decimal(9,2) NULL);
-CREATE TABLE {destination} (Amount decimal(9,2) NULL, Name nvarchar(50) COLLATE {destinationCollation} NULL, Id int NOT NULL PRIMARY KEY);
+CREATE TABLE {source} (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) COLLATE Latin1_General_CI_AS NULL, Amount {sourceAmount} NULL);
+CREATE TABLE {destination} (Amount {destinationAmount} NULL, Name nvarchar(50) COLLATE {destinationCollation} NULL, Id int NOT NULL PRIMARY KEY);
 WITH numbers AS (SELECT TOP (2500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b)
 INSERT INTO {source} (Id, Name, Amount)
 SELECT n, CASE WHEN n % 3 = 0 THEN NULL ELSE CONCAT(N'Row ', n) END, n / 4.0 FROM numbers;");
@@ -91,7 +95,7 @@ SELECT n, CASE WHEN n % 3 = 0 THEN NULL ELSE CONCAT(N'Row ', n) END, n / 4.0 FRO
 
             Assert.True(result.Verified);
             Assert.Equal(2500, result.CopiedRows);
-            Assert.Equal(differentLocale ? 3 : 1, Assert.Single(result.Tables).PageCount);
+            Assert.Equal(layout == "Reordered" ? 1 : 3, Assert.Single(result.Tables).PageCount);
             object? differences = await sql.ExecuteScalarAsync(connectionString!, $@"
 SELECT COUNT(*) FROM (
     (SELECT Id, Name COLLATE Latin1_General_BIN2 AS Name, Amount FROM {source} EXCEPT SELECT Id, Name COLLATE Latin1_General_BIN2, Amount FROM {destination})

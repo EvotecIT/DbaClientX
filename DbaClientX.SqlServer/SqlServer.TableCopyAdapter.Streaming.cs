@@ -54,8 +54,8 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
         => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default &&
            _bulkInsertOptions?.AutoCreateTable != true;
 
-    // SqlBulkCopy reads a native SqlDataReader in destination column order and rejects character columns whose
-    // collation locale differs from the destination. Order the source projection to match the destination, and
+    // SqlBulkCopy reads a native SqlDataReader in destination column order and rejects a character destination whose
+    // collation locale differs from the source column's, including a non-character source. Order the source projection to match the destination, and
     // leave locale mismatches and unmatched columns to the page path, which copies through DataTable values.
     async Task<IReadOnlyList<string>?> IDbaTableCopyStreamDestination.OrderStreamColumnsAsync(
         DbaTableCopyDefinition definition,
@@ -97,7 +97,8 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
             }
 
             int? destinationLcid = destinationColumns[ordinal].CollationLcid;
-            if (source.CollationLcid.HasValue && destinationLcid.HasValue && source.CollationLcid != destinationLcid)
+            // A non-character source reports locale 0, which SqlClient also rejects for a character destination.
+            if (destinationLcid.HasValue && source.CollationLcid != destinationLcid)
             {
                 return null;
             }
