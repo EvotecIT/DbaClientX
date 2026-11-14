@@ -13,7 +13,8 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
 
     bool IDbaTableCopyStreamSource.CanStream(DbaTableCopyDefinition definition)
         => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default &&
-           definition.SourceOptions?.HasDeduplication != true;
+           definition.SourceOptions?.HasDeduplication != true &&
+           !HasSingleConnectionPool();
 
     async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> IDbaTableCopyStreamSource.DescribeStreamAsync(DbaTableCopyDefinition definition, CancellationToken cancellationToken)
     {
@@ -52,7 +53,17 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
     // Auto-created destinations keep the page path so their schema still comes from the DataTable shape.
     bool IDbaTableCopyStreamDestination.CanStream(DbaTableCopyDefinition definition, DbaTableCopyOptions options)
         => _connectionOptions.CompatibilityProfile == SqlServerCompatibilityProfile.Default &&
-           _bulkInsertOptions?.AutoCreateTable != true;
+           _bulkInsertOptions?.AutoCreateTable != true &&
+           !HasSingleConnectionPool();
+
+    // A streamed copy holds the source connection while it opens the destination one. A pool limited to a single
+    // connection, which both adapters share when they use the same connection string, would wait for itself, so
+    // such copies keep the page path, which releases the source connection before each write.
+    private bool HasSingleConnectionPool()
+    {
+        var builder = new SqlConnectionStringBuilder(ConnectionString);
+        return builder.Pooling && builder.MaxPoolSize < 2;
+    }
 
     // SqlBulkCopy reads a native SqlDataReader in destination column order and rejects a character destination whose
     // collation locale differs from the source column's, including a non-character source. Order the source projection to match the destination, and

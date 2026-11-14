@@ -109,6 +109,49 @@ SELECT COUNT(*) FROM (
         }
     }
 
+    // A stream holds the source connection while it opens the destination one, which a shared one-connection pool
+    // cannot supply; such copies page instead.
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task CopyAsync_SharedSingleConnectionPool_PagesInsteadOfWaitingForItself()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string suffix = Guid.NewGuid().ToString("N");
+        string source = "dbo.DbaxStreamPoolSource" + suffix;
+        string destination = "dbo.DbaxStreamPoolDestination" + suffix;
+        // A unique application name keeps this one-connection pool separate from other tests.
+        string pooled = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString)
+        {
+            MaxPoolSize = 1,
+            ConnectTimeout = 5,
+            ApplicationName = "DbaxPool" + suffix
+        }.ConnectionString;
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $@"
+CREATE TABLE {source} (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL);
+CREATE TABLE {destination} (Id int NOT NULL PRIMARY KEY, Name nvarchar(50) NULL);
+WITH numbers AS (SELECT TOP (2500) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_objects a CROSS JOIN sys.all_objects b)
+INSERT INTO {source} (Id, Name) SELECT n, CONCAT(N'Row ', n) FROM numbers;");
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                new SqlServerTableCopyAdapter(pooled),
+                new SqlServerTableCopyAdapter(pooled),
+                new[] { new DbaTableCopyDefinition(source, destination, new[] { "Id" }) },
+                new DbaTableCopyOptions { PageSize = 1000 });
+
+            Assert.True(result.Verified);
+            Assert.Equal(2500, result.CopiedRows);
+            Assert.Equal(3, Assert.Single(result.Tables).PageCount);
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}; DROP TABLE IF EXISTS {source};");
+        }
+    }
+
     [Fact]
     [Trait("Category", "LiveProvider")]
     public async Task BulkInsertWithResultAsync_ReaderCanceledMidCopy_StopsAndThrowsCancellation()
