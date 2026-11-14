@@ -135,7 +135,10 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
         Action<long>? rowsCopied,
         CancellationToken cancellationToken)
     {
-        SqlServerBulkInsertOptions? bulkOptions = GetEffectiveBulkInsertOptions(options);
+        // Generated destination columns are not in the reader, so their mappings are dropped too.
+        SqlServerBulkInsertOptions? bulkOptions = ForSourceColumns(
+            GetEffectiveBulkInsertOptions(options),
+            Enumerable.Range(0, reader.FieldCount).Select(reader.GetName));
         if (rowsCopied != null)
         {
             Action<long>? configured = bulkOptions?.RowsCopied;
@@ -162,9 +165,10 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopyStreamSourc
         return result.RowsCopied;
     }
 
-    private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DbaTableCopyStreamColumn>?> DescribeStreamColumnsAsync(SqlConnection connection, string tableName, CancellationToken cancellationToken, SqlTransaction? transaction = null)
     {
         using SqlCommand command = CreateSourceCommand(connection, StreamColumnsQuery);
+        if (transaction != null) command.Transaction = transaction;
         command.Parameters.Add("@query", SqlDbType.NVarChar, -1).Value = "SELECT * FROM " + QuotePath(tableName);
         var columns = new List<DbaTableCopyStreamColumn>();
         using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

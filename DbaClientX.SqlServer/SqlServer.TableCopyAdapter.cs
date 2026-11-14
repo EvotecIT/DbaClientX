@@ -55,13 +55,15 @@ public sealed partial class SqlServerTableCopyAdapter : DbaProviderTableCopyAdap
     public override async Task WritePageAsync(DbaTableCopyDefinition definition, DataTable page, DbaTableCopyOptions options, CancellationToken cancellationToken = default)
     {
         HashSet<string> generated = await GetGeneratedDestinationColumnsAsync(definition, cancellationToken).ConfigureAwait(false);
-        using DataTable? writable = WithoutGeneratedColumns(page, generated, GetEffectiveBulkInsertOptions(options)?.ColumnMappings);
+        SqlServerBulkInsertOptions? bulkOptions = GetEffectiveBulkInsertOptions(options);
+        using DataTable? writable = WithoutGeneratedColumns(page, generated, bulkOptions?.ColumnMappings);
+        DataTable source = writable ?? page;
         using var sqlServer = new SqlServer { ConnectionOptions = _connectionOptions, CommandTimeout = CommandTimeout };
         await sqlServer.BulkInsertAsync(
                 ConnectionString,
-                writable ?? page,
+                source,
                 NormalizeQuotedBulkDestinationTableName(definition.DestinationName),
-                GetEffectiveBulkInsertOptions(options),
+                ForSourceColumns(bulkOptions, source.Columns.Cast<DataColumn>().Select(static column => column.ColumnName)),
                 batchSize: options.BatchSize,
                 bulkCopyTimeout: options.BulkCopyTimeout,
                 cancellationToken: cancellationToken)

@@ -421,6 +421,8 @@ public sealed partial class CmdletWriteDbaXTableData : PSCmdlet
             return;
         }
 
+        // Rejects an invalid ColumnMap before any row is deleted.
+        _ = BuildSqlServerOptions(totalRows: null);
         _destinationCleared = true;
         var options = new DbaProviderTableCopyAdapterOptions { ConnectionString = ConnectionString };
         DbaProviderTableCopyAdapterBase adapter;

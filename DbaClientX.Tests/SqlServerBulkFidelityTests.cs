@@ -103,6 +103,80 @@ SELECT COUNT(*) FROM (
         }
     }
 
+    // Mappings that target a computed destination column are dropped with that column, bracketed or not.
+    [Theory]
+    [InlineData("Total")]
+    [InlineData("[Total]")]
+    [Trait("Category", "LiveProvider")]
+    public async Task CopyAsync_MappingToComputedDestination_LeavesItOut(string mappedName)
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string suffix = Guid.NewGuid().ToString("N");
+        string source = "dbo.DbaxMapSource" + suffix;
+        string destination = "dbo.DbaxMapDestination" + suffix;
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $@"
+CREATE TABLE {source} (Id int NOT NULL PRIMARY KEY, Val int NULL, OldTotal int NULL);
+CREATE TABLE {destination} (Id int NOT NULL PRIMARY KEY, Val int NULL, Total AS (Val * 2));
+INSERT INTO {source} VALUES (1, 5, 99), (2, NULL, 98);");
+
+            DbaTableCopyResult result = await new DbaTableCopyEngine().CopyAsync(
+                new SqlServerTableCopyAdapter(connectionString!),
+                new SqlServerTableCopyAdapter(connectionString!),
+                new[] { new DbaTableCopyDefinition(source, destination, new[] { "Id" }, ColumnMappings: new Dictionary<string, string> { ["OldTotal"] = mappedName }) },
+                new DbaTableCopyOptions());
+
+            Assert.Equal(2, result.CopiedRows);
+            Assert.Equal("1:5:10;2::", await sql.ExecuteScalarAsync(connectionString!, $"SELECT STRING_AGG(CONCAT(Id, ':', Val, ':', Total), ';') WITHIN GROUP (ORDER BY Id) FROM {destination}"));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination}; DROP TABLE IF EXISTS {source};");
+        }
+    }
+
+    // The destination keeps the source shape: hidden period columns stay out, a sparse column set stays a column
+    // set, and a computed column whose input is excluded becomes an ordinary column.
+    [Fact]
+    [Trait("Category", "LiveProvider")]
+    public async Task CreateTableFromSourceAsync_FollowsTheVisibleProjection()
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string suffix = Guid.NewGuid().ToString("N");
+        string temporal = "dbo.DbaxTemporal" + suffix;
+        string sparse = "dbo.DbaxSparse" + suffix;
+        string temporalCopy = temporal + "Copy";
+        string sparseCopy = sparse + "Copy";
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $@"
+CREATE TABLE {temporal} (Id int NOT NULL PRIMARY KEY, Val int NULL, Doubled AS (Val * 2),
+    ValidFrom datetime2 GENERATED ALWAYS AS ROW START HIDDEN NOT NULL, ValidTo datetime2 GENERATED ALWAYS AS ROW END HIDDEN NOT NULL,
+    PERIOD FOR SYSTEM_TIME (ValidFrom, ValidTo));
+CREATE TABLE {sparse} (Id int NOT NULL PRIMARY KEY, A int SPARSE NULL, B nvarchar(20) SPARSE NULL, Attributes xml COLUMN_SET FOR ALL_SPARSE_COLUMNS);
+INSERT INTO {temporal} (Id, Val) VALUES (1, 5);
+INSERT INTO {sparse} (Id, A, B) VALUES (1, 7, N'x'), (2, NULL, NULL);");
+
+            Assert.True(await sql.CreateTableFromSourceAsync(connectionString!, temporal, connectionString!, temporalCopy, excludedColumns: new[] { "Val" }));
+            Assert.True(await sql.CreateTableFromSourceAsync(connectionString!, sparse, connectionString!, sparseCopy));
+
+            Assert.Equal("Id:0|Doubled:0", await sql.ExecuteScalarAsync(connectionString!,
+                $"SELECT STRING_AGG(CONCAT(name, ':', is_computed), '|') WITHIN GROUP (ORDER BY column_id) FROM sys.columns WHERE object_id = OBJECT_ID(N'{temporalCopy}')"));
+            Assert.Equal("Id:0:0|A:1:0|B:1:0|Attributes:0:1", await sql.ExecuteScalarAsync(connectionString!,
+                $"SELECT STRING_AGG(CONCAT(name, ':', is_sparse, ':', is_column_set), '|') WITHIN GROUP (ORDER BY column_id) FROM sys.columns WHERE object_id = OBJECT_ID(N'{sparseCopy}')"));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $@"DROP TABLE IF EXISTS {temporalCopy}; DROP TABLE IF EXISTS {sparseCopy}; DROP TABLE IF EXISTS {sparse};
+DROP TABLE IF EXISTS {temporal};");
+        }
+    }
+
     // An auto-created table cannot repeat a source collation, a money column reports no decimal scale, and CLR types
     // cannot be read as objects; a SQL Server reader still loads every value into the source types.
     [Fact]

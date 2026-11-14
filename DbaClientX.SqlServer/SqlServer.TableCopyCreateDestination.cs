@@ -18,13 +18,18 @@ public partial class SqlServer
     private const string SourceColumnsQuery = @"SELECT c.name, COALESCE(TYPE_NAME(c.system_type_id), t.name) AS base_type, t.name AS user_type,
     t.is_assembly_type, SCHEMA_NAME(t.schema_id) AS type_schema, c.max_length, c.precision, c.scale, c.collation_name,
     c.is_nullable, c.is_sparse, c.is_identity, CONVERT(nvarchar(64), ic.seed_value) AS seed, CONVERT(nvarchar(64), ic.increment_value) AS increment,
-    cc.definition, cc.is_persisted
+    cc.definition, cc.is_persisted, c.is_column_set
 FROM sys.columns AS c
 JOIN sys.types AS t ON t.user_type_id = c.user_type_id
 LEFT JOIN sys.identity_columns AS ic ON ic.object_id = c.object_id AND ic.column_id = c.column_id
 LEFT JOIN sys.computed_columns AS cc ON cc.object_id = c.object_id AND cc.column_id = c.column_id
-WHERE c.object_id = OBJECT_ID(@source)
-ORDER BY c.column_id;";
+WHERE c.object_id = OBJECT_ID(@source) AND c.is_hidden = 0
+ORDER BY c.column_id;
+SELECT computed.name, referenced.name
+FROM sys.sql_expression_dependencies AS d
+JOIN sys.columns AS computed ON computed.object_id = d.referencing_id AND computed.column_id = d.referencing_minor_id
+JOIN sys.columns AS referenced ON referenced.object_id = d.referenced_id AND referenced.column_id = d.referenced_minor_id
+WHERE d.referencing_id = OBJECT_ID(@source) AND d.referencing_minor_id > 0;";
 
     /// <summary>
     /// Creates <paramref name="destinationTable"/> with the column definitions of the SQL Server table or view
@@ -78,7 +83,9 @@ ORDER BY c.column_id;";
             string name = columnMappings != null && columnMappings.TryGetValue(column.Name, out string? mapped) ? mapped : column.Name;
             if (!first) builder.AppendLine(",");
             first = false;
-            builder.Append("        ").Append(BuildColumnDefinition(QuoteSqlServerIdentifier(name), column, computed: !renamed).Replace("'", "''"));
+            // A computed definition names source columns, so it is kept only when none is renamed or excluded.
+            bool keepComputed = !renamed && !column.ComputedDependencies.Any(excluded.Contains);
+            builder.Append("        ").Append(BuildColumnDefinition(QuoteSqlServerIdentifier(name), column, keepComputed).Replace("'", "''"));
         }
 
         if (first) throw new InvalidOperationException($"Every column of source '{sourceTable}' is excluded.");
@@ -132,10 +139,24 @@ ORDER BY c.column_id;";
                 reader.IsDBNull(12) ? null : reader.GetString(12),
                 reader.IsDBNull(13) ? null : reader.GetString(13),
                 reader.IsDBNull(14) ? null : reader.GetString(14),
-                !reader.IsDBNull(15) && reader.GetBoolean(15)));
+                !reader.IsDBNull(15) && reader.GetBoolean(15),
+                reader.GetBoolean(16)));
         }
 
-        return columns;
+        var dependencies = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        if (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string computed = reader.GetString(0);
+                if (!dependencies.TryGetValue(computed, out List<string>? names)) dependencies[computed] = names = new List<string>();
+                names.Add(reader.GetString(1));
+            }
+        }
+
+        return columns.Select(column => dependencies.TryGetValue(column.Name, out List<string>? names)
+            ? column with { ComputedDependencies = names }
+            : column).ToArray();
     }
 
     private static string BuildColumnDefinition(string quotedName, SourceColumnDefinition column, bool computed)
@@ -143,6 +164,12 @@ ORDER BY c.column_id;";
         if (computed && column.ComputedDefinition != null)
         {
             return quotedName + " AS " + column.ComputedDefinition + (column.IsPersisted ? " PERSISTED" : string.Empty);
+        }
+
+        if (column.IsColumnSet)
+        {
+            // SELECT * returns the sparse columns as this XML column set, which loads them back.
+            return quotedName + " xml COLUMN_SET FOR ALL_SPARSE_COLUMNS";
         }
 
         var builder = new StringBuilder(quotedName).Append(' ').Append(GetSourceColumnTypeText(column));
@@ -193,5 +220,9 @@ ORDER BY c.column_id;";
         string? IdentitySeed,
         string? IdentityIncrement,
         string? ComputedDefinition,
-        bool IsPersisted);
+        bool IsPersisted,
+        bool IsColumnSet)
+    {
+        public IReadOnlyList<string> ComputedDependencies { get; init; } = Array.Empty<string>();
+    }
 }

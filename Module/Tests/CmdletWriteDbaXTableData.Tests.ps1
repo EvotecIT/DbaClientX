@@ -958,6 +958,20 @@ describe 'Write-DbaXTableData cmdlet' {
         }
     }
 
+    it 'rejects an invalid ColumnMap before clearing the destination' {
+        $binding = [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Instance
+        $cmdlet = [DBAClientX.PowerShell.CmdletWriteDbaXTableData]::new()
+        $cmdlet.Provider = 'SqlServer'
+        $cmdlet.ConnectionString = 'Server=unreachable.invalid;Database=App;Connect Timeout=1'
+        $cmdlet.DestinationTable = 'dbo.Import'
+        $cmdlet.ClearDestination = $true
+        $cmdlet.ColumnMap = @{ Name = ' ' }
+        $clear = [DBAClientX.PowerShell.CmdletWriteDbaXTableData].GetMethod('ClearDestinationOnce', $binding)
+
+        $failure = { $clear.Invoke($cmdlet, @()) } | Should -Throw -PassThru
+        $failure.Exception.InnerException | Should -BeOfType [System.Management.Automation.PSArgumentException]
+    }
+
     it 'rejects SQL Server bulk options for other providers' {
         {
             [pscustomobject]@{ Id = 1 } |
