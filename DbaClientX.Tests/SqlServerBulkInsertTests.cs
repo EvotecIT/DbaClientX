@@ -550,7 +550,7 @@ public class SqlServerBulkInsertTests
 
         sqlServer.BulkInsert("s", "db", true, reader, "dbo.Dest", options, batchSize: 100, bulkCopyTimeout: 60);
 
-        Assert.Equal(SqlBulkCopyOptions.TableLock, sqlServer.Options);
+        Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepNulls, sqlServer.Options);
         Assert.Equal(100, sqlServer.BatchSize);
         Assert.Equal(60, sqlServer.Timeout);
         Assert.Equal(25, sqlServer.NotifyAfter);
@@ -620,7 +620,7 @@ public class SqlServerBulkInsertTests
     }
 
     [Fact]
-    public void BulkInsert_WithoutOptions_UsesLegacyBulkCopyFactory()
+    public void BulkInsert_WithoutOptions_KeepsNullsThroughOptionsFactory()
     {
         using var sqlServer = new LegacyFactorySqlServer();
         using var table = new DataTable();
@@ -628,6 +628,20 @@ public class SqlServerBulkInsertTests
         table.Rows.Add(1);
 
         sqlServer.BulkInsert("Server=s;Database=db;Encrypt=True", table, "dbo.Dest");
+
+        Assert.Equal(0, sqlServer.LegacyFactoryCalls);
+        Assert.Equal(1, sqlServer.OptionsFactoryCalls);
+    }
+
+    [Fact]
+    public void BulkInsert_UsingColumnDefaultsForNulls_UsesLegacyBulkCopyFactory()
+    {
+        using var sqlServer = new LegacyFactorySqlServer();
+        using var table = new DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+
+        sqlServer.BulkInsert("Server=s;Database=db;Encrypt=True", table, "dbo.Dest", new DBAClientX.SqlServerBulkInsertOptions { UseColumnDefaultsForNulls = true });
 
         Assert.Equal(1, sqlServer.LegacyFactoryCalls);
         Assert.Equal(0, sqlServer.OptionsFactoryCalls);
@@ -671,7 +685,7 @@ public class SqlServerBulkInsertTests
 
         sqlServer.BulkInsert("s", "db", true, table, "dbo.Dest", options);
 
-        Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity, sqlServer.Options);
+        Assert.Equal(SqlBulkCopyOptions.TableLock | SqlBulkCopyOptions.KeepIdentity | SqlBulkCopyOptions.KeepNulls, sqlServer.Options);
         Assert.Equal(25, sqlServer.NotifyAfter);
         Assert.Equal(2, sqlServer.Mappings.Count);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");
@@ -746,7 +760,7 @@ public class SqlServerBulkInsertTests
 
         await sqlServer.BulkInsertAsync("s", "db", true, table, "dbo.Dest", options);
 
-        Assert.Equal(SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers, sqlServer.Options);
+        Assert.Equal(SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers | SqlBulkCopyOptions.KeepNulls, sqlServer.Options);
         Assert.Equal(10, sqlServer.NotifyAfter);
         Assert.Equal(2, sqlServer.Mappings.Count);
         Assert.Contains(sqlServer.Mappings, m => m.Source == "Id" && m.Destination == "Id");

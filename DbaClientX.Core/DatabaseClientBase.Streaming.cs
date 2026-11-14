@@ -65,13 +65,13 @@ public abstract partial class DatabaseClientBase
         AddParameters(command, dbParameters);
         ApplyCommandTimeout(command);
 
-        await using var reader = await ExecuteCommandWithRetryAsync(
+        await using var reader = AdaptReader(await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken),
                 cancellationToken),
             connection,
             transaction,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false));
 
         var fieldCount = reader.FieldCount;
         var columnNames = new string[fieldCount];
@@ -174,13 +174,13 @@ public abstract partial class DatabaseClientBase
         AddParameters(command, dbParameters);
         ApplyCommandTimeout(command);
 
-        await using var reader = await ExecuteCommandWithRetryAsync(
+        await using var reader = AdaptReader(await ExecuteCommandWithRetryAsync(
             () => AwaitWithCallerCancellationAsync(
                 () => command.ExecuteReaderAsync(CommandBehavior.Default, cancellationToken),
                 cancellationToken),
             connection,
             transaction,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false));
         initialize?.Invoke(reader);
         while (await AwaitWithCallerCancellationAsync(
             () => reader.ReadAsync(cancellationToken),

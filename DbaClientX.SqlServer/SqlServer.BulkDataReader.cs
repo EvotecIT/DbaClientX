@@ -86,7 +86,7 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SqlServerBulkCopyLimitationException)
         {
             throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
@@ -205,7 +205,7 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is not SqlServerBulkCopyLimitationException)
         {
             DbaClientXDiagnostics.RecordException(operation.Activity, ex);
             throw CreateQueryExecutionOrCancellationException(
@@ -258,7 +258,7 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is not SqlServerBulkCopyLimitationException)
         {
             throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
         }

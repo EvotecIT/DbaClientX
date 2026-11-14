@@ -107,6 +107,7 @@ public sealed partial class SqlServerTableCopyAdapter : IDbaTableCopySchemaPrefl
             AutoCreateTable = options.AutoCreateTable,
             NotifyAfter = options.NotifyAfter,
             RowsCopied = options.RowsCopied,
+            UseColumnDefaultsForNulls = options.UseColumnDefaultsForNulls,
             ColumnMappings = mappings.Where(mapping => present.Contains(mapping.Key)).ToDictionary(static mapping => mapping.Key, static mapping => mapping.Value, StringComparer.Ordinal)
         };
     }

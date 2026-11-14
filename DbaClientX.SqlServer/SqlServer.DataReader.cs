@@ -60,7 +60,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = ResolveConnection(connectionString, useTransaction);
             command = CreateQueryReaderCommand(connection, transaction, query, parameters, parameterTypes, parameterDirections);
-            var reader = ExecuteReader(command, CancellationToken.None);
+            var reader = AdaptReader(ExecuteReader(command, CancellationToken.None));
             return new DbaDataReader(
                 reader,
                 command,
@@ -137,7 +137,7 @@ public partial class SqlServer
         {
             (connection, transaction, dispose) = await ResolveConnectionAsync(connectionString, useTransaction, cancellationToken).ConfigureAwait(false);
             command = CreateQueryReaderCommand(connection, transaction, query, parameters, parameterTypes, parameterDirections);
-            var reader = await ExecuteReaderAsync(command, cancellationToken).ConfigureAwait(false);
+            var reader = AdaptReader(await ExecuteReaderAsync(command, cancellationToken).ConfigureAwait(false));
             return new DbaDataReader(
                 reader,
                 command,

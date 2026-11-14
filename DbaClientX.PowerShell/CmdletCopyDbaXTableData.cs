@@ -21,8 +21,8 @@ namespace DBAClientX.PowerShell;
 /// <example>
 /// <summary>Copy a SQL Server table into a new table on another server.</summary>
 /// <prefix>PS&gt; </prefix>
-/// <code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls</code>
-/// <para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.</para>
+/// <code>Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity</code>
+/// <para>Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values; NULLs stay NULL.</para>
 /// </example>
 /// <example>
 /// <summary>Copy several planned tables.</summary>
@@ -219,9 +219,19 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
     [Parameter]
     public SwitchParameter KeepIdentity { get; set; }
 
-    /// <summary>SQL Server destination option to preserve null values from the source data.</summary>
+    /// <summary>
+    /// Kept for scripts written against earlier versions and dbatools: SQL Server writes keep NULL values by default.
+    /// Cannot be combined with UseColumnDefaultsForNulls.
+    /// </summary>
     [Parameter]
     public SwitchParameter KeepNulls { get; set; }
+
+    /// <summary>
+    /// SQL Server destination option to let SQL Server replace NULL source values with the destination column defaults,
+    /// which is what SqlBulkCopy does without KeepNulls. By default NULL values are kept.
+    /// </summary>
+    [Parameter]
+    public SwitchParameter UseColumnDefaultsForNulls { get; set; }
 
     /// <summary>
     /// SQL Server destination option to create a missing destination table. A SQL Server source table or view is
@@ -504,9 +514,14 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
             throw new PSArgumentException("SQLite bulk inserts do not support BulkCopyTimeout.", nameof(BulkCopyTimeout));
         }
 
+        if (KeepNulls.IsPresent && UseColumnDefaultsForNulls.IsPresent)
+        {
+            throw new PSArgumentException("KeepNulls cannot be combined with UseColumnDefaultsForNulls.", nameof(UseColumnDefaultsForNulls));
+        }
+
         if (DestinationProvider != DbaXBulkProvider.SqlServer && HasSqlServerOnlyOptions())
         {
-            throw new PSArgumentException("AutoCreateTable, TableLock, CheckConstraints, FireTriggers, KeepIdentity, and KeepNulls are only supported for SqlServer destinations.");
+            throw new PSArgumentException("AutoCreateTable, TableLock, CheckConstraints, FireTriggers, KeepIdentity, KeepNulls, and UseColumnDefaultsForNulls are only supported for SqlServer destinations.");
         }
 
         if (SourceFabricWarehouse.IsPresent && SourceProvider != DbaXBulkProvider.SqlServer)
@@ -551,7 +566,8 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
            CheckConstraints.IsPresent ||
            FireTriggers.IsPresent ||
            KeepIdentity.IsPresent ||
-           KeepNulls.IsPresent;
+           KeepNulls.IsPresent ||
+           UseColumnDefaultsForNulls.IsPresent;
 
     private bool HasSingleTableShapingOptions()
         => UseKeysetPagination.IsPresent ||
@@ -695,7 +711,8 @@ public sealed class CmdletCopyDbaXTableData : AsyncPSCmdlet
             FireTriggers.IsPresent,
             KeepIdentity.IsPresent,
             KeepNulls.IsPresent,
-            autoCreateTable: _autoCreateFromValues);
+            autoCreateTable: _autoCreateFromValues,
+            useColumnDefaultsForNulls: UseColumnDefaultsForNulls.IsPresent);
     }
 
     private bool _autoCreateFromValues;

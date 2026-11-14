@@ -81,7 +81,7 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not SqlServerBulkCopyLimitationException)
         {
             throw CreateQueryExecutionException("Failed to execute bulk insert.", destinationTable, ex);
         }
@@ -182,7 +182,7 @@ public partial class SqlServer
         {
             throw;
         }
-        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken) && ex is not SqlServerBulkCopyLimitationException)
         {
             throw CreateQueryExecutionOrCancellationException("Failed to execute bulk insert.", destinationTable, ex, cancellationToken);
         }
@@ -224,10 +224,27 @@ public partial class SqlServer
 
     private SqlBulkCopy CreateBulkCopy(SqlConnection connection, SqlTransaction? transaction, SqlServerBulkInsertOptions? options)
     {
-        var bulkCopyOptions = options?.BulkCopyOptions ?? SqlBulkCopyOptions.Default;
+        var bulkCopyOptions = GetEffectiveBulkCopyOptions(options);
         return bulkCopyOptions == SqlBulkCopyOptions.Default
             ? CreateBulkCopy(connection, transaction)
             : CreateBulkCopy(connection, transaction, bulkCopyOptions);
+    }
+
+    // SqlBulkCopy replaces a NULL with the column default unless KeepNulls is set. A NULL must never silently become
+    // a default, so KeepNulls is added unless the caller opts into defaults. Fabric Warehouse ignores the flag.
+    private SqlBulkCopyOptions GetEffectiveBulkCopyOptions(SqlServerBulkInsertOptions? options)
+    {
+        var bulkCopyOptions = options?.BulkCopyOptions ?? SqlBulkCopyOptions.Default;
+        if (options?.UseColumnDefaultsForNulls == true)
+        {
+            if ((bulkCopyOptions & SqlBulkCopyOptions.KeepNulls) != 0)
+                throw new ArgumentException("UseColumnDefaultsForNulls cannot be combined with SqlBulkCopyOptions.KeepNulls.", nameof(options));
+            return bulkCopyOptions;
+        }
+
+        return ConnectionOptions?.CompatibilityProfile == SqlServerCompatibilityProfile.FabricWarehouse
+            ? bulkCopyOptions
+            : bulkCopyOptions | SqlBulkCopyOptions.KeepNulls;
     }
 
     /// <summary>
@@ -300,8 +317,10 @@ public partial class SqlServer
 
     private const int CancellationNotifyRows = 5000;
 
+    // Owned readers may present wide decimals and CLR types through SqlServerValueReader; SqlBulkCopy reads the
+    // SqlDataReader underneath natively, which copies both unchanged.
     private static IDataReader GetNativeBulkReader(IDataReader reader)
-        => reader is DbaDataReader owned && owned.ProviderReader is SqlDataReader native ? native : reader;
+        => reader is DbaDataReader owned && owned.ProviderReader is System.Data.Common.DbDataReader provider && UnwrapValueReader(provider) is SqlDataReader native ? native : reader;
 
     private static void ConfigureBulkCopy(SqlBulkCopy bulkCopy, DataTable table, string destinationTable, int? batchSize, int? bulkCopyTimeout, SqlServerBulkInsertOptions? options)
     {

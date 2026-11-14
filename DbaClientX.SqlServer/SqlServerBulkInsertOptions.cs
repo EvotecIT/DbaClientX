@@ -29,6 +29,16 @@ public sealed class SqlServerBulkInsertOptions
     public bool AutoCreateTable { get; set; }
 
     /// <summary>
+    /// Lets SQL Server replace NULL source values with the destination column defaults, as SqlBulkCopy does without
+    /// <see cref="SqlBulkCopyOptions.KeepNulls"/>.
+    /// </summary>
+    /// <remarks>
+    /// Bulk inserts keep NULL values by default (<see cref="SqlBulkCopyOptions.KeepNulls"/> is always added), so a NULL
+    /// in the source never silently becomes a column default. Set this only when defaults should fill NULLs.
+    /// </remarks>
+    public bool UseColumnDefaultsForNulls { get; set; }
+
+    /// <summary>
     /// Number of rows copied between progress notifications.
     /// </summary>
     public int? NotifyAfter { get; set; }

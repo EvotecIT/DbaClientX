@@ -80,17 +80,7 @@ public sealed partial class SqlServerTableCopyAdapter
         using SqlDataReader reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, cancellationToken).ConfigureAwait(false);
         try
         {
-            bool[]? udt = SqlServer.GetUdtColumns(reader);
-            return udt == null
-                ? await DbaTableCopyPageReader.ReadAsync(reader, maxBytes, cancellationToken).ConfigureAwait(false)
-                : await DbaTableCopyPageReader.ReadAsync(
-                        reader,
-                        maxBytes,
-                        fieldPayloadBytes: null,
-                        readFieldValue: column => udt[column] ? SqlServer.ReadUdtBytes(reader, column) : reader.GetValue(column),
-                        normalizedFieldType: column => udt[column] ? typeof(byte[]) : reader.GetFieldType(column),
-                        cancellationToken)
-                    .ConfigureAwait(false);
+            return await DbaTableCopyPageReader.ReadAsync(SqlServer.AdaptValues(reader), maxBytes, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -136,7 +126,8 @@ public sealed partial class SqlServerTableCopyAdapter
             AutoCreateTable = !externalTransaction && (_bulkInsertOptions?.AutoCreateTable ?? false),
             ColumnMappings = _bulkInsertOptions?.ColumnMappings,
             NotifyAfter = _bulkInsertOptions?.NotifyAfter,
-            RowsCopied = _bulkInsertOptions?.RowsCopied
+            RowsCopied = _bulkInsertOptions?.RowsCopied,
+            UseColumnDefaultsForNulls = _bulkInsertOptions?.UseColumnDefaultsForNulls ?? false
         };
     }
 }

@@ -117,7 +117,8 @@ public partial class SqlServer
             AutoCreateTable = options?.AutoCreateTable ?? false,
             ColumnMappings = options?.ColumnMappings == null ? null : new Dictionary<string, string>(options.ColumnMappings, GetComparer(options.ColumnMappings)),
             NotifyAfter = options?.NotifyAfter,
-            RowsCopied = options?.RowsCopied
+            RowsCopied = options?.RowsCopied,
+            UseColumnDefaultsForNulls = options?.UseColumnDefaultsForNulls ?? false
         };
     }
 
