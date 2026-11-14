@@ -43,9 +43,18 @@ public sealed class SqlServerBulkAutoSizeTests
             Assert.Equal(new[] { "512", "max" }, await GetTextLengthsAsync(sql, connectionString!, destination));
             Assert.Equal("Polish_CS_AS", await sql.ExecuteScalarAsync(connectionString!,
                 $"SELECT collation_name FROM sys.columns WHERE object_id = OBJECT_ID(N'{destination}') AND name = N'Name'"));
+
+            // A source that declares a longer length widens the column to it, even though the table already exists.
+            using (DataTable declared = CreateRows((new string('d', 900), null)))
+            {
+                declared.Columns["Name"]!.MaxLength = 1000;
+                await sql.BulkInsertAsync(connectionString!, declared, destination, options);
+            }
+
+            Assert.Equal(new[] { "1000", "max" }, await GetTextLengthsAsync(sql, connectionString!, destination));
             object? stored = await sql.ExecuteScalarAsync(connectionString!,
-                $"SELECT COUNT(*) FROM {destination} WHERE (Name = N'Zażółć' AND Notes IS NULL) OR (Name IS NULL AND Notes = N'short') OR (Name = N'abc' AND Notes IS NULL) OR (Name = REPLICATE(N'm', 300) AND Notes = REPLICATE(CAST(N'l' AS nvarchar(max)), 5000))");
-            Assert.Equal(4, Convert.ToInt32(stored));
+                $"SELECT COUNT(*) FROM {destination} WHERE (Name = N'Zażółć' AND Notes IS NULL) OR (Name IS NULL AND Notes = N'short') OR (Name = N'abc' AND Notes IS NULL) OR (Name = REPLICATE(N'm', 300) AND Notes = REPLICATE(CAST(N'l' AS nvarchar(max)), 5000)) OR (Name = REPLICATE(N'd', 900) AND Notes IS NULL)");
+            Assert.Equal(5, Convert.ToInt32(stored));
         }
         finally
         {

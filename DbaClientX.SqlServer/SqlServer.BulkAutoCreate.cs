@@ -233,6 +233,7 @@ public partial class SqlServer
             else
             {
                 columnType = GetSqlServerColumnType(column);
+                AddDeclaredTextLength(autoSized, destinationColumnName, column.DataType, column.MaxLength);
             }
 
             builder.Append("        ")
@@ -280,6 +281,7 @@ public partial class SqlServer
             else
             {
                 columnType = GetSqlServerReaderColumnType(column);
+                AddDeclaredTextLength(autoSized, column.DestinationName, column.DataType, column.MaxLength);
             }
 
             builder.Append("        ")

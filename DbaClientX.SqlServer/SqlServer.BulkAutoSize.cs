@@ -43,6 +43,14 @@ public partial class SqlServer
         return longest;
     }
 
+    // A string column with a declared length also widens a marked table's column to that length, so a later source
+    // that declares longer text than the values that created the table still fits.
+    private static void AddDeclaredTextLength(List<KeyValuePair<string, int?>> columns, string name, Type dataType, int? maxLength)
+    {
+        if ((Nullable.GetUnderlyingType(dataType) ?? dataType) != typeof(string) || maxLength is not > 0) return;
+        columns.Add(new KeyValuePair<string, int?>(name, maxLength <= AutoSizedTextMaximumLength ? maxLength : null));
+    }
+
     private static string GetAutoSizedTextType(int? length)
         => length.HasValue ? "nvarchar(" + length.Value.ToString(CultureInfo.InvariantCulture) + ")" : "nvarchar(max)";
 
