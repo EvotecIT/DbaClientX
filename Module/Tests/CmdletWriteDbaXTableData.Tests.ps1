@@ -939,6 +939,25 @@ describe 'Write-DbaXTableData cmdlet' {
         } | Should -Throw
     }
 
+    it 'clears the destination once before the first written row' {
+        $path = Join-Path ([System.IO.Path]::GetTempPath()) ("dbax-clear-{0}.db" -f [guid]::NewGuid().ToString('N'))
+        $connectionString = "Data Source=$path"
+        try {
+            Invoke-DbaXSQLite -Database $path -Query 'CREATE TABLE Import (Id INTEGER NOT NULL, Name TEXT NULL); INSERT INTO Import VALUES (99, ''old'');' -ErrorAction Stop | Out-Null
+
+            1..3 | ForEach-Object { [pscustomobject]@{ Id = $_; Name = "Row $_" } } |
+                Write-DbaXTableData -Provider SQLite -ConnectionString $connectionString -DestinationTable Import -InputBatchSize 2 -ClearDestination -ErrorAction Stop
+            [pscustomobject]@{ Id = 4; Name = 'Row 4' } |
+                Write-DbaXTableData -Provider SQLite -ConnectionString $connectionString -DestinationTable Import -ErrorAction Stop
+
+            $ids = @(Invoke-DbaXSQLite -Database $path -Query 'SELECT Id FROM Import ORDER BY Id' -ErrorAction Stop | ForEach-Object Id)
+            $ids | Should -Be @(1, 2, 3, 4)
+        } finally {
+            try { [Microsoft.Data.Sqlite.SqliteConnection]::ClearAllPools() } catch { }
+            Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        }
+    }
+
     it 'rejects SQL Server bulk options for other providers' {
         {
             [pscustomobject]@{ Id = 1 } |

@@ -11,7 +11,7 @@ Copies table data from one DbaClientX provider connection to another using paged
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-VerifyContent] [-CheckpointId <string>] [-Resume] [-RequireEmptyDestination] [-MaxPageBytes <Int64>] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Copy-DbaXTableData -SourceProvider <DbaXBulkProvider> -SourceConnectionString <string> -DestinationProvider <DbaXBulkProvider> -DestinationConnectionString <string> [-SourceTable <string>] [-DestinationTable <string>] [-Definition <DbaTableCopyDefinition[]>] [-OrderBy <string[]>] [-UseKeysetPagination] [-DestinationOrderByColumns <string[]>] [-AllowUnordered] [-PageSize <int>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-ExcludeColumn <string[]>] [-BooleanColumn <string[]>] [-Int32Column <string[]>] [-Int64Column <string[]>] [-DecimalColumn <string[]>] [-StringColumn <string[]>] [-DateTimeColumn <string[]>] [-DeduplicateSourceBy <string[]>] [-DeduplicateSourceOrderBy <string[]>] [-DeduplicateSourceCaseInsensitive] [-TreatMissingTablesAsEmpty] [-AllowSameTableCopy] [-SourceFabricWarehouse] [-DestinationFabricWarehouse] [-ClearDestination] [-NoVerify] [-VerifyContent] [-CheckpointId <string>] [-Resume] [-RequireEmptyDestination] [-MaxPageBytes <Int64>] [-OperationId <string>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -34,6 +34,13 @@ PS> Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source
 Copies all rows from SQL Server into PostgreSQL using provider-native read and write paths.
 
 ### EXAMPLE 3
+```powershell
+PS> Copy-DbaXTableData -SourceProvider SqlServer -SourceConnectionString $source -SourceTable dbo.Orders -DestinationProvider SqlServer -DestinationConnectionString $dest -DestinationTable archive.Orders -OrderBy OrderId -AutoCreateTable -KeepIdentity -KeepNulls
+```
+
+Creates archive.Orders with the source column definitions when it does not exist, then copies every row with its identity values and NULLs.
+
+### EXAMPLE 4
 ```powershell
 PS> $definitions | Copy-DbaXTableData -SourceProvider SQLite -SourceConnectionString $source -DestinationProvider SqlServer -DestinationConnectionString $dest -BatchSize 5000 -PassThru
 ```
@@ -60,6 +67,25 @@ Accept wildcard characters: False
 
 ### -AllowUnordered
 Allows paged copies without an explicit order. Use only for ad hoc copies where provider natural order is acceptable.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -AutoCreateTable
+SQL Server destination option to create a missing destination table. A SQL Server source table or view is
+described exactly: types with their lengths, precision and scale, collations, nullability, sparse storage,
+identity seed and increment, and computed column definitions. Other sources, and copies that convert column
+types, create the table from the copied values.
 
 ```yaml
 Type: SwitchParameter
@@ -107,7 +133,7 @@ Accept wildcard characters: False
 ```
 
 ### -BulkCopyTimeout
-Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite destinations do not support this option.
+Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. Ctrl+C stops it between writes and stops a running SQL Server write at its next rows-copied notification; a write blocked on a lock, or an Oracle bulk write that has started, runs until it can finish. SQLite destinations do not support this option.
 
 ```yaml
 Type: Int32

@@ -11,7 +11,7 @@ Writes tabular pipeline input to a database table using provider-native bulk ins
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-InputBatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
+Write-DbaXTableData -Provider <DbaXBulkProvider> -ConnectionString <string> -DestinationTable <string> -InputObject <Object> [-BatchSize <Int32>] [-InputBatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-ColumnMap <hashtable>] [-TableLock] [-CheckConstraints] [-FireTriggers] [-KeepIdentity] [-KeepNulls] [-AutoCreateTable] [-ClearDestination] [-NotifyAfter <Int32>] [-PassThru] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -21,7 +21,7 @@ Accepts a DataTable, DataView, IDataReader, DataRow pipeline, or regular PowerSh
 
 ### EXAMPLE 1
 ```powershell
-PS> Import-OfficeExcel .\Data.xlsx -AsDataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import
+PS> Import-OfficeExcel .\Data.xlsx -As DataTable | Write-DbaXTableData -Provider SqlServer -ConnectionString 'Server=.;Database=App;Encrypt=True;TrustServerCertificate=True;Integrated Security=True' -DestinationTable dbo.Import
 ```
 
 Loads the workbook rows as a DataTable and sends them through the SQL Server bulk-copy provider.
@@ -75,7 +75,7 @@ Accept wildcard characters: False
 ```
 
 ### -BulkCopyTimeout
-Optional provider bulk-copy timeout in seconds. Specify 0 for no timeout. SQLite does not support this option.
+Optional provider bulk-copy timeout in seconds. When omitted, or 0, the copy runs until it completes. SQLite does not support this option.
 
 ```yaml
 Type: Int32
@@ -92,6 +92,23 @@ Accept wildcard characters: False
 
 ### -CheckConstraints
 SQL Server-only option to check destination constraints during the copy.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: __AllParameterSets
+Aliases: None
+Possible values:
+
+Required: False
+Position: named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ClearDestination
+Deletes every row of the destination table before the first row is written, as Copy-DbaXTableData
+-ClearDestination does. A destination that AutoCreateTable will create may be missing.
 
 ```yaml
 Type: SwitchParameter

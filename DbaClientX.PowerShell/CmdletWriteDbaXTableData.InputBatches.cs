@@ -88,6 +88,7 @@ public sealed partial class CmdletWriteDbaXTableData
             }
             else
             {
+                ClearDestinationOnce();
                 InvokeProviderBulkInsert(bulkTable);
             }
             _inputRowsWritten += table.Rows.Count;
