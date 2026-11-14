@@ -298,7 +298,8 @@ public partial class SqlServer
     }
 
     // SqlBulkCopy stops a copy after 30 seconds by default, which fails legitimate large loads. Without an explicit
-    // timeout the copy runs until it completes; caller cancellation still stops it.
+    // timeout the copy runs until it completes. Cancellation stops a reader copy at the next rows-copied notification;
+    // a copy blocked on a lock waits for it, as SqlClient's own cancellation does, unless a timeout is given.
     private const int DefaultBulkCopyTimeout = 0;
 
     private static Dictionary<string, object?> AutoSizeParameters(string destinationTable)

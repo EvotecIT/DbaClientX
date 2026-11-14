@@ -169,10 +169,8 @@ public partial class PostgreSql
     {
         var copyCommand = BuildCopyCommand(columns, destinationTable);
         using var importer = connection.BeginBinaryImport(copyCommand);
-        if (bulkCopyTimeout.HasValue)
-        {
-            importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout.Value);
-        }
+        // Npgsql otherwise applies the connection's 30-second command timeout to each import operation.
+        importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout ?? 0);
 
         foreach (var row in rows)
         {
@@ -201,10 +199,8 @@ public partial class PostgreSql
     {
         var copyCommand = BuildCopyCommand(columns, destinationTable);
         await using var importer = await connection.BeginBinaryImportAsync(copyCommand, cancellationToken).ConfigureAwait(false);
-        if (bulkCopyTimeout.HasValue)
-        {
-            importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout.Value);
-        }
+        // Npgsql otherwise applies the connection's 30-second command timeout to each import operation.
+        importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout ?? 0);
 
         foreach (var row in rows)
         {

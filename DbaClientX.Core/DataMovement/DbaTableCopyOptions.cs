@@ -16,7 +16,7 @@ public sealed class DbaTableCopyOptions
     /// <summary>Optional destination bulk-write batch size.</summary>
     public int? BatchSize { get; init; }
 
-    /// <summary>Optional destination bulk-write timeout in seconds. When omitted, or 0, each bulk write runs until it completes; cancellation still stops it.</summary>
+    /// <summary>Optional destination bulk-write timeout in seconds. When omitted, or 0, each bulk write runs until it completes. Cancellation is observed between writes and stops a running SQL Server write at its next rows-copied notification; a write blocked on a lock, or an Oracle bulk write that has started, runs until it can finish.</summary>
     public int? BulkCopyTimeout { get; init; }
 
     /// <summary>When true, clears all destination tables in reverse definition order before copying rows.</summary>
