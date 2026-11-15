@@ -140,7 +140,8 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             return null;
         }
 
-        // LoadFrom shares the copy the binder loads for exact references from this folder; LoadFile would load a second one.
+        // LoadFrom returns the copy already loaded for this exact identity, whether from this folder or by another module
+        // (the same strong-named version), and otherwise loads this folder's file. LoadFile would load a second copy.
         return Assembly.LoadFrom(file);
     }
 
