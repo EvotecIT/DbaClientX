@@ -199,18 +199,31 @@ public partial class PostgreSql
     protected virtual async Task WriteRowsAsync(NpgsqlConnection connection, IEnumerable<DataRow> rows, DataColumnCollection columns, string destinationTable, int? bulkCopyTimeout, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
     {
         var copyCommand = BuildCopyCommand(columns, destinationTable);
-        await using var importer = await connection.BeginBinaryImportAsync(copyCommand, cancellationToken).ConfigureAwait(false);
-        // Npgsql otherwise applies the connection's command timeout to each import operation. Starting the COPY
-        // above already used it: Npgsql only takes that timeout from the connection string.
-        importer.Timeout = TimeSpan.FromSeconds(bulkCopyTimeout ?? 0);
-
-        foreach (var row in rows)
+        // No field of this method's state machine names NpgsqlBinaryImporter (not even as Task<T> or its awaiter): loading
+        // this assembly would then load that type, which fails in Windows PowerShell when dbatools was imported first
+        // (its DisposeAsync binds to dbatools' ValueTask) and failed the whole module import.
+        Task begin = connection.BeginBinaryImportAsync(copyCommand, cancellationToken);
+        await begin.ConfigureAwait(false);
+        IAsyncDisposable import = StartedImport(begin);
+        await using (import.ConfigureAwait(false))
         {
-            await importer.WriteRowAsync(cancellationToken, GetRowValues(row, columns)).ConfigureAwait(false);
-        }
+            // Npgsql otherwise applies the connection's command timeout to each import operation. Starting the COPY
+            // above already used it: Npgsql only takes that timeout from the connection string.
+            Importer(import).Timeout = TimeSpan.FromSeconds(bulkCopyTimeout ?? 0);
 
-        await importer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var row in rows)
+            {
+                await Importer(import).WriteRowAsync(cancellationToken, GetRowValues(row, columns)).ConfigureAwait(false);
+            }
+
+            await Importer(import).CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
+
+    private static NpgsqlBinaryImporter Importer(IAsyncDisposable import) => (NpgsqlBinaryImporter)import;
+
+    // Called after the task completed, so Result does not block and failures were already thrown by the await.
+    private static IAsyncDisposable StartedImport(Task begin) => ((Task<NpgsqlBinaryImporter>)begin).Result;
 
     /// <summary>
     /// Builds the PostgreSQL <c>COPY</c> command for the supplied destination table and columns.

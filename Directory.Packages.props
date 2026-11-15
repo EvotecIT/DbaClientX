@@ -7,10 +7,14 @@
     <PackageVersion Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
-    <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="10.0.15" />
     <PackageVersion Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.0.2" />
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.303" />
@@ -19,14 +23,13 @@
     <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.300" />
     <PackageVersion Include="OfficeIMO.CSV" Version="3.0.3" />
     <PackageVersion Include="PowerShellStandard.Library" Version="5.1.1" />
-    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
-    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.13" />
-    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
-    <PackageVersion Include="SQLitePCLRaw.core" Version="3.0.5" />
-    <PackageVersion Include="System.Formats.Asn1" Version="10.0.13" />
-    <PackageVersion Include="System.Diagnostics.DiagnosticSource" Version="10.0.10" />
-    <PackageVersion Include="System.Text.Json" Version="10.0.10" />
-    <PackageVersion Include="System.Text.Encoding.CodePages" Version="10.0.10" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.15" />
+    <PackageVersion Include="System.Formats.Asn1" Version="10.0.15" />
+    <PackageVersion Include="System.Diagnostics.DiagnosticSource" Version="10.0.15" />
+    <PackageVersion Include="System.Text.Json" Version="10.0.15" />
+    <PackageVersion Include="System.Threading.Channels" Version="10.0.15" />
+    <PackageVersion Include="System.Text.Encoding.CodePages" Version="10.0.15" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
@@ -38,5 +41,11 @@
     <PackageVersion Include="Microsoft.PowerShell.SDK" Version="7.6.3" Condition="'$(TargetFramework)' == 'net10.0'" />
     <PackageVersion Include="Npgsql" Version="8.0.9" Condition="'$(TargetFramework)' == 'net472'" />
     <PackageVersion Include="Npgsql" Version="10.0.3" Condition="'$(TargetFramework)' != 'net472'" />
+    <!-- Microsoft.Data.Sqlite 10 for .NET Framework is built against SQLitePCLRaw 2.1 and System.Memory 4.0.1.1. Keep the whole
+         SQLite stack on that line there, so it binds one System.Memory copy even when Windows PowerShell already holds another. -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.14" Condition="'$(TargetFramework)' == 'net472'" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" Condition="'$(TargetFramework)' != 'net472'" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="2.1.14" Condition="'$(TargetFramework)' == 'net472'" />
+    <PackageVersion Include="SQLitePCLRaw.core" Version="3.0.5" Condition="'$(TargetFramework)' != 'net472'" />
   </ItemGroup>
 </Project>
