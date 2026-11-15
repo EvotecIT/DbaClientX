@@ -56,6 +56,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     // It now ignores requests from other modules' assemblies, answers requests without a known requester only for
     // identities DbaClientX's loaded assemblies reference or with a same major and minor version, never hands out an
     // older version than requested, and returns null instead of throwing, which would fail the load for everyone.
+    // It subscribes ahead of handlers registered earlier, so another module's name-only handler cannot answer first.
     private static Assembly? MyResolveEventHandler(object? sender, ResolveEventArgs args) {
         try {
             return Resolve(args);
@@ -101,10 +102,12 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             return null;
         }
 
+        // Only this module's own copies: dbatools loads System.Memory 4.0.1.2, which satisfies a request for 4.0.1.1 but
+        // carries a different ReadOnlySpan than the copy the rest of this module bound to.
         foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
             var name = loaded.GetName();
-            if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && Satisfies(name, requested) &&
-                (!strict || SameMinor(name.Version, requested.Version))) {
+            if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!) &&
+                Satisfies(name, requested) && (!strict || SameMinor(name.Version, requested.Version))) {
                 return loaded;
             }
         }
@@ -130,7 +133,8 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             return null;
         }
 
-        return Assembly.LoadFile(file);
+        // LoadFrom shares the copy the binder loads for exact references from this folder; LoadFile would load a second one.
+        return Assembly.LoadFrom(file);
     }
 
     // Requests from another module's assemblies are left to that module, which ships the versions it was built with.
@@ -255,10 +259,36 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     private static void RegisterFrameworkAssemblyResolver() {
 #if !NET5_0_OR_GREATER
         if (Interlocked.CompareExchange(ref _appDomainAssemblyResolveRegistered, 1, 0) == 0) {
-            AppDomain.CurrentDomain.AssemblyResolve += MyResolveEventHandler;
+            SubscribeFirst(MyResolveEventHandler);
         }
 #endif
     }
+
+#if !NET5_0_OR_GREATER
+    // The CLR asks AssemblyResolve handlers in subscription order and takes the first answer. A module imported
+    // earlier may answer every request by simple name with its own older copy (dbatools.library hands out
+    // Microsoft.Bcl.AsyncInterfaces 8.0 to assemblies built for 10.0), so this handler goes first. It still answers
+    // only this module's own requests, so every other request reaches the later handlers unchanged.
+    private static void SubscribeFirst(ResolveEventHandler handler) {
+        var domain = AppDomain.CurrentDomain;
+        try {
+            // .NET Framework keeps the subscribers in this field, and its add and remove accessors lock the AppDomain.
+            var field = typeof(AppDomain).GetField("_AssemblyResolve", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field != null && field.FieldType == typeof(ResolveEventHandler)) {
+                lock (domain) {
+                    var existing = (ResolveEventHandler?)field.GetValue(domain);
+                    field.SetValue(domain, (ResolveEventHandler)Delegate.Combine(handler, existing));
+                }
+
+                return;
+            }
+        } catch (Exception ex) when (ex is FieldAccessException or MemberAccessException or System.Security.SecurityException or ArgumentException) {
+            // A different runtime or restricted reflection still gets the scoped handler, only later in the queue.
+        }
+
+        domain.AssemblyResolve += handler;
+    }
+#endif
 
     private static void UnregisterFrameworkAssemblyResolver() {
 #if !NET5_0_OR_GREATER
