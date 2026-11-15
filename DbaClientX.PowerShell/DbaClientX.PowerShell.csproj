@@ -21,8 +21,17 @@
                 <PackageReference Include="Microsoft.Data.SqlClient" />
         </ItemGroup>
         <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+                <!-- Windows PowerShell shares one AppDomain with every module. Keep the async family on the System.Text.Json
+                     line so these assemblies reference the exact Microsoft.Bcl.AsyncInterfaces and ValueTask copies shipped here,
+                     not the older identities other modules ship (dbatools: AsyncInterfaces 8.0, Tasks.Extensions 4.2.0.1). -->
+                <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" />
+                <PackageReference Include="Microsoft.Bcl.TimeProvider" />
+                <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+                <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+                <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
                 <PackageReference Include="System.Formats.Asn1" />
                 <PackageReference Include="System.Text.Json" />
+                <PackageReference Include="System.Threading.Channels" />
                 <Reference Include="System.Net.Http" />
         </ItemGroup>
         <PropertyGroup Condition="'$(TargetFramework)' == 'net472'">
