@@ -54,9 +54,9 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
     // module's own copy, whatever its version and whoever asked, so dbatools' Azure.Identity received DbaClientX's
     // Azure.Core and PSPublishModule received DbaClientX's System.Collections.Immutable, and both failed to load.
     // It now ignores requests from other modules' assemblies, answers requests without a known requester only for
-    // identities DbaClientX's loaded assemblies reference or with a same major and minor version, never hands out an
-    // older version than requested, and returns null instead of throwing, which would fail the load for everyone.
-    // It subscribes ahead of handlers registered earlier, so another module's name-only handler cannot answer first.
+    // identities DbaClientX's loaded assemblies reference, hands out only its own copies and never an older version
+    // than requested, and returns null instead of throwing, which would fail the load for everyone. It subscribes
+    // ahead of handlers registered earlier, so another module's name-only handler cannot answer its requests first.
     private static Assembly? MyResolveEventHandler(object? sender, ResolveEventArgs args) {
         try {
             return Resolve(args);
@@ -84,17 +84,28 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         }
 
         // .NET Framework usually reports no requester, and PowerShell asks on behalf of whichever module it is
-        // importing, so such a request may belong to another module. It is answered fully only when an assembly
-        // loaded from this module references exactly the requested identity (Microsoft.Data.Sqlite asks for
-        // SQLitePCLRaw.core 2.1, which this module ships as 3.0). Otherwise only a same major and minor version is
-        // offered (Azure.Identity built for Azure.Core 1.38 fails against 1.44), and a request without a version
-        // only gets a copy this module already loaded.
-        var strict = unknownRequester && !IsOwnAssembly(requested.Name) && !IsReferencedByModule(requested, directoryPath!);
-        if (strict && requested.Version == null) {
+        // importing, so such a request may belong to another module. This handler runs before theirs, so it answers
+        // with its own copies only when an assembly loaded from this module references exactly the requested identity
+        // (Microsoft.Data.Sqlite asks for SQLitePCLRaw.core 2.1.11, which this module ships as 2.1.14). Another
+        // module's request never gets this module's copies (PSPublishModule asks for System.Text.Json 10.0.0.10 and
+        // ships its own); a request without a version only gets a copy this module already loaded.
+        var foreign = unknownRequester && !IsOwnAssembly(requested.Name) && !IsReferencedByModule(requested, directoryPath!);
+        if (foreign) {
             foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
                 var name = loaded.GetName();
-                if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!) &&
-                    TokensMatch(name.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+                if (!string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) ||
+                    !TokensMatch(name.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
+                    continue;
+                }
+
+                if (requested.Version == null) {
+                    if (IsFromDirectory(loaded, directoryPath!)) {
+                        return loaded;
+                    }
+                } else if (!IsFromDirectory(loaded, directoryPath!) && name.Version != null && Satisfies(name, requested) && name.Version.Minor == requested.Version.Minor) {
+                    // Answer with the copy another module already loaded for this release line. Left unanswered, dbatools'
+                    // name-only handler hands out the first copy of that name, which can be this module's older one
+                    // (PSPublishModule 3.0.189 received System.Collections.Immutable 10.0.0.3 for 10.0.0.10 and failed).
                     return loaded;
                 }
             }
@@ -107,7 +118,7 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
         foreach (var loaded in AppDomain.CurrentDomain.GetAssemblies()) {
             var name = loaded.GetName();
             if (string.Equals(name.Name, requested.Name, StringComparison.OrdinalIgnoreCase) && IsFromDirectory(loaded, directoryPath!) &&
-                Satisfies(name, requested) && (!strict || SameMinor(name.Version, requested.Version))) {
+                Satisfies(name, requested)) {
                 return loaded;
             }
         }
@@ -126,10 +137,6 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
 
         if ((requested.Version != null && candidate.Version < requested.Version) ||
             !TokensMatch(candidate.GetPublicKeyToken(), requested.GetPublicKeyToken())) {
-            return null;
-        }
-
-        if (strict && !SameMinor(candidate.Version, requested.Version)) {
             return null;
         }
 
@@ -181,9 +188,6 @@ public class OnModuleImportAndRemove : IModuleAssemblyInitializer, IModuleAssemb
             return false;
         }
     }
-
-    private static bool SameMinor(Version? left, Version? right)
-        => left != null && right != null && left.Major == right.Major && left.Minor == right.Minor;
 
     private static bool IsOwnAssembly(string name)
         => name.StartsWith("DbaClientX.", StringComparison.OrdinalIgnoreCase);
