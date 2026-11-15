@@ -120,6 +120,15 @@ Build-Module -ModuleName 'DbaClientX' -NoInteractive {
             'Microsoft.Data.SqlClient.SNI.dll'
             'Microsoft.Data.SqlClient.SNI.x64.dll'
             'Microsoft.Data.SqlClient.SNI.x86.dll'
+            # Windows PowerShell: load the Azure SDK and Npgsql on first use instead of at import. Import runs before this
+            # module's assembly resolver is registered, and they reference older Microsoft.Bcl.AsyncInterfaces and
+            # System.Threading.Tasks.Extensions copies than this module ships. A module imported earlier (dbatools) answers
+            # those with its own copies and the import fails.
+            'Azure.Core.dll'
+            'Azure.Data.Tables.dll'
+            'Npgsql.dll'
+            'System.ClientModel.dll'
+            'System.Memory.Data.dll'
         )
         DotSourceLibraries                   = $true
         DotSourceClasses                     = $true
