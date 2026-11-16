@@ -31,12 +31,19 @@ public static class SqliteWriteLockMetrics {
     private const int SqliteBusy = 5;
     private const int SqliteLocked = 6;
     private static readonly Meter Meter = new(MeterName, typeof(SqliteWriteLockMetrics).Assembly.GetName().Version?.ToString());
-    private static readonly Histogram<double> Wait = Meter.CreateHistogram<double>(WaitInstrument, "ms",
-        "Time to begin an immediate SQLite transaction, including waiting for another writer.");
-    private static readonly Histogram<double> Hold = Meter.CreateHistogram<double>(HoldInstrument, "ms",
-        "Time an immediate SQLite transaction held the writer slot.");
-    private static readonly Counter<long> Busy = Meter.CreateCounter<long>(BusyInstrument, "{transaction}",
-        "Immediate SQLite transactions that could not begin or commit because the database stayed locked.");
+    // Creating an instrument notifies every running MeterListener synchronously. A listener that throws there must not
+    // fail this type's initialization, which would break every later transaction; that instrument is then left out.
+    private static readonly Histogram<double>? Wait = Create(() => Meter.CreateHistogram<double>(WaitInstrument, "ms",
+        "Time to begin an immediate SQLite transaction, including waiting for another writer."));
+    private static readonly Histogram<double>? Hold = Create(() => Meter.CreateHistogram<double>(HoldInstrument, "ms",
+        "Time an immediate SQLite transaction held the writer slot."));
+    private static readonly Counter<long>? Busy = Create(() => Meter.CreateCounter<long>(BusyInstrument, "{transaction}",
+        "Immediate SQLite transactions that could not begin or commit because the database stayed locked."));
+
+    private static T? Create<T>(Func<T> create) where T : class {
+        try { return create(); }
+        catch (Exception) { return null; }
+    }
 
     // Transactions started through the instance API end in another method; remember when each began holding the slot.
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SqliteTransaction, HoldStart> Holding = new();
@@ -70,18 +77,18 @@ public static class SqliteWriteLockMetrics {
     }
 
     internal static void RecordWait(string database, long startedTimestamp, long endedTimestamp) =>
-        Publish(() => Wait.Record(Milliseconds(startedTimestamp, endedTimestamp), new KeyValuePair<string, object?>(DatabaseTag, database)));
+        Publish(() => Wait?.Record(Milliseconds(startedTimestamp, endedTimestamp), new KeyValuePair<string, object?>(DatabaseTag, database)));
 
     internal static void RecordHold(string database, long startedTimestamp) {
         long ended = Stopwatch.GetTimestamp();
-        Publish(() => Hold.Record(Milliseconds(startedTimestamp, ended), new KeyValuePair<string, object?>(DatabaseTag, database)));
+        Publish(() => Hold?.Record(Milliseconds(startedTimestamp, ended), new KeyValuePair<string, object?>(DatabaseTag, database)));
     }
 
     /// <summary>Counts the failure when it is SQLITE_BUSY or SQLITE_LOCKED anywhere in the exception chain.</summary>
     internal static void RecordIfBusy(string database, Exception exception) {
         for (Exception? current = exception; current is not null; current = current.InnerException) {
             if (current is SqliteException { SqliteErrorCode: SqliteBusy or SqliteLocked }) {
-                Publish(() => Busy.Add(1, new KeyValuePair<string, object?>(DatabaseTag, database)));
+                Publish(() => Busy?.Add(1, new KeyValuePair<string, object?>(DatabaseTag, database)));
                 return;
             }
         }
