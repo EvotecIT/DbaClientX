@@ -21,9 +21,16 @@ public class SQLiteWriteLockMetricsTests
             using DbConnection other = sqlite.OpenDbConnection(path);
             DbTransaction held = sqlite.BeginDbTransaction(other);
 
-            // Beginning blocks the calling thread while it waits for the writer slot, so the waiting writer runs on its own.
-            Task waiting = Task.Run(() => session.RunInTransactionAsync(async (transaction, token) =>
-                await transaction.ExecuteNonQueryAsync("INSERT INTO items VALUES ('after');", cancellationToken: token)));
+            // Beginning blocks the calling thread while it waits for the writer slot, so the waiting writer runs on its own,
+            // and the slot is released only after that writer has started.
+            var starting = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task waiting = Task.Run(() =>
+            {
+                starting.SetResult(true);
+                return session.RunInTransactionAsync(async (transaction, token) =>
+                    await transaction.ExecuteNonQueryAsync("INSERT INTO items VALUES ('after');", cancellationToken: token));
+            });
+            await starting.Task;
             await Task.Delay(300);
             held.Commit();
             held.Dispose();
@@ -103,6 +110,66 @@ public class SQLiteWriteLockMetricsTests
 
             Assert.Single(measurements.Values(SqliteWriteLockMetrics.WaitInstrument));
             Assert.Single(measurements.Values(SqliteWriteLockMetrics.HoldInstrument));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void ACommitBlockedByAReaderInRollbackJournalModeIsCountedAsBusy()
+    {
+        string path = NewPath();
+        using var measurements = new Measurements(Path.GetFileName(path));
+        try
+        {
+            using var sqlite = new SQLite
+            {
+                CommandTimeout = 5,
+                BusyTimeoutMs = 50,
+                ConnectionOptions = new SQLiteConnectionOptions { EnableWriteAheadLogging = false, Pooling = false }
+            };
+            sqlite.ExecuteNonQuery(path, "CREATE TABLE items (name TEXT NOT NULL);");
+            using var reader = new SqliteConnection($"Data Source={path};Pooling=False");
+            reader.Open();
+            using var snapshot = reader.BeginTransaction(deferred: true);
+            using (var read = reader.CreateCommand()) { read.Transaction = snapshot; read.CommandText = "SELECT COUNT(*) FROM items;"; read.ExecuteScalar(); }
+
+            sqlite.BeginTransaction(path);
+            sqlite.ExecuteNonQuery(path, "INSERT INTO items VALUES ('blocked');", useTransaction: true);
+            Assert.ThrowsAny<Exception>(() => sqlite.Commit());
+
+            Assert.Equal(1, Assert.Single(measurements.Values(SqliteWriteLockMetrics.BusyInstrument)));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public async Task AListenerThatThrowsDoesNotChangeTheTransaction()
+    {
+        string path = NewPath();
+        using var failing = new MeterListener();
+        failing.InstrumentPublished = (instrument, listener) =>
+        {
+            if (instrument.Meter.Name == SqliteWriteLockMetrics.MeterName) listener.EnableMeasurementEvents(instrument);
+        };
+        failing.SetMeasurementEventCallback<double>((_, _, _, _) => throw new InvalidOperationException("listener failure"));
+        failing.Start();
+        try
+        {
+            using var sqlite = CreateClient(busyTimeoutMs: 250);
+            await using SQLiteAsyncSession session = await sqlite.OpenSessionAsync(path);
+            await session.ExecuteNonQueryAsync("CREATE TABLE items (name TEXT NOT NULL);");
+
+            await session.RunInTransactionAsync(async (transaction, token) =>
+                await transaction.ExecuteNonQueryAsync("INSERT INTO items VALUES ('kept');", cancellationToken: token));
+
+            Assert.Equal(1L, await session.ExecuteScalarAsync("SELECT COUNT(*) FROM items;"));
         }
         finally
         {

@@ -64,7 +64,8 @@ Import-Module FabricClientX -Force -ErrorAction Stop
     AssemblyPath = `$assembly.Location
     Context = `$context.Name
     IsDefault = [object]::ReferenceEquals(`$context, [System.Runtime.Loader.AssemblyLoadContext]::Default)
-    LoaderAssembly = ([System.Management.Automation.PSTypeName]'PowerForge.ModuleLoader.V1.ModuleAssemblyLoadContext').Type.Assembly.Location
+    # PowerForge versions its loader assembly (V1, V2, ...); find it by name rather than by one versioned type.
+    LoaderAssembly = @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { `$_.GetName().Name -like 'PowerForge.ModuleLoader*' -and `$_.Location } | Select-Object -ExpandProperty Location -First 1)[0]
 } | ConvertTo-Json -Depth 4 -Compress
 "@
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))

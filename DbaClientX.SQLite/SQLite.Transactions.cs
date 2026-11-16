@@ -241,6 +241,11 @@ public partial class SQLite
         {
             tx!.Commit();
         }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.CommitFailed(tx, ex);
+            throw;
+        }
         finally
         {
             DisposeTransactionResources(tx, conn);
@@ -272,6 +277,11 @@ public partial class SQLite
             await Task.Yield();
             tx!.Commit();
 #endif
+        }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.CommitFailed(tx, ex);
+            throw;
         }
         finally
         {
@@ -447,8 +457,9 @@ public partial class SQLite
         try
         {
             var transaction = begin();
-            SqliteWriteLockMetrics.RecordWait(database, beginning);
-            SqliteWriteLockMetrics.BeganHolding(transaction, database);
+            long begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            SqliteWriteLockMetrics.BeganHolding(transaction, database, begun);
+            SqliteWriteLockMetrics.RecordWait(database, beginning, begun);
             return transaction;
         }
         catch (Exception ex)
@@ -466,8 +477,9 @@ public partial class SQLite
         try
         {
             var transaction = await begin().ConfigureAwait(false);
-            SqliteWriteLockMetrics.RecordWait(database, beginning);
-            SqliteWriteLockMetrics.BeganHolding(transaction, database);
+            long begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            SqliteWriteLockMetrics.BeganHolding(transaction, database, begun);
+            SqliteWriteLockMetrics.RecordWait(database, beginning, begun);
             return transaction;
         }
         catch (Exception ex)

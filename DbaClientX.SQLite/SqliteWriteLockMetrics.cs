@@ -46,15 +46,20 @@ public static class SqliteWriteLockMetrics {
         internal long Timestamp { get; } = timestamp;
     }
 
-    internal static void BeganHolding(SqliteTransaction transaction, string database) {
+    internal static void BeganHolding(SqliteTransaction transaction, string database, long heldSince) {
         Holding.Remove(transaction);
-        Holding.Add(transaction, new HoldStart(database, Stopwatch.GetTimestamp()));
+        Holding.Add(transaction, new HoldStart(database, heldSince));
     }
 
     internal static void EndedHolding(SqliteTransaction? transaction) {
         if (transaction is null || !Holding.TryGetValue(transaction, out var start)) return;
         Holding.Remove(transaction);
         RecordHold(start.Database, start.Timestamp);
+    }
+
+    /// <summary>Counts a commit of an instance-API transaction that failed because the database stayed locked.</summary>
+    internal static void CommitFailed(SqliteTransaction? transaction, Exception exception) {
+        if (transaction is not null && Holding.TryGetValue(transaction, out var start)) RecordIfBusy(start.Database, exception);
     }
 
     internal static string DatabaseName(SqliteConnection connection) {
@@ -64,22 +69,31 @@ public static class SqliteWriteLockMetrics {
         return string.IsNullOrEmpty(name) ? "memory" : name;
     }
 
-    internal static void RecordWait(string database, long startedTimestamp) =>
-        Wait.Record(ElapsedMilliseconds(startedTimestamp), new KeyValuePair<string, object?>(DatabaseTag, database));
+    internal static void RecordWait(string database, long startedTimestamp, long endedTimestamp) =>
+        Publish(() => Wait.Record(Milliseconds(startedTimestamp, endedTimestamp), new KeyValuePair<string, object?>(DatabaseTag, database)));
 
-    internal static void RecordHold(string database, long startedTimestamp) =>
-        Hold.Record(ElapsedMilliseconds(startedTimestamp), new KeyValuePair<string, object?>(DatabaseTag, database));
+    internal static void RecordHold(string database, long startedTimestamp) {
+        long ended = Stopwatch.GetTimestamp();
+        Publish(() => Hold.Record(Milliseconds(startedTimestamp, ended), new KeyValuePair<string, object?>(DatabaseTag, database)));
+    }
 
     /// <summary>Counts the failure when it is SQLITE_BUSY or SQLITE_LOCKED anywhere in the exception chain.</summary>
     internal static void RecordIfBusy(string database, Exception exception) {
         for (Exception? current = exception; current is not null; current = current.InnerException) {
             if (current is SqliteException { SqliteErrorCode: SqliteBusy or SqliteLocked }) {
-                Busy.Add(1, new KeyValuePair<string, object?>(DatabaseTag, database));
+                Publish(() => Busy.Add(1, new KeyValuePair<string, object?>(DatabaseTag, database)));
                 return;
             }
         }
     }
 
-    private static double ElapsedMilliseconds(long startedTimestamp) =>
-        (Stopwatch.GetTimestamp() - startedTimestamp) * 1000.0 / Stopwatch.Frequency;
+    // Listener callbacks run synchronously on this thread. A failing listener must never change a transaction's outcome
+    // or its cleanup, so its exceptions stop here.
+    private static void Publish(Action record) {
+        try { record(); }
+        catch (Exception) { }
+    }
+
+    private static double Milliseconds(long startedTimestamp, long endedTimestamp) =>
+        (endedTimestamp - startedTimestamp) * 1000.0 / Stopwatch.Frequency;
 }
