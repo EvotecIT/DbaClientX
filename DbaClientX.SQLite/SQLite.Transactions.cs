@@ -241,6 +241,11 @@ public partial class SQLite
         {
             tx!.Commit();
         }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.CommitFailed(tx, ex);
+            throw;
+        }
         finally
         {
             DisposeTransactionResources(tx, conn);
@@ -272,6 +277,11 @@ public partial class SQLite
             await Task.Yield();
             tx!.Commit();
 #endif
+        }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.CommitFailed(tx, ex);
+            throw;
         }
         finally
         {
@@ -422,13 +432,62 @@ public partial class SQLite
     /// Disposes SQLite transaction resources created for the current operation.
     /// </summary>
     protected virtual void DisposeTransactionResources(SqliteTransaction? transaction, SqliteConnection? connection)
-        => DisposeResourcePair(transaction, DisposeDbTransaction, connection, DisposeDbConnection);
+    {
+        SqliteWriteLockMetrics.EndedHolding(transaction);
+        DisposeResourcePair(transaction, DisposeDbTransaction, connection, DisposeDbConnection);
+    }
 
     /// <summary>
     /// Asynchronously disposes SQLite transaction resources created for the current operation.
     /// </summary>
     protected virtual ValueTask DisposeTransactionResourcesAsync(SqliteTransaction? transaction, SqliteConnection? connection)
-        => DisposeResourcePairAsync(transaction, DisposeDbTransactionAsync, connection, DisposeDbConnectionAsync);
+    {
+        SqliteWriteLockMetrics.EndedHolding(transaction);
+        return DisposeResourcePairAsync(transaction, DisposeDbTransactionAsync, connection, DisposeDbConnectionAsync);
+    }
+
+    // Microsoft.Data.Sqlite begins a deferred transaction only for ReadUncommitted; every other level reserves the writer.
+    private static bool ReservesWriter(IsolationLevel? isolationLevel) => isolationLevel != IsolationLevel.ReadUncommitted;
+
+    private static SqliteTransaction BeginMeasured(SqliteConnection connection, IsolationLevel? isolationLevel, Func<SqliteTransaction> begin)
+    {
+        if (!ReservesWriter(isolationLevel)) return begin();
+        string database = SqliteWriteLockMetrics.DatabaseName(connection);
+        long beginning = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            var transaction = begin();
+            long begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            SqliteWriteLockMetrics.BeganHolding(transaction, database, begun);
+            SqliteWriteLockMetrics.RecordWait(database, beginning, begun);
+            return transaction;
+        }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.RecordIfBusy(database, ex);
+            throw;
+        }
+    }
+
+    private static async Task<SqliteTransaction> BeginMeasuredAsync(SqliteConnection connection, IsolationLevel? isolationLevel, Func<Task<SqliteTransaction>> begin)
+    {
+        if (!ReservesWriter(isolationLevel)) return await begin().ConfigureAwait(false);
+        string database = SqliteWriteLockMetrics.DatabaseName(connection);
+        long beginning = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            var transaction = await begin().ConfigureAwait(false);
+            long begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            SqliteWriteLockMetrics.BeganHolding(transaction, database, begun);
+            SqliteWriteLockMetrics.RecordWait(database, beginning, begun);
+            return transaction;
+        }
+        catch (Exception ex)
+        {
+            SqliteWriteLockMetrics.RecordIfBusy(database, ex);
+            throw;
+        }
+    }
 
     /// <inheritdoc />
     protected override bool IsTransient(Exception ex) =>
@@ -510,9 +569,9 @@ public partial class SQLite
                 OpenConnectionWithDiagnostics(connection);
                 ApplyBusyTimeout(connection);
                 ApplyConnectionConfiguration(connection, retainTimeoutUpdates: true);
-                transaction = isolationLevel.HasValue
+                transaction = BeginMeasured(connection, isolationLevel, () => isolationLevel.HasValue
                     ? connection.BeginTransaction(isolationLevel.Value)
-                    : connection.BeginTransaction();
+                    : connection.BeginTransaction());
                 return (connection, transaction);
             }
             catch
@@ -541,13 +600,13 @@ public partial class SQLite
                 await ApplyBusyTimeoutAsync(connection, busyTimeoutMs: null, retryToken).ConfigureAwait(false);
                 ApplyConnectionConfiguration(connection, retainTimeoutUpdates: true);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-                transaction = isolationLevel.HasValue
+                transaction = await BeginMeasuredAsync(connection, isolationLevel, async () => isolationLevel.HasValue
                     ? (SqliteTransaction)await connection.BeginTransactionAsync(isolationLevel.Value, retryToken).ConfigureAwait(false)
-                    : (SqliteTransaction)await connection.BeginTransactionAsync(retryToken).ConfigureAwait(false);
+                    : (SqliteTransaction)await connection.BeginTransactionAsync(retryToken).ConfigureAwait(false)).ConfigureAwait(false);
 #else
-                transaction = isolationLevel.HasValue
+                transaction = BeginMeasured(connection, isolationLevel, () => isolationLevel.HasValue
                     ? connection.BeginTransaction(isolationLevel.Value)
-                    : connection.BeginTransaction();
+                    : connection.BeginTransaction());
 #endif
                 return (connection, transaction);
             }

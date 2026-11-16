@@ -106,19 +106,27 @@ public partial class SQLite {
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        // Only immediate transactions reserve the writer slot when they begin; deferred read snapshots are not measured.
+        string? measuredDatabase = mode == SQLiteTransactionMode.Immediate ? SqliteWriteLockMetrics.DatabaseName(connection) : null;
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-        await using var transaction = (SqliteTransaction)BeginDbTransaction(connection, mode);
+        await using var transaction = BeginMeasuredTransaction(connection, mode, measuredDatabase, out long holding);
 #else
-        using var transaction = (SqliteTransaction)BeginDbTransaction(connection, mode);
+        using var transaction = BeginMeasuredTransaction(connection, mode, measuredDatabase, out long holding);
 #endif
         var transactionSession = new SQLiteAsyncSession(this, connection, transaction);
         try {
             var result = await operation(transactionSession, cancellationToken).ConfigureAwait(false);
+            try {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 #else
-            transaction.Commit();
+                transaction.Commit();
 #endif
+            } catch (Exception ex) when (measuredDatabase is not null) {
+                // Only the commit counts as this transaction's busy failure; the caller's own operations may use other databases.
+                SqliteWriteLockMetrics.RecordIfBusy(measuredDatabase, ex);
+                throw;
+            }
             return result;
         } catch (Exception ex) {
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP3_0_OR_GREATER || NET5_0_OR_GREATER
@@ -131,6 +139,22 @@ public partial class SQLite {
             HandleTransactionFailure(ex, transaction.Rollback, static () => true);
 #endif
             throw new InvalidOperationException("Transaction failure handling returned unexpectedly.", ex);
+        } finally {
+            // Commit and rollback both release the slot before this runs.
+            if (measuredDatabase is not null) SqliteWriteLockMetrics.RecordHold(measuredDatabase, holding);
+        }
+    }
+
+    private SqliteTransaction BeginMeasuredTransaction(SqliteConnection connection, SQLiteTransactionMode mode, string? measuredDatabase, out long begun) {
+        long beginning = System.Diagnostics.Stopwatch.GetTimestamp();
+        try {
+            var transaction = (SqliteTransaction)BeginDbTransaction(connection, mode);
+            begun = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (measuredDatabase is not null) SqliteWriteLockMetrics.RecordWait(measuredDatabase, beginning, begun);
+            return transaction;
+        } catch (Exception ex) when (measuredDatabase is not null) {
+            SqliteWriteLockMetrics.RecordIfBusy(measuredDatabase, ex);
+            throw;
         }
     }
 }

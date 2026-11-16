@@ -137,7 +137,8 @@ Import-Module DbaClientX -Force
     InvokeDbaXQueryALCIsDefault = [object]::ReferenceEquals(`$commandAlc, [System.Runtime.Loader.AssemblyLoadContext]::Default)
     ModuleSqlClientAssembly = if (`$moduleSqlClientAssembly) { `$moduleSqlClientAssembly.Location } else { `$null }
     ModuleSqlClientIsSeparateCopy = `$null -ne `$moduleSqlClientAssembly -and -not [object]::ReferenceEquals(`$moduleSqlClientAssembly, `$defaultConflictAssembly)
-    ModuleLoaderAssembly = ([System.Management.Automation.PSTypeName]'PowerForge.ModuleLoader.V1.ModuleAssemblyLoadContext').Type.Assembly.Location
+    # PowerForge versions its loader assembly (V1, V2, ...); find it by name rather than by one versioned type.
+    ModuleLoaderAssembly = @([AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { `$_.GetName().Name -like 'PowerForge.ModuleLoader*' -and `$_.Location } | Select-Object -ExpandProperty Location -First 1)[0]
     LoadedAssemblies = @(`$loadedAssemblies)
 } | ConvertTo-Json -Depth 6 -Compress
 "@
