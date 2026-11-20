@@ -77,7 +77,7 @@ Accept wildcard characters: False
 ```
 
 ### -CsvReaderOptions
-Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema.
+Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema. The object replaces the defaults as a whole, including schema inference, which is on by default; set InferSchema to $true or supply a Schema to keep typed columns.
 
 ```yaml
 Type: CsvReaderOptions

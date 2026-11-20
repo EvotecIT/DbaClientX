@@ -32,7 +32,10 @@ public sealed class CsvFabricWorkflowRequest
     /// <summary>Gets the Warehouse destination table.</summary>
     public string DestinationTable { get; }
 
-    /// <summary>Gets or sets OfficeIMO CSV parsing and reader options. Schema inference is on by default.</summary>
+    /// <summary>
+    /// Gets or sets OfficeIMO CSV parsing and reader options. The default instance infers the schema; an assigned
+    /// instance is used as given, so set <see cref="CsvReaderOptions.InferSchema"/> or a schema on it to keep typed columns.
+    /// </summary>
     public CsvReaderOptions CsvReaderOptions { get; set; } = new()
     {
         InferSchema = true

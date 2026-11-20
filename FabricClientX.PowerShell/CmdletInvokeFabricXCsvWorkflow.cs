@@ -43,7 +43,11 @@ public sealed class CmdletInvokeFabricXCsvWorkflow : AsyncPSCmdlet
     [ValidateNotNullOrEmpty]
     public string DestinationTable { get; set; } = string.Empty;
 
-    /// <summary>Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema.</summary>
+    /// <summary>
+    /// Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema. The object
+    /// replaces the defaults as a whole, including schema inference, which is on by default; set InferSchema to $true or
+    /// supply a Schema to keep typed columns.
+    /// </summary>
     [Parameter]
     [ValidateNotNull]
     public CsvReaderOptions? CsvReaderOptions { get; set; }
