@@ -7,6 +7,28 @@ namespace DBAClientX;
 public partial class SQLite
 {
     private const int MaximumBackupPagesPerStep = 4096;
+    private const int SqliteDbStatusCacheMiss = 8;
+    private volatile int _integrityCheckCacheKibibytes = 256 * 1024;
+
+    /// <summary>
+    /// Gets or sets the page cache, in kibibytes, that <see cref="CheckIntegrityAsync"/> gives its connection. Zero keeps
+    /// the connection's own cache size (SQLite's default is 2 MB, or the profile's <see cref="SQLiteConnectionOptions.CacheSize"/>).
+    /// </summary>
+    /// <remarks>
+    /// <c>PRAGMA integrity_check</c> looks up every index entry for every row, so with a cache smaller than the indexes it
+    /// re-reads their pages from disk: on a 56 GB database with 108 indexes the 2 MB default read about 365 GB in four
+    /// hours without finishing. SQLite allocates the cache only as pages are read, so a small database uses little of it,
+    /// and the check's connection is not pooled, so the memory is released when the check ends.
+    /// </remarks>
+    public int IntegrityCheckCacheKibibytes
+    {
+        get => _integrityCheckCacheKibibytes;
+        set
+        {
+            if (value < 0) throw new ArgumentOutOfRangeException(nameof(value), "The integrity check cache cannot be negative.");
+            _integrityCheckCacheKibibytes = value;
+        }
+    }
 
     /// <summary>
     /// Runs an SQLite integrity check on a dedicated thread so the provider's synchronous execution cannot block
@@ -144,6 +166,13 @@ public partial class SQLite
             OpenConnectionWithDiagnostics(connection);
             ApplyBusyTimeout(connection, busyTimeoutMs);
             ApplyConnectionConfiguration(connection);
+            int cacheKibibytes = _integrityCheckCacheKibibytes;
+            if (cacheKibibytes > 0)
+            {
+                using var cache = connection.CreateCommand();
+                cache.CommandText = "PRAGMA cache_size = -" + cacheKibibytes.ToString(System.Globalization.CultureInfo.InvariantCulture) + ";";
+                cache.ExecuteNonQuery();
+            }
             using CancellationTokenRegistration registration = RegisterStatementInterrupt(connection, cancellationToken);
             using var command = connection.CreateCommand();
             command.CommandText = fullCheck
@@ -164,12 +193,14 @@ public partial class SQLite
             }
 
             stopwatch.Stop();
+            long pagesRead = raw.sqlite3_db_status(connection.Handle, SqliteDbStatusCacheMiss, out int misses, out _, 0) == raw.SQLITE_OK ? misses : 0;
             return new SqliteIntegrityCheckResult
             {
                 IsHealthy = issues.Count == 0,
                 IsFullCheck = fullCheck,
                 Issues = issues,
-                Elapsed = stopwatch.Elapsed
+                Elapsed = stopwatch.Elapsed,
+                PagesRead = pagesRead
             };
         }
         catch (SqliteException ex) when (

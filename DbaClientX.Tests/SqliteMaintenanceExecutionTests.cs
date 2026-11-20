@@ -179,6 +179,51 @@ public sealed class SqliteMaintenanceExecutionTests
     }
 
     [Fact]
+    public async Task CheckIntegrityAsync_DefaultCacheReadsEachPageOnceWhereTheProviderDefaultRereadsIndexPages()
+    {
+        // About 25 MB: a random-keyed index larger than SQLite's 2 MB default cache, the shape that made integrity_check
+        // re-read index pages for every row on large databases.
+        string database = Path.Combine(Path.GetTempPath(), $"dbaclientx-integrity-{Guid.NewGuid():N}.sqlite");
+        try
+        {
+            long pageCount;
+            using (var connection = new SqliteConnection(SQLite.BuildConnectionString(database)))
+            {
+                connection.Open();
+                using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE facts(id INTEGER PRIMARY KEY, token TEXT NOT NULL);" +
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200000) " +
+                    "INSERT INTO facts(token) SELECT hex(randomblob(32)) FROM n;" +
+                    "CREATE INDEX facts_token ON facts(token);";
+                command.ExecuteNonQuery();
+                command.CommandText = "PRAGMA page_count;";
+                pageCount = Convert.ToInt64(command.ExecuteScalar());
+            }
+
+            using var tuned = new SQLite();
+            SqliteIntegrityCheckResult checkedOnce = await tuned.CheckIntegrityAsync(database, fullCheck: true);
+            using var providerDefault = new SQLite { IntegrityCheckCacheKibibytes = 0 };
+            SqliteIntegrityCheckResult reread = await providerDefault.CheckIntegrityAsync(database, fullCheck: true);
+
+            Assert.True(checkedOnce.IsHealthy);
+            Assert.True(reread.IsHealthy);
+            Assert.InRange(checkedOnce.PagesRead, 1, pageCount);
+            Assert.True(reread.PagesRead > 3 * pageCount, $"Expected re-reads with the 2 MB cache: {reread.PagesRead} pages for {pageCount}.");
+        }
+        finally
+        {
+            Cleanup(database);
+        }
+    }
+
+    [Fact]
+    public void IntegrityCheckCacheKibibytes_RejectsNegativeValues()
+    {
+        using var sqlite = new SQLite();
+        Assert.Throws<ArgumentOutOfRangeException>(() => sqlite.IntegrityCheckCacheKibibytes = -1);
+    }
+
+    [Fact]
     public async Task CheckIntegrityAsync_OperationalFailure_IsSanitized()
     {
         string database = Path.Combine(Path.GetTempPath(), $"dbaclientx-invalid-{Guid.NewGuid():N}.sqlite");
