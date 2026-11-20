@@ -11,7 +11,7 @@ Plans and executes an OfficeIMO CSV to Fabric Warehouse and optional Power BI wo
 ## SYNTAX
 ### __AllParameterSets
 ```powershell
-Invoke-FabricXCsvWorkflow [-CsvPath] <string> -SourceName <string> -WarehouseConnectionString <string> -WarehouseConnectionOptions <SqlServerConnectionOptions> -DestinationTable <string> [-CsvLoadOptions <CsvLoadOptions>] [-CsvReaderOptions <CsvDataReaderOptions>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-Refresh] [-PowerBiTokenProvider <IFabricTokenProvider>] [-WorkspaceId <Guid>] [-SemanticModelId <Guid>] [-Wait] [-TimeoutMinutes <int>] [-OperationId <string>] [-WhatIf] [-Confirm] [<CommonParameters>]
+Invoke-FabricXCsvWorkflow [-CsvPath] <string> -SourceName <string> -WarehouseConnectionString <string> -WarehouseConnectionOptions <SqlServerConnectionOptions> -DestinationTable <string> [-CsvReaderOptions <CsvReaderOptions>] [-BatchSize <Int32>] [-BulkCopyTimeout <Int32>] [-Refresh] [-PowerBiTokenProvider <IFabricTokenProvider>] [-WorkspaceId <Guid>] [-SemanticModelId <Guid>] [-Wait] [-TimeoutMinutes <int>] [-OperationId <string>] [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -60,22 +60,6 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
-### -CsvLoadOptions
-Optional OfficeIMO CSV parsing options.
-
-```yaml
-Type: CsvLoadOptions
-Parameter Sets: __AllParameterSets
-Aliases: None
-Possible values:
-
-Required: False
-Position: named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
-```
-
 ### -CsvPath
 Path to an OfficeIMO-compatible CSV file.
 
@@ -93,10 +77,10 @@ Accept wildcard characters: False
 ```
 
 ### -CsvReaderOptions
-Optional OfficeIMO CSV data-reader projection options.
+Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema.
 
 ```yaml
-Type: CsvDataReaderOptions
+Type: CsvReaderOptions
 Parameter Sets: __AllParameterSets
 Aliases: None
 Possible values:

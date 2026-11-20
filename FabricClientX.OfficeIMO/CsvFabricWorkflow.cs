@@ -82,17 +82,16 @@ public sealed class CsvFabricWorkflow
 
         cancellationToken.ThrowIfCancellationRequested();
         using var linkedCancellation = CreateLinkedCancellation(
-            request.CsvLoadOptions.CancellationToken,
+            request.CsvReaderOptions.CancellationToken,
             cancellationToken);
-        var loadOptions = request.CsvLoadOptions.Clone();
-        loadOptions.CancellationToken = linkedCancellation?.Token ??
+        var readerOptions = request.CsvReaderOptions.Clone();
+        readerOptions.CancellationToken = linkedCancellation?.Token ??
             (cancellationToken.CanBeCanceled
                 ? cancellationToken
-                : request.CsvLoadOptions.CancellationToken);
-        using var reader = CsvDocument.CreateDataReader(
+                : request.CsvReaderOptions.CancellationToken);
+        using var reader = CsvDocument.OpenReader(
             request.CsvPath,
-            loadOptions,
-            request.CsvReaderOptions);
+            readerOptions);
         var bulkResult = await warehouseClient.BulkInsertWithResultAsync(
             request.WarehouseConnectionString,
             reader,
@@ -102,7 +101,7 @@ public sealed class CsvFabricWorkflow
             batchSize: request.BatchSize,
             bulkCopyTimeout: request.BulkCopyTimeout,
             operationId: operation.OperationId,
-            cancellationToken: loadOptions.CancellationToken).ConfigureAwait(false);
+            cancellationToken: readerOptions.CancellationToken).ConfigureAwait(false);
 
         PowerBiRefreshStartResult? refreshStart = null;
         PowerBiRefreshSettlement? refreshSettlement = null;
@@ -154,9 +153,8 @@ public sealed class CsvFabricWorkflow
 
         FabricWarehouseProfile.ValidateConnectionString(
             request.WarehouseConnectionString);
-        if (request.CsvLoadOptions == null ||
-            request.CsvLoadOptions.Culture == null ||
-            request.CsvReaderOptions == null ||
+        if (request.CsvReaderOptions == null ||
+            request.CsvReaderOptions.Culture == null ||
             request.BulkInsertOptions == null ||
             request.RefreshRequest == null)
         {
@@ -262,8 +260,7 @@ public sealed class CsvFabricWorkflow
 
     private static string CreateCsvParsingFingerprint(CsvFabricWorkflowRequest request)
     {
-        var load = request.CsvLoadOptions;
-        var reader = request.CsvReaderOptions;
+        var load = request.CsvReaderOptions;
         var definition = new StringBuilder();
 
         AppendFingerprintPart(definition, load.HasHeaderRow);
@@ -271,6 +268,7 @@ public sealed class CsvFabricWorkflow
         AppendFingerprintPart(definition, load.SkipInitialRecords);
         AppendFingerprintPart(definition, load.SkipCommentRowsBeforeHeader);
         AppendFingerprintPart(definition, load.SkipCommentRows);
+        AppendFingerprintPart(definition, load.MaxCommentContinuationLines);
         AppendFingerprintPart(definition, load.CommentCharacter);
         AppendFingerprintPart(definition, load.RecognizeW3CFieldsHeader);
         AppendFingerprintPart(definition, load.GenerateMissingHeaderNames);
@@ -278,6 +276,9 @@ public sealed class CsvFabricWorkflow
         AppendFingerprintPart(definition, load.NullValue);
         AppendFingerprintParts(definition, load.DateTimeFormats);
         AppendFingerprintPart(definition, load.QuoteParsingMode);
+        AppendFingerprintPart(definition, load.EscapeMode);
+        AppendFingerprintPart(definition, load.QuoteCharacter);
+        AppendFingerprintPart(definition, load.EscapeCharacter);
         AppendFingerprintPart(definition, load.ColumnCountMismatchPolicy);
         AppendFingerprintPart(definition, load.Delimiter);
         AppendFingerprintPart(definition, load.DelimiterText);
@@ -288,9 +289,9 @@ public sealed class CsvFabricWorkflow
         AppendFingerprintPart(definition, load.TrimWhitespace);
         AppendFingerprintPart(definition, load.Culture.Name);
         AppendFingerprintPart(definition, load.AllowEmptyLines);
-        AppendFingerprintPart(definition, load.Mode);
         AppendFingerprintPart(definition, load.Encoding?.WebName);
         AppendFingerprintPart(definition, load.Encoding?.CodePage);
+        AppendFingerprintPart(definition, load.DetectEncodingFromByteOrderMarks);
         AppendFingerprintPart(definition, load.CompressionType);
         AppendFingerprintPart(definition, load.MaxDecompressedBytes);
         AppendFingerprintPart(definition, load.CollectParseErrors);
@@ -310,9 +311,9 @@ public sealed class CsvFabricWorkflow
             AppendFingerprintPart(definition, FormatFingerprintValue(column.Value));
         }
 
-        AppendFingerprintPart(definition, reader.InferSchema);
-        AppendFingerprintPart(definition, reader.SchemaSampleSize);
-        var schema = reader.Schema;
+        AppendFingerprintPart(definition, load.InferSchema);
+        AppendFingerprintPart(definition, load.SchemaSampleRows);
+        var schema = load.Schema;
         AppendFingerprintPart(definition, schema?.Columns.Count);
         if (schema != null)
         {

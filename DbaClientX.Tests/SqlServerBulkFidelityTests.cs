@@ -267,6 +267,52 @@ FROM {destination}"));
         }
     }
 
+    // The forms CSV and Excel writers produce: base64 binary, ISO dates with Z or an offset, numbers beyond 15 digits
+    // as text, CLR types as their serialized bytes, and an Excel time of day read back as a DateTime.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Category", "LiveProvider")]
+    public async Task BulkInsertAsync_CsvAndExcelValueForms_LoadUnchanged(bool asReader)
+    {
+        string? connectionString = Environment.GetEnvironmentVariable("DBACLIENTX_SQLSERVER_TEST_CONNECTION");
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(connectionString), "Requires isolated SQL Server.");
+        string destination = "dbo.DbaxFileForms" + Guid.NewGuid().ToString("N");
+        using var rows = new DataTable();
+        foreach (string name in new[] { "Id", "Raw", "Created", "Stamp", "Big", "Amount", "Node" }) rows.Columns.Add(name, typeof(string));
+        rows.Columns.Add("At", typeof(DateTime));
+        rows.Rows.Add("1", "3q2+7w==", "2024-02-29T12:34:56.1234567Z", "2024-02-29T12:34:56.1234567+05:30", "1234567890123456789", "123456789012345678.0123456789", "WA==", new DateTime(1899, 12, 30, 13, 45, 30));
+        rows.Rows.Add("2", "0x3078", "2024-02-29T23:30:00-08:00", "2024-02-29T23:30:00Z", "-9223372036854775808", "-0.0000000001", "", DBNull.Value);
+        using var sql = new SqlServer();
+        try
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!,
+                $"CREATE TABLE {destination} (Id int NOT NULL, Raw varbinary(10) NULL, Created datetime2 NULL, Stamp datetimeoffset NULL, Big bigint NULL, Amount decimal(28,10) NULL, Node hierarchyid NULL, At time NULL)");
+
+            if (asReader)
+            {
+                using IDataReader reader = rows.CreateDataReader();
+                await sql.BulkInsertAsync(connectionString!, reader, destination, options: null);
+            }
+            else
+            {
+                await sql.BulkInsertAsync(connectionString!, rows, destination, options: null);
+            }
+
+            Assert.Equal(
+                "1|0xDEADBEEF|2024-02-29 12:34:56.1234567|2024-02-29 12:34:56.1234567 +05:30|1234567890123456789|123456789012345678.0123456789|/1/|13:45:30.0000000;" +
+                "2|0x3078|2024-02-29 23:30:00.0000000|2024-02-29 23:30:00.0000000 +00:00|-9223372036854775808|-0.0000000001|NULL|NULL",
+                await sql.ExecuteScalarAsync(connectionString!, $@"
+SELECT STRING_AGG(CONCAT_WS(N'|', Id, CONVERT(nvarchar(30), Raw, 1), CONVERT(nvarchar(30), Created, 121), CONVERT(nvarchar(40), Stamp, 121),
+    Big, Amount, ISNULL(Node.ToString(), N'NULL'), ISNULL(CONVERT(nvarchar(20), At), N'NULL')), N';') WITHIN GROUP (ORDER BY Id)
+FROM {destination}"));
+        }
+        finally
+        {
+            await sql.ExecuteNonQueryAsync(connectionString!, $"DROP TABLE IF EXISTS {destination};");
+        }
+    }
+
     // The OfficeIMO Excel reader closes after its last row; auto-sizing reads the rows before the copy starts.
     [Fact]
     [Trait("Category", "LiveProvider")]

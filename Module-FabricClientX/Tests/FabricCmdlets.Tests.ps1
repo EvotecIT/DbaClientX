@@ -43,10 +43,10 @@ describe 'Fabric and Power BI cmdlets' {
 
     it 'ships the OfficeIMO CSV bridge without making OfficeIMO depend on FabricClientX' {
         $workflow = Get-Command Invoke-FabricXCsvWorkflow
-        $workflow.Parameters.Keys | Should -Contain 'CsvLoadOptions'
         $workflow.Parameters.Keys | Should -Contain 'CsvReaderOptions'
+        $workflow.Parameters['CsvReaderOptions'].ParameterType.FullName | Should -Be 'OfficeIMO.CSV.CsvReaderOptions'
 
-        $officeAssembly = [OfficeIMO.CSV.CsvLoadOptions].Assembly
+        $officeAssembly = [OfficeIMO.CSV.CsvReaderOptions].Assembly
         @($officeAssembly.GetReferencedAssemblies().Name) | Should -Not -Contain 'FabricClientX.OfficeIMO'
         @($officeAssembly.GetReferencedAssemblies().Name) | Should -Not -Contain 'FabricClientX.Core'
     }
@@ -58,8 +58,8 @@ describe 'Fabric and Power BI cmdlets' {
             [System.Reflection.BindingFlags] 'Static,Public,NonPublic')
         $registered = $getProperty.GetValue($null)
 
-        $registered.ContainsKey('OfficeIMO.CSV.CsvLoadOptions') | Should -BeTrue
-        $registered.ContainsKey('OfficeIMO.CSV.CsvDataReaderOptions') | Should -BeTrue
+        $registered.ContainsKey('OfficeIMO.CSV.CsvReaderOptions') | Should -BeTrue
+        $registered.ContainsKey('OfficeIMO.CSV.CsvLoadOptions') | Should -BeFalse
         $registered.ContainsKey('OfficeIMO.CSV.CsvDocument') | Should -BeFalse
     }
 }

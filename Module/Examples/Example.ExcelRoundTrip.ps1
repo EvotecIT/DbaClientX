@@ -17,7 +17,7 @@ param(
 #   .\Example.ExcelRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
 Import-Module DbaClientX -Force -ErrorAction Stop
-Import-Module PSWriteOffice -Force -ErrorAction Stop
+Import-Module PSWriteOffice -MinimumVersion 3.6.2 -Force -ErrorAction Stop
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'

@@ -32,11 +32,8 @@ public sealed class CsvFabricWorkflowRequest
     /// <summary>Gets the Warehouse destination table.</summary>
     public string DestinationTable { get; }
 
-    /// <summary>Gets or sets OfficeIMO CSV parsing options.</summary>
-    public CsvLoadOptions CsvLoadOptions { get; set; } = new();
-
-    /// <summary>Gets or sets OfficeIMO data-reader projection options.</summary>
-    public CsvDataReaderOptions CsvReaderOptions { get; set; } = new()
+    /// <summary>Gets or sets OfficeIMO CSV parsing and reader options. Schema inference is on by default.</summary>
+    public CsvReaderOptions CsvReaderOptions { get; set; } = new()
     {
         InferSchema = true
     };
@@ -79,9 +76,9 @@ public sealed class CsvFabricWorkflowRequest
 
     internal CsvFabricWorkflowRequest Snapshot()
     {
-        var loadOptions = CsvLoadOptions.Clone();
-        loadOptions.Culture = (System.Globalization.CultureInfo)CsvLoadOptions.Culture.Clone();
-        loadOptions.Encoding = (System.Text.Encoding?)CsvLoadOptions.Encoding?.Clone();
+        var readerOptions = CsvReaderOptions.Clone();
+        readerOptions.Culture = (System.Globalization.CultureInfo)CsvReaderOptions.Culture.Clone();
+        readerOptions.Encoding = (System.Text.Encoding?)CsvReaderOptions.Encoding?.Clone();
 
         var columnMappings = BulkInsertOptions.ColumnMappings == null
             ? null
@@ -104,13 +101,7 @@ public sealed class CsvFabricWorkflowRequest
             WarehouseConnectionString,
             DestinationTable)
         {
-            CsvLoadOptions = loadOptions,
-            CsvReaderOptions = new CsvDataReaderOptions
-            {
-                Schema = CsvReaderOptions.Schema,
-                InferSchema = CsvReaderOptions.InferSchema,
-                SchemaSampleSize = CsvReaderOptions.SchemaSampleSize
-            },
+            CsvReaderOptions = readerOptions,
             BulkInsertOptions = new SqlServerBulkInsertOptions
             {
                 BulkCopyOptions = BulkInsertOptions.BulkCopyOptions,

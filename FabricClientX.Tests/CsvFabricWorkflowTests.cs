@@ -100,7 +100,7 @@ public sealed class CsvFabricWorkflowTests
             var plan = workflow.CreatePlan(request);
             request.BatchSize = 500;
             request.BulkCopyTimeout = 30;
-            request.CsvLoadOptions.Delimiter = ';';
+            request.CsvReaderOptions.Delimiter = ';';
             request.CsvReaderOptions.InferSchema = false;
             var warehouse = new CountingSqlServer
             {
@@ -143,23 +143,35 @@ public sealed class CsvFabricWorkflowTests
             var baseline = workflow.CreatePlan(CreateRequest()).DefinitionFingerprint;
 
             var delimiter = CreateRequest();
-            delimiter.CsvLoadOptions.Delimiter = ';';
+            delimiter.CsvReaderOptions.Delimiter = ';';
             Assert.NotEqual(
                 baseline,
                 workflow.CreatePlan(delimiter).DefinitionFingerprint);
 
             var culture = CreateRequest();
-            culture.CsvLoadOptions.Culture =
+            culture.CsvReaderOptions.Culture =
                 System.Globalization.CultureInfo.GetCultureInfo("pl-PL");
             Assert.NotEqual(
                 baseline,
                 workflow.CreatePlan(culture).DefinitionFingerprint);
 
             var encoding = CreateRequest();
-            encoding.CsvLoadOptions.Encoding = System.Text.Encoding.Unicode;
+            encoding.CsvReaderOptions.Encoding = System.Text.Encoding.Unicode;
             Assert.NotEqual(
                 baseline,
                 workflow.CreatePlan(encoding).DefinitionFingerprint);
+
+            var quote = CreateRequest();
+            quote.CsvReaderOptions.QuoteCharacter = '\'';
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(quote).DefinitionFingerprint);
+
+            var escape = CreateRequest();
+            escape.CsvReaderOptions.EscapeCharacter = '\\';
+            Assert.NotEqual(
+                baseline,
+                workflow.CreatePlan(escape).DefinitionFingerprint);
 
             var inferred = CreateRequest();
             inferred.CsvReaderOptions.InferSchema = false;
@@ -232,7 +244,7 @@ public sealed class CsvFabricWorkflowTests
                 "Input",
                 "Server=warehouse-id.datawarehouse.fabric.microsoft.com;Database=Reporting;Encrypt=True",
                 "dbo.Input");
-            request.CsvLoadOptions.CancellationToken = cancellation.Token;
+            request.CsvReaderOptions.CancellationToken = cancellation.Token;
             var workflow = new CsvFabricWorkflow();
             var warehouse = new CountingSqlServer
             {

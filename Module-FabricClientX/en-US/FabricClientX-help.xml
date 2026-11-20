@@ -459,18 +459,6 @@
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
         </command:parameter>
-        <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
-          <maml:name>CsvLoadOptions</maml:name>
-          <maml:description>
-            <maml:para>Optional OfficeIMO CSV parsing options.</maml:para>
-          </maml:description>
-          <command:parameterValue required="false" variableLength="false">CsvLoadOptions</command:parameterValue>
-          <dev:type>
-            <maml:name>CsvLoadOptions</maml:name>
-            <maml:uri />
-          </dev:type>
-          <dev:defaultValue>None</dev:defaultValue>
-        </command:parameter>
         <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="0" aliases="None">
           <maml:name>CsvPath</maml:name>
           <maml:description>
@@ -486,11 +474,11 @@
         <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
           <maml:name>CsvReaderOptions</maml:name>
           <maml:description>
-            <maml:para>Optional OfficeIMO CSV data-reader projection options.</maml:para>
+            <maml:para>Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema.</maml:para>
           </maml:description>
-          <command:parameterValue required="false" variableLength="false">CsvDataReaderOptions</command:parameterValue>
+          <command:parameterValue required="false" variableLength="false">CsvReaderOptions</command:parameterValue>
           <dev:type>
-            <maml:name>CsvDataReaderOptions</maml:name>
+            <maml:name>CsvReaderOptions</maml:name>
             <maml:uri />
           </dev:type>
           <dev:defaultValue>None</dev:defaultValue>
@@ -654,18 +642,6 @@
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
       </command:parameter>
-      <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
-        <maml:name>CsvLoadOptions</maml:name>
-        <maml:description>
-          <maml:para>Optional OfficeIMO CSV parsing options.</maml:para>
-        </maml:description>
-        <command:parameterValue required="false" variableLength="false">CsvLoadOptions</command:parameterValue>
-        <dev:type>
-          <maml:name>CsvLoadOptions</maml:name>
-          <maml:uri />
-        </dev:type>
-        <dev:defaultValue>None</dev:defaultValue>
-      </command:parameter>
       <command:parameter required="true" variableLength="false" globbing="false" pipelineInput="False" position="0" aliases="None">
         <maml:name>CsvPath</maml:name>
         <maml:description>
@@ -681,11 +657,11 @@
       <command:parameter required="false" variableLength="false" globbing="false" pipelineInput="False" position="named" aliases="None">
         <maml:name>CsvReaderOptions</maml:name>
         <maml:description>
-          <maml:para>Optional OfficeIMO CSV data-reader projection options.</maml:para>
+          <maml:para>Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema.</maml:para>
         </maml:description>
-        <command:parameterValue required="false" variableLength="false">CsvDataReaderOptions</command:parameterValue>
+        <command:parameterValue required="false" variableLength="false">CsvReaderOptions</command:parameterValue>
         <dev:type>
-          <maml:name>CsvDataReaderOptions</maml:name>
+          <maml:name>CsvReaderOptions</maml:name>
           <maml:uri />
         </dev:type>
         <dev:defaultValue>None</dev:defaultValue>
