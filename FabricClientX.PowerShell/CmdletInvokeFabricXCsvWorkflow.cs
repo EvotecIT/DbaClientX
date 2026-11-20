@@ -43,15 +43,14 @@ public sealed class CmdletInvokeFabricXCsvWorkflow : AsyncPSCmdlet
     [ValidateNotNullOrEmpty]
     public string DestinationTable { get; set; } = string.Empty;
 
-    /// <summary>Optional OfficeIMO CSV parsing options.</summary>
+    /// <summary>
+    /// Optional OfficeIMO CSV parsing and reader options, such as the delimiter, culture, encoding and schema. The object
+    /// replaces the defaults as a whole, including schema inference, which is on by default; set InferSchema to $true or
+    /// supply a Schema to keep typed columns.
+    /// </summary>
     [Parameter]
     [ValidateNotNull]
-    public CsvLoadOptions? CsvLoadOptions { get; set; }
-
-    /// <summary>Optional OfficeIMO CSV data-reader projection options.</summary>
-    [Parameter]
-    [ValidateNotNull]
-    public CsvDataReaderOptions? CsvReaderOptions { get; set; }
+    public CsvReaderOptions? CsvReaderOptions { get; set; }
 
     /// <summary>Optional SQL bulk-copy batch size.</summary>
     [Parameter]
@@ -121,11 +120,6 @@ public sealed class CmdletInvokeFabricXCsvWorkflow : AsyncPSCmdlet
             RefreshTimeout = TimeSpan.FromMinutes(TimeoutMinutes),
             OperationId = OperationId
         };
-        if (CsvLoadOptions != null)
-        {
-            request.CsvLoadOptions = CsvLoadOptions;
-        }
-
         if (CsvReaderOptions != null)
         {
             request.CsvReaderOptions = CsvReaderOptions;

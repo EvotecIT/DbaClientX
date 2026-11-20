@@ -22,7 +22,8 @@ public partial class SqlServer
         "char", "varchar", "nchar", "nvarchar", "text", "ntext"
     };
 
-    private static Type? GetTextParseTarget(string sqlType) => sqlType.ToLowerInvariant() switch
+    // CLR types report a qualified name such as "Sales.sys.hierarchyid".
+    private static Type? GetTextParseTarget(string sqlType) => sqlType.Substring(sqlType.LastIndexOf('.') + 1).ToLowerInvariant() switch
     {
         "decimal" or "numeric" or "money" or "smallmoney" => typeof(decimal),
         "float" => typeof(double),
@@ -37,6 +38,8 @@ public partial class SqlServer
         "bit" => typeof(bool),
         "uniqueidentifier" => typeof(Guid),
         "binary" or "varbinary" or "image" => typeof(byte[]),
+        // Their serialized bytes, which files carry as base64 or 0x text, load back into the same type.
+        "hierarchyid" or "geometry" or "geography" => typeof(byte[]),
         _ => null
     };
 
@@ -151,7 +154,10 @@ public partial class SqlServer
         }
         if (CharacterTypes.Contains(sqlType)) return type == typeof(string) ? null : BulkValueConversion.ToText;
         Type? target = GetTextParseTarget(sqlType);
-        return target != null && (type == typeof(string) || type == typeof(object)) ? BulkValueConversion.FromText(target) : null;
+        if (target == null) return null;
+        // Excel stores a time of day as a date serial, which its readers return as DateTime.
+        if (target == typeof(TimeSpan) && type == typeof(DateTime)) return BulkValueConversion.FromText(target);
+        return type == typeof(string) || type == typeof(object) ? BulkValueConversion.FromText(target) : null;
     }
 
     private Dictionary<string, string>? ReadDestinationTypes(SqlConnection connection, SqlTransaction? transaction, string destinationTable)
@@ -241,6 +247,7 @@ public partial class SqlServer
 
             if (ParseTarget != null)
             {
+                if (value is DateTime timeOfDay && ParseTarget == typeof(TimeSpan)) return timeOfDay.TimeOfDay;
                 if (value is not string text) return value;
                 if (string.IsNullOrWhiteSpace(text)) return DBNull.Value;
                 return TryParseText(text, ParseTarget, out object parsed) ? parsed : value;
@@ -289,8 +296,9 @@ public partial class SqlServer
 
             if (target == typeof(byte[]))
             {
-                // The CONVERT(varchar, varbinary, 1) form; other text is left for SqlBulkCopy to reject.
-                bool parsed = TryParseHex(text.Trim(), out byte[]? bytes);
+                // The CONVERT(varchar, varbinary, 1) form, or base64 as CSV and Excel writers produce; other text is
+                // left for SqlBulkCopy to reject. Text that is valid as both, which starts with 0x, is read as hex.
+                bool parsed = TryParseHex(text.Trim(), out byte[]? bytes) || TryParseBase64(text.Trim(), out bytes);
                 value = parsed ? bytes! : text;
                 return parsed;
             }
@@ -378,6 +386,21 @@ public partial class SqlServer
 
             bytes = result;
             return true;
+        }
+
+        private static bool TryParseBase64(string text, out byte[]? bytes)
+        {
+            bytes = null;
+            if (text.Length == 0 || text.Length % 4 != 0) return false;
+            try
+            {
+                bytes = System.Convert.FromBase64String(text);
+                return true;
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
         }
 
         private static int HexValue(char character) => character switch

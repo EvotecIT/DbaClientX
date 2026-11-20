@@ -183,7 +183,7 @@ namespace FabricClientX.DevelopmentModuleLoadContext
                     )
 
                     $Mode = 'Assembly'
-                    $RequestedTypes = @('OfficeIMO.CSV.CsvLoadOptions', 'OfficeIMO.CSV.CsvDataReaderOptions')
+                    $RequestedTypes = @('OfficeIMO.CSV.CsvReaderOptions')
                     $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO')
 
                     if ($null -eq $ModuleAssembly) {
@@ -470,7 +470,7 @@ namespace FabricClientX.DevelopmentModuleLoadContext
                     param([Parameter(Mandatory = $true)][string] $LibraryDirectory)
 
                     $Mode = 'Assembly'
-                    $RequestedTypes = @('OfficeIMO.CSV.CsvLoadOptions', 'OfficeIMO.CSV.CsvDataReaderOptions')
+                    $RequestedTypes = @('OfficeIMO.CSV.CsvReaderOptions')
                     $RequestedAssemblies = @('FabricClientX.Core', 'FabricClientX.PowerBI', 'FabricClientX.OfficeIMO')
                     $IgnoredLibraryFileNames = @('Microsoft.Data.SqlClient.SNI.arm64.dll', 'Microsoft.Data.SqlClient.SNI.dll', 'Microsoft.Data.SqlClient.SNI.x64.dll', 'Microsoft.Data.SqlClient.SNI.x86.dll')
 

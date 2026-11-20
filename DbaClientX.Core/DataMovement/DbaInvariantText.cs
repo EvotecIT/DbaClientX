@@ -82,12 +82,25 @@ internal static class DbaInvariantText
         else if (target == typeof(int)) { parsed = int.TryParse(text, IntegerStyle, culture, out int result); value = result; }
         else if (target == typeof(short)) { parsed = short.TryParse(text, IntegerStyle, culture, out short result); value = result; }
         else if (target == typeof(byte)) { parsed = byte.TryParse(text, IntegerStyle, culture, out byte result); value = result; }
-        else if (target == typeof(DateTime)) { parsed = DateTime.TryParse(text, culture, DateTimeStyles.AllowWhiteSpaces, out DateTime result); value = result; }
+        else if (target == typeof(DateTime)) { parsed = TryParseDateTime(text, culture, out DateTime result); value = result; }
         else if (target == typeof(DateTimeOffset)) { parsed = DateTimeOffset.TryParse(text, culture, DateTimeStyles.AllowWhiteSpaces, out DateTimeOffset result); value = result; }
         else if (target == typeof(TimeSpan)) { parsed = TimeSpan.TryParse(text.Trim(), culture, out TimeSpan result); value = result; }
         else { parsed = false; value = text; }
 
         if (!parsed) value = text;
         return parsed;
+    }
+
+    // ISO text with Z or an offset keeps the written date and time, as CAST to datetime2 does. DateTime.TryParse
+    // converted it to the local time zone, so a UTC value exported as "...Z" loaded shifted by the local offset.
+    private static bool TryParseDateTime(string text, CultureInfo culture, out DateTime value)
+    {
+        if (DateTimeOffset.TryParse(text, culture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out DateTimeOffset withOffset))
+        {
+            value = withOffset.DateTime;
+            return true;
+        }
+
+        return DateTime.TryParse(text, culture, DateTimeStyles.AllowWhiteSpaces, out value);
     }
 }

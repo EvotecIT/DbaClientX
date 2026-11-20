@@ -55,8 +55,7 @@ Build-Module -ModuleName 'FabricClientX' -NoInteractive {
             'FabricClientX.OfficeIMO'
         )
         NETAssemblyTypeAccelerators           = @(
-            'OfficeIMO.CSV.CsvLoadOptions'
-            'OfficeIMO.CSV.CsvDataReaderOptions'
+            'OfficeIMO.CSV.CsvReaderOptions'
         )
         NETHandleRuntimes                    = $true
         NETIgnoreLibraryOnLoad               = @(

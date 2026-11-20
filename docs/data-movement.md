@@ -72,6 +72,8 @@ finally {
 
 Prefer a real tabular input. `Write-DbaXTableData` accepts `DataTable`, `DataView`, `IDataReader`, `DataRow`, hashtables, and regular objects.
 
+The file examples need PSWriteOffice 3.6.2 or later. Its CSV defaults keep dates, times, numbers and binary values exact, except that a zero-length binary value loads back as NULL; Excel keeps dates and times to the millisecond. [Write Table Data](../README.md#write-table-data) in the README lists what a CSV or Excel round trip keeps and when to pass `-NullValue '\N'`, `-EscapeCharacter` or `-QuoteCharacter`.
+
 CSV and compressed CSV:
 
 ```powershell

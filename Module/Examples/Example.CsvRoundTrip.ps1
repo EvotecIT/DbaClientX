@@ -17,7 +17,7 @@ param(
 #   .\Example.CsvRoundTrip.ps1 -Server localhost -Database tempdb -RowCount 100 -KeepArtifacts
 
 Import-Module DbaClientX -ErrorAction Stop
-Import-Module PSWriteOffice -ErrorAction Stop
+Import-Module PSWriteOffice -MinimumVersion 3.6.2 -ErrorAction Stop
 
 if ($RowCount -lt 1) {
     throw 'RowCount must be greater than zero.'
